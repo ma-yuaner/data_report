@@ -1,4 +1,6 @@
 Flask>=3.1,<4
 gunicorn>=23,<24
+PyHive>=0.7,<1
 python-dotenv>=1.1,<2
-
+thrift>=0.20,<1
+thrift-sasl>=0.4,<1

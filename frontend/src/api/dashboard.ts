@@ -9,14 +9,29 @@ export interface KpiItem {
   tone: 'neutral' | 'pending' | 'risk'
 }
 
+export interface ProfitMetric {
+  key: 'issue' | 'refund' | 'change' | 'ancillary'
+  label: string
+  countLabel: string
+  count: number | null
+  segmentLabel: string | null
+  segmentCount: number | null
+  profit: number | null
+  timeField: string
+  available: boolean
+  error: string | null
+}
+
 export interface OverviewData {
   mode: 'mock' | 'live'
+  source: string
   generatedAt: string
+  cacheHit: boolean
+  period: { startDate: string; endDate: string }
   status: { label: string; freshness: string; metricState: string }
-  kpis: KpiItem[]
-  trend: { dates: string[]; orders: number[]; tickets: number[] }
-  lifecycle: Array<{ stage: string; value: number; state: string }>
-  focus: Array<{ title: string; type: string; level: string; action: string }>
+  totalProfit: { value: number | null; available: boolean }
+  metrics: ProfitMetric[]
+  notes: string[]
 }
 
 export interface IssueItem {
@@ -38,8 +53,8 @@ export interface CoverageItem {
   canAnswer: string
 }
 
-export async function getOverview() {
-  const response = await http.get<ApiEnvelope<OverviewData>>('/v1/dashboard/overview')
+export async function getOverview(params?: { startDate: string; endDate: string }) {
+  const response = await http.get<ApiEnvelope<OverviewData>>('/v1/dashboard/overview', { params })
   return response.data.data
 }
 
@@ -52,4 +67,3 @@ export async function getCoverage() {
   const response = await http.get<ApiEnvelope<{ mode: string; items: CoverageItem[]; total: number }>>('/v1/assets/coverage')
   return response.data.data
 }
-

@@ -6,6 +6,13 @@ services:
       APP_ENV: ${APP_ENV:-production}
       SECRET_KEY: ${SECRET_KEY:-change-this-in-production}
       DATA_MODE: ${DATA_MODE:-mock}
+      HIVE_HOST: ${HIVE_HOST:-}
+      HIVE_PORT: ${HIVE_PORT:-10000}
+      HIVE_DATABASE: ${HIVE_DATABASE:-lywz}
+      HIVE_USER: ${HIVE_USER:-}
+      HIVE_PASSWORD: ${HIVE_PASSWORD:-}
+      HIVE_AUTH: ${HIVE_AUTH:-NONE}
+      PROFIT_CACHE_TTL: ${PROFIT_CACHE_TTL:-300}
     ports:
       - "${API_PORT:-5160}:5160"
     restart: unless-stopped

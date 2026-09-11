@@ -1,47 +1,73 @@
 <template>
-  <div class="page-wrap">
-    <PageHeader eyebrow="MANAGEMENT OVERVIEW" title="经营总览" description="从经营结果出发，逐层定位利润、履约和风险问题">
-      <a-button><DownloadOutlined />导出当前视图</a-button>
+  <div class="page-wrap profit-overview">
+    <PageHeader eyebrow="PROFIT OVERVIEW" title="经营总览" description="聚焦出票、退票、改签与增值服务的业务估算利润">
+      <a-button :loading="loading" @click="loadOverview"><ReloadOutlined />刷新数据</a-button>
     </PageHeader>
 
     <DataStateBar
-      :label="overview?.status.label ?? '正在检查数据状态'"
-      message="所有数值均为界面演示，不代表公司真实经营结果"
-      :freshness="overview?.status.freshness ?? '检查中'"
-      :metric-state="overview?.status.metricState ?? '检查中'"
+      :label="overview?.status.label ?? '正在连接数据源'"
+      :message="overview ? `${overview.source} · 金额为业务估算口径` : '正在获取经营利润数据'"
+      :freshness="overview?.status.freshness ?? '查询中'"
+      :metric-state="overview?.status.metricState ?? '业务估算口径'"
     />
-    <FilterBar />
+
+    <div class="profit-filter">
+      <div class="profit-filter-fields">
+        <span class="filter-label">业务发生日期</span>
+        <a-date-picker v-model:value="startDate" value-format="YYYY-MM-DD" :allow-clear="false" />
+        <span class="date-separator">至</span>
+        <a-date-picker v-model:value="endDate" value-format="YYYY-MM-DD" :allow-clear="false" />
+        <a-button type="primary" :loading="loading" @click="loadOverview"><SearchOutlined />查询</a-button>
+      </div>
+      <span class="filter-tip">各业务按自身发生时间统计，结束日期包含当天</span>
+    </div>
+
+    <a-alert v-if="error" type="error" show-icon :message="error" class="section-gap" />
 
     <a-spin :spinning="loading">
-      <a-alert v-if="error" type="error" show-icon :message="error" class="section-gap" />
       <template v-if="overview">
-        <div class="kpi-grid">
-          <KpiCard v-for="item in overview.kpis" :key="item.key" :item="item" />
+        <section class="total-profit-card" :class="{ 'is-unavailable': !overview.totalProfit.available, 'is-negative': Number(overview.totalProfit.value) < 0 }">
+          <div>
+            <span class="total-profit-label">总预估利润</span>
+            <strong>{{ formatProfit(overview.totalProfit.value, overview.totalProfit.available) }}</strong>
+            <small>{{ overview.period.startDate }} 至 {{ overview.period.endDate }} · 单位：元</small>
+          </div>
+          <div class="total-profit-formula">
+            <span v-for="(item, index) in overview.metrics" :key="item.key">
+              <b v-if="index">+</b>{{ item.label }}利润
+            </span>
+          </div>
+        </section>
+
+        <div class="profit-metric-grid">
+          <a-card
+            v-for="item in overview.metrics"
+            :key="item.key"
+            class="profit-metric-card"
+            :class="[`metric-${item.key}`, { 'is-unavailable': !item.available }]"
+            :bordered="false"
+          >
+            <div class="metric-heading">
+              <span class="metric-icon"><component :is="metricIcons[item.key]" /></span>
+              <div><small>{{ item.label.toUpperCase() }}</small><h2>{{ item.label }}利润</h2></div>
+              <a-tag :color="item.available ? 'success' : 'error'">{{ item.available ? '已获取' : '获取失败' }}</a-tag>
+            </div>
+            <div class="metric-profit" :class="{ 'is-negative': Number(item.profit) < 0 }">{{ formatProfit(item.profit, item.available) }}</div>
+            <div class="metric-volume" v-if="item.available">
+              <span><small>{{ item.countLabel }}</small><strong>{{ formatCount(item.count) }}</strong></span>
+              <span v-if="item.segmentLabel"><small>{{ item.segmentLabel }}</small><strong>{{ formatCount(item.segmentCount) }}</strong></span>
+            </div>
+            <a-alert v-else type="error" show-icon :message="item.error ?? '查询失败'" />
+            <div class="metric-foot">时间字段：{{ item.timeField }}</div>
+          </a-card>
         </div>
 
-        <div class="dashboard-grid main-grid">
-          <a-card class="panel-card" :bordered="false" title="订单与出票趋势">
-            <template #extra><span class="panel-caption">演示数据 · 最近7天</span></template>
-            <BaseChart :option="trendOption" chart-label="最近七天订单量与出票量趋势图" />
-          </a-card>
-          <a-card class="panel-card" :bordered="false" title="业务链路数据覆盖">
-            <template #extra><router-link to="/assets">查看资产</router-link></template>
-            <BaseChart :option="lifecycleOption" chart-label="各业务环节数据覆盖度图" />
-          </a-card>
-        </div>
-
-        <a-card class="panel-card focus-card" :bordered="false" title="本期重点关注">
-          <template #extra><router-link to="/issues">进入异常工作台</router-link></template>
-          <a-list :data-source="overview.focus">
-            <template #renderItem="{ item }">
-              <a-list-item>
-                <a-list-item-meta :description="item.type">
-                  <template #title><span class="focus-title"><a-tag :color="item.level === 'P0' ? 'error' : 'warning'">{{ item.level }}</a-tag>{{ item.title }}</span></template>
-                </a-list-item-meta>
-                <router-link :to="item.action.includes('数据') ? '/assets' : '/issues'">{{ item.action }} <RightOutlined /></router-link>
-              </a-list-item>
-            </template>
-          </a-list>
+        <a-card class="panel-card profit-notes" :bordered="false" title="当前统计口径">
+          <a-row :gutter="[18, 12]">
+            <a-col v-for="(note, index) in overview.notes" :key="note" :xs="24" :md="12">
+              <div class="profit-note"><span>{{ index + 1 }}</span>{{ note }}</div>
+            </a-col>
+          </a-row>
         </a-card>
       </template>
     </a-spin>
@@ -49,45 +75,54 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import type { EChartsCoreOption } from 'echarts/core'
-import { DownloadOutlined, RightOutlined } from '@ant-design/icons-vue'
-import { getOverview, type OverviewData } from '@/api/dashboard'
-import PageHeader from '@/components/PageHeader.vue'
+import { onMounted, ref } from 'vue'
+import {
+  CheckCircleOutlined, PlusCircleOutlined, ReloadOutlined, SearchOutlined,
+  SendOutlined, SwapOutlined,
+} from '@ant-design/icons-vue'
+import { getOverview, type OverviewData, type ProfitMetric } from '@/api/dashboard'
 import DataStateBar from '@/components/DataStateBar.vue'
-import FilterBar from '@/components/FilterBar.vue'
-import KpiCard from '@/components/KpiCard.vue'
-import BaseChart from '@/components/BaseChart.vue'
+import PageHeader from '@/components/PageHeader.vue'
 
+const formatDate = (value: Date) => {
+  const year = value.getFullYear()
+  const month = String(value.getMonth() + 1).padStart(2, '0')
+  const day = String(value.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+const now = new Date()
+const startDate = ref(formatDate(new Date(now.getFullYear(), now.getMonth(), 1)))
+const endDate = ref(formatDate(now))
 const overview = ref<OverviewData>()
-const loading = ref(true)
+const loading = ref(false)
 const error = ref('')
 
-onMounted(async () => {
-  try { overview.value = await getOverview() }
-  catch (reason) { error.value = reason instanceof Error ? reason.message : '数据加载失败' }
-  finally { loading.value = false }
-})
+const metricIcons: Record<ProfitMetric['key'], object> = {
+  issue: SendOutlined,
+  refund: CheckCircleOutlined,
+  change: SwapOutlined,
+  ancillary: PlusCircleOutlined,
+}
 
-const trendOption = computed<EChartsCoreOption>(() => ({
-  color: ['#3178f6', '#55b6a9'],
-  tooltip: { trigger: 'axis' },
-  legend: { data: ['订单量', '出票量'], top: 0, right: 0 },
-  grid: { left: 44, right: 18, top: 45, bottom: 28 },
-  xAxis: { type: 'category', boundaryGap: false, data: overview.value?.trend.dates ?? [], axisLine: { lineStyle: { color: '#d7deea' } } },
-  yAxis: { type: 'value', splitLine: { lineStyle: { color: '#edf0f5' } } },
-  series: [
-    { name: '订单量', type: 'line', smooth: true, symbol: 'circle', symbolSize: 7, areaStyle: { opacity: 0.08 }, data: overview.value?.trend.orders ?? [] },
-    { name: '出票量', type: 'line', smooth: true, symbol: 'circle', symbolSize: 7, data: overview.value?.trend.tickets ?? [] },
-  ],
-}))
+const formatProfit = (value: number | null, available: boolean) => {
+  if (!available || value === null) return '暂不可用'
+  return `${new Intl.NumberFormat('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)} 元`
+}
 
-const lifecycleOption = computed<EChartsCoreOption>(() => ({
-  color: ['#3178f6'],
-  tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, formatter: '{b}<br/>数据覆盖（演示）：{c}%' },
-  grid: { left: 82, right: 28, top: 16, bottom: 24 },
-  xAxis: { type: 'value', max: 100, splitLine: { lineStyle: { color: '#edf0f5' } }, axisLabel: { formatter: '{value}%' } },
-  yAxis: { type: 'category', data: overview.value?.lifecycle.map(item => item.stage).reverse() ?? [], axisTick: { show: false }, axisLine: { show: false } },
-  series: [{ type: 'bar', barWidth: 12, data: overview.value?.lifecycle.map(item => item.value).reverse() ?? [], itemStyle: { borderRadius: 8 }, showBackground: true, backgroundStyle: { color: '#edf1f7', borderRadius: 8 } }],
-}))
+const formatCount = (value: number | null) => value === null ? '—' : new Intl.NumberFormat('zh-CN').format(value)
+
+const loadOverview = async () => {
+  error.value = ''
+  loading.value = true
+  try {
+    overview.value = await getOverview({ startDate: startDate.value, endDate: endDate.value })
+  } catch (reason) {
+    error.value = reason instanceof Error ? reason.message : '利润数据加载失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(loadOverview)
 </script>

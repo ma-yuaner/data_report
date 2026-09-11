@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from flask import Blueprint, current_app, jsonify
+from flask import Blueprint, current_app, jsonify, request
 
 from .services.dashboard import DashboardService
 
@@ -42,7 +42,15 @@ def meta():
 
 @api.get("/v1/dashboard/overview")
 def overview():
-    return ok(DashboardService().overview())
+    try:
+        return ok(
+            DashboardService().overview(
+                start_date=request.args.get("startDate"),
+                end_date=request.args.get("endDate"),
+            )
+        )
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
 
 
 @api.get("/v1/issues")
@@ -53,4 +61,3 @@ def issues():
 @api.get("/v1/assets/coverage")
 def asset_coverage():
     return ok(DashboardService().asset_coverage())
-

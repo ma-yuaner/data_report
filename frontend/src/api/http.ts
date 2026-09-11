@@ -8,7 +8,7 @@ export interface ApiEnvelope<T> {
 
 export const http = axios.create({
   baseURL: '/api',
-  timeout: 15_000,
+  timeout: 120_000,
   headers: { Accept: 'application/json' },
 })
 
@@ -16,4 +16,3 @@ http.interceptors.response.use(
   (response) => response,
   (error) => Promise.reject(new Error(error.response?.data?.message ?? error.message ?? '请求失败')),
 )
-

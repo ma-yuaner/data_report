@@ -25,6 +25,7 @@
 
 - 理解公司机票业务全流程：阅读 [business-model.md](business-model.md)
 - 计算或分析利润：阅读 [profit-model.md](profit-model.md) 和 [analysis-rules.md](analysis-rules.md)
+- 开发经营总览出退改增利润：阅读 [profit-overview.md](profit-overview.md)
 - 开发数据模型、SQL、宽表或看板：阅读 [data-model.md](data-model.md) 和 [analysis-rules.md](analysis-rules.md)
 - 设计数据中心菜单和 MVP 页面：阅读 [mvp-menu-architecture.md](mvp-menu-architecture.md)
 - 查询术语：阅读 [glossary.md](glossary.md)

@@ -29,7 +29,7 @@
 
       <div v-if="!appStore.collapsed" class="sidebar-note">
         <SafetyCertificateOutlined />
-        <div><strong>MVP演示环境</strong><span>未连接生产数据</span></div>
+        <div><strong>经营数据中心</strong><span>业务估算利润口径</span></div>
       </div>
     </a-layout-sider>
 
@@ -89,4 +89,3 @@ const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
   if (typeof key === 'string' && key.startsWith('/')) router.push(key)
 }
 </script>
-

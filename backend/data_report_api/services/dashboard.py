@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import datetime
+
+from flask import current_app
+
+from .profit_overview import ProfitOverviewService
 
 
 MOCK_OVERVIEW = {
@@ -58,14 +61,11 @@ MOCK_COVERAGE = [
 
 
 class DashboardService:
-    def overview(self) -> dict:
-        result = deepcopy(MOCK_OVERVIEW)
-        result["generatedAt"] = datetime.now().astimezone().isoformat(timespec="seconds")
-        return result
+    def overview(self, start_date: str | None = None, end_date: str | None = None) -> dict:
+        return ProfitOverviewService(current_app.config).overview(start_date, end_date)
 
     def issues(self) -> dict:
         return {"mode": "mock", "items": deepcopy(MOCK_ISSUES), "total": len(MOCK_ISSUES)}
 
     def asset_coverage(self) -> dict:
         return {"mode": "mock", "items": deepcopy(MOCK_COVERAGE), "total": len(MOCK_COVERAGE)}
-
