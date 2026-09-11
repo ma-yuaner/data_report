@@ -15,6 +15,6 @@ COPY --chown=appuser:appgroup app.py ./
 COPY --chown=appuser:appgroup data_report_api ./data_report_api
 
 USER appuser
-EXPOSE 5060
+EXPOSE 5160
 
-CMD ["gunicorn", "--bind", "0.0.0.0:5060", "--workers", "2", "--threads", "4", "--timeout", "60", "--access-logfile", "-", "--error-logfile", "-", "app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5160", "--workers", "2", "--threads", "4", "--timeout", "60", "--access-logfile", "-", "--error-logfile", "-", "app:app"]
