@@ -53,7 +53,7 @@ docker compose up -d --build
 - 数据中心：`http://127.0.0.1:1818`
 - 后端健康检查：`http://127.0.0.1:5160/api/health`
 
-经营总览默认使用演示模式。接入 Hive 时，在 `.env` 中设置 `DATA_MODE=hive`，并填写 `HIVE_HOST`、`HIVE_USER` 等连接信息。连接密码只能保存在部署环境的 `.env`，不得提交到 Git。
+经营总览提供今日、昨日、本月、本年和自定义日期查询，默认展示本年累计。项目默认使用演示模式；接入 Hive 时，在 `.env` 中设置 `DATA_MODE=hive`，并填写 `HIVE_HOST`、`HIVE_USER` 等连接信息。连接密码只能保存在部署环境的 `.env`，不得提交到 Git。
 
 ## 验证
 

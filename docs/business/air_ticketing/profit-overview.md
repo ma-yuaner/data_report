@@ -23,7 +23,7 @@
 | 改签 | `lywz.dwd_change_issue_year` | `change_issue_time` | `count(1)` | `sum(change_profit)` | 暂无其他过滤条件 |
 | 增值 | `lywz.dwd_aux_pur_year` | `create_time` | `count(1)`；航段为 `sum(flight_segment)` | `sum(profit)` | `aux_status='已购买'` |
 
-页面日期为闭区间，SQL 实现为开始日 `00:00:00`（含）至结束日次日 `00:00:00`（不含）。默认查询本月截至今天，单次不超过 366 天。
+页面提供今日、昨日、本月、本年和自定义日期快捷切换。日期为闭区间，SQL 实现为开始日 `00:00:00`（含）至结束日次日 `00:00:00`（不含）。经营总览默认查询本年截至今天，单次不超过 366 天。
 
 ## 当前限制
 

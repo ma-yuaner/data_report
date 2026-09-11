@@ -13,10 +13,11 @@
 
     <div class="profit-filter">
       <div class="profit-filter-fields">
-        <span class="filter-label">业务发生日期</span>
-        <a-date-picker v-model:value="startDate" value-format="YYYY-MM-DD" :allow-clear="false" />
+        <a-segmented v-model:value="periodPreset" :options="periodOptions" @change="applyPreset" />
+        <span class="filter-label">统计期间</span>
+        <a-date-picker v-model:value="startDate" value-format="YYYY-MM-DD" :allow-clear="false" @change="markCustom" />
         <span class="date-separator">至</span>
-        <a-date-picker v-model:value="endDate" value-format="YYYY-MM-DD" :allow-clear="false" />
+        <a-date-picker v-model:value="endDate" value-format="YYYY-MM-DD" :allow-clear="false" @change="markCustom" />
         <a-button type="primary" :loading="loading" @click="loadOverview"><SearchOutlined />查询</a-button>
       </div>
       <span class="filter-tip">各业务按自身发生时间统计，结束日期包含当天</span>
@@ -92,8 +93,9 @@ const formatDate = (value: Date) => {
 }
 
 const now = new Date()
-const startDate = ref(formatDate(new Date(now.getFullYear(), now.getMonth(), 1)))
+const startDate = ref(formatDate(new Date(now.getFullYear(), 0, 1)))
 const endDate = ref(formatDate(now))
+const periodPreset = ref('year')
 const overview = ref<OverviewData>()
 const loading = ref(false)
 const error = ref('')
@@ -104,6 +106,36 @@ const metricIcons: Record<ProfitMetric['key'], object> = {
   change: SwapOutlined,
   ancillary: PlusCircleOutlined,
 }
+
+const periodOptions = [
+  { label: '今日', value: 'today' },
+  { label: '昨日', value: 'yesterday' },
+  { label: '本月', value: 'month' },
+  { label: '本年', value: 'year' },
+  { label: '自定义', value: 'custom' },
+]
+
+const applyPreset = (value: string | number) => {
+  const preset = String(value)
+  const today = new Date()
+  let start = today
+  let end = today
+  if (preset === 'yesterday') {
+    start = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1)
+    end = start
+  } else if (preset === 'month') {
+    start = new Date(today.getFullYear(), today.getMonth(), 1)
+  } else if (preset === 'year') {
+    start = new Date(today.getFullYear(), 0, 1)
+  } else if (preset === 'custom') {
+    return
+  }
+  startDate.value = formatDate(start)
+  endDate.value = formatDate(end)
+  loadOverview()
+}
+
+const markCustom = () => { periodPreset.value = 'custom' }
 
 const formatProfit = (value: number | null, available: boolean) => {
   if (!available || value === null) return '暂不可用'
