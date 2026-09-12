@@ -42,7 +42,8 @@ METRICS = (
         "sql": """
             SELECT count(1), cast(null as bigint), coalesce(sum(refund_profit), 0)
             FROM {database}.dwd_refund_issue_year
-            WHERE supplier_refund_status_desc = '待处理'
+            WHERE supplier_refund_operator is not null
+              AND trim(supplier_refund_operator) <> ''
               AND apply_datetime >= '{start_at}'
               AND apply_datetime < '{end_at}'
         """,
@@ -138,7 +139,7 @@ class ProfitOverviewService:
                 "总预估利润 = 出票利润 + 退票利润 + 改签利润 + 增值利润。",
                 "金额单位暂按元展示，当前属于业务估算利润，不代表财务已结算利润。",
                 "四类业务使用各自发生时间过滤；结束日期按当天闭区间处理。",
-                "退票当前仅统计供应退款状态为“待处理”的记录。",
+                "退票仅统计供应退款操作人不为空的记录。",
             ],
         }
         with _CACHE_LOCK:

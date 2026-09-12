@@ -19,7 +19,7 @@
 | 业务 | Hive 表 | 时间字段 | 数量 | 利润 | 过滤条件 |
 |---|---|---|---|---|---|
 | 出票 | `lywz.dwd_order_issue_wide_year` | `issue_ticket_time` | `count(1)`；航段为 `sum(segment_num)` | `sum(issue_profit)` | `order_status='TICKETED'`、`issue_status='I_UPDATED'`、`refund_flag<>3`、`refund_issue_flag='否'` |
-| 退票 | `lywz.dwd_refund_issue_year` | `apply_datetime` | `count(1)` | `sum(refund_profit)` | `supplier_refund_status_desc='待处理'` |
+| 退票 | `lywz.dwd_refund_issue_year` | `apply_datetime` | `count(1)` | `sum(refund_profit)` | `supplier_refund_operator is not null` 且去除首尾空格后不为空 |
 | 改签 | `lywz.dwd_change_issue_year` | `change_issue_time` | `count(1)` | `sum(change_profit)` | 暂无其他过滤条件 |
 | 增值 | `lywz.dwd_aux_pur_year` | `create_time` | `count(1)`；航段为 `sum(flight_num)` | `sum(profit)` | `aux_status='已购买'` |
 
@@ -29,6 +29,6 @@
 
 - 利润字段当前按业务宽表直接汇总，属于业务估算利润，不代表财务已结算利润；
 - 金额单位暂按元展示，币种、含税方式、冲销和负数语义仍待财务确认；
-- 退票只取供应退款状态“待处理”，代表当前用户指定范围，不等同于全部退票利润；
+- 退票只取供应退款操作人有值的记录，代表当前用户指定的已进入供应退款操作范围，不等同于全部退票申请；
 - 四张表可能具有不同事实粒度，数量指标不能彼此直接相加；
 - 后续数据源切换为 MySQL `log.sibebid` 时，应保持本页面 API 输出结构和上述业务过滤口径稳定。
