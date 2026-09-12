@@ -25,6 +25,7 @@
           <a-menu-item key="/analysis/change">改签分析</a-menu-item>
           <a-menu-item key="/analysis/ancillary">增值分析</a-menu-item>
         </a-sub-menu>
+        <a-menu-item key="/problems"><template #icon><WarningOutlined /></template>问题中心</a-menu-item>
         <a-menu-item key="/data-assets"><template #icon><DatabaseOutlined /></template>数据资产</a-menu-item>
       </a-menu>
 
@@ -63,7 +64,7 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   BarChartOutlined, DashboardOutlined, DatabaseOutlined, LineChartOutlined,
-  MenuFoldOutlined, MenuUnfoldOutlined, SafetyCertificateOutlined,
+  MenuFoldOutlined, MenuUnfoldOutlined, SafetyCertificateOutlined, WarningOutlined,
 } from '@ant-design/icons-vue'
 import type { MenuProps } from 'ant-design-vue'
 import { useAppStore } from '@/stores/app'

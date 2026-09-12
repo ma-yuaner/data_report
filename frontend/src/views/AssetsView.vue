@@ -16,6 +16,7 @@
     <div class="asset-summary">
       <div><DatabaseOutlined /><span><strong>{{ data?.assets.length ?? 0 }}</strong>核心业务表</span></div>
       <div><BookOutlined /><span><strong>{{ data?.metrics.length ?? 0 }}</strong>已登记指标</span></div>
+      <div><FundProjectionScreenOutlined /><span><strong>{{ data?.analysisTaskCount ?? 0 }}</strong>历史分析任务</span></div>
       <div><CheckCircleOutlined /><span><strong>{{ readyCount }}</strong>数据源可用</span></div>
     </div>
 
@@ -54,6 +55,18 @@
           </a-card>
         </a-tab-pane>
 
+        <a-tab-pane key="analyses" tab="分析资产">
+          <a-card class="panel-card" :bordered="false">
+            <a-alert type="info" show-icon message="已将历史脚本、SQL和自动报送去重归并为能力域；任务数量不等同于独立指标数量。" class="section-gap" />
+            <a-table :columns="analysisColumns" :data-source="data?.analyses ?? []" :pagination="false" row-key="domain" :scroll="{ x: 900 }">
+              <template #bodyCell="{ column, record }">
+                <template v-if="column.key === 'domain'"><strong>{{ record.domain }}</strong></template>
+                <template v-else-if="column.key === 'maturity'"><a-tag :color="maturityColor(record.maturity)">{{ record.maturity }}</a-tag></template>
+              </template>
+            </a-table>
+          </a-card>
+        </a-tab-pane>
+
         <a-tab-pane key="freshness" tab="更新状态">
           <a-card class="panel-card" :bordered="false">
             <a-table :columns="freshnessColumns" :data-source="data?.assets ?? []" :pagination="false" row-key="key">
@@ -73,7 +86,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { BookOutlined, CheckCircleOutlined, DatabaseOutlined, ReloadOutlined } from '@ant-design/icons-vue'
+import { BookOutlined, CheckCircleOutlined, DatabaseOutlined, FundProjectionScreenOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { getAssetCatalog, type AssetCatalogData, type DataAssetItem } from '@/api/dashboard'
 import PageHeader from '@/components/PageHeader.vue'
 import DataStateBar from '@/components/DataStateBar.vue'
@@ -107,6 +120,13 @@ const freshnessColumns = [
   { title: '可用状态', key: 'state' },
   { title: '说明', key: 'error' },
 ]
+const analysisColumns = [
+  { title: '分析能力域', key: 'domain', width: 170 },
+  { title: '任务数', dataIndex: 'taskCount', key: 'taskCount', width: 90 },
+  { title: '成熟度', key: 'maturity', width: 120 },
+  { title: '代表性内容', dataIndex: 'representative', key: 'representative', width: 310 },
+  { title: '数据中心处理', dataIndex: 'plan', key: 'plan', width: 220 },
+]
 
 const stateMeta = (state: DataAssetItem['state']) => ({
   configured: { label: '已配置', color: 'processing' }, ready: { label: '可用', color: 'success' },
@@ -114,6 +134,7 @@ const stateMeta = (state: DataAssetItem['state']) => ({
   error: { label: '检查失败', color: 'error' },
 }[state])
 const formatTime = (value: string | null) => value ? value.slice(0, 19) : '待实际连接确认'
+const maturityColor = (value: string) => value.includes('已接入') ? 'success' : value.includes('可接入') || value.includes('成熟') ? 'processing' : value.includes('部分') ? 'cyan' : value.includes('专项') || value.includes('基础') ? 'default' : 'warning'
 
 const loadData = async () => {
   loading.value = true

@@ -59,6 +59,16 @@ def test_business_profit_pages_share_a_stable_contract(client):
         assert payload["trend"]["items"]
 
 
+def test_problem_center_exposes_loss_summary_and_evidence(client):
+    response = client.get("/api/v1/problems/profit-loss?startDate=2026-09-12&endDate=2026-09-12")
+    assert response.status_code == 200
+    payload = response.get_json()["data"]
+    assert payload["available"] is True
+    assert payload["summary"]["negativeCount"] > 0
+    assert len(payload["businesses"]) == 4
+    assert payload["items"][0]["profit"] < 0
+
+
 def test_asset_catalog_exposes_real_tables_and_metric_definitions(client):
     response = client.get("/api/v1/assets/catalog")
     assert response.status_code == 200
@@ -66,6 +76,8 @@ def test_asset_catalog_exposes_real_tables_and_metric_definitions(client):
     assert len(payload["assets"]) == 4
     assert {item["key"] for item in payload["assets"]} == {"issue", "refund", "change", "ancillary"}
     assert any(item["name"] == "总预估利润" for item in payload["metrics"])
+    assert payload["analysisTaskCount"] == 149
+    assert len(payload["analyses"]) == 11
 
 
 def test_coverage_distinguishes_missing_from_zero(client):

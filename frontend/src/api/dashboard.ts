@@ -138,6 +138,58 @@ export interface AssetCatalogData {
   cacheHit: boolean
   assets: DataAssetItem[]
   metrics: MetricDefinitionItem[]
+  analyses: AnalysisAssetItem[]
+  analysisTaskCount: number
+}
+
+export interface AnalysisAssetItem {
+  domain: string
+  taskCount: number
+  maturity: string
+  representative: string
+  plan: string
+}
+
+export interface ProfitProblemBusiness {
+  key: ProfitMetric['key']
+  name: string
+  negativeCount: number | null
+  lossAmount: number | null
+  lossShare: number
+  available: boolean
+  error: string | null
+}
+
+export interface ProfitProblemItem {
+  businessKey: ProfitMetric['key']
+  businessName: string
+  eventId: string
+  orderNo: string
+  ticketNo: string
+  platform: string
+  supplier: string
+  airline: string
+  operator: string
+  occurredAt: string
+  profit: number
+}
+
+export interface ProfitProblemData {
+  mode: 'mock' | 'live'
+  source: string
+  available: boolean
+  generatedAt: string
+  cacheHit: boolean
+  period: { startDate: string; endDate: string }
+  summary: {
+    negativeCount: number
+    lossAmount: number
+    affectedBusinessCount: number
+    availableBusinessCount: number
+  } | null
+  businesses: ProfitProblemBusiness[]
+  items: ProfitProblemItem[]
+  notes: string[]
 }
 
 export interface IssueItem {
@@ -176,6 +228,11 @@ export async function getBusinessProfitAnalysis(businessType: BusinessProfitType
 
 export async function getAssetCatalog() {
   const response = await http.get<ApiEnvelope<AssetCatalogData>>('/v1/assets/catalog')
+  return response.data.data
+}
+
+export async function getProfitProblems(params: { startDate: string; endDate: string }) {
+  const response = await http.get<ApiEnvelope<ProfitProblemData>>('/v1/problems/profit-loss', { params })
   return response.data.data
 }
 

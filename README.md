@@ -6,6 +6,7 @@
 
 - 经营总览：统一查看出、退、改、增利润及总预估利润；
 - 业务分析：出票、退票、改签、增值四个实际数据入口；
+- 问题中心：统一查看四类业务负利润规模和 Top 证据明细；
 - 数据资产：四张核心业务表、当前指标口径和最新数据时间。
 
 尚无可靠数据支撑的全链路、异常工作台和明细查询暂不放入菜单。平台、航司、供应商、人员、PCC等属于筛选和下钻维度，不作为一级菜单。
@@ -63,6 +64,7 @@ docker compose up -d --build
 - `GET /api/v1/dashboard/overview`：出退改增经营总览；
 - `GET /api/v1/analysis/issue-profit`：出票利润与维度分析；
 - `GET /api/v1/analysis/business-profit/{refund|change|ancillary}`：退改增统一分析契约；
+- `GET /api/v1/problems/profit-loss`：四类业务负利润问题及证据；
 - `GET /api/v1/assets/catalog`：核心表、指标和更新状态。
 
 ## 验证

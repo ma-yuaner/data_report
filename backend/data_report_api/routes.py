@@ -8,6 +8,7 @@ from .services.dashboard import DashboardService
 from .services.asset_catalog import AssetCatalogService
 from .services.business_profit_analysis import BusinessProfitAnalysisService
 from .services.issue_profit_analysis import IssueProfitAnalysisService
+from .services.profit_problem_center import ProfitProblemCenterService
 
 
 api = Blueprint("api", __name__)
@@ -76,6 +77,19 @@ def business_profit_analysis(business_type: str):
         return ok(
             BusinessProfitAnalysisService(current_app.config).analysis(
                 business_type=business_type,
+                start_value=request.args.get("startDate"),
+                end_value=request.args.get("endDate"),
+            )
+        )
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+
+
+@api.get("/v1/problems/profit-loss")
+def profit_loss_problems():
+    try:
+        return ok(
+            ProfitProblemCenterService(current_app.config).problems(
                 start_value=request.args.get("startDate"),
                 end_value=request.args.get("endDate"),
             )

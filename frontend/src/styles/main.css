@@ -99,7 +99,7 @@ body { background: #f2f5f9; }
 .skeleton-note { margin: 12px 0 0; color: #8a96a8; font-size: 11px; }
 .issue-toolbar { margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .table-object { color: #3178f6; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
-.asset-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
+.asset-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
 .asset-summary > div { min-height: 78px; padding: 15px; display: flex; align-items: center; gap: 12px; border: 1px solid #e6ebf1; border-radius: 10px; background: #fff; color: #3178f6; font-size: 22px; }
 .asset-summary span { display: grid; color: #758297; font-size: 11px; }
 .asset-summary strong { color: #273348; font-size: 22px; }
@@ -182,6 +182,23 @@ body { background: #f2f5f9; }
 .asset-object strong { color: #26364d; font-size: 13px; }
 .asset-object code { overflow-wrap: anywhere; }
 .assets-page .ant-tabs-content-holder { min-height: 360px; }
+.problem-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.problem-domain-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
+.problem-domain-card { position: relative; overflow: hidden; border: 1px solid #e7ebf1 !important; box-shadow: 0 5px 18px rgba(28,45,72,.035); }
+.problem-domain-card::before { content: ''; height: 3px; position: absolute; inset: 0 0 auto; background: var(--metric-color); }
+.problem-domain-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.problem-domain-head strong { color: #28364b; font-size: 13px; }
+.problem-domain-values { margin: 18px 0 13px; display: grid; grid-template-columns: .7fr 1.3fr; gap: 12px; }
+.problem-domain-values span { display: grid; gap: 5px; }
+.problem-domain-values small, .problem-share { color: #8995a6; font-size: 10px; }
+.problem-domain-values b { color: #c94d58; font-size: 16px; font-weight: 600; }
+.problem-share { display: block; margin-top: 5px; }
+.problem-evidence-card { margin-bottom: 14px; }
+.problem-id { display: grid; gap: 3px; }
+.problem-id strong { color: #344258; font-size: 11px; }
+.problem-id code { color: #8a96a8; font-size: 9px; }
+.loss-value { color: #c94d58; font-size: 12px; }
+.problem-note { margin-top: 13px; padding-top: 13px; display: flex; align-items: flex-start; gap: 8px; border-top: 1px solid #edf0f4; color: #78869a; font-size: 11px; line-height: 1.65; }
 .not-found { min-height: 100vh; display: grid; place-items: center; background: #f2f5f9; }
 
 @media (max-width: 1100px) {
@@ -190,6 +207,7 @@ body { background: #f2f5f9; }
   .issue-summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .issue-main-grid { grid-template-columns: 1fr; }
   .business-analysis-grid { grid-template-columns: 1fr; }
+  .problem-summary-grid, .problem-domain-grid, .asset-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .main-grid { grid-template-columns: 1fr; }
   .profit-stages { flex-wrap: wrap; }
   .profit-stages > span { display: none; }
@@ -210,7 +228,7 @@ body { background: #f2f5f9; }
 }
 
 @media (max-width: 600px) {
-  .kpi-grid, .kpi-grid.three, .coverage-grid, .asset-summary, .profit-metric-grid { grid-template-columns: 1fr; }
+  .kpi-grid, .kpi-grid.three, .coverage-grid, .asset-summary, .profit-metric-grid, .problem-summary-grid, .problem-domain-grid { grid-template-columns: 1fr; }
   .profit-filter-fields { width: 100%; align-items: stretch; flex-direction: column; }
   .issue-summary-grid { grid-template-columns: 1fr; }
   .date-separator { display: none; }
