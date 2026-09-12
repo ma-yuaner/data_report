@@ -16,7 +16,7 @@ _CACHE_LOCK = threading.Lock()
 
 ASSETS = (
     {"key": "issue", "domain": "出票", "table": "dwd_order_issue_wide_year", "timeField": "issue_ticket_time", "columnCount": 204, "metrics": ["出票数", "航段数", "出票预估利润"], "condition": "已出票、出票更新完成、排除指定退票状态"},
-    {"key": "refund", "domain": "退票", "table": "dwd_refund_issue_year", "timeField": "apply_datetime", "columnCount": 135, "metrics": ["退票数", "退票利润"], "condition": "供应退款操作人不为空"},
+    {"key": "refund", "domain": "退票", "table": "dwd_refund_issue_year", "timeField": "apply_datetime", "columnCount": 135, "metrics": ["退票数", "退票利润"], "condition": "正常退票或售后退票作废，且供应退款操作人不为空"},
     {"key": "change", "domain": "改签", "table": "dwd_change_issue_year", "timeField": "change_issue_time", "columnCount": 89, "metrics": ["改签数", "改签利润"], "condition": "按改签出票时间统计"},
     {"key": "ancillary", "domain": "增值", "table": "dwd_aux_pur_year", "timeField": "create_time", "columnCount": 45, "metrics": ["增值数", "增值航段数", "增值利润"], "condition": "增值状态为已购买"},
 )

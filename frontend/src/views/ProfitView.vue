@@ -105,9 +105,9 @@ const formatDate = (value: Date) => {
 }
 
 const now = new Date()
-const startDate = ref(formatDate(new Date(now.getFullYear(), 0, 1)))
+const startDate = ref(formatDate(now))
 const endDate = ref(formatDate(now))
-const periodPreset = ref('year')
+const periodPreset = ref('today')
 const data = ref<IssueProfitAnalysisData>()
 const loading = ref(false)
 const error = ref('')

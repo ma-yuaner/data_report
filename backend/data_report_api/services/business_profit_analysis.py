@@ -26,8 +26,8 @@ BUSINESS_DEFINITIONS = {
         "countLabel": "退票数",
         "segmentField": None,
         "segmentLabel": None,
-        "condition": "supplier_refund_operator is not null and trim(supplier_refund_operator) <> ''",
-        "conditionLabel": "供应退款操作人不为空",
+        "condition": "business_type_desc in ('正常退票（退票）', '售后退票作废（退票）') and supplier_refund_operator is not null and trim(supplier_refund_operator) <> ''",
+        "conditionLabel": "正常退票或售后退票作废，且供应退款操作人不为空",
     },
     "change": {
         "name": "改签",

@@ -42,7 +42,8 @@ METRICS = (
         "sql": """
             SELECT count(1), cast(null as bigint), coalesce(sum(refund_profit), 0)
             FROM {database}.dwd_refund_issue_year
-            WHERE supplier_refund_operator is not null
+            WHERE business_type_desc in ('正常退票（退票）', '售后退票作废（退票）')
+              AND supplier_refund_operator is not null
               AND trim(supplier_refund_operator) <> ''
               AND apply_datetime >= '{start_at}'
               AND apply_datetime < '{end_at}'
@@ -91,7 +92,7 @@ def _number(value: Any) -> int | float | None:
 def _period(start_value: str | None, end_value: str | None) -> tuple[date, date]:
     today = datetime.now().astimezone().date()
     try:
-        start = date.fromisoformat(start_value) if start_value else today.replace(day=1)
+        start = date.fromisoformat(start_value) if start_value else today
         end = date.fromisoformat(end_value) if end_value else today
     except ValueError as error:
         raise ValueError("日期格式必须为 YYYY-MM-DD") from error
@@ -139,7 +140,7 @@ class ProfitOverviewService:
                 "总预估利润 = 出票利润 + 退票利润 + 改签利润 + 增值利润。",
                 "金额单位暂按元展示，当前属于业务估算利润，不代表财务已结算利润。",
                 "四类业务使用各自发生时间过滤；结束日期按当天闭区间处理。",
-                "退票仅统计供应退款操作人不为空的记录。",
+                "退票仅统计正常退票、售后退票作废，且供应退款操作人不为空的记录。",
             ],
         }
         with _CACHE_LOCK:

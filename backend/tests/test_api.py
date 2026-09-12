@@ -1,3 +1,9 @@
+from datetime import datetime
+
+from data_report_api.services.business_profit_analysis import BUSINESS_DEFINITIONS
+from data_report_api.services.profit_overview import METRICS
+
+
 def test_health(client):
     response = client.get("/api/health")
     assert response.status_code == 200
@@ -16,12 +22,21 @@ def test_overview_returns_four_profit_components(client):
     assert {item["key"] for item in payload["metrics"]} == {"issue", "refund", "change", "ancillary"}
     assert payload["totalProfit"]["value"] == sum(item["profit"] for item in payload["metrics"])
     assert payload["status"]["metricState"] == "业务估算口径"
+    today = datetime.now().astimezone().date().isoformat()
+    assert payload["period"] == {"startDate": today, "endDate": today}
 
 
 def test_overview_rejects_invalid_period(client):
     response = client.get("/api/v1/dashboard/overview?startDate=2026-09-12&endDate=2026-09-11")
     assert response.status_code == 400
     assert response.get_json()["success"] is False
+
+
+def test_refund_profit_uses_confirmed_business_types():
+    expected = "business_type_desc in ('正常退票（退票）', '售后退票作废（退票）')"
+    refund_sql = next(metric["sql"] for metric in METRICS if metric["key"] == "refund")
+    assert expected in refund_sql
+    assert expected in BUSINESS_DEFINITIONS["refund"]["condition"]
 
 
 def test_issue_profit_demo_contains_analysis_and_coverage(client):
