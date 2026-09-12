@@ -10,7 +10,7 @@ const router = createRouter({
       redirect: '/overview',
       children: [
         { path: 'overview', name: 'overview', component: () => import('@/views/OverviewView.vue'), meta: { title: '经营总览', section: '经营总览' } },
-        { path: 'analysis/profit', name: 'profit', component: () => import('@/views/ProfitView.vue'), meta: { title: '利润分析', section: '业务分析' } },
+        { path: 'analysis/profit', name: 'profit', component: () => import('@/views/ProfitView.vue'), meta: { title: '出票利润分析', section: '业务分析' } },
         { path: 'analysis/lifecycle', name: 'lifecycle', component: () => import('@/views/LifecycleView.vue'), meta: { title: '机票全链路', section: '业务分析' } },
         { path: 'issues', name: 'issues', component: () => import('@/views/IssuesView.vue'), meta: { title: '异常工作台', section: '异常工作台' } },
         { path: 'assets', name: 'assets', component: () => import('@/views/AssetsView.vue'), meta: { title: '数据资产', section: '数据资产' } },
@@ -25,4 +25,3 @@ router.afterEach((to) => {
 })
 
 export default router
-

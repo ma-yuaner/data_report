@@ -147,11 +147,37 @@ body { background: #f2f5f9; }
 .metric-foot { margin-top: 12px; color: #9aa5b4; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 9px; }
 .profit-note { min-height: 38px; display: flex; align-items: flex-start; gap: 10px; color: #68758a; font-size: 12px; line-height: 1.6; }
 .profit-note span { width: 20px; height: 20px; flex: none; display: grid; place-items: center; border-radius: 6px; color: #3972c6; background: #edf4ff; font-size: 10px; font-weight: 600; }
+.issue-summary-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.issue-summary-card { border: 1px solid #e7ebf1 !important; box-shadow: 0 5px 18px rgba(28,45,72,.035); }
+.issue-summary-card span, .issue-summary-card small { display: block; color: #7a8799; font-size: 11px; }
+.issue-summary-card strong { display: block; margin: 9px 0 6px; color: #203047; font-size: 23px; line-height: 1.25; letter-spacing: -.025em; }
+.issue-summary-card strong.negative { color: #c94d58; }
+.issue-main-grid { grid-template-columns: minmax(0, 1.65fr) minmax(300px, .65fr); margin-bottom: 14px; }
+.coverage-overview-card .ant-card-body { display: grid; gap: 18px; }
+.coverage-score { display: flex; align-items: center; justify-content: center; gap: 22px; }
+.coverage-score > div:last-child { display: grid; color: #8491a3; font-size: 11px; }
+.coverage-score strong { color: #26364d; font-size: 26px; }
+.coverage-state-row { display: flex; justify-content: center; gap: 15px; color: #657489; font-size: 11px; }
+.coverage-state-row span { display: flex; align-items: center; gap: 5px; }
+.coverage-state-row i { width: 7px; height: 7px; border-radius: 50%; }
+.state-ready { background: #2f9b78; }
+.state-partial { background: #e49a35; }
+.state-missing { background: #d65a64; }
+.coverage-overview-card p { margin: 0; padding-top: 14px; border-top: 1px solid #edf0f4; color: #8491a3; font-size: 11px; line-height: 1.65; }
+.dimension-profit-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
+.dimension-profit-grid .base-chart { height: 270px; }
+.field-name { display: grid; gap: 3px; }
+.field-name strong { color: #334155; font-size: 12px; }
+.field-name code { color: #8491a3; font-size: 10px; }
+.field-progress { min-width: 300px; display: grid; grid-template-columns: minmax(170px, 1fr) auto; align-items: center; gap: 12px; }
+.field-progress > span { color: #8491a3; font-size: 10px; white-space: nowrap; }
 .not-found { min-height: 100vh; display: grid; place-items: center; background: #f2f5f9; }
 
 @media (max-width: 1100px) {
   .kpi-grid, .coverage-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .profit-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .issue-summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .issue-main-grid { grid-template-columns: 1fr; }
   .main-grid { grid-template-columns: 1fr; }
   .profit-stages { flex-wrap: wrap; }
   .profit-stages > span { display: none; }
@@ -164,6 +190,7 @@ body { background: #f2f5f9; }
   .page-wrap { padding: 16px; }
   .page-header, .data-state-bar, .filter-bar, .issue-toolbar, .profit-filter, .total-profit-card { align-items: flex-start; flex-direction: column; }
   .total-profit-formula { flex-wrap: wrap; white-space: normal; }
+  .dimension-profit-grid { grid-template-columns: 1fr; }
   .data-state-items { flex-wrap: wrap; }
   .three-col { grid-template-columns: 1fr; }
   .stage-hero { grid-template-columns: auto 1fr; }
@@ -173,6 +200,7 @@ body { background: #f2f5f9; }
 @media (max-width: 600px) {
   .kpi-grid, .kpi-grid.three, .coverage-grid, .asset-summary, .profit-metric-grid { grid-template-columns: 1fr; }
   .profit-filter-fields { width: 100%; align-items: stretch; flex-direction: column; }
+  .issue-summary-grid { grid-template-columns: 1fr; }
   .date-separator { display: none; }
   .header-actions { gap: 9px; }
   .header-left .ant-breadcrumb { display: none; }

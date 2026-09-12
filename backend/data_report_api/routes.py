@@ -5,6 +5,7 @@ from datetime import datetime
 from flask import Blueprint, current_app, jsonify, request
 
 from .services.dashboard import DashboardService
+from .services.issue_profit_analysis import IssueProfitAnalysisService
 
 
 api = Blueprint("api", __name__)
@@ -47,6 +48,19 @@ def overview():
             DashboardService().overview(
                 start_date=request.args.get("startDate"),
                 end_date=request.args.get("endDate"),
+            )
+        )
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+
+
+@api.get("/v1/analysis/issue-profit")
+def issue_profit_analysis():
+    try:
+        return ok(
+            IssueProfitAnalysisService(current_app.config).analysis(
+                start_value=request.args.get("startDate"),
+                end_value=request.args.get("endDate"),
             )
         )
     except ValueError as error:

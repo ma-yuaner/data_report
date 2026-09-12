@@ -34,6 +34,48 @@ export interface OverviewData {
   notes: string[]
 }
 
+export interface IssueProfitSummary {
+  issueCount: number
+  segmentCount: number
+  profit: number
+  averageProfit: number
+  lossCount: number
+  lossRate: number
+  profitCount: number
+  zeroProfitCount: number
+}
+
+export interface DimensionProfitItem {
+  name: string
+  count: number
+  profit: number
+}
+
+export interface FieldCompletenessItem {
+  field: string
+  label: string
+  usage: string
+  nonNullCount: number
+  totalCount: number
+  rate: number
+  state: 'ready' | 'partial' | 'missing'
+}
+
+export interface IssueProfitAnalysisData {
+  mode: 'mock' | 'live'
+  source: string
+  available: boolean
+  error: string | null
+  generatedAt: string
+  cacheHit: boolean
+  period: { startDate: string; endDate: string }
+  summary: IssueProfitSummary | null
+  trend: { granularity: 'day' | 'month'; items: Array<{ period: string; count: number; profit: number }> }
+  dimensions: Record<'platform' | 'airline' | 'supplier' | 'organization', DimensionProfitItem[]>
+  completeness: FieldCompletenessItem[]
+  coverageSummary: { averageRate: number; ready: number; partial: number; missing: number; total: number } | null
+}
+
 export interface IssueItem {
   id: string
   category: string
@@ -55,6 +97,11 @@ export interface CoverageItem {
 
 export async function getOverview(params?: { startDate: string; endDate: string }) {
   const response = await http.get<ApiEnvelope<OverviewData>>('/v1/dashboard/overview', { params })
+  return response.data.data
+}
+
+export async function getIssueProfitAnalysis(params: { startDate: string; endDate: string }) {
+  const response = await http.get<ApiEnvelope<IssueProfitAnalysisData>>('/v1/analysis/issue-profit', { params })
   return response.data.data
 }
 
