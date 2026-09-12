@@ -76,6 +76,70 @@ export interface IssueProfitAnalysisData {
   coverageSummary: { averageRate: number; ready: number; partial: number; missing: number; total: number } | null
 }
 
+export type BusinessProfitType = 'refund' | 'change' | 'ancillary'
+
+export interface BusinessProfitAnalysisData {
+  mode: 'mock' | 'live'
+  source: string
+  available: boolean
+  error: string | null
+  generatedAt: string
+  cacheHit: boolean
+  business: {
+    key: BusinessProfitType
+    name: string
+    countLabel: string
+    segmentLabel: string | null
+    timeField: string
+    profitField: string
+    conditionLabel: string
+  }
+  period: { startDate: string; endDate: string }
+  summary: {
+    count: number
+    segmentCount: number | null
+    profit: number
+    averageProfit: number
+    negativeCount: number
+    negativeRate: number
+  } | null
+  trend: {
+    granularity: 'day' | 'month'
+    items: Array<{ period: string; count: number; segmentCount: number | null; profit: number; negativeCount: number }>
+  }
+}
+
+export interface DataAssetItem {
+  key: 'issue' | BusinessProfitType
+  domain: string
+  database: string
+  table: string
+  timeField: string
+  columnCount: number
+  metrics: string[]
+  condition: string
+  state: 'configured' | 'ready' | 'empty' | 'warning' | 'error'
+  latestDataTime: string | null
+  error: string | null
+}
+
+export interface MetricDefinitionItem {
+  name: string
+  formula: string
+  timeField: string
+  stage: string
+  status: 'current'
+}
+
+export interface AssetCatalogData {
+  mode: 'mock' | 'live'
+  source: string
+  generatedAt: string
+  cacheHit: boolean
+  assets: DataAssetItem[]
+  metrics: MetricDefinitionItem[]
+}
+
 export interface IssueItem {
   id: string
   category: string
@@ -102,6 +166,16 @@ export async function getOverview(params?: { startDate: string; endDate: string 
 
 export async function getIssueProfitAnalysis(params: { startDate: string; endDate: string }) {
   const response = await http.get<ApiEnvelope<IssueProfitAnalysisData>>('/v1/analysis/issue-profit', { params })
+  return response.data.data
+}
+
+export async function getBusinessProfitAnalysis(businessType: BusinessProfitType, params: { startDate: string; endDate: string }) {
+  const response = await http.get<ApiEnvelope<BusinessProfitAnalysisData>>(`/v1/analysis/business-profit/${businessType}`, { params })
+  return response.data.data
+}
+
+export async function getAssetCatalog() {
+  const response = await http.get<ApiEnvelope<AssetCatalogData>>('/v1/assets/catalog')
   return response.data.data
 }
 

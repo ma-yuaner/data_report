@@ -29,6 +29,7 @@
 - 开发出票利润分析和检查字段齐全度：阅读 [issue-profit-analysis.md](issue-profit-analysis.md)
 - 开发数据模型、SQL、宽表或看板：阅读 [data-model.md](data-model.md) 和 [analysis-rules.md](analysis-rules.md)
 - 设计数据中心菜单和 MVP 页面：阅读 [mvp-menu-architecture.md](mvp-menu-architecture.md)
+- 查看当前 M1 已实现的数据表、指标和页面边界：阅读 [m1-core-framework.md](m1-core-framework.md)
 - 查询术语：阅读 [glossary.md](glossary.md)
 - 判断现有材料能否直接使用：阅读 [open-questions.md](open-questions.md)
 - 追溯本次会议输入：阅读 [sources/2026-09-11-meeting.md](sources/2026-09-11-meeting.md)

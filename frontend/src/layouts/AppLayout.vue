@@ -20,11 +20,12 @@
         <a-sub-menu key="analysis">
           <template #icon><LineChartOutlined /></template>
           <template #title>业务分析</template>
-          <a-menu-item key="/analysis/profit">利润分析</a-menu-item>
-          <a-menu-item key="/analysis/lifecycle">机票全链路</a-menu-item>
+          <a-menu-item key="/analysis/issue">出票分析</a-menu-item>
+          <a-menu-item key="/analysis/refund">退票分析</a-menu-item>
+          <a-menu-item key="/analysis/change">改签分析</a-menu-item>
+          <a-menu-item key="/analysis/ancillary">增值分析</a-menu-item>
         </a-sub-menu>
-        <a-menu-item key="/issues"><template #icon><AlertOutlined /></template>异常工作台</a-menu-item>
-        <a-menu-item key="/assets"><template #icon><DatabaseOutlined /></template>数据资产</a-menu-item>
+        <a-menu-item key="/data-assets"><template #icon><DatabaseOutlined /></template>数据资产</a-menu-item>
       </a-menu>
 
       <div v-if="!appStore.collapsed" class="sidebar-note">
@@ -47,19 +48,8 @@
           </a-breadcrumb>
         </div>
         <div class="header-actions">
-          <a-input class="global-search" placeholder="搜索订单、票号或指标" allow-clear>
-            <template #prefix><SearchOutlined /></template>
-          </a-input>
-          <a-button type="text" class="header-icon" aria-label="切换主题" @click="appStore.toggleTheme">
-            <BulbOutlined />
-          </a-button>
-          <a-badge dot><BellOutlined class="header-bell" /></a-badge>
-          <a-dropdown>
-            <div class="user-entry"><a-avatar size="small">数</a-avatar><span>数据管理员</span><DownOutlined /></div>
-            <template #overlay>
-              <a-menu><a-menu-item>个人设置</a-menu-item><a-menu-item>系统管理</a-menu-item><a-menu-divider /><a-menu-item>退出登录</a-menu-item></a-menu>
-            </template>
-          </a-dropdown>
+          <a-tag color="blue">业务估算利润</a-tag>
+          <div class="user-entry"><a-avatar size="small">数</a-avatar><span>数据管理员</span></div>
         </div>
       </a-layout-header>
 
@@ -72,9 +62,8 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  AlertOutlined, BarChartOutlined, BellOutlined, BulbOutlined, DashboardOutlined,
-  DatabaseOutlined, DownOutlined, LineChartOutlined, MenuFoldOutlined,
-  MenuUnfoldOutlined, SafetyCertificateOutlined, SearchOutlined,
+  BarChartOutlined, DashboardOutlined, DatabaseOutlined, LineChartOutlined,
+  MenuFoldOutlined, MenuUnfoldOutlined, SafetyCertificateOutlined,
 } from '@ant-design/icons-vue'
 import type { MenuProps } from 'ant-design-vue'
 import { useAppStore } from '@/stores/app'
@@ -82,7 +71,7 @@ import { useAppStore } from '@/stores/app'
 const appStore = useAppStore()
 const route = useRoute()
 const router = useRouter()
-const selectedKeys = computed(() => [route.path])
+const selectedKeys = computed(() => [route.path === '/analysis/profit' ? '/analysis/issue' : route.path])
 const openKeys = computed(() => route.path.startsWith('/analysis') ? ['analysis'] : [])
 
 const handleMenuClick: MenuProps['onClick'] = ({ key }) => {

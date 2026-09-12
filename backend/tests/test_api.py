@@ -34,6 +34,25 @@ def test_issue_profit_demo_contains_analysis_and_coverage(client):
     assert set(payload["dimensions"]) == {"platform", "airline", "supplier", "organization"}
 
 
+def test_business_profit_pages_share_a_stable_contract(client):
+    for business_type in ("refund", "change", "ancillary"):
+        response = client.get(f"/api/v1/analysis/business-profit/{business_type}?startDate=2026-01-01&endDate=2026-09-12")
+        assert response.status_code == 200
+        payload = response.get_json()["data"]
+        assert payload["business"]["key"] == business_type
+        assert payload["summary"]["count"] > 0
+        assert payload["trend"]["items"]
+
+
+def test_asset_catalog_exposes_real_tables_and_metric_definitions(client):
+    response = client.get("/api/v1/assets/catalog")
+    assert response.status_code == 200
+    payload = response.get_json()["data"]
+    assert len(payload["assets"]) == 4
+    assert {item["key"] for item in payload["assets"]} == {"issue", "refund", "change", "ancillary"}
+    assert any(item["name"] == "总预估利润" for item in payload["metrics"])
+
+
 def test_coverage_distinguishes_missing_from_zero(client):
     response = client.get("/api/v1/assets/coverage")
     items = response.get_json()["data"]["items"]
