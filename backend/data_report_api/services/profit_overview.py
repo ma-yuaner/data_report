@@ -67,7 +67,7 @@ METRICS = (
         "segmentLabel": "增值航段数",
         "timeField": "create_time",
         "sql": """
-            SELECT count(1), coalesce(sum(flight_segment), 0), coalesce(sum(profit), 0)
+            SELECT count(1), coalesce(sum(flight_num), 0), coalesce(sum(profit), 0)
             FROM {database}.dwd_aux_pur_year
             WHERE aux_status = '已购买'
               AND create_time >= '{start_at}'
