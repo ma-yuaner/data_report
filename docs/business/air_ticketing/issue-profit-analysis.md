@@ -46,8 +46,10 @@ Hive 时间使用 `issue_ticket_time`，MySQL 时间使用 `operator_date`；页
 
 2026-09-14 只读结构检查确认，经营总览所需的 `operator_date`、`segment_num`、`issue_profit`、出票状态及退票标记字段已经具备，因此出票核心数量和利润汇总能够查询。
 
-出票分析当前还缺少以下 11 个 Hive 同名分析字段：
+首次检查时，出票分析缺少以下 11 个 Hive 同名分析字段：
 
 `order_id`、`ota_site_cname`、`marketing_airline`、`issue_supplier_cname`、`org_cname`、`issue_operator`、`policy_operator`、`issue_ticketing_office_no`、`dep_city`、`arr_city`、`issue_way_desc`。
 
-其中 `air_line`、`supplier_name`、`pcc_code`、`dep_city_name`、`arr_city_name` 可能分别对应部分缺失字段，但在用户或数据模型明确确认前只视为候选映射，不能直接替换。当前接口首先报错的是 `Unknown column 'order_id'`；由于核心汇总与字段齐全度仍在同一条 SQL 中，任一扩展字段缺失会使整个出票分析页面不可用。
+用户随后说明上述字段已补充。2026-09-14 再次检查当前 MySQL 表的 51 个字段，确认 `order_id`、`ota_site_cname`、`org_cname`、`issue_operator`、`policy_operator`、`issue_way_desc` 已按同名字段增加，但仍未发现 `marketing_airline`、`issue_supplier_cname`、`issue_ticketing_office_no`、`dep_city`、`arr_city`，接口当前报错为 `Unknown column 'marketing_airline'`。
+
+表内已有 `air_line`、`supplier_name`、`pcc_code`、`dep_city_name`、`arr_city_name`，它们可能分别对应上述 5 个缺失字段，但用户陈述与数据库结构尚未完全一致。在用户或数据模型明确确认前只视为候选映射，不能直接替换。由于核心汇总与字段齐全度仍在同一条 SQL 中，任一扩展字段缺失会使整个出票分析页面不可用。
