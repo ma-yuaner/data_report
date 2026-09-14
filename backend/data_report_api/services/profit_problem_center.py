@@ -93,13 +93,14 @@ class ProfitProblemCenterService:
         items: list[dict[str, Any]] = []
         try:
             for definition in PROBLEM_DEFINITIONS:
-                sql = self._query(definition, source, start_at, end_at)
                 cursor = connection.cursor()
                 try:
-                    cursor.execute(sql)
+                    cursor.execute(self._summary_query(definition, source, start_at, end_at))
+                    summary_row = cursor.fetchone()
+                    total_count = int(summary_row[0] or 0)
+                    loss_amount = abs(float(summary_row[1] or 0))
+                    cursor.execute(self._query(definition, source, start_at, end_at))
                     rows = cursor.fetchall()
-                    total_count = int(rows[0][9] or 0) if rows else 0
-                    loss_amount = abs(float(rows[0][10] or 0)) if rows else 0
                     businesses.append({
                         "key": definition["key"], "name": definition["name"],
                         "negativeCount": total_count, "lossAmount": _number(loss_amount),
@@ -149,6 +150,18 @@ class ProfitProblemCenterService:
         }
 
     @staticmethod
+    def _summary_query(definition: dict[str, Any], source: DataSource, start_at: str, end_at: str) -> str:
+        spec = source.table(definition["key"])
+        return f"""
+            SELECT count(1), coalesce(sum({definition['profitField']}), 0)
+            FROM {source.qualified_table(definition['key'])}
+            WHERE {spec.time_field} >= '{start_at}'
+              AND {spec.time_field} < '{end_at}'
+              AND {definition['condition']}
+              AND {definition['profitField']} < 0
+        """
+
+    @staticmethod
     def _query(definition: dict[str, Any], source: DataSource, start_at: str, end_at: str) -> str:
         spec = source.table(definition["key"])
         expressions = {
@@ -157,28 +170,22 @@ class ProfitProblemCenterService:
             if isinstance(value, str)
         }
         return f"""
-            SELECT event_id, order_no, ticket_no, platform, supplier, airline, operator_name,
-                   occurred_at, profit_value, total_count, total_profit
-            FROM (
-                SELECT
-                    {expressions['eventId']} as event_id,
-                    {expressions['orderNo']} as order_no,
-                    {expressions['ticketNo']} as ticket_no,
-                    {expressions['platform']} as platform,
-                    {expressions['supplier']} as supplier,
-                    {expressions['airline']} as airline,
-                    {expressions['operator']} as operator_name,
-                    {spec.time_field} as occurred_at,
-                    {definition['profitField']} as profit_value,
-                    count(1) over() as total_count,
-                    sum({definition['profitField']}) over() as total_profit
-                FROM {source.qualified_table(definition['key'])}
-                WHERE {spec.time_field} >= '{start_at}'
-                  AND {spec.time_field} < '{end_at}'
-                  AND {definition['condition']}
-                  AND {definition['profitField']} < 0
-            ) loss_records
-            ORDER BY profit_value ASC
+            SELECT
+                {expressions['eventId']} as event_id,
+                {expressions['orderNo']} as order_no,
+                {expressions['ticketNo']} as ticket_no,
+                {expressions['platform']} as platform,
+                {expressions['supplier']} as supplier,
+                {expressions['airline']} as airline,
+                {expressions['operator']} as operator_name,
+                {spec.time_field} as occurred_at,
+                {definition['profitField']} as profit_value
+            FROM {source.qualified_table(definition['key'])}
+            WHERE {spec.time_field} >= '{start_at}'
+              AND {spec.time_field} < '{end_at}'
+              AND {definition['condition']}
+              AND {definition['profitField']} < 0
+            ORDER BY {definition['profitField']} ASC
             LIMIT 20
         """
 

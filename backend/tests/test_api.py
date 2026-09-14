@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from data_report_api.services.business_profit_analysis import BUSINESS_DEFINITIONS
+from data_report_api.services.asset_catalog import REQUIRED_FIELDS
 from data_report_api.services.data_source import DataSource, TABLE_SPECS, data_mode
 from data_report_api.services.profit_overview import METRICS
 from data_report_api.services.profit_problem_center import PROBLEM_DEFINITIONS, ProfitProblemCenterService
@@ -50,6 +51,7 @@ def test_mysql_is_mapped_to_sibebid_bi_tables_and_operator_date():
     assert source.table("change").table == "bi_change_issue_year"
     assert source.table("ancillary").table == "bi_aux_pur_year"
     assert source.period_expression("operator_date", "day") == "date_format(operator_date, '%Y-%m-%d')"
+    assert "issue_profit" in REQUIRED_FIELDS["issue"]
 
 
 def test_hive_switch_retains_authoritative_tables_and_dialect():
@@ -79,6 +81,12 @@ def test_problem_query_uses_mysql_table_time_and_cast_dialect():
     assert "operator_date >= '2026-09-14 00:00:00'" in sql
     assert "cast(id as char)" in sql
     assert "as string" not in sql
+    assert "over()" not in sql
+    summary_sql = ProfitProblemCenterService._summary_query(
+        PROBLEM_DEFINITIONS[0], source, "2026-09-14 00:00:00", "2026-09-15 00:00:00"
+    )
+    assert "count(1)" in summary_sql
+    assert "sum(issue_profit)" in summary_sql
 
 
 def test_issue_profit_demo_contains_analysis_and_coverage(client):

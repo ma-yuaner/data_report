@@ -22,6 +22,13 @@ ASSETS = (
     {"key": "ancillary", "domain": "增值", "hiveColumnCount": 45, "metrics": ["增值数", "增值航段数", "增值利润"], "condition": "增值状态为已购买"},
 )
 
+REQUIRED_FIELDS = {
+    "issue": {"operator_date", "segment_num", "issue_profit", "order_status", "issue_status", "refund_flag", "refund_issue_flag"},
+    "refund": {"apply_datetime", "refund_profit", "business_type_desc", "supplier_refund_operator"},
+    "change": {"change_issue_time", "change_profit"},
+    "ancillary": {"create_time", "profit", "flight_num", "aux_status"},
+}
+
 METRICS = (
     {"name": "总预估利润", "formula": "出票利润 + 退票利润 + 改签利润 + 增值利润", "timeField": "各业务发生时间", "stage": "业务估算", "status": "current"},
     {"name": "出票预估利润", "formula": "sum(issue_profit)", "timeField": "issue_ticket_time", "stage": "业务估算", "status": "current"},
@@ -103,12 +110,15 @@ class AssetCatalogService:
             for item in result["assets"]:
                 cursor = connection.cursor()
                 try:
+                    missing_fields: list[str] = []
                     cursor.execute(f"SELECT max({item['timeField']}) FROM {source.database}.{item['table']}")
                     row = cursor.fetchone()
                     item["latestDataTime"] = str(row[0]) if row and row[0] else None
                     if source.mode == "mysql":
                         cursor.execute(f"SHOW COLUMNS FROM {source.database}.{item['table']}")
-                        item["columnCount"] = len(cursor.fetchall())
+                        columns = {str(column[0]) for column in cursor.fetchall()}
+                        item["columnCount"] = len(columns)
+                        missing_fields = sorted(REQUIRED_FIELDS[item["key"]] - columns)
                     if not item["latestDataTime"]:
                         item["state"] = "empty"
                     else:
@@ -121,6 +131,8 @@ class AssetCatalogService:
                                 item.update({"state": "warning", "error": f"{item['timeField']}存在未来日期，请检查源数据"})
                             else:
                                 item["state"] = "ready"
+                    if missing_fields:
+                        item.update({"state": "warning", "error": f"缺少看板必要字段：{', '.join(missing_fields)}"})
                 except Exception:
                     LOGGER.exception("Asset status query failed: %s", item["key"])
                     item.update({"state": "error", "error": "更新状态查询失败"})
