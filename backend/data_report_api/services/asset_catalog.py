@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import logging
-import re
 import threading
 import time
 from copy import deepcopy
 from datetime import datetime, timedelta
 from typing import Any
+
+from .data_source import DataSource, TABLE_SPECS, data_mode, is_live_mode
 
 
 LOGGER = logging.getLogger(__name__)
@@ -15,10 +16,10 @@ _CACHE_LOCK = threading.Lock()
 
 
 ASSETS = (
-    {"key": "issue", "domain": "出票", "table": "dwd_order_issue_wide_year", "timeField": "issue_ticket_time", "columnCount": 204, "metrics": ["出票数", "航段数", "出票预估利润"], "condition": "已出票、出票更新完成、排除指定退票状态"},
-    {"key": "refund", "domain": "退票", "table": "dwd_refund_issue_year", "timeField": "apply_datetime", "columnCount": 135, "metrics": ["退票数", "退票利润"], "condition": "正常退票或售后退票作废，且供应退款操作人不为空"},
-    {"key": "change", "domain": "改签", "table": "dwd_change_issue_year", "timeField": "change_issue_time", "columnCount": 89, "metrics": ["改签数", "改签利润"], "condition": "按改签出票时间统计"},
-    {"key": "ancillary", "domain": "增值", "table": "dwd_aux_pur_year", "timeField": "create_time", "columnCount": 45, "metrics": ["增值数", "增值航段数", "增值利润"], "condition": "增值状态为已购买"},
+    {"key": "issue", "domain": "出票", "hiveColumnCount": 204, "metrics": ["出票数", "航段数", "出票预估利润"], "condition": "已出票、出票更新完成、排除指定退票状态"},
+    {"key": "refund", "domain": "退票", "hiveColumnCount": 135, "metrics": ["退票数", "退票利润"], "condition": "正常退票或售后退票作废，且供应退款操作人不为空"},
+    {"key": "change", "domain": "改签", "hiveColumnCount": 89, "metrics": ["改签数", "改签利润"], "condition": "按改签出票时间统计"},
+    {"key": "ancillary", "domain": "增值", "hiveColumnCount": 45, "metrics": ["增值数", "增值航段数", "增值利润"], "condition": "增值状态为已购买"},
 )
 
 METRICS = (
@@ -50,8 +51,9 @@ class AssetCatalogService:
         self.config = config
 
     def catalog(self) -> dict[str, Any]:
-        mode = str(self.config.get("DATA_MODE", "mock")).lower()
-        cache_key = (mode, str(self.config.get("HIVE_DATABASE", "lywz")))
+        mode = data_mode(self.config)
+        source = DataSource(self.config) if is_live_mode(mode) else None
+        cache_key = (mode, source.database if source else str(self.config.get("MYSQL_DATABASE", "sibebid")))
         ttl = max(int(self.config.get("PROFIT_CACHE_TTL", 300)) * 2, 300)
         with _CACHE_LOCK:
             cached = _CACHE.get(cache_key)
@@ -59,45 +61,54 @@ class AssetCatalogService:
                 result = deepcopy(cached[1])
                 result["cacheHit"] = True
                 return result
-        result = self._live_catalog() if mode == "hive" else self._base_catalog("mock")
+        result = self._live_catalog(source) if source else self._base_catalog("mock", None)
         with _CACHE_LOCK:
             _CACHE[cache_key] = (time.monotonic(), deepcopy(result))
         return result
 
-    def _base_catalog(self, mode: str) -> dict[str, Any]:
+    def _base_catalog(self, mode: str, source: DataSource | None) -> dict[str, Any]:
+        source_mode = source.mode if source else "mysql"
+        database = source.database if source else str(self.config.get("MYSQL_DATABASE", "sibebid"))
         assets = []
         for definition in ASSETS:
             item = deepcopy(definition)
-            item.update({"database": self.config.get("HIVE_DATABASE", "lywz"), "state": "configured" if mode == "mock" else "ready", "latestDataTime": None, "error": None})
+            spec = TABLE_SPECS[source_mode][definition["key"]]
+            item.pop("hiveColumnCount", None)
+            item.update({
+                "database": database,
+                "table": spec.table,
+                "timeField": spec.time_field,
+                "columnCount": definition["hiveColumnCount"] if source_mode == "hive" else None,
+                "state": "configured" if mode == "mock" else "ready",
+                "latestDataTime": None,
+                "error": None,
+            })
             assets.append(item)
-        return {"mode": mode, "source": "Hive" if mode == "live" else "配置清单", "generatedAt": datetime.now().astimezone().isoformat(timespec="seconds"), "cacheHit": False, "assets": assets, "metrics": deepcopy(METRICS), "analyses": deepcopy(ANALYSIS_DOMAINS), "analysisTaskCount": sum(item["taskCount"] for item in ANALYSIS_DOMAINS)}
+        metrics = deepcopy(METRICS)
+        for metric in metrics:
+            if metric["name"] == "出票预估利润":
+                metric["timeField"] = TABLE_SPECS[source_mode]["issue"].time_field
+        return {"mode": mode, "source": source.label if source else "配置清单", "generatedAt": datetime.now().astimezone().isoformat(timespec="seconds"), "cacheHit": False, "assets": assets, "metrics": metrics, "analyses": deepcopy(ANALYSIS_DOMAINS), "analysisTaskCount": sum(item["taskCount"] for item in ANALYSIS_DOMAINS)}
 
-    def _connect(self):
-        host = str(self.config.get("HIVE_HOST", "")).strip()
-        user = str(self.config.get("HIVE_USER", "")).strip()
-        database = str(self.config.get("HIVE_DATABASE", "lywz")).strip()
-        if not host or not user or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", database):
-            raise RuntimeError("Hive连接配置不完整")
-        from pyhive import hive
-        return hive.connect(host=host, port=int(self.config.get("HIVE_PORT", 10000)), database=database, username=user, password=str(self.config.get("HIVE_PASSWORD", "")) or None, auth=str(self.config.get("HIVE_AUTH", "NONE")))
-
-    def _live_catalog(self) -> dict[str, Any]:
-        result = self._base_catalog("live")
-        database = str(self.config.get("HIVE_DATABASE", "lywz"))
+    def _live_catalog(self, source: DataSource) -> dict[str, Any]:
+        result = self._base_catalog("live", source)
         try:
-            connection = self._connect()
+            connection = source.connect()
         except Exception:
-            LOGGER.exception("Asset catalog Hive connection failed")
+            LOGGER.exception("Asset catalog %s connection failed", source.engine_label)
             for item in result["assets"]:
-                item.update({"state": "error", "error": "Hive连接失败"})
+                item.update({"state": "error", "error": f"{source.engine_label}连接失败"})
             return result
         try:
             for item in result["assets"]:
                 cursor = connection.cursor()
                 try:
-                    cursor.execute(f"SELECT max({item['timeField']}) FROM {database}.{item['table']}")
+                    cursor.execute(f"SELECT max({item['timeField']}) FROM {source.database}.{item['table']}")
                     row = cursor.fetchone()
                     item["latestDataTime"] = str(row[0]) if row and row[0] else None
+                    if source.mode == "mysql":
+                        cursor.execute(f"SHOW COLUMNS FROM {source.database}.{item['table']}")
+                        item["columnCount"] = len(cursor.fetchall())
                     if not item["latestDataTime"]:
                         item["state"] = "empty"
                     else:

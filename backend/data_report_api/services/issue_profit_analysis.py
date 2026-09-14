@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import re
 import threading
 import time
 from copy import deepcopy
@@ -9,6 +8,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
+from .data_source import DataSource, data_mode, is_live_mode
 from .profit_overview import _period
 
 
@@ -43,7 +43,7 @@ def _number(value: Any) -> int | float | None:
     return value
 
 
-def _base_where(start: date, end: date) -> str:
+def _base_where(start: date, end: date, time_field: str) -> str:
     start_at = f"{start.isoformat()} 00:00:00"
     end_at = f"{(end + timedelta(days=1)).isoformat()} 00:00:00"
     return f"""
@@ -51,8 +51,8 @@ def _base_where(start: date, end: date) -> str:
         AND issue_status = 'I_UPDATED'
         AND refund_flag <> 3
         AND refund_issue_flag = '否'
-        AND issue_ticket_time >= '{start_at}'
-        AND issue_ticket_time < '{end_at}'
+        AND {time_field} >= '{start_at}'
+        AND {time_field} < '{end_at}'
     """
 
 
@@ -70,7 +70,7 @@ class IssueProfitAnalysisService:
 
     def analysis(self, start_value: str | None, end_value: str | None) -> dict[str, Any]:
         start, end = _period(start_value, end_value)
-        mode = str(self.config.get("DATA_MODE", "mock")).lower()
+        mode = data_mode(self.config)
         cache_key = (mode, start.isoformat(), end.isoformat())
         ttl = max(int(self.config.get("PROFIT_CACHE_TTL", 300)), 0)
         with _CACHE_LOCK:
@@ -80,45 +80,26 @@ class IssueProfitAnalysisService:
                 result["cacheHit"] = True
                 return result
 
-        result = self._fetch_hive(start, end) if mode == "hive" else self._mock_result(start, end)
+        source = DataSource(self.config) if is_live_mode(mode) else None
+        result = self._fetch_live(source, start, end) if source else self._mock_result(start, end)
         with _CACHE_LOCK:
             _CACHE[cache_key] = (time.monotonic(), deepcopy(result))
         return result
 
-    def _connect(self):
-        host = str(self.config.get("HIVE_HOST", "")).strip()
-        user = str(self.config.get("HIVE_USER", "")).strip()
-        database = str(self.config.get("HIVE_DATABASE", "lywz")).strip()
-        if not host or not user:
-            raise RuntimeError("Hive连接配置不完整")
-        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", database):
-            raise RuntimeError("Hive库名配置不合法")
-        from pyhive import hive
-
-        return hive.connect(
-            host=host,
-            port=int(self.config.get("HIVE_PORT", 10000)),
-            database=database,
-            username=user,
-            password=str(self.config.get("HIVE_PASSWORD", "")) or None,
-            auth=str(self.config.get("HIVE_AUTH", "NONE")),
-        )
-
-    def _fetch_hive(self, start: date, end: date) -> dict[str, Any]:
-        database = str(self.config.get("HIVE_DATABASE", "lywz")).strip()
+    def _fetch_live(self, source: DataSource, start: date, end: date) -> dict[str, Any]:
         generated_at = datetime.now().astimezone().isoformat(timespec="seconds")
         try:
-            connection = self._connect()
+            connection = source.connect()
             try:
-                summary, completeness = self._summary_and_completeness(connection, database, start, end)
-                trend = self._trend(connection, database, start, end)
-                dimensions = self._dimensions(connection, database, start, end)
+                summary, completeness = self._summary_and_completeness(connection, source, start, end)
+                trend = self._trend(connection, source, start, end)
+                dimensions = self._dimensions(connection, source, start, end)
             finally:
                 connection.close()
         except Exception:
             LOGGER.exception("Issue profit analysis query failed")
             return {
-                "mode": "live", "source": f"Hive · {database}", "available": False,
+                "mode": "live", "source": source.label, "available": False,
                 "error": "出票利润分析查询失败", "generatedAt": generated_at, "cacheHit": False,
                 "period": {"startDate": start.isoformat(), "endDate": end.isoformat()},
                 "summary": None, "trend": {"granularity": "day", "items": []},
@@ -134,7 +115,7 @@ class IssueProfitAnalysisService:
             "total": len(completeness),
         }
         return {
-            "mode": "live", "source": f"Hive · {database}.dwd_order_issue_wide_year", "available": True,
+            "mode": "live", "source": f"{source.label}.{source.table('issue').table}", "available": True,
             "error": None, "generatedAt": generated_at, "cacheHit": False,
             "period": {"startDate": start.isoformat(), "endDate": end.isoformat()},
             "summary": summary, "trend": trend, "dimensions": dimensions,
@@ -142,7 +123,8 @@ class IssueProfitAnalysisService:
         }
 
     @staticmethod
-    def _summary_and_completeness(connection, database: str, start: date, end: date):
+    def _summary_and_completeness(connection, source: DataSource, start: date, end: date):
+        spec = source.table("issue")
         completeness_sql = ",\n".join(
             f"{_completeness_expression(field, kind)} as complete_{index}"
             for index, (field, _label, _usage, kind) in enumerate(FIELD_DEFINITIONS)
@@ -157,8 +139,8 @@ class IssueProfitAnalysisService:
                 sum(case when issue_profit = 0 then 1 else 0 end) as zero_profit_count,
                 sum(case when issue_profit is not null then 1 else 0 end) as profit_value_count,
                 {completeness_sql}
-            FROM {database}.dwd_order_issue_wide_year
-            WHERE {_base_where(start, end)}
+            FROM {source.qualified_table('issue')}
+            WHERE {_base_where(start, end, spec.time_field)}
         """
         cursor = connection.cursor()
         try:
@@ -190,13 +172,14 @@ class IssueProfitAnalysisService:
         return summary, completeness
 
     @staticmethod
-    def _trend(connection, database: str, start: date, end: date) -> dict[str, Any]:
+    def _trend(connection, source: DataSource, start: date, end: date) -> dict[str, Any]:
+        spec = source.table("issue")
         granularity = "month" if (end - start).days > 62 else "day"
-        expression = "substr(issue_ticket_time, 1, 7)" if granularity == "month" else "substr(issue_ticket_time, 1, 10)"
+        expression = source.period_expression(spec.time_field, granularity)
         sql = f"""
             SELECT {expression} as period_value, count(1), coalesce(sum(issue_profit), 0)
-            FROM {database}.dwd_order_issue_wide_year
-            WHERE {_base_where(start, end)}
+            FROM {source.qualified_table('issue')}
+            WHERE {_base_where(start, end, spec.time_field)}
             GROUP BY {expression}
             ORDER BY period_value
         """
@@ -212,43 +195,30 @@ class IssueProfitAnalysisService:
         }
 
     @staticmethod
-    def _dimensions(connection, database: str, start: date, end: date) -> dict[str, list[dict[str, Any]]]:
-        sql = f"""
-            WITH expanded AS (
-                SELECT dim_type,
-                       case when dim_value is null or trim(dim_value) = '' then '未填写' else dim_value end as dim_value,
-                       issue_profit
-                FROM (
-                    SELECT ota_cname, marketing_airline, issue_supplier_cname, org_cname, issue_profit
-                    FROM {database}.dwd_order_issue_wide_year
-                    WHERE {_base_where(start, end)}
-                ) base
-                LATERAL VIEW stack(
-                    4,
-                    'platform', ota_cname,
-                    'airline', marketing_airline,
-                    'supplier', issue_supplier_cname,
-                    'organization', org_cname
-                ) dimension_rows AS dim_type, dim_value
-            ), aggregated AS (
-                SELECT dim_type, dim_value, count(1) as issue_count, coalesce(sum(issue_profit), 0) as profit
-                FROM expanded
-                GROUP BY dim_type, dim_value
-            )
-            SELECT dim_type, dim_value, issue_count, profit
-            FROM aggregated
-            ORDER BY dim_type
-        """
-        cursor = connection.cursor()
-        try:
-            cursor.execute(sql)
-            rows = cursor.fetchall()
-        finally:
-            cursor.close()
+    def _dimensions(connection, source: DataSource, start: date, end: date) -> dict[str, list[dict[str, Any]]]:
+        spec = source.table("issue")
+        dimension_fields = {
+            "platform": "ota_cname",
+            "airline": "marketing_airline",
+            "supplier": "issue_supplier_cname",
+            "organization": "org_cname",
+        }
         result: dict[str, list[dict[str, Any]]] = {"platform": [], "airline": [], "supplier": [], "organization": []}
-        for row in rows:
-            result.setdefault(str(row[0]), []).append({"name": str(row[1]), "count": int(row[2] or 0), "profit": _number(row[3] or 0)})
-        for key, items in result.items():
+        for key, field in dimension_fields.items():
+            normalized = f"case when {field} is null or trim({field}) = '' then '未填写' else {field} end"
+            sql = f"""
+                SELECT {normalized} as dim_value, count(1), coalesce(sum(issue_profit), 0)
+                FROM {source.qualified_table('issue')}
+                WHERE {_base_where(start, end, spec.time_field)}
+                GROUP BY {normalized}
+            """
+            cursor = connection.cursor()
+            try:
+                cursor.execute(sql)
+                rows = cursor.fetchall()
+            finally:
+                cursor.close()
+            items = [{"name": str(row[0]), "count": int(row[1] or 0), "profit": _number(row[2] or 0)} for row in rows]
             result[key] = sorted(items, key=lambda item: abs(float(item["profit"] or 0)), reverse=True)[:8]
         return result
 

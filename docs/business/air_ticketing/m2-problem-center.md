@@ -1,6 +1,6 @@
 # M2 经营问题中心
 
-更新时间：2026-09-12
+更新时间：2026-09-14
 
 状态：已实现；业务估算口径
 
@@ -12,7 +12,7 @@
 
 | 业务 | 时间字段 | 利润字段 | 业务过滤 |
 |---|---|---|---|
-| 出票 | `issue_ticket_time` | `issue_profit < 0` | 与经营总览出票口径一致 |
+| 出票 | MySQL `operator_date` / Hive `issue_ticket_time` | `issue_profit < 0` | 与经营总览出票口径一致 |
 | 退票 | `apply_datetime` | `refund_profit < 0` | 允许的 `business_type_desc` 且供应退款操作人不为空 |
 | 改签 | `change_issue_time` | `change_profit < 0` | 与经营总览改签口径一致 |
 | 增值 | `create_time` | `profit < 0` | `aux_status='已购买'` |
@@ -33,4 +33,5 @@
 - 每类业务使用一次按日期过滤的窗口聚合查询，同时获得总量和 Top 明细；
 - 默认今日，避免首屏扫描全年；
 - API 使用短时缓存；
+- 当前默认读取 MySQL，必要时人工切回 Hive，不进行跨源自动补数；
 - 后续高频访问或历史范围变慢时，再将每日问题汇总写入 MySQL ADS，API契约保持不变。

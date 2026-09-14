@@ -1,7 +1,7 @@
 # M1 核心数据框架
 
-更新时间：2026-09-12  
-状态：已实现并通过 Hive 实际查询验证  
+更新时间：2026-09-14
+状态：Hive 路径已验证；MySQL 默认路径已实现，数据待同步完成后验证
 口径阶段：业务估算，不代表财务已结算
 
 ## M1 要回答的问题
@@ -16,20 +16,21 @@
 | 页面 | 数据表 | 首版内容 |
 |---|---|---|
 | 经营总览 | 四张业务表 | 四类利润、业务量、总预估利润、时间切换 |
-| 出票分析 | `dwd_order_issue_wide_year` | 出票数、航段数、利润、亏损记录、趋势、四类维度、字段齐全度 |
-| 退票分析 | `dwd_refund_issue_year` | 退票数、利润、单笔利润、负利润记录、趋势 |
-| 改签分析 | `dwd_change_issue_year` | 改签数、利润、单笔利润、负利润记录、趋势 |
-| 增值分析 | `dwd_aux_pur_year` | 增值数、航段数、利润、单笔利润、负利润记录、趋势 |
+| 出票分析 | MySQL `bi_order_issue_year` / Hive `dwd_order_issue_wide_year` | 出票数、航段数、利润、亏损记录、趋势、四类维度、字段齐全度 |
+| 退票分析 | MySQL `bi_refund_issue_year` / Hive `dwd_refund_issue_year` | 退票数、利润、单笔利润、负利润记录、趋势 |
+| 改签分析 | MySQL `bi_change_issue_year` / Hive `dwd_change_issue_year` | 改签数、利润、单笔利润、负利润记录、趋势 |
+| 增值分析 | MySQL `bi_aux_pur_year` / Hive `dwd_aux_pur_year` | 增值数、航段数、利润、单笔利润、负利润记录、趋势 |
 | 数据资产 | 四张业务表 | 表字段数、可提供指标、过滤口径、最新业务时间、异常状态 |
 
 详细过滤条件以 [profit-overview.md](profit-overview.md) 为准。
 
 ## 技术边界
 
-- 页面只依赖 Flask API，不直接连接 Hive 或未来的 MySQL；
+- 页面只依赖 Flask API，不直接连接 MySQL 或 Hive；
 - 退票、改签、增值使用统一 API 输出结构；
-- 当前 Hive 查询按时间聚合，并启用短时缓存；
-- 后续简单高频指标进入 MySQL ADS，大数据量或复杂明细可继续保留 Hive；
+- 当前默认查询 MySQL `sibebid`，Hive 路径保留并作为最终解释来源；
+- 查询按时间聚合并启用短时缓存；简单高频指标可继续进入 MySQL ADS，大数据量或复杂明细可保留 Hive；
+- 数据源通过部署配置人工整体切换，不允许查询失败后跨源自动补数；
 - 切换数据源时保持 API 字段稳定，前端页面不随存储层重写。
 
 ## 当前发现的数据质量问题

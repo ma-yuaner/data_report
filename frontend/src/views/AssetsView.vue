@@ -5,7 +5,7 @@
     </PageHeader>
 
     <DataStateBar
-      :label="data?.mode === 'live' ? 'Hive实际资产' : '资产配置清单'"
+      :label="data?.mode === 'live' ? '实际数据资产' : '资产配置清单'"
       :message="data?.source ?? '正在读取数据资产'"
       :freshness="data ? `检查时间 ${data.generatedAt.slice(11, 19)}` : '检查中'"
       metric-state="当前有效口径"
@@ -34,6 +34,9 @@
                 </template>
                 <template v-else-if="column.key === 'latest'">
                   <span>{{ formatTime(record.latestDataTime) }}</span>
+                </template>
+                <template v-else-if="column.key === 'columnCount'">
+                  <span>{{ record.columnCount ?? '待同步确认' }}</span>
                 </template>
                 <template v-else-if="column.key === 'state'">
                   <a-tag :color="stateMeta(record.state).color">{{ stateMeta(record.state).label }}</a-tag>

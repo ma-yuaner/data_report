@@ -4,7 +4,7 @@
 
 ## 当前成熟度
 
-- 知识版本：`v0.1`
+- 知识版本：`v0.2`
 - 当前状态：会议纪要结构化完成，尚待业务、财务和数据负责人逐项确认
 - 可用于：业务理解、分析方案设计、数据盘点、指标讨论、看板原型
 - 暂不可直接用于：财务结算、正式绩效、合同判断、对外口径或自动化业务决策
@@ -26,6 +26,7 @@
 - 理解公司机票业务全流程：阅读 [business-model.md](business-model.md)
 - 计算或分析利润：阅读 [profit-model.md](profit-model.md) 和 [analysis-rules.md](analysis-rules.md)
 - 开发经营总览出退改增利润：阅读 [profit-overview.md](profit-overview.md)
+- 配置 MySQL 默认查询或临时切回 Hive：阅读 [data-source-switch.md](data-source-switch.md)
 - 开发出票利润分析和检查字段齐全度：阅读 [issue-profit-analysis.md](issue-profit-analysis.md)
 - 开发数据模型、SQL、宽表或看板：阅读 [data-model.md](data-model.md) 和 [analysis-rules.md](analysis-rules.md)
 - 设计数据中心菜单和 MVP 页面：阅读 [mvp-menu-architecture.md](mvp-menu-architecture.md)

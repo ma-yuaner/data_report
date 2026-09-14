@@ -115,7 +115,7 @@ export interface DataAssetItem {
   database: string
   table: string
   timeField: string
-  columnCount: number
+  columnCount: number | null
   metrics: string[]
   condition: string
   state: 'configured' | 'ready' | 'empty' | 'warning' | 'error'

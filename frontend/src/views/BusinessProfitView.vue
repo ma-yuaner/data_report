@@ -5,7 +5,7 @@
     </PageHeader>
 
     <DataStateBar
-      :label="data?.mode === 'live' ? 'Hive实际数据' : '演示数据'"
+      :label="data?.mode === 'live' ? '实际数据' : '演示数据'"
       :message="data?.source ?? `正在连接${meta.name}利润数据集`"
       :freshness="data ? `查询时间 ${data.generatedAt.slice(11, 19)}` : '查询中'"
       metric-state="业务估算口径"
@@ -54,7 +54,7 @@
       </template>
 
       <a-empty v-else-if="data && !loading" :description="`${meta.name}利润分析暂不可用`">
-        <a-alert type="error" show-icon :message="data.error ?? '请检查Hive连接和字段配置'" />
+        <a-alert type="error" show-icon :message="data.error ?? '请检查数据源连接和字段配置'" />
       </a-empty>
     </a-spin>
   </div>

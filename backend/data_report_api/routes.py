@@ -9,6 +9,7 @@ from .services.asset_catalog import AssetCatalogService
 from .services.business_profit_analysis import BusinessProfitAnalysisService
 from .services.issue_profit_analysis import IssueProfitAnalysisService
 from .services.profit_problem_center import ProfitProblemCenterService
+from .services.data_source import DataSource, data_mode, is_live_mode
 
 
 api = Blueprint("api", __name__)
@@ -20,11 +21,12 @@ def ok(data, message: str = "OK"):
 
 @api.get("/health")
 def health():
+    mode = data_mode(current_app.config)
     return ok(
         {
             "status": "UP",
             "service": "data-report-api",
-            "dataMode": current_app.config["DATA_MODE"],
+            "dataMode": mode,
             "time": datetime.now().astimezone().isoformat(timespec="seconds"),
         }
     )
@@ -32,15 +34,17 @@ def health():
 
 @api.get("/v1/meta")
 def meta():
-    is_live = str(current_app.config["DATA_MODE"]).lower() == "hive"
+    mode = data_mode(current_app.config)
+    source = DataSource(current_app.config) if is_live_mode(mode) else None
     return ok(
         {
             "productName": "企业数据中心",
             "businessDomain": "机票业务",
             "version": "0.1.0",
             "environment": current_app.config["APP_ENV"],
-            "dataMode": current_app.config["DATA_MODE"],
-            "disclaimer": "当前接入Hive实际业务数据，利润为业务估算口径，不代表财务结算。" if is_live else "当前为MVP演示数据，不代表正式经营或财务口径。",
+            "dataMode": mode,
+            "dataSource": source.label if source else "演示数据",
+            "disclaimer": f"当前接入{source.engine_label}实际业务数据，利润为业务估算口径，不代表财务结算。" if source else "当前为MVP演示数据，不代表正式经营或财务口径。",
         }
     )
 

@@ -5,7 +5,7 @@
     </PageHeader>
 
     <DataStateBar
-      :label="data?.mode === 'live' ? 'Hive实际数据' : '演示数据'"
+      :label="data?.mode === 'live' ? '实际数据' : '演示数据'"
       :message="data?.source ?? '正在检查经营问题'"
       :freshness="data ? `查询时间 ${data.generatedAt.slice(11, 19)}` : '查询中'"
       metric-state="业务估算负利润"
