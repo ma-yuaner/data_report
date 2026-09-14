@@ -1,8 +1,8 @@
 # 出票利润分析与字段齐全度
 
-更新时间：2026-09-12  
-来源：`lywz.dwd_order_issue_wide_year` Hive 表结构及只读聚合验证  
-状态：数据探索结果；利润仍属于业务估算口径
+更新时间：2026-09-14
+来源：`lywz.dwd_order_issue_wide_year` Hive 表结构及聚合验证；`sibebid.bi_order_issue_year` MySQL 只读结构检查
+状态：Hive 分析字段已验证；MySQL 核心汇总字段具备，扩展分析字段待同步或确认映射；利润仍属于业务估算口径
 
 ## 第一版分析范围
 
@@ -15,7 +15,7 @@ and refund_flag <> 3
 and refund_issue_flag = '否'
 ```
 
-时间使用 `issue_ticket_time`，页面支持今日、昨日、本月、本年和自定义闭区间。
+Hive 时间使用 `issue_ticket_time`，MySQL 时间使用 `operator_date`；页面支持今日、昨日、本月、本年和自定义闭区间。
 
 第一版回答：出票利润和业务量如何随时间变化，利润主要集中在哪些销售平台、航司、出票供应商和组织，以及这些分析所需字段的非空覆盖情况。
 
@@ -41,3 +41,13 @@ and refund_issue_flag = '否'
 - 非空率小于 80%：缺失严重。
 
 后续仍需检查“未知”“其他”等占位值、维度编码与名称的一致性、同一主体多名称、组织和人员历史变更，以及订单粒度是否存在重复。
+
+## MySQL 当前字段差异
+
+2026-09-14 只读结构检查确认，经营总览所需的 `operator_date`、`segment_num`、`issue_profit`、出票状态及退票标记字段已经具备，因此出票核心数量和利润汇总能够查询。
+
+出票分析当前还缺少以下 11 个 Hive 同名分析字段：
+
+`order_id`、`ota_site_cname`、`marketing_airline`、`issue_supplier_cname`、`org_cname`、`issue_operator`、`policy_operator`、`issue_ticketing_office_no`、`dep_city`、`arr_city`、`issue_way_desc`。
+
+其中 `air_line`、`supplier_name`、`pcc_code`、`dep_city_name`、`arr_city_name` 可能分别对应部分缺失字段，但在用户或数据模型明确确认前只视为候选映射，不能直接替换。当前接口首先报错的是 `Unknown column 'order_id'`；由于核心汇总与字段齐全度仍在同一条 SQL 中，任一扩展字段缺失会使整个出票分析页面不可用。
