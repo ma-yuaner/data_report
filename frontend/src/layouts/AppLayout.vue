@@ -25,6 +25,7 @@
           <a-menu-item key="/analysis/change">改签分析</a-menu-item>
           <a-menu-item key="/analysis/ancillary">增值分析</a-menu-item>
         </a-sub-menu>
+        <a-menu-item key="/risk-analysis"><template #icon><SafetyCertificateOutlined /></template>风控分析</a-menu-item>
         <a-menu-item key="/problems"><template #icon><WarningOutlined /></template>问题中心</a-menu-item>
         <a-menu-item key="/data-assets"><template #icon><DatabaseOutlined /></template>数据资产</a-menu-item>
       </a-menu>
