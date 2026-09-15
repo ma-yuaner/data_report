@@ -56,12 +56,15 @@ def _base_where(start: date, end: date, time_field: str) -> str:
     """
 
 
-def _completeness_expression(field: str, kind: str) -> str:
+def _completeness_expression(source: DataSource, field: str, kind: str) -> str:
+    physical_field = source.field("issue", field)
     if kind == "number":
-        return f"sum(case when {field} is not null then 1 else 0 end)"
+        return f"sum(case when {physical_field} is not null then 1 else 0 end)"
     if kind == "route":
-        return "sum(case when dep_city is not null and trim(dep_city) <> '' and arr_city is not null and trim(arr_city) <> '' then 1 else 0 end)"
-    return f"sum(case when {field} is not null and trim({field}) <> '' then 1 else 0 end)"
+        dep_city = source.field("issue", "dep_city")
+        arr_city = source.field("issue", "arr_city")
+        return f"sum(case when {dep_city} is not null and trim({dep_city}) <> '' and {arr_city} is not null and trim({arr_city}) <> '' then 1 else 0 end)"
+    return f"sum(case when {physical_field} is not null and trim({physical_field}) <> '' then 1 else 0 end)"
 
 
 class IssueProfitAnalysisService:
@@ -126,7 +129,7 @@ class IssueProfitAnalysisService:
     def _summary_and_completeness(connection, source: DataSource, start: date, end: date):
         spec = source.table("issue")
         completeness_sql = ",\n".join(
-            f"{_completeness_expression(field, kind)} as complete_{index}"
+            f"{_completeness_expression(source, field, kind)} as complete_{index}"
             for index, (field, _label, _usage, kind) in enumerate(FIELD_DEFINITIONS)
         )
         sql = f"""
@@ -197,14 +200,15 @@ class IssueProfitAnalysisService:
     @staticmethod
     def _dimensions(connection, source: DataSource, start: date, end: date) -> dict[str, list[dict[str, Any]]]:
         spec = source.table("issue")
-        dimension_fields = {
+        logical_dimension_fields = {
             "platform": "ota_cname",
             "airline": "marketing_airline",
             "supplier": "issue_supplier_cname",
             "organization": "org_cname",
         }
         result: dict[str, list[dict[str, Any]]] = {"platform": [], "airline": [], "supplier": [], "organization": []}
-        for key, field in dimension_fields.items():
+        for key, logical_field in logical_dimension_fields.items():
+            field = source.field("issue", logical_field)
             normalized = f"case when {field} is null or trim({field}) = '' then '未填写' else {field} end"
             sql = f"""
                 SELECT {normalized} as dim_value, count(1), coalesce(sum(issue_profit), 0)

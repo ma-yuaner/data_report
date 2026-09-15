@@ -50,6 +50,14 @@ Hive 时间使用 `issue_ticket_time`，MySQL 时间使用 `operator_date`；页
 
 `order_id`、`ota_site_cname`、`marketing_airline`、`issue_supplier_cname`、`org_cname`、`issue_operator`、`policy_operator`、`issue_ticketing_office_no`、`dep_city`、`arr_city`、`issue_way_desc`。
 
-用户随后说明上述字段已补充。2026-09-14 再次检查当前 MySQL 表的 51 个字段，确认 `order_id`、`ota_site_cname`、`org_cname`、`issue_operator`、`policy_operator`、`issue_way_desc` 已按同名字段增加，但仍未发现 `marketing_airline`、`issue_supplier_cname`、`issue_ticketing_office_no`、`dep_city`、`arr_city`，接口当前报错为 `Unknown column 'marketing_airline'`。
+用户随后说明上述字段已补充。2026-09-14 再次检查当前 MySQL 表的 51 个字段，确认 `order_id`、`ota_site_cname`、`org_cname`、`issue_operator`、`policy_operator`、`issue_way_desc` 已按同名字段增加，另外 5 个字段由用户明确确认使用 MySQL 物理字段映射：
 
-表内已有 `air_line`、`supplier_name`、`pcc_code`、`dep_city_name`、`arr_city_name`，它们可能分别对应上述 5 个缺失字段，但用户陈述与数据库结构尚未完全一致。在用户或数据模型明确确认前只视为候选映射，不能直接替换。由于核心汇总与字段齐全度仍在同一条 SQL 中，任一扩展字段缺失会使整个出票分析页面不可用。
+| 业务逻辑字段 | MySQL 物理字段 |
+|---|---|
+| `marketing_airline` | `air_line` |
+| `issue_supplier_cname` | `supplier_name` |
+| `issue_ticketing_office_no` | `pcc_code` |
+| `dep_city` | `dep_city_code` |
+| `arr_city` | `arr_city_code` |
+
+API 对外仍使用统一业务含义，只有 MySQL 查询层转换为上述物理字段；Hive 保持原字段不变。

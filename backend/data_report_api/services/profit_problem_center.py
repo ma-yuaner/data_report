@@ -169,6 +169,9 @@ class ProfitProblemCenterService:
             for key, value in definition.items()
             if isinstance(value, str)
         }
+        if definition["key"] == "issue":
+            expressions["supplier"] = source.field("issue", "issue_supplier_cname")
+            expressions["airline"] = source.field("issue", "marketing_airline")
         return f"""
             SELECT
                 {expressions['eventId']} as event_id,

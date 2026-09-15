@@ -34,6 +34,8 @@
 
 出票分析还会使用 `order_id`、平台/站点、航司、供应商、组织、出票员、政策员、PCC、出发到达城市和出票方式等维度字段。问题中心还会使用各业务的事件编号、订单号、票号、平台、供应商、航司和操作人字段。若这些扩展字段尚未同步，对应分析模块应显示不可用；经营总览的已具备指标不受影响。
 
+MySQL 出票分析已确认使用以下物理字段映射：`marketing_airline → air_line`、`issue_supplier_cname → supplier_name`、`issue_ticketing_office_no → pcc_code`、`dep_city → dep_city_code`、`arr_city → arr_city_code`。Hive 仍使用左侧原字段。
+
 2026-09-14 首次本地只读结构检查时，`sibebid.bi_order_issue_year` 尚未包含 `issue_profit`。用户随后明确说明字段已经添加；再次检查确认字段为可空的 `decimal(18,4)`，经营总览查询链路已通过，字段业务数据仍待用户调度写入。不能擅自用收入减成本推导替代该权威利润字段。当前 MySQL 版本不支持窗口函数，问题中心已采用兼容的“汇总查询 + Top 明细查询”。
 
 ## 操作方式

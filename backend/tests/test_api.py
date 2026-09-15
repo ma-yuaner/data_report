@@ -52,6 +52,11 @@ def test_mysql_is_mapped_to_sibebid_bi_tables_and_operator_date():
     assert source.table("ancillary").table == "bi_aux_pur_year"
     assert source.period_expression("operator_date", "day") == "date_format(operator_date, '%Y-%m-%d')"
     assert "issue_profit" in REQUIRED_FIELDS["issue"]
+    assert source.field("issue", "marketing_airline") == "air_line"
+    assert source.field("issue", "issue_supplier_cname") == "supplier_name"
+    assert source.field("issue", "issue_ticketing_office_no") == "pcc_code"
+    assert source.field("issue", "dep_city") == "dep_city_code"
+    assert source.field("issue", "arr_city") == "arr_city_code"
 
 
 def test_hive_switch_retains_authoritative_tables_and_dialect():
@@ -61,6 +66,8 @@ def test_hive_switch_retains_authoritative_tables_and_dialect():
     assert source.table("issue").time_field == "issue_ticket_time"
     assert source.period_expression("issue_ticket_time", "month") == "substr(issue_ticket_time, 1, 7)"
     assert TABLE_SPECS["hive"]["ancillary"].table == "dwd_aux_pur_year"
+    assert source.field("issue", "marketing_airline") == "marketing_airline"
+    assert source.field("issue", "dep_city") == "dep_city"
 
 
 def test_unknown_data_mode_never_silently_becomes_mock():

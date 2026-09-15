@@ -30,6 +30,19 @@ TABLE_SPECS: dict[str, dict[str, TableSpec]] = {
     },
 }
 
+FIELD_MAPPINGS: dict[str, dict[str, dict[str, str]]] = {
+    "mysql": {
+        "issue": {
+            "marketing_airline": "air_line",
+            "issue_supplier_cname": "supplier_name",
+            "issue_ticketing_office_no": "pcc_code",
+            "dep_city": "dep_city_code",
+            "arr_city": "arr_city_code",
+        }
+    },
+    "hive": {},
+}
+
 
 def data_mode(config: dict[str, Any]) -> str:
     mode = str(config.get("DATA_MODE", "mysql")).strip().lower()
@@ -75,6 +88,9 @@ class DataSource:
     def qualified_table(self, business_key: str) -> str:
         spec = self.table(business_key)
         return f"{self.database}.{spec.table}"
+
+    def field(self, business_key: str, logical_field: str) -> str:
+        return FIELD_MAPPINGS.get(self.mode, {}).get(business_key, {}).get(logical_field, logical_field)
 
     def period_expression(self, field: str, granularity: str) -> str:
         length = 7 if granularity == "month" else 10
