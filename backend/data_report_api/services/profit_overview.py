@@ -140,9 +140,10 @@ class ProfitOverviewService:
                 cursor = connection.cursor()
                 try:
                     spec = source.table(metric["key"])
+                    count_expression = source.count_expression(metric["key"])
                     segment_expression = f"coalesce(sum({metric['segmentField']}), 0)" if metric["segmentField"] else "NULL"
                     sql = f"""
-                        SELECT count(1), {segment_expression}, coalesce(sum({metric['profitField']}), 0)
+                        SELECT {count_expression}, {segment_expression}, coalesce(sum({metric['profitField']}), 0)
                         FROM {source.qualified_table(metric['key'])}
                         WHERE {metric['condition']}
                           AND {spec.time_field} >= '{start_at}'

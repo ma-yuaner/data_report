@@ -92,6 +92,15 @@ class DataSource:
     def field(self, business_key: str, logical_field: str) -> str:
         return FIELD_MAPPINGS.get(self.mode, {}).get(business_key, {}).get(logical_field, logical_field)
 
+    def count_expression(self, business_key: str, condition: str | None = None) -> str:
+        if self.mode == "mysql" and business_key == "issue":
+            if condition:
+                return f"coalesce(sum(case when {condition} then coalesce(iss_num, 0) else 0 end), 0)"
+            return "coalesce(sum(iss_num), 0)"
+        if condition:
+            return f"sum(case when {condition} then 1 else 0 end)"
+        return "count(1)"
+
     def period_expression(self, field: str, granularity: str) -> str:
         length = 7 if granularity == "month" else 10
         if self.mode == "mysql":

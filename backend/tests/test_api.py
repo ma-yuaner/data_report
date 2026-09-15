@@ -57,6 +57,8 @@ def test_mysql_is_mapped_to_sibebid_bi_tables_and_operator_date():
     assert source.field("issue", "issue_ticketing_office_no") == "pcc_code"
     assert source.field("issue", "dep_city") == "dep_city_code"
     assert source.field("issue", "arr_city") == "arr_city_code"
+    assert source.count_expression("issue") == "coalesce(sum(iss_num), 0)"
+    assert "then coalesce(iss_num, 0)" in source.count_expression("issue", "issue_profit < 0")
 
 
 def test_hive_switch_retains_authoritative_tables_and_dialect():
@@ -68,6 +70,8 @@ def test_hive_switch_retains_authoritative_tables_and_dialect():
     assert TABLE_SPECS["hive"]["ancillary"].table == "dwd_aux_pur_year"
     assert source.field("issue", "marketing_airline") == "marketing_airline"
     assert source.field("issue", "dep_city") == "dep_city"
+    assert source.count_expression("issue") == "count(1)"
+    assert source.count_expression("issue", "issue_profit < 0") == "sum(case when issue_profit < 0 then 1 else 0 end)"
 
 
 def test_unknown_data_mode_never_silently_becomes_mock():

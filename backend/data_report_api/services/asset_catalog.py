@@ -23,7 +23,7 @@ ASSETS = (
 )
 
 REQUIRED_FIELDS = {
-    "issue": {"operator_date", "segment_num", "issue_profit", "order_status", "issue_status", "refund_flag", "refund_issue_flag"},
+    "issue": {"operator_date", "iss_num", "segment_num", "issue_profit", "order_status", "issue_status", "refund_flag", "refund_issue_flag"},
     "refund": {"apply_datetime", "refund_profit", "business_type_desc", "supplier_refund_operator"},
     "change": {"change_issue_time", "change_profit"},
     "ancillary": {"create_time", "profit", "flight_num", "aux_status"},

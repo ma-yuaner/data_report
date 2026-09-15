@@ -132,15 +132,19 @@ class IssueProfitAnalysisService:
             f"{_completeness_expression(source, field, kind)} as complete_{index}"
             for index, (field, _label, _usage, kind) in enumerate(FIELD_DEFINITIONS)
         )
+        issue_count_expression = source.count_expression("issue")
+        loss_count_expression = source.count_expression("issue", "issue_profit < 0")
+        profit_count_expression = source.count_expression("issue", "issue_profit > 0")
+        zero_profit_count_expression = source.count_expression("issue", "issue_profit = 0")
         sql = f"""
             SELECT
-                count(1) as issue_count,
+                {issue_count_expression} as issue_count,
                 coalesce(sum(segment_num), 0) as segment_count,
                 coalesce(sum(issue_profit), 0) as issue_profit,
-                sum(case when issue_profit < 0 then 1 else 0 end) as loss_count,
-                sum(case when issue_profit > 0 then 1 else 0 end) as profit_count,
-                sum(case when issue_profit = 0 then 1 else 0 end) as zero_profit_count,
-                sum(case when issue_profit is not null then 1 else 0 end) as profit_value_count,
+                {loss_count_expression} as loss_count,
+                {profit_count_expression} as profit_count,
+                {zero_profit_count_expression} as zero_profit_count,
+                count(1) as aggregate_row_count,
                 {completeness_sql}
             FROM {source.qualified_table('issue')}
             WHERE {_base_where(start, end, spec.time_field)}
@@ -152,6 +156,7 @@ class IssueProfitAnalysisService:
         finally:
             cursor.close()
         total = int(row[0] or 0)
+        aggregate_row_count = int(row[6] or 0)
         profit = _number(row[2] or 0)
         loss_count = int(row[3] or 0)
         summary = {
@@ -167,10 +172,10 @@ class IssueProfitAnalysisService:
         completeness = []
         for index, (field, label, usage, _kind) in enumerate(FIELD_DEFINITIONS):
             non_null = int(row[7 + index] or 0)
-            rate = round(non_null / total * 100, 1) if total else 0
+            rate = round(non_null / aggregate_row_count * 100, 1) if aggregate_row_count else 0
             state = "ready" if rate >= 95 else "partial" if rate >= 80 else "missing"
             completeness.append(
-                {"field": field, "label": label, "usage": usage, "nonNullCount": non_null, "totalCount": total, "rate": rate, "state": state}
+                {"field": field, "label": label, "usage": usage, "nonNullCount": non_null, "totalCount": aggregate_row_count, "rate": rate, "state": state}
             )
         return summary, completeness
 
@@ -179,8 +184,9 @@ class IssueProfitAnalysisService:
         spec = source.table("issue")
         granularity = "month" if (end - start).days > 62 else "day"
         expression = source.period_expression(spec.time_field, granularity)
+        count_expression = source.count_expression("issue")
         sql = f"""
-            SELECT {expression} as period_value, count(1), coalesce(sum(issue_profit), 0)
+            SELECT {expression} as period_value, {count_expression}, coalesce(sum(issue_profit), 0)
             FROM {source.qualified_table('issue')}
             WHERE {_base_where(start, end, spec.time_field)}
             GROUP BY {expression}
@@ -209,9 +215,10 @@ class IssueProfitAnalysisService:
         result: dict[str, list[dict[str, Any]]] = {"platform": [], "airline": [], "supplier": [], "organization": []}
         for key, logical_field in logical_dimension_fields.items():
             field = source.field("issue", logical_field)
+            count_expression = source.count_expression("issue")
             normalized = f"case when {field} is null or trim({field}) = '' then '未填写' else {field} end"
             sql = f"""
-                SELECT {normalized} as dim_value, count(1), coalesce(sum(issue_profit), 0)
+                SELECT {normalized} as dim_value, {count_expression}, coalesce(sum(issue_profit), 0)
                 FROM {source.qualified_table('issue')}
                 WHERE {_base_where(start, end, spec.time_field)}
                 GROUP BY {normalized}

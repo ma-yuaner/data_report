@@ -1,6 +1,6 @@
 # 出票利润分析与字段齐全度
 
-更新时间：2026-09-14
+更新时间：2026-09-15
 来源：`lywz.dwd_order_issue_wide_year` Hive 表结构及聚合验证；`sibebid.bi_order_issue_year` MySQL 只读结构检查
 状态：Hive 分析字段已验证；MySQL 核心汇总字段具备，扩展分析字段待同步或确认映射；利润仍属于业务估算口径
 
@@ -61,3 +61,9 @@ Hive 时间使用 `issue_ticket_time`，MySQL 时间使用 `operator_date`；页
 | `arr_city` | `arr_city_code` |
 
 API 对外仍使用统一业务含义，只有 MySQL 查询层转换为上述物理字段；Hive 保持原字段不变。
+
+## MySQL 聚合粒度
+
+用户于 2026-09-15 明确确认 `bi_order_issue_year` 已按分析维度聚合，一行不等于一张票。MySQL 出票数统一使用 `sum(iss_num)`；亏损、盈利和零利润出票数也按对应聚合行的 `iss_num` 求和，保证利润率分子分母粒度一致。Hive 明细宽表仍使用 `count(1)`。
+
+字段完整率用于检查聚合结果字段是否有值，其分母继续使用 MySQL 聚合记录行数，而不是 `sum(iss_num)`，避免一条聚合记录按出票量重复放大。

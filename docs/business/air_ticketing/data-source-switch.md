@@ -27,7 +27,7 @@
 
 经营总览能够工作的最小字段集：
 
-- 出票：`operator_date`、`segment_num`、`issue_profit`、`order_status`、`issue_status`、`refund_flag`、`refund_issue_flag`；
+- 出票：`operator_date`、`iss_num`、`segment_num`、`issue_profit`、`order_status`、`issue_status`、`refund_flag`、`refund_issue_flag`；MySQL 出票数为 `sum(iss_num)`；
 - 退票：`apply_datetime`、`refund_profit`、`business_type_desc`、`supplier_refund_operator`；
 - 改签：`change_issue_time`、`change_profit`；
 - 增值：`create_time`、`profit`、`flight_num`、`aux_status`。
