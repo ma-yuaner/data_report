@@ -31,3 +31,5 @@ class TestConfig(Config):
     TESTING = True
     DEBUG = False
     DATA_MODE = "mock"
+    HIVE_HOST = ""
+    HIVE_USER = ""

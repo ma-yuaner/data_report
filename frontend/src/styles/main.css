@@ -147,6 +147,28 @@ body { background: #f2f5f9; }
 .metric-foot { margin-top: 12px; color: #9aa5b4; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 9px; }
 .profit-note { min-height: 38px; display: flex; align-items: flex-start; gap: 10px; color: #68758a; font-size: 12px; line-height: 1.6; }
 .profit-note span { width: 20px; height: 20px; flex: none; display: grid; place-items: center; border-radius: 6px; color: #3972c6; background: #edf4ff; font-size: 10px; font-weight: 600; }
+.risk-profit-section { margin-top: 18px; padding-top: 20px; border-top: 1px solid #dfe5ed; }
+.risk-profit-title { margin-bottom: 14px; display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
+.risk-profit-title span { color: #7957bd; font-size: 10px; font-weight: 600; letter-spacing: .12em; }
+.risk-profit-title h2 { margin: 5px 0 4px; color: #253249; font-size: 19px; }
+.risk-profit-title p { margin: 0; color: #7b8798; font-size: 12px; }
+.risk-profit-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.risk-profit-card { position: relative; overflow: hidden; border: 1px solid #e7ebf1 !important; box-shadow: 0 6px 20px rgba(29,47,74,.04); }
+.risk-profit-card::before { content: ''; height: 3px; position: absolute; inset: 0 0 auto; background: var(--metric-color); }
+.risk-profit-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.risk-profit-card-head > div { display: grid; gap: 3px; }
+.risk-profit-card-head span { color: #2a3649; font-size: 14px; font-weight: 600; }
+.risk-profit-card-head small { color: #8b97a8; font-size: 10px; }
+.risk-profit-card > strong { display: block; min-height: 34px; margin: 22px 0 16px; color: #1e2c42; font-size: 25px; }
+.risk-profit-card > strong.is-negative { color: #c2414b; }
+.risk-profit-card.is-unavailable > strong { color: #8b96a5; font-size: 20px; }
+.risk-profit-count { padding: 11px 0; display: flex; align-items: center; justify-content: space-between; border-top: 1px solid #edf0f4; }
+.risk-profit-count span { color: #8a96a8; font-size: 11px; }
+.risk-profit-count b { color: #435168; font-size: 15px; }
+.risk-profit-foot, .risk-profit-source { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #929dad; font-size: 10px; }
+.risk-profit-foot { margin-top: 12px; }
+.risk-profit-foot code { color: #7d89a0; }
+.risk-profit-source { margin-top: 10px; padding: 10px 13px; border-radius: 8px; background: #f7f8fb; }
 .issue-summary-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
 .issue-summary-card { border: 1px solid #e7ebf1 !important; box-shadow: 0 5px 18px rgba(28,45,72,.035); }
 .issue-summary-card span, .issue-summary-card small { display: block; color: #7a8799; font-size: 11px; }
@@ -209,6 +231,7 @@ body { background: #f2f5f9; }
   .business-analysis-grid { grid-template-columns: 1fr; }
   .problem-summary-grid, .problem-domain-grid, .asset-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .main-grid { grid-template-columns: 1fr; }
+  .risk-profit-grid { grid-template-columns: 1fr; }
   .profit-stages { flex-wrap: wrap; }
   .profit-stages > span { display: none; }
 }
@@ -219,6 +242,7 @@ body { background: #f2f5f9; }
   .app-header { padding: 0 14px !important; }
   .page-wrap { padding: 16px; }
   .page-header, .data-state-bar, .filter-bar, .issue-toolbar, .profit-filter, .total-profit-card { align-items: flex-start; flex-direction: column; }
+  .risk-profit-title, .risk-profit-source { align-items: flex-start; flex-direction: column; }
   .total-profit-formula { flex-wrap: wrap; white-space: normal; }
   .dimension-profit-grid { grid-template-columns: 1fr; }
   .data-state-items { flex-wrap: wrap; }

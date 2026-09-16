@@ -34,6 +34,27 @@ export interface OverviewData {
   notes: string[]
 }
 
+export interface RiskProfitMetric {
+  key: 'issue' | 'refund' | 'change'
+  label: string
+  table: string
+  timeField: 'business_date' | 'stat_date'
+  ticketCount: number | null
+  estimatedProfit: number | null
+  available: boolean
+  error: string | null
+}
+
+export interface RiskProfitSummaryData {
+  source: string
+  generatedAt: string
+  cacheHit: boolean
+  available: boolean
+  period: { startDate: string; endDate: string; monthLabel: string }
+  metrics: RiskProfitMetric[]
+  notes: string[]
+}
+
 export interface IssueProfitSummary {
   issueCount: number
   segmentCount: number
@@ -213,6 +234,11 @@ export interface CoverageItem {
 
 export async function getOverview(params?: { startDate: string; endDate: string }) {
   const response = await http.get<ApiEnvelope<OverviewData>>('/v1/dashboard/overview', { params })
+  return response.data.data
+}
+
+export async function getRiskProfitSummary(params: { startDate: string; endDate: string }) {
+  const response = await http.get<ApiEnvelope<RiskProfitSummaryData>>('/v1/dashboard/risk-profit-summary', { params })
   return response.data.data
 }
 

@@ -25,7 +25,7 @@
 
     <a-alert v-if="error" type="error" show-icon :message="error" class="section-gap" />
 
-    <a-spin :spinning="loading">
+    <a-spin :spinning="overviewLoading">
       <template v-if="overview">
         <section class="total-profit-card" :class="{ 'is-unavailable': !overview.totalProfit.available, 'is-negative': Number(overview.totalProfit.value) < 0 }">
           <div>
@@ -72,16 +72,63 @@
         </a-card>
       </template>
     </a-spin>
+
+    <section class="risk-profit-section">
+      <div class="risk-profit-title">
+        <div>
+          <span>RISK PROFIT RECONCILIATION</span>
+          <h2>风控利润核对</h2>
+          <p>独立汇总 Hive 出票、退票、改签核对表，不改变上方经营总览口径</p>
+        </div>
+        <a-tag color="purple">Hive核对数据</a-tag>
+      </div>
+      <a-alert v-if="riskError" type="error" show-icon :message="riskError" class="section-gap" />
+      <a-spin :spinning="riskLoading">
+        <template v-if="riskSummary">
+          <div class="risk-profit-grid">
+            <a-card
+              v-for="item in riskSummary.metrics"
+              :key="item.key"
+              class="risk-profit-card"
+              :class="[`metric-${item.key}`, { 'is-unavailable': !item.available }]"
+              :bordered="false"
+            >
+              <div class="risk-profit-card-head">
+                <div><span>{{ item.label }}</span><small>预估利润核对</small></div>
+                <a-tag :color="item.available ? 'success' : 'error'">{{ item.available ? '已获取' : '获取失败' }}</a-tag>
+              </div>
+              <strong :class="{ 'is-negative': Number(item.estimatedProfit) < 0 }">
+                {{ formatProfit(item.estimatedProfit, item.available) }}
+              </strong>
+              <div v-if="item.available" class="risk-profit-count">
+                <span>总票数</span><b>{{ formatCount(item.ticketCount) }}</b>
+              </div>
+              <a-alert v-else type="error" show-icon :message="item.error ?? '查询失败'" />
+              <div class="risk-profit-foot">
+                <span>{{ riskSummary.period.monthLabel }}</span>
+                <code>{{ item.timeField }}</code>
+              </div>
+            </a-card>
+          </div>
+          <div class="risk-profit-source">
+            <span>{{ riskSummary.source }} · {{ riskSummary.period.startDate }} 至 {{ riskSummary.period.endDate }}</span>
+            <span>票数：sum(ticket_num) · 利润：sum(estimated_profit_cny)</span>
+          </div>
+        </template>
+      </a-spin>
+    </section>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import {
   CheckCircleOutlined, PlusCircleOutlined, ReloadOutlined, SearchOutlined,
   SendOutlined, SwapOutlined,
 } from '@ant-design/icons-vue'
-import { getOverview, type OverviewData, type ProfitMetric } from '@/api/dashboard'
+import {
+  getOverview, getRiskProfitSummary, type OverviewData, type ProfitMetric, type RiskProfitSummaryData,
+} from '@/api/dashboard'
 import DataStateBar from '@/components/DataStateBar.vue'
 import PageHeader from '@/components/PageHeader.vue'
 
@@ -97,8 +144,12 @@ const startDate = ref(formatDate(now))
 const endDate = ref(formatDate(now))
 const periodPreset = ref('today')
 const overview = ref<OverviewData>()
-const loading = ref(false)
+const riskSummary = ref<RiskProfitSummaryData>()
+const overviewLoading = ref(false)
+const riskLoading = ref(false)
+const loading = computed(() => overviewLoading.value || riskLoading.value)
 const error = ref('')
+const riskError = ref('')
 
 const metricIcons: Record<ProfitMetric['key'], object> = {
   issue: SendOutlined,
@@ -144,16 +195,32 @@ const formatProfit = (value: number | null, available: boolean) => {
 
 const formatCount = (value: number | null) => value === null ? '—' : new Intl.NumberFormat('zh-CN').format(value)
 
-const loadOverview = async () => {
+const loadCoreOverview = async () => {
   error.value = ''
-  loading.value = true
+  overviewLoading.value = true
   try {
     overview.value = await getOverview({ startDate: startDate.value, endDate: endDate.value })
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : '利润数据加载失败'
   } finally {
-    loading.value = false
+    overviewLoading.value = false
   }
+}
+
+const loadRiskProfit = async () => {
+  riskError.value = ''
+  riskLoading.value = true
+  try {
+    riskSummary.value = await getRiskProfitSummary({ startDate: startDate.value, endDate: endDate.value })
+  } catch (reason) {
+    riskError.value = reason instanceof Error ? reason.message : '风控利润核对数据加载失败'
+  } finally {
+    riskLoading.value = false
+  }
+}
+
+const loadOverview = async () => {
+  await Promise.all([loadCoreOverview(), loadRiskProfit()])
 }
 
 onMounted(loadOverview)

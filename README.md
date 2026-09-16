@@ -56,7 +56,7 @@ docker compose up -d --build
 - 数据中心：`http://127.0.0.1:1818`
 - 后端健康检查：`http://127.0.0.1:5160/api/health`
 
-经营总览及各业务分析页提供今日、昨日、本月、本年和自定义日期查询，默认展示今日，避免首次打开扫描大时间范围。项目默认使用 `DATA_MODE=mysql` 读取 `sibebid`；在 `.env` 中填写 `MYSQL_HOST`、`MYSQL_USER` 等连接信息即可。MySQL 临时不可用时，将 `DATA_MODE` 手工改成 `hive` 并重启 API。系统不会自动混用两个数据源。连接密码只能保存在部署环境的 `.env`，不得提交到 Git。
+经营总览及各业务分析页提供今日、昨日、本月、本年和自定义日期查询，默认展示今日，避免首次打开扫描大时间范围。项目默认使用 `DATA_MODE=mysql` 读取 `sibebid`；在 `.env` 中填写 `MYSQL_HOST`、`MYSQL_USER` 等连接信息即可。MySQL 临时不可用时，将 `DATA_MODE` 手工改成 `hive` 并重启 API。原经营指标不会自动混用两个数据源；经营总览底部的“风控利润核对”是明确隔离的 Hive 专用区域。连接密码只能保存在部署环境的 `.env`，不得提交到 Git。
 
 “业务分析 → 出票分析”提供利润和业务量趋势、平台/航司/供应商/组织贡献，以及首批 12 个分析字段的非空率体检。退票、改签和增值分析首版只展示数量、利润、单笔利润、负利润记录和趋势，避免在问题尚未明确时堆叠无效维度。
 
@@ -65,6 +65,7 @@ docker compose up -d --build
 ## 当前核心接口
 
 - `GET /api/v1/dashboard/overview`：出退改增经营总览；
+- `GET /api/v1/dashboard/risk-profit-summary`：Hive 出票、退票、改签利润核对汇总；
 - `GET /api/v1/analysis/issue-profit`：出票利润与维度分析；
 - `GET /api/v1/analysis/business-profit/{refund|change|ancillary}`：退改增统一分析契约；
 - `GET /api/v1/problems/profit-loss`：四类业务负利润问题及证据；
@@ -87,5 +88,5 @@ npm run build
 - 未确认的指标展示“口径待确认”，不能作为正式KPI；
 - 所有金额区分预期、业务估算和已结算；
 - 生产数据通过只读账号和指标查询服务接入；
-- MySQL 为默认看板查询源，Hive 为最终解释来源；数据源只能人工整体切换，不静默混用；
+- MySQL 为默认经营看板查询源，Hive 为最终解释来源；原经营指标只能人工整体切换，不静默补数；独立标识的风控利润核对区域固定查询 Hive；
 - 演示数据带有明确的 `mock` 标识。

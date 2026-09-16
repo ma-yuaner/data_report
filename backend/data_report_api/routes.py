@@ -9,6 +9,7 @@ from .services.asset_catalog import AssetCatalogService
 from .services.business_profit_analysis import BusinessProfitAnalysisService
 from .services.issue_profit_analysis import IssueProfitAnalysisService
 from .services.profit_problem_center import ProfitProblemCenterService
+from .services.risk_profit_summary import RiskProfitSummaryService
 from .services.data_source import DataSource, data_mode, is_live_mode
 
 
@@ -56,6 +57,19 @@ def overview():
             DashboardService().overview(
                 start_date=request.args.get("startDate"),
                 end_date=request.args.get("endDate"),
+            )
+        )
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+
+
+@api.get("/v1/dashboard/risk-profit-summary")
+def risk_profit_summary():
+    try:
+        return ok(
+            RiskProfitSummaryService(current_app.config).summary(
+                start_value=request.args.get("startDate"),
+                end_value=request.args.get("endDate"),
             )
         )
     except ValueError as error:

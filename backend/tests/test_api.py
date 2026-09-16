@@ -5,6 +5,7 @@ from data_report_api.services.asset_catalog import REQUIRED_FIELDS
 from data_report_api.services.data_source import DataSource, TABLE_SPECS, data_mode
 from data_report_api.services.profit_overview import METRICS
 from data_report_api.services.profit_problem_center import PROBLEM_DEFINITIONS, ProfitProblemCenterService
+from data_report_api.services.risk_profit_summary import RISK_PROFIT_DEFINITIONS, RiskProfitSummaryService
 
 
 def test_health(client):
@@ -33,6 +34,36 @@ def test_overview_rejects_invalid_period(client):
     response = client.get("/api/v1/dashboard/overview?startDate=2026-09-12&endDate=2026-09-11")
     assert response.status_code == 400
     assert response.get_json()["success"] is False
+
+
+def test_risk_profit_summary_uses_three_hive_reconcile_tables(client):
+    response = client.get("/api/v1/dashboard/risk-profit-summary?startDate=2026-08-01&endDate=2026-08-31")
+    assert response.status_code == 200
+    payload = response.get_json()["data"]
+    assert payload["source"] == "Hive · lywz"
+    assert payload["period"]["monthLabel"] == "2026-08"
+    assert len(payload["metrics"]) == 3
+    assert {item["key"] for item in payload["metrics"]} == {"issue", "refund", "change"}
+    assert all(item["available"] is False for item in payload["metrics"])
+
+
+def test_risk_profit_summary_sql_uses_confirmed_tables_and_time_fields():
+    source = DataSource({"DATA_MODE": "hive", "HIVE_DATABASE": "lywz"})
+    expected = {
+        "issue": ("dwd_order_issue_profit_reconcile_year", "business_date"),
+        "refund": ("dwd_order_refund_profit_reconcile_year", "business_date"),
+        "change": ("dwd_order_change_profit_reconcile_year", "stat_date"),
+    }
+    for definition in RISK_PROFIT_DEFINITIONS:
+        sql = RiskProfitSummaryService._query(
+            source, definition, datetime.fromisoformat("2026-08-01").date(), datetime.fromisoformat("2026-09-01").date()
+        )
+        table, time_field = expected[definition["key"]]
+        assert f"FROM lywz.{table}" in sql
+        assert f"{time_field} >= '2026-08-01'" in sql
+        assert f"{time_field} < '2026-09-01'" in sql
+        assert "sum(ticket_num)" in sql
+        assert "sum(estimated_profit_cny)" in sql
 
 
 def test_refund_profit_uses_confirmed_business_types():
