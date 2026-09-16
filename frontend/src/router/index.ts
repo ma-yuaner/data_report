@@ -15,6 +15,7 @@ const router = createRouter({
         { path: 'analysis/change', name: 'change-profit', component: () => import('@/views/BusinessProfitView.vue'), props: { businessType: 'change' }, meta: { title: '改签分析', section: '业务分析' } },
         { path: 'analysis/ancillary', name: 'ancillary-profit', component: () => import('@/views/BusinessProfitView.vue'), props: { businessType: 'ancillary' }, meta: { title: '增值分析', section: '业务分析' } },
         { path: 'risk-analysis', name: 'risk-analysis', component: () => import('@/views/RiskAnalysisView.vue'), meta: { title: '风控分析', section: '风控分析' } },
+        { path: 'smart-analysis', name: 'smart-analysis', component: () => import('@/views/SmartAnalysisView.vue'), meta: { title: '智能分析', section: '智能分析' } },
         { path: 'problems', name: 'problems', component: () => import('@/views/ProblemsView.vue'), meta: { title: '问题中心', section: '问题中心' } },
         { path: 'data-assets', name: 'assets', component: () => import('@/views/AssetsView.vue'), meta: { title: '数据资产', section: '数据资产' } },
       ],
