@@ -78,9 +78,20 @@
         <div>
           <span>RISK PROFIT RECONCILIATION</span>
           <h2>风控利润核对</h2>
-          <p>独立汇总 Hive 出票、退票、改签核对表，不改变上方经营总览口径</p>
+          <p>独立汇总出票、退票、改签核对表，不改变上方经营总览口径</p>
         </div>
-        <a-tag color="purple">Hive核对数据</a-tag>
+        <a-tag color="purple">{{ riskSummary?.source ?? '正在连接核对数据源' }}</a-tag>
+      </div>
+      <div class="profit-filter">
+        <div class="profit-filter-fields">
+          <a-segmented v-model:value="periodPreset" :options="periodOptions" @change="applyPreset" />
+          <span class="filter-label">统计期间</span>
+          <a-date-picker v-model:value="startDate" value-format="YYYY-MM-DD" :allow-clear="false" @change="markCustom" />
+          <span class="date-separator">至</span>
+          <a-date-picker v-model:value="endDate" value-format="YYYY-MM-DD" :allow-clear="false" @change="markCustom" />
+          <a-button type="primary" :loading="loading" @click="loadOverview"><SearchOutlined />查询</a-button>
+        </div>
+        <span class="filter-tip">与上方估算利润共用统计期间，结束日期包含当天</span>
       </div>
       <a-alert v-if="riskError" type="error" show-icon :message="riskError" class="section-gap" />
       <a-spin :spinning="riskLoading">
@@ -121,13 +132,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { DatePicker as ADatePicker } from 'ant-design-vue'
 import {
   CheckCircleOutlined, PlusCircleOutlined, ReloadOutlined, SearchOutlined,
   SendOutlined, SwapOutlined,
 } from '@ant-design/icons-vue'
 import {
-  getOverview, getRiskProfitSummary, type OverviewData, type ProfitMetric, type RiskProfitSummaryData,
+  getOverview, getRiskProfitSummary,
+  type OverviewData, type ProfitMetric, type RiskProfitSummaryData,
 } from '@/api/dashboard'
 import DataStateBar from '@/components/DataStateBar.vue'
 import PageHeader from '@/components/PageHeader.vue'
@@ -150,6 +163,12 @@ const riskLoading = ref(false)
 const loading = computed(() => overviewLoading.value || riskLoading.value)
 const error = ref('')
 const riskError = ref('')
+
+let riskRequestId = 0
+
+onBeforeUnmount(() => {
+  ++riskRequestId
+})
 
 const metricIcons: Record<ProfitMetric['key'], object> = {
   issue: SendOutlined,
@@ -208,14 +227,18 @@ const loadCoreOverview = async () => {
 }
 
 const loadRiskProfit = async () => {
+  const requestId = ++riskRequestId
   riskError.value = ''
   riskLoading.value = true
   try {
-    riskSummary.value = await getRiskProfitSummary({ startDate: startDate.value, endDate: endDate.value })
+    const result = await getRiskProfitSummary({ startDate: startDate.value, endDate: endDate.value })
+    if (requestId === riskRequestId) riskSummary.value = result
   } catch (reason) {
+    if (requestId !== riskRequestId) return
+    riskSummary.value = undefined
     riskError.value = reason instanceof Error ? reason.message : '风控利润核对数据加载失败'
   } finally {
-    riskLoading.value = false
+    if (requestId === riskRequestId) riskLoading.value = false
   }
 }
 

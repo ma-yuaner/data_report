@@ -8,9 +8,10 @@ from .services.dashboard import DashboardService
 from .services.asset_catalog import AssetCatalogService
 from .services.business_profit_analysis import BusinessProfitAnalysisService
 from .services.comprehensive_analysis import ComprehensiveAnalysisService, DIMENSIONS
+from .services.risk_monthly_analysis import RiskMonthlyAnalysisService
 from .services.issue_profit_analysis import IssueProfitAnalysisService
 from .services.profit_problem_center import ProfitProblemCenterService
-from .services.risk_profit_summary import RiskProfitSummaryService
+from .services.risk_profit_summary import RISK_FILTER_FIELDS, RiskProfitSummaryService
 from .services.data_source import DataSource, data_mode, is_live_mode
 
 
@@ -71,6 +72,23 @@ def risk_profit_summary():
             RiskProfitSummaryService(current_app.config).summary(
                 start_value=request.args.get("startDate"),
                 end_value=request.args.get("endDate"),
+                filters={key: request.args.get(key) for key in (*RISK_FILTER_FIELDS, "profitStatus")},
+            )
+        )
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+
+
+@api.get("/v1/dashboard/risk-profit-filter-options")
+def risk_profit_filter_options():
+    try:
+        return ok(
+            RiskProfitSummaryService(current_app.config).filter_options(
+                start_value=request.args.get("startDate"),
+                end_value=request.args.get("endDate"),
+                field=request.args.get("field"),
+                search=request.args.get("search"),
+                filters={key: request.args.get(key) for key in (*RISK_FILTER_FIELDS, "profitStatus")},
             )
         )
     except ValueError as error:
@@ -85,6 +103,19 @@ def comprehensive_analysis():
             end_value=request.args.get("endDate"),
             group=request.args.get("groupBy", "platform"),
             filters={key: request.args.get(key) for key in DIMENSIONS},
+        ))
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+
+
+@api.get("/v1/analysis/risk-monthly")
+def risk_monthly_analysis():
+    try:
+        return ok(RiskMonthlyAnalysisService(current_app.config).analysis(
+            start_value=request.args.get("startDate"), end_value=request.args.get("endDate"),
+            business_type=request.args.get("businessType", "all"),
+            profit_status=request.args.get("profitStatus", "all"),
+            date_basis=request.args.get("dateBasis", "reconcile"),
         ))
     except ValueError as error:
         return jsonify({"success": False, "message": str(error), "data": None}), 400

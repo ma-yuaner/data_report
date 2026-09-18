@@ -1,5 +1,7 @@
 from datetime import datetime
 
+import pytest
+
 from data_report_api.services.business_profit_analysis import BUSINESS_DEFINITIONS
 from data_report_api.services.asset_catalog import REQUIRED_FIELDS
 from data_report_api.services.data_source import DataSource, TABLE_SPECS, data_mode
@@ -36,34 +38,83 @@ def test_overview_rejects_invalid_period(client):
     assert response.get_json()["success"] is False
 
 
-def test_risk_profit_summary_uses_three_hive_reconcile_tables(client):
+def test_risk_profit_summary_defaults_to_three_mysql_reconcile_tables(client):
     response = client.get("/api/v1/dashboard/risk-profit-summary?startDate=2026-08-01&endDate=2026-08-31")
     assert response.status_code == 200
     payload = response.get_json()["data"]
-    assert payload["source"] == "Hive · lywz"
+    assert payload["source"] == "MySQL · sibebid"
     assert payload["period"]["monthLabel"] == "2026-08"
     assert len(payload["metrics"]) == 3
     assert {item["key"] for item in payload["metrics"]} == {"issue", "refund", "change"}
     assert all(item["available"] is False for item in payload["metrics"])
+    assert all(item["error"] == "MySQL连接失败" for item in payload["metrics"])
+    assert all(item["ticketCount"] is None and item["estimatedProfit"] is None for item in payload["metrics"])
+    assert all(item["table"].startswith("bi_order_") for item in payload["metrics"])
 
 
-def test_risk_profit_summary_sql_uses_confirmed_tables_and_time_fields():
-    source = DataSource({"DATA_MODE": "hive", "HIVE_DATABASE": "lywz"})
+@pytest.mark.parametrize("mode,database,prefix", [("mysql", "sibebid", "bi"), ("hive", "lywz", "dwd")])
+def test_risk_profit_summary_sql_uses_confirmed_tables_and_time_fields(mode, database, prefix):
+    source = DataSource({"DATA_MODE": mode, f"{mode.upper()}_DATABASE": database})
     expected = {
-        "issue": ("dwd_order_issue_profit_reconcile_year", "business_date"),
-        "refund": ("dwd_order_refund_profit_reconcile_year", "business_date"),
-        "change": ("dwd_order_change_profit_reconcile_year", "stat_date"),
+        "issue": (f"{prefix}_order_issue_profit_reconcile_year", "business_date"),
+        "refund": (f"{prefix}_order_refund_profit_reconcile_year", "business_date"),
+        "change": (f"{prefix}_order_change_profit_reconcile_year", "stat_date"),
     }
-    for definition in RISK_PROFIT_DEFINITIONS:
+    for definition in RISK_PROFIT_DEFINITIONS[mode]:
         sql = RiskProfitSummaryService._query(
             source, definition, datetime.fromisoformat("2026-08-01").date(), datetime.fromisoformat("2026-09-01").date()
         )
         table, time_field = expected[definition["key"]]
-        assert f"FROM lywz.{table}" in sql
+        assert f"FROM {database}.{table}" in sql
         assert f"{time_field} >= '2026-08-01'" in sql
         assert f"{time_field} < '2026-09-01'" in sql
         assert "sum(ticket_num)" in sql
         assert "sum(estimated_profit_cny)" in sql
+
+
+@pytest.mark.parametrize("mode", ["mysql", "hive"])
+def test_risk_profit_summary_follows_manual_source_switch_without_changing_config(monkeypatch, mode):
+    queries = []
+    connections = []
+
+    class Cursor:
+        def execute(self, sql):
+            queries.append(sql)
+
+        def fetchone(self):
+            return (12, -34.56)
+
+        def close(self):
+            pass
+
+    class Connection:
+        def cursor(self):
+            return Cursor()
+
+        def close(self):
+            pass
+
+    def connect(source):
+        connections.append(source.mode)
+        return Connection()
+
+    monkeypatch.setattr(DataSource, "connect", connect)
+    config = {"DATA_MODE": mode, "PROFIT_CACHE_TTL": 0}
+    result = RiskProfitSummaryService(config).summary("2026-08-01", "2026-08-31")
+    assert connections == [mode]
+    assert config["DATA_MODE"] == mode
+    assert result["available"] is True
+    assert len(queries) == 3
+    assert all(item["ticketCount"] == 12 and item["estimatedProfit"] == -34.56 for item in result["metrics"])
+    assert "totalProfit" not in result
+    assert ("MySQL" if mode == "mysql" else "Hive") in result["notes"][0]
+
+
+def test_risk_profit_summary_defaults_to_today(client):
+    result = client.get("/api/v1/dashboard/risk-profit-summary").get_json()["data"]
+    today = datetime.now().astimezone().date().isoformat()
+    assert result["period"]["startDate"] == today
+    assert result["period"]["endDate"] == today
 
 
 def test_refund_profit_uses_confirmed_business_types():

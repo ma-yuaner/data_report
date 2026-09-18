@@ -31,5 +31,7 @@ class TestConfig(Config):
     TESTING = True
     DEBUG = False
     DATA_MODE = "mock"
+    MYSQL_HOST = ""
+    MYSQL_USER = ""
     HIVE_HOST = ""
     HIVE_USER = ""

@@ -53,6 +53,21 @@ export interface RiskProfitSummaryData {
   period: { startDate: string; endDate: string; monthLabel: string }
   metrics: RiskProfitMetric[]
   notes: string[]
+  filters: RiskProfitFilters
+}
+
+export type RiskDimensionKey = 'platform' | 'site' | 'department' | 'airline' | 'supplier'
+export interface RiskProfitFilters extends Record<RiskDimensionKey, string> {
+  profitStatus: 'all' | 'loss' | 'profit' | 'zero'
+}
+export interface RiskFilterOptionsData {
+  source: string
+  field: RiskDimensionKey
+  options: string[]
+  truncated: boolean
+  available: boolean
+  errors: string[]
+  cacheHit: boolean
 }
 
 export interface IssueProfitSummary {
@@ -237,8 +252,15 @@ export async function getOverview(params?: { startDate: string; endDate: string 
   return response.data.data
 }
 
-export async function getRiskProfitSummary(params: { startDate: string; endDate: string }) {
+export async function getRiskProfitSummary(params: { startDate: string; endDate: string } & Partial<RiskProfitFilters>) {
   const response = await http.get<ApiEnvelope<RiskProfitSummaryData>>('/v1/dashboard/risk-profit-summary', { params })
+  return response.data.data
+}
+
+export async function getRiskProfitFilterOptions(
+  params: { startDate: string; endDate: string; field: RiskDimensionKey; search?: string } & Partial<RiskProfitFilters>,
+) {
+  const response = await http.get<ApiEnvelope<RiskFilterOptionsData>>('/v1/dashboard/risk-profit-filter-options', { params })
   return response.data.data
 }
 

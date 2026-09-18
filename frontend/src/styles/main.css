@@ -148,6 +148,20 @@ body { background: #f2f5f9; }
 .profit-note { min-height: 38px; display: flex; align-items: flex-start; gap: 10px; color: #68758a; font-size: 12px; line-height: 1.6; }
 .profit-note span { width: 20px; height: 20px; flex: none; display: grid; place-items: center; border-radius: 6px; color: #3972c6; background: #edf4ff; font-size: 10px; font-weight: 600; }
 .risk-profit-section { margin-top: 18px; padding-top: 20px; border-top: 1px solid #dfe5ed; }
+.risk-filter-panel { margin-bottom: 16px; padding: 16px; border: 1px solid #e7ebf1; border-radius: 12px; background: #fff; }
+.risk-filter-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 16px; }
+.risk-filter-field { display: grid; gap: 6px; }
+.risk-filter-field > span { color: #6d7890; font-size: 12px; }
+.risk-filter-field .ant-select { width: 100%; }
+.risk-filter-actions { margin-top: 14px; display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.risk-filter-actions > span, .risk-applied-filters { color: #7d89a0; font-size: 11px; }
+.risk-filter-actions > div { display: flex; gap: 8px; flex-shrink: 0; }
+.risk-applied-filters { margin-top: 8px; }
+@media (max-width: 768px) {
+  .risk-filter-grid { grid-template-columns: 1fr; }
+  .risk-filter-actions { flex-direction: column; align-items: stretch; }
+  .risk-filter-actions > div { justify-content: flex-end; }
+}
 .risk-profit-title { margin-bottom: 14px; display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
 .risk-profit-title span { color: #7957bd; font-size: 10px; font-weight: 600; letter-spacing: .12em; }
 .risk-profit-title h2 { margin: 5px 0 4px; color: #253249; font-size: 19px; }
