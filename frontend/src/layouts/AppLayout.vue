@@ -20,6 +20,7 @@
         <a-sub-menu key="analysis">
           <template #icon><LineChartOutlined /></template>
           <template #title>业务分析</template>
+            <a-menu-item key="/analysis/comprehensive">综合分析</a-menu-item>
           <a-menu-item key="/analysis/issue">出票分析</a-menu-item>
           <a-menu-item key="/analysis/refund">退票分析</a-menu-item>
           <a-menu-item key="/analysis/change">改签分析</a-menu-item>

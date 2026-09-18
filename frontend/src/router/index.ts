@@ -10,6 +10,7 @@ const router = createRouter({
       redirect: '/overview',
       children: [
         { path: 'overview', name: 'overview', component: () => import('@/views/OverviewView.vue'), meta: { title: '经营总览', section: '经营总览' } },
+        { path: 'analysis/comprehensive', name: 'comprehensive-analysis', component: () => import('@/views/ComprehensiveAnalysisLiveView.vue'), meta: { title: '综合分析', section: '业务分析' } },
         { path: 'analysis/issue', alias: '/analysis/profit', name: 'issue-profit', component: () => import('@/views/ProfitView.vue'), meta: { title: '出票分析', section: '业务分析' } },
         { path: 'analysis/refund', name: 'refund-profit', component: () => import('@/views/BusinessProfitView.vue'), props: { businessType: 'refund' }, meta: { title: '退票分析', section: '业务分析' } },
         { path: 'analysis/change', name: 'change-profit', component: () => import('@/views/BusinessProfitView.vue'), props: { businessType: 'change' }, meta: { title: '改签分析', section: '业务分析' } },

@@ -7,6 +7,7 @@ from flask import Blueprint, current_app, jsonify, request
 from .services.dashboard import DashboardService
 from .services.asset_catalog import AssetCatalogService
 from .services.business_profit_analysis import BusinessProfitAnalysisService
+from .services.comprehensive_analysis import ComprehensiveAnalysisService, DIMENSIONS
 from .services.issue_profit_analysis import IssueProfitAnalysisService
 from .services.profit_problem_center import ProfitProblemCenterService
 from .services.risk_profit_summary import RiskProfitSummaryService
@@ -72,6 +73,19 @@ def risk_profit_summary():
                 end_value=request.args.get("endDate"),
             )
         )
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+
+
+@api.get("/v1/analysis/comprehensive")
+def comprehensive_analysis():
+    try:
+        return ok(ComprehensiveAnalysisService(current_app.config).analysis(
+            start_value=request.args.get("startDate"),
+            end_value=request.args.get("endDate"),
+            group=request.args.get("groupBy", "platform"),
+            filters={key: request.args.get(key) for key in DIMENSIONS},
+        ))
     except ValueError as error:
         return jsonify({"success": False, "message": str(error), "data": None}), 400
 
