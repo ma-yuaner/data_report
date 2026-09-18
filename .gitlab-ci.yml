@@ -8,7 +8,7 @@ backend-test:
   script:
     - pip install -r backend/requirements-dev.txt
     - cd backend
-    - pytest -q
+    - python -m pytest -q
 
 frontend-build:
   stage: build
@@ -21,4 +21,3 @@ frontend-build:
   artifacts:
     paths:
       - frontend/dist/
-
