@@ -27,7 +27,7 @@
 - 计算或分析利润：阅读 [profit-model.md](profit-model.md) 和 [analysis-rules.md](analysis-rules.md)
 - 开发经营总览出退改增利润：阅读 [profit-overview.md](profit-overview.md)
 - 开发风控核对出退改月度票数和利润对比：阅读 [risk-monthly-analysis.md](risk-monthly-analysis.md)
-- 开发综合分析真实Hive ADS查询、筛选与质量校验：阅读 [comprehensive-analysis-live.md](comprehensive-analysis-live.md)
+- 开发综合分析真实MySQL ADS查询、筛选与质量校验：阅读 [comprehensive-analysis-live.md](comprehensive-analysis-live.md)
 - 追溯综合分析历史界面预览：阅读 [comprehensive-analysis-preview.md](comprehensive-analysis-preview.md)
 - 配置 MySQL 默认查询或临时切回 Hive：阅读 [data-source-switch.md](data-source-switch.md)
 - 开发出票利润分析和检查字段齐全度：阅读 [issue-profit-analysis.md](issue-profit-analysis.md)

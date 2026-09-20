@@ -1,6 +1,6 @@
 # 综合分析界面预览
 
-2026-09-18说明：本文件仅保留历史预览方案。当前路由已切换真实Hive ADS数据，部门暂缓、增加站点，当前口径与实现以[comprehensive-analysis-live.md](comprehensive-analysis-live.md)为准。
+2026-09-20说明：本文件仅保留历史预览方案。当前路由已切换真实MySQL ADS承接数据，部门暂缓、增加站点，当前口径与实现以[comprehensive-analysis-live.md](comprehensive-analysis-live.md)为准。
 
 来源：用户于2026-09-17先确认综合分析方案，再明确要求先开发界面布局，确认后优先补齐数据。
 状态：界面需求已确认；布局待用户验收；真实数据、维度归属及产品字典未接入或确认。

@@ -1,4 +1,4 @@
-"""Read the Hive ADS snapshot, never the four raw facts or demonstration data."""
+"""Read the MySQL ADS mirror, never the four raw facts or demonstration data."""
 from __future__ import annotations
 
 import json
@@ -24,6 +24,7 @@ COLUMNS = (
     "metric_version", "etl_run_id", "etl_updated_at",
 )
 MAX_ROWS = 100_000
+TABLE_NAME = "bi_business_profit_dimension_day"
 NOTES = [
     "粒度：业务日 × 业务类型 × 平台 × 站点 × 源业务航司 × 机票产品原值；部门暂不纳入。",
     "时间：出票时间、退票申请时间、改签出票时间、增值创建时间；结束日包含当天。",
@@ -93,7 +94,7 @@ def check_snapshot(rows: list[dict], days: list[str]) -> dict:
     by_day: dict[str, list[dict]] = defaultdict(list)
     for row in rows:
         if row["dt"] not in days or row["business_date"] != row["dt"]:
-            raise RuntimeError("中间层业务日期与分区不一致，请重新清洗")
+            raise RuntimeError("中间层业务日期与dt不一致，请重新同步")
         if row["metric_version"] != "v1" or not row["etl_run_id"] or row["business_type"] not in BUSINESSES:
             raise RuntimeError("中间层版本或业务运行标记异常，请重新清洗")
         if row["row_type"] not in ("data", "coverage"):
@@ -144,8 +145,8 @@ def check_snapshot(rows: list[dict], days: list[str]) -> dict:
 
 class ComprehensiveAnalysisService:
     def __init__(self, config: dict[str, Any]):
-        # This dataset is Hive-only for now, without switching the other modules.
-        self.source = DataSource({**config, "DATA_MODE": "hive"})
+        # This dataset is MySQL-only; switching it must not mutate other modules' global mode.
+        self.source = DataSource({**config, "DATA_MODE": "mysql"})
 
     def analysis(self, start_value=None, end_value=None, group="platform", filters=None):
         first, last = parse_period(start_value, end_value)
@@ -167,7 +168,7 @@ class ComprehensiveAnalysisService:
                 raise ValueError(f"{key}筛选值不合法") from None
         days = [(first + timedelta(days=offset)).isoformat() for offset in range((last - first).days + 1)]
         response = {
-            "source": f"Hive · {self.source.database}.ads_business_profit_dimension_day",
+            "source": f"MySQL · {self.source.database}.{TABLE_NAME}",
             "available": False, "error": "", "period": {"startDate": first.isoformat(), "endDate": last.isoformat()},
             "coverage": {"missingDays": [], "availableDays": [], "updatedAt": ""},
             "metrics": aggregate([], False), "totalProfit": None, "trend": [], "comparison": [],
@@ -177,10 +178,10 @@ class ComprehensiveAnalysisService:
         try:
             connection = self.source.connect()
             cursor = connection.cursor()
-            # A single partition-pruned ADS query keeps data + coverage in one snapshot.
+            # A single date-bounded ADS query keeps data + coverage in one snapshot.
             # The explicit guard rejects oversized responses rather than publishing Top N totals.
             cursor.execute(
-                f"SELECT {', '.join(COLUMNS)} FROM {self.source.database}.ads_business_profit_dimension_day "
+                f"SELECT {', '.join(COLUMNS)} FROM {self.source.database}.{TABLE_NAME} "
                 f"WHERE dt >= %s AND dt <= %s LIMIT {MAX_ROWS + 1}",
                 (first.isoformat(), last.isoformat()),
             )
@@ -216,9 +217,9 @@ class ComprehensiveAnalysisService:
             response["available"] = True
             return response
         except Exception as error:
-            logging.getLogger(__name__).exception("Hive ADS comprehensive analysis failed")
+            logging.getLogger(__name__).exception("MySQL ADS comprehensive analysis failed")
             # Do not expose connection details, SQL diagnostics, or credentials to the browser.
-            response["error"] = str(error) if isinstance(error, RuntimeError) else "综合分析Hive ADS查询失败，请检查Hive连接、表结构与清洗批次。"
+            response["error"] = str(error) if isinstance(error, RuntimeError) else "综合分析MySQL ADS查询失败，请检查MySQL连接、表结构与同步批次。"
             return response
         finally:
             if cursor is not None:

@@ -37,7 +37,7 @@ def snapshot(data=()):
 class ComprehensiveTests(unittest.TestCase):
     def setUp(self):
         self.source = MagicMock()
-        self.source.database = "lywz"
+        self.source.database = "sibebid"
         self.connection = self.source.connect.return_value
         self.cursor = self.connection.cursor.return_value
         self.source_patch = patch.object(module, "DataSource", return_value=self.source)
@@ -139,11 +139,11 @@ class ComprehensiveTests(unittest.TestCase):
         self.assertNotIn("private", result["error"])
         self.assertEqual(result["comparison"], [])
 
-    def test_query_is_only_ads_and_bound_partition_dates(self):
+    def test_query_is_only_ads_and_bound_dates(self):
         row = fact(platform="P' OR 1=1 --")
         self.analysis(snapshot([row]), filters={"platform": module.dimension_value(row, "platform")})
         query, params = self.cursor.execute.call_args.args
-        self.assertIn("lywz.ads_business_profit_dimension_day", query)
+        self.assertIn("sibebid.bi_business_profit_dimension_day", query)
         self.assertNotIn("dwd_order", query)
         self.assertNotIn("OR 1=1", query)
         self.assertEqual(params, ("2026-09-18", "2026-09-18"))
@@ -165,11 +165,11 @@ class ComprehensiveTests(unittest.TestCase):
             with self.assertRaises(ValueError): service.analysis(filters={"airline": token})
         self.source.connect.assert_not_called()
 
-    def test_hive_override_does_not_mutate_global_mysql_config(self):
-        config = {"DATA_MODE": "mysql", "HIVE_DATABASE": "lywz"}
+    def test_mysql_override_does_not_mutate_global_hive_config(self):
+        config = {"DATA_MODE": "hive", "MYSQL_DATABASE": "sibebid"}
         module.ComprehensiveAnalysisService(config)
-        self.assertEqual(config["DATA_MODE"], "mysql")
-        self.assertEqual(module.DataSource.call_args.args[0]["DATA_MODE"], "hive")
+        self.assertEqual(config["DATA_MODE"], "hive")
+        self.assertEqual(module.DataSource.call_args.args[0]["DATA_MODE"], "mysql")
 
     def test_route_and_bad_input(self):
         self.cursor.fetchmany.return_value = [tuple(row.get(column) for column in module.COLUMNS) for row in snapshot([fact()])]

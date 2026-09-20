@@ -1,9 +1,9 @@
 <template>
   <div class="page-wrap comprehensive-page">
     <PageHeader eyebrow="BUSINESS PERFORMANCE" title="综合分析" description="从出退改增的经营结果，逐层定位平台、站点、航司和产品">
-      <a-tag color="blue">实际数据 · Hive ADS</a-tag>
+      <a-tag color="blue">实际数据 · MySQL ADS</a-tag>
     </PageHeader>
-    <a-alert class="source-banner" type="info" show-icon :message="data?.source || 'Hive · ads_business_profit_dimension_day'"
+    <a-alert class="source-banner" type="info" show-icon :message="data?.source || 'MySQL · sibebid.bi_business_profit_dimension_day'"
       :description="'CNY业务估算口径 · 不代表财务结算' + (data?.coverage.updatedAt ? ' · 最近加工：' + data.coverage.updatedAt : '')" />
     <section class="scope-panel" aria-label="综合分析筛选">
       <div class="section-heading"><h2>统计范围</h2><span>默认今日 · 各业务按自身发生时间统计</span></div>
@@ -29,7 +29,7 @@
     </div>
     <a-alert v-if="error" class="range-error" type="error" show-icon :message="error" />
     <a-alert v-if="hasMissingProfit" class="range-error" type="warning" show-icon message="所选范围存在缺失利润；完整利润和合计显示为 —，已知金额不冒充完整利润。" />
-    <a-spin :spinning="loading" tip="正在读取Hive ADS数据">
+    <a-spin :spinning="loading" tip="正在读取MySQL ADS数据">
       <div class="summary-grid">
         <section class="summary-total" :data-total-profit="data?.totalProfit ?? undefined"><span>总业务估算利润</span><strong>{{ money(data?.totalProfit) }}<em v-if="data?.totalProfit != null">元</em></strong><p>出票 + 退票 + 改签 + 增值</p><small>CNY · 不含风控核对区重复汇总</small></section>
         <section v-for="business in businesses" :key="business.key" class="business-card" :style="{ '--business-color': business.color }">

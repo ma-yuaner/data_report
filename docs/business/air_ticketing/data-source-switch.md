@@ -20,6 +20,7 @@
 | 退票 | `sibebid.bi_refund_issue_year` | `apply_datetime` | `lywz.dwd_refund_issue_year` | `apply_datetime` |
 | 改签 | `sibebid.bi_change_issue_year` | `change_issue_time` | `lywz.dwd_change_issue_year` | `change_issue_time` |
 | 增值 | `sibebid.bi_aux_pur_year` | `create_time` | `lywz.dwd_aux_pur_year` | `create_time` |
+| 综合分析日汇总 | `sibebid.bi_business_profit_dimension_day` | `dt` | `lywz.ads_business_profit_dimension_day` | `dt` |
 
 除出票时间字段外，首版暂按用户说明复用 Hive 已确认的利润字段和业务过滤条件。由于 MySQL 内容尚未完全同步，这些字段在 MySQL 中的存在性、类型、数据量和结果一致性均标记为“待验证”。
 
@@ -55,6 +56,8 @@ HIVE_DATABASE=lywz
 ```
 
 修改部署环境的 `.env` 后重启 API 或执行 `docker compose up -d`。健康检查 `/api/health` 返回当前 `dataMode`，业务 API 的 `source` 返回具体引擎和数据库。
+
+综合分析页面固定读取 MySQL 镜像 `sibebid.bi_business_profit_dimension_day`。MySQL 不可用时页面直接提示错误，不静默回退 Hive；Hive 表继续作为同步来源及最终口径核对依据。
 
 ## 验证边界
 
