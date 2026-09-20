@@ -35,8 +35,8 @@
         <section v-for="business in businesses" :key="business.key" class="business-card" :style="{ '--business-color': business.color }">
           <div class="business-heading">{{ business.label }}利润</div><strong :class="{ negative: isNegative(metric(business.key)?.profit) }" :data-profit="metric(business.key)?.profit ?? undefined">{{ money(metric(business.key)?.profit) }}<em v-if="metric(business.key)?.profit != null">元</em></strong>
           <div class="business-count"><span>{{ business.countLabel }}</span><b :data-count="metric(business.key)?.count ?? undefined">{{ count(metric(business.key)?.count) }}</b></div>
-          <p v-if="metric(business.key)?.profitMissingCount" class="missing-note">缺失 {{ count(metric(business.key)?.profitMissingCount) }} 条 · 已知 {{ money(metric(business.key)?.knownProfit) }} 元</p>
-          <p v-if="metric(business.key)?.productMissingCount" class="missing-note">待补充产品 {{ count(metric(business.key)?.productMissingCount) }} 条</p>
+          <p v-if="metric(business.key)?.profitMissingCount" class="missing-note">缺失 {{ count(metric(business.key)?.profitMissingCount) }} 票 · 已知 {{ money(metric(business.key)?.knownProfit) }} 元</p>
+          <p v-if="metric(business.key)?.productMissingCount" class="missing-note">待补充产品 {{ count(metric(business.key)?.productMissingCount) }} 票</p>
           <button type="button" class="business-link" :disabled="!available || loading" @click="openDetail(business.key)">查看日汇总<ArrowRightOutlined /></button>
         </section>
       </div>
@@ -51,10 +51,10 @@
       </div>
       <a-card :bordered="false" class="analysis-panel comparison-panel"><template #title>维度经营对比</template>
         <div class="comparison-toolbar"><a-segmented v-model:value="groupDimension" :options="dimensionOptions" :disabled="loading" @change="changeGroup" /><span>选择某项继续分析，可叠加其他维度</span></div>
-        <a-table class="dimension-table" :columns="comparisonColumns" :data-source="data?.comparison || []" row-key="key" :pagination="{ pageSize: 20, showSizeChanger: true }" :scroll="{ x: 1120 }" :locale="{ emptyText: available ? '所选条件没有业务记录' : '中间层数据未就绪' }">
+        <a-table class="dimension-table" :columns="comparisonColumns" :data-source="data?.comparison || []" row-key="key" :pagination="{ pageSize: 20, showSizeChanger: true }" :scroll="{ x: 1120 }" :locale="{ emptyText: available ? '所选条件没有业务数据' : '中间层数据未就绪' }">
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'name'"><strong>{{ record.name }}</strong></template>
-            <template v-else-if="isBusinessKey(column.key)"><div class="metric-cell"><strong :class="{ negative: isNegative(record.metrics[column.key].profit) }">{{ money(record.metrics[column.key].profit) }}<small> 元</small></strong><span>{{ count(record.metrics[column.key].count) }} 条</span><span v-if="record.metrics[column.key].profitMissingCount">缺失利润 {{ count(record.metrics[column.key].profitMissingCount) }} 条</span></div></template>
+            <template v-else-if="isBusinessKey(column.key)"><div class="metric-cell"><strong :class="{ negative: isNegative(record.metrics[column.key].profit) }">{{ money(record.metrics[column.key].profit) }}<small> 元</small></strong><span>{{ count(record.metrics[column.key].count) }} 票</span><span v-if="record.metrics[column.key].profitMissingCount">缺失利润 {{ count(record.metrics[column.key].profitMissingCount) }} 票</span></div></template>
             <template v-else-if="column.key === 'total'"><strong :class="{ negative: isNegative(record.totalProfit) }">{{ money(record.totalProfit) }} 元</strong></template>
             <template v-else-if="column.key === 'action'"><a-button type="link" size="small" @click="drillDimension(record)">分析此项</a-button><a-button type="link" size="small" @click="openDetail(undefined, record)">日汇总</a-button></template>
           </template>
@@ -68,7 +68,7 @@
       <div class="drawer-scope"><strong>{{ applied.startDate }} 至 {{ applied.endDate }}</strong><p>{{ drawerScope }}</p></div>
       <a-alert v-if="drawerError" type="error" :message="drawerError" show-icon />
       <a-table :loading="drawerLoading" :columns="drawerColumns" :data-source="drawerRows" row-key="key" :pagination="{ pageSize: 20 }" :scroll="{ x: 620 }">
-        <template #bodyCell="{ column, record }"><template v-if="column.key === 'count'">{{ count(record.count) }} 条</template><template v-else-if="column.key === 'profit'">{{ money(record.profit) }} 元</template><template v-else-if="column.key === 'missing'">{{ count(record.profitMissingCount) }}</template></template>
+        <template #bodyCell="{ column, record }"><template v-if="column.key === 'count'">{{ count(record.count) }} 票</template><template v-else-if="column.key === 'profit'">{{ money(record.profit) }} 元</template><template v-else-if="column.key === 'missing'">{{ count(record.profitMissingCount) }} 票</template></template>
       </a-table>
     </a-drawer>
   </div>
@@ -85,10 +85,10 @@ import BaseChart from '@/components/BaseChart.vue'
 import { fetchComprehensive, type BusinessKey, type ComprehensiveData, type DimensionKey, type DimensionRow, type FilterScope } from '@/api/comprehensive'
 
 const businesses: { key: BusinessKey; label: string; countLabel: string; color: string }[] = [
-  { key: 'issue', label: '出票', countLabel: '出票记录数', color: '#397cf6' },
-  { key: 'refund', label: '退票', countLabel: '退票记录数', color: '#efab45' },
-  { key: 'change', label: '改签', countLabel: '改签记录数', color: '#8570cf' },
-  { key: 'ancillary', label: '增值', countLabel: '增值购买记录数', color: '#3aada0' },
+  { key: 'issue', label: '出票', countLabel: '出票数', color: '#397cf6' },
+  { key: 'refund', label: '退票', countLabel: '退票数', color: '#efab45' },
+  { key: 'change', label: '改签', countLabel: '改签数', color: '#8570cf' },
+  { key: 'ancillary', label: '增值', countLabel: '增值购买数', color: '#3aada0' },
 ]
 const dimensions: { key: DimensionKey; label: string }[] = [{ key: 'platform', label: '平台' }, { key: 'site', label: '站点' }, { key: 'airline', label: '航司' }, { key: 'product', label: '产品' }]
 const periodOptions = [{ label: '今日', value: 'today' }, { label: '昨日', value: 'yesterday' }, { label: '本月', value: 'month' }, { label: '本年', value: 'year' }, { label: '自定义', value: 'custom' }]
@@ -166,7 +166,7 @@ function drillDimension(row: DimensionRow) {
 }
 const comparisonColumns = computed(() => [
   { title: groupLabel.value, key: 'name', width: 170, fixed: 'left' as const },
-  ...businesses.map(b => ({ title: b.label + '利润 / 记录数', key: b.key, width: 165 })),
+  ...businesses.map(b => ({ title: b.label + '利润 / 票数', key: b.key, width: 165 })),
   { title: '合计利润', key: 'total', width: 145, sorter: (a: DimensionRow, b: DimensionRow) => a.totalProfit == null ? (b.totalProfit == null ? 0 : 1) : b.totalProfit == null ? -1 : Number(a.totalProfit) - Number(b.totalProfit) },
   { title: '继续分析', key: 'action', width: 160, fixed: 'right' as const },
 ])
@@ -206,7 +206,7 @@ async function openDetail(business?: BusinessKey, row?: DimensionRow) {
   finally { if (id === drawerRequestId) drawerLoading.value = false }
 }
 const drawerRows = computed(() => drawerData.value?.available ? drawerData.value.trend.flatMap(day => businesses.filter(b => !drawerBusiness.value || b.key === drawerBusiness.value).map(b => ({ key: day.period + b.key, date: day.period, label: b.label, ...day.metrics[b.key] }))) : [])
-const drawerColumns = [{ title: '业务日', dataIndex: 'date', width: 120 }, { title: '业务', dataIndex: 'label', width: 80 }, { title: '源记录数', key: 'count', width: 110 }, { title: '业务估算利润', key: 'profit', width: 160 }, { title: '缺失利润记录数', key: 'missing', width: 130 }]
+const drawerColumns = [{ title: '业务日', dataIndex: 'date', width: 120 }, { title: '业务', dataIndex: 'label', width: 80 }, { title: '票数', key: 'count', width: 110 }, { title: '业务估算利润', key: 'profit', width: 160 }, { title: '缺失利润票数', key: 'missing', width: 130 }]
 onMounted(() => { void load({ ...draft.value }) })
 </script>
 

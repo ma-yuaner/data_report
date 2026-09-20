@@ -29,7 +29,7 @@ NOTES = [
     "粒度：业务日 × 业务类型 × 平台 × 站点 × 源业务航司 × 机票产品原值；部门暂不纳入。",
     "时间：出票时间、退票申请时间、改签出票时间、增值创建时间；结束日包含当天。",
     "金额：沿用源字段的CNY业务估算口径与正负号，不代表已结算利润；不并入风控核对区利润。",
-    "数量：四类业务为各自源记录数，分别展示，不合计为总票数或据此计算退票率。",
+    "数量：四类业务的business_count分别按票展示，不合计为总票数或据此计算退票率。",
     "产品：保留平台内原值，不推定正式分类；未关联产品的业务保留在待补充产品中。",
     "航司：出票取marketing_airline，退票取marketing_airline_s，改签取新航司air_line，增值取air_line；多航司原值不拆分。",
     "返点、后返、汇率、实际结算、ADM及增值退款完整性尚未确认；无缺失利润字段不等于财务数据完整。",
@@ -56,14 +56,14 @@ def dimension_value(row: dict, key: str) -> str:
 
 
 def dimension_label(row: dict, key: str) -> str:
-    platform = row.get("ota_cname") or row.get("ota_code") or "未知平台"
+    platform = row.get("ota_cname") or "未知平台"
     if key == "platform":
-        return str(platform) + (f" · {row['ota_code']}" if row.get("ota_code") else "")
+        return str(platform)
     if key == "site":
         return f"{row.get('ota_site_cname') or row.get('ota_site_code') or '未知站点'} · {platform}"
     if key == "airline":
         return str(row.get("airline_code") or "未知航司")
-    return f"{row.get('ticket_product_raw') or '待补充产品'} · {platform}" + (f" ({row['ota_code']})" if row.get("ota_code") else "")
+    return f"{row.get('ticket_product_raw') or '待补充产品'} · {platform}"
 
 
 def aggregate(rows: list[dict], available: bool = True) -> dict:

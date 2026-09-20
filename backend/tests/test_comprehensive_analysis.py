@@ -100,6 +100,14 @@ class ComprehensiveTests(unittest.TestCase):
         self.assertEqual(len(result["comparison"]), 2)
         self.assertEqual(len(result["options"]["product"]), 2)
 
+    def test_platform_labels_only_show_chinese_name(self):
+        row = fact(platform="CTRIP")
+        row["ota_cname"] = "携程"
+        result = self.analysis(snapshot([row]), group="platform")
+        self.assertEqual(result["options"]["platform"][0]["label"], "携程")
+        self.assertEqual(result["comparison"][0]["name"], "携程")
+        self.assertNotIn("CTRIP", result["comparison"][0]["name"])
+
     def test_and_filters_change_cards_trend_and_comparison_together(self):
         one, two = fact(), fact(platform="P2", key="r2")
         result = self.analysis(snapshot([one, two]), group="airline", filters={"platform": module.dimension_value(one, "platform"), "airline": module.dimension_value(one, "airline")})
