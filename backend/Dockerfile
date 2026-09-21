@@ -13,6 +13,7 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 
 COPY --chown=appuser:appgroup app.py ./
 COPY --chown=appuser:appgroup data_report_api ./data_report_api
+RUN mkdir -p /app/var/risk-uploads && chown -R appuser:appgroup /app/var
 
 USER appuser
 EXPOSE 5160

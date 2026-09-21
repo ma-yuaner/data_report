@@ -26,7 +26,12 @@
           <a-menu-item key="/analysis/change">改签分析</a-menu-item>
           <a-menu-item key="/analysis/ancillary">增值分析</a-menu-item>
         </a-sub-menu>
-        <a-menu-item key="/risk-analysis"><template #icon><SafetyCertificateOutlined /></template>风控分析</a-menu-item>
+        <a-sub-menu key="risk">
+          <template #icon><SafetyCertificateOutlined /></template>
+          <template #title>风控分析</template>
+          <a-menu-item key="/risk-analysis">利润分析</a-menu-item>
+          <a-menu-item key="/risk-analysis/upload">数据上传</a-menu-item>
+        </a-sub-menu>
         <a-menu-item key="/smart-analysis"><template #icon><RobotOutlined /></template>智能分析</a-menu-item>
         <a-menu-item key="/problems"><template #icon><WarningOutlined /></template>问题中心</a-menu-item>
         <a-menu-item key="/data-assets"><template #icon><DatabaseOutlined /></template>数据资产</a-menu-item>
@@ -76,7 +81,7 @@ const appStore = useAppStore()
 const route = useRoute()
 const router = useRouter()
 const selectedKeys = computed(() => [route.path === '/analysis/profit' ? '/analysis/issue' : route.path])
-const openKeys = computed(() => route.path.startsWith('/analysis') ? ['analysis'] : [])
+const openKeys = computed(() => route.path.startsWith('/analysis') ? ['analysis'] : route.path.startsWith('/risk-analysis') ? ['risk'] : [])
 
 const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
   if (typeof key === 'string' && key.startsWith('/')) router.push(key)

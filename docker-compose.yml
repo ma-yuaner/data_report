@@ -22,8 +22,16 @@ services:
       HIVE_PASSWORD: ${HIVE_PASSWORD:-}
       HIVE_AUTH: ${HIVE_AUTH:-NONE}
       PROFIT_CACHE_TTL: ${PROFIT_CACHE_TTL:-300}
+      RISK_UPLOAD_ENABLED: ${RISK_UPLOAD_ENABLED:-true}
+      RISK_UPLOAD_TOKEN: ${RISK_UPLOAD_TOKEN:-}
+      RISK_UPLOAD_ROOT: /app/var/risk-uploads
+      RISK_UPLOAD_MAX_MB: ${RISK_UPLOAD_MAX_MB:-200}
+      RISK_UPLOAD_INSERT_BATCH_SIZE: ${RISK_UPLOAD_INSERT_BATCH_SIZE:-2000}
+      RISK_UPLOAD_POLL_SECONDS: ${RISK_UPLOAD_POLL_SECONDS:-2}
     ports:
       - "${API_PORT:-5160}:5160"
+    volumes:
+      - risk_upload_data:/app/var/risk-uploads
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5160/api/health', timeout=3)"]
@@ -31,6 +39,28 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  worker:
+    build:
+      context: ./backend
+    command: ["python", "-m", "data_report_api.risk_upload_worker"]
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      DATA_MODE: ${DATA_MODE:-mysql}
+      HIVE_HOST: ${HIVE_HOST:-}
+      HIVE_PORT: ${HIVE_PORT:-10000}
+      HIVE_DATABASE: ${HIVE_DATABASE:-lywz}
+      HIVE_USER: ${HIVE_USER:-}
+      HIVE_PASSWORD: ${HIVE_PASSWORD:-}
+      HIVE_AUTH: ${HIVE_AUTH:-NONE}
+      RISK_UPLOAD_ENABLED: ${RISK_UPLOAD_ENABLED:-true}
+      RISK_UPLOAD_ROOT: /app/var/risk-uploads
+      RISK_UPLOAD_MAX_MB: ${RISK_UPLOAD_MAX_MB:-200}
+      RISK_UPLOAD_INSERT_BATCH_SIZE: ${RISK_UPLOAD_INSERT_BATCH_SIZE:-2000}
+      RISK_UPLOAD_POLL_SECONDS: ${RISK_UPLOAD_POLL_SECONDS:-2}
+    volumes:
+      - risk_upload_data:/app/var/risk-uploads
+    restart: unless-stopped
 
   web:
     build:
@@ -47,3 +77,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+volumes:
+  risk_upload_data:

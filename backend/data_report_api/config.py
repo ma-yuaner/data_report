@@ -3,6 +3,13 @@ from __future__ import annotations
 import os
 
 
+def env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 class Config:
     APP_ENV = os.getenv("APP_ENV", "development")
     DEBUG = APP_ENV == "development"
@@ -24,6 +31,14 @@ class Config:
     HIVE_PASSWORD = os.getenv("HIVE_PASSWORD", "")
     HIVE_AUTH = os.getenv("HIVE_AUTH", "NONE")
     PROFIT_CACHE_TTL = int(os.getenv("PROFIT_CACHE_TTL", "300"))
+    RISK_UPLOAD_ENABLED = env_bool("RISK_UPLOAD_ENABLED", True)
+    RISK_UPLOAD_TOKEN = os.getenv("RISK_UPLOAD_TOKEN", "")
+    RISK_UPLOAD_ROOT = os.getenv("RISK_UPLOAD_ROOT", "/app/var/risk-uploads")
+    RISK_UPLOAD_MAX_MB = int(os.getenv("RISK_UPLOAD_MAX_MB", "200"))
+    RISK_UPLOAD_MAX_BYTES = RISK_UPLOAD_MAX_MB * 1024 * 1024
+    RISK_UPLOAD_INSERT_BATCH_SIZE = int(os.getenv("RISK_UPLOAD_INSERT_BATCH_SIZE", "2000"))
+    RISK_UPLOAD_POLL_SECONDS = int(os.getenv("RISK_UPLOAD_POLL_SECONDS", "2"))
+    MAX_CONTENT_LENGTH = RISK_UPLOAD_MAX_BYTES
     JSON_AS_ASCII = False
 
 
@@ -35,3 +50,5 @@ class TestConfig(Config):
     MYSQL_USER = ""
     HIVE_HOST = ""
     HIVE_USER = ""
+    RISK_UPLOAD_ENABLED = False
+    RISK_UPLOAD_ROOT = "/tmp/data-report-risk-upload-tests"

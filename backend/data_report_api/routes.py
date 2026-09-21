@@ -12,6 +12,7 @@ from .services.risk_monthly_analysis import RiskMonthlyAnalysisService
 from .services.issue_profit_analysis import IssueProfitAnalysisService
 from .services.profit_problem_center import ProfitProblemCenterService
 from .services.risk_profit_summary import RISK_FILTER_FIELDS, RiskProfitSummaryService
+from .services.risk_upload import RiskUploadService
 from .services.data_source import DataSource, data_mode, is_live_mode
 
 
@@ -117,6 +118,33 @@ def risk_monthly_analysis():
             profit_status=request.args.get("profitStatus", "all"),
             date_basis=request.args.get("dateBasis", "reconcile"),
         ))
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+
+
+@api.get("/v1/risk-uploads")
+def risk_upload_status():
+    return ok(
+        RiskUploadService(current_app.config).status(
+            request.headers.get("X-Risk-Upload-Token")
+        )
+    )
+
+
+@api.post("/v1/risk-uploads")
+def create_risk_upload():
+    try:
+        job = RiskUploadService(current_app.config).submit(
+            business_type=request.form.get("businessType", ""),
+            upload=request.files.get("file"),
+            sheet_name=request.form.get("sheetName"),
+            load_date=request.form.get("loadDate"),
+            confirmed=request.form.get("confirmOverwrite", "").lower() == "true",
+            token=request.headers.get("X-Risk-Upload-Token"),
+        )
+        return ok(job, "上传成功，任务已进入Hive导入队列"), 202
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
     except ValueError as error:
         return jsonify({"success": False, "message": str(error), "data": None}), 400
 
