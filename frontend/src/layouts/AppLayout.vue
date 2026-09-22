@@ -15,7 +15,7 @@
         </div>
       </div>
 
-      <a-menu theme="dark" mode="inline" :selected-keys="selectedKeys" :open-keys="openKeys" @click="handleMenuClick">
+      <a-menu v-model:openKeys="openKeys" theme="dark" mode="inline" :selected-keys="selectedKeys" @click="handleMenuClick">
         <a-menu-item key="/overview"><template #icon><DashboardOutlined /></template>经营总览</a-menu-item>
         <a-sub-menu key="analysis">
           <template #icon><LineChartOutlined /></template>
@@ -32,7 +32,16 @@
           <a-menu-item key="/risk-analysis">利润分析</a-menu-item>
           <a-menu-item key="/risk-analysis/upload">数据上传</a-menu-item>
         </a-sub-menu>
-        <a-menu-item key="/smart-analysis"><template #icon><RobotOutlined /></template>智能分析</a-menu-item>
+        <a-sub-menu key="smart">
+          <template #icon><RobotOutlined /></template>
+          <template #title>智能分析</template>
+          <a-menu-item key="/smart-analysis">智能分析首页</a-menu-item>
+          <a-sub-menu key="smart-placement">
+            <template #title>智能投放</template>
+            <a-menu-item key="smart-placement-policy" disabled>投放政策</a-menu-item>
+            <a-menu-item key="smart-placement-orders" disabled>收单情况</a-menu-item>
+          </a-sub-menu>
+        </a-sub-menu>
         <a-menu-item key="/problems"><template #icon><WarningOutlined /></template>问题中心</a-menu-item>
         <a-menu-item key="/data-assets"><template #icon><DatabaseOutlined /></template>数据资产</a-menu-item>
       </a-menu>
@@ -68,7 +77,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   BarChartOutlined, DashboardOutlined, DatabaseOutlined, LineChartOutlined,
@@ -81,7 +90,12 @@ const appStore = useAppStore()
 const route = useRoute()
 const router = useRouter()
 const selectedKeys = computed(() => [route.path === '/analysis/profit' ? '/analysis/issue' : route.path])
-const openKeys = computed(() => route.path.startsWith('/analysis') ? ['analysis'] : route.path.startsWith('/risk-analysis') ? ['risk'] : [])
+const openKeys = ref<string[]>([])
+watch(() => route.path, path => {
+  openKeys.value = path.startsWith('/analysis') ? ['analysis']
+    : path.startsWith('/risk-analysis') ? ['risk']
+      : path.startsWith('/smart-analysis') ? ['smart'] : []
+}, { immediate: true })
 
 const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
   if (typeof key === 'string' && key.startsWith('/')) router.push(key)
