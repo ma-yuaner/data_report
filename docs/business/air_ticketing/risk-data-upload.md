@@ -46,19 +46,17 @@ RISK_UPLOAD_POLL_SECONDS=2
 
 ### Hive/Hadoop容器客户端预检（尚未切换上传实现）
 
-来源：用户2026-09-22要求先在测试环境验证容器内Hive/Hadoop客户端及`LOAD DATA LOCAL`，通过后再修改现有出退改上传代码。当前上传Worker仍使用上述`INSERT VALUES`路径；此探针不修改它。更新日期：2026-09-22。
+来源：用户2026-09-22要求先在测试环境验证容器内Hive/Hadoop客户端连通性，通过后再决定是否修改现有出退改上传代码。当前上传Worker仍使用上述`INSERT VALUES`路径；此探针不修改它。更新日期：2026-09-22。
 
 测试机已有的Hive、Hadoop、Java客户端需要只读挂载进独立的`hadoop-probe`容器。先复制`hadoop-probe.env.example`为不提交的`hadoop-probe.env`，核对五个客户端/配置目录；`hive-site.xml`必须对应目标集群。默认命令只读检查HDFS目录和`hive -e SELECT 1`，不创建表。若容器内解析不了`t217`/`t218`或访问不了集群RPC端口，探针会失败；宿主机有客户端并不代表容器能访问。
+
+该探针在隔离容器中以root运行，避免基础镜像中UID 1000无用户名导致Hadoop登录失败；客户端与配置文件均为只读挂载，HDFS用户由`HADOOP_PROBE_USER`指定。若服务器上`/opt/ha/hadoop/etc/hadoop/core-site.xml`不是`hdfs://mycluster`，应把`HADOOP_CLIENT_CONF`指向正确的配置目录，不要修改宿主机现有Hadoop配置。
 
 ```bash
 docker compose --env-file hadoop-probe.env -f docker-compose.hadoop-probe.yml run --rm hadoop-probe
 ```
 
-只读通过后，操作者可以**显式指定已授权测试库**执行一个单行写入测试；脚本仅创建唯一命名的`tmp_data_report_probe_*`表、`LOAD DATA LOCAL`一行、核对行数并删除该表，不接触任何既有业务表。若写入步骤失败，应先查看探针报告的临时表名并核对清理结果。测试库可能映射生产HDFS，运行者须先确认写入权限和范围。
-
-```bash
-docker compose --env-file hadoop-probe.env -f docker-compose.hadoop-probe.yml run --rm hadoop-probe --write-db <已授权测试库>
-```
+探针只验证读连通性，不创建测试表，也不执行`LOAD DATA LOCAL`。若最终无法连通，按用户要求移除探针，不继续增加配置复杂度。
 
 ## 业务边界
 
