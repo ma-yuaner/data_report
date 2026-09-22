@@ -32,6 +32,7 @@ def property_value(file_path: Path, key: str) -> str | None:
 
 
 def run(command: list[str], label: str, timeout: int = 180) -> str:
+    print(f"开始：{label}；命令：{' '.join(command)}；超时：{timeout}秒", flush=True)
     try:
         result = subprocess.run(
             command,
@@ -42,6 +43,12 @@ def run(command: list[str], label: str, timeout: int = 180) -> str:
             check=False,
         )
     except subprocess.TimeoutExpired as error:
+        if error.stdout:
+            output = error.stdout.decode(errors="replace") if isinstance(error.stdout, bytes) else error.stdout
+            print(f"超时前stdout（末2000字符）：{output[-2000:]}", flush=True)
+        if error.stderr:
+            output = error.stderr.decode(errors="replace") if isinstance(error.stderr, bytes) else error.stderr
+            print(f"超时前stderr（末2000字符）：{output[-2000:]}", flush=True)
         raise ProbeError(f"{label}超时（{timeout}秒）") from error
     except OSError as error:
         raise ProbeError(f"{label}无法启动：{type(error).__name__}") from error
@@ -49,6 +56,8 @@ def run(command: list[str], label: str, timeout: int = 180) -> str:
         details = (result.stderr or result.stdout).strip().splitlines()
         summary = details[-1][:300] if details else "无错误输出"
         raise ProbeError(f"{label}失败，退出码{result.returncode}：{summary}")
+    if result.stdout.strip():
+        print(f"输出：{result.stdout.strip()[-2000:]}", flush=True)
     print(f"通过：{label}", flush=True)
     return result.stdout
 
@@ -61,6 +70,7 @@ def check_local_clients() -> None:
         if not config_file.is_file():
             raise ProbeError(f"容器内缺少配置文件：{config_file}")
     actual_fs = property_value(HADOOP_CONFIG, "fs.defaultFS")
+    print(f"配置：{HADOOP_CONFIG} fs.defaultFS={actual_fs or '未配置'}", flush=True)
     if actual_fs != EXPECTED_FS:
         raise ProbeError(
             f"core-site.xml的fs.defaultFS为{actual_fs or '未配置'}，"
