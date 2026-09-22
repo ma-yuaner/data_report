@@ -44,6 +44,22 @@ RISK_UPLOAD_POLL_SECONDS=2
 
 同时必须配置现有`HIVE_HOST`、`HIVE_PORT`、`HIVE_DATABASE`、`HIVE_USER`、`HIVE_PASSWORD`和`HIVE_AUTH`。真实口令和数据库密码不得写入`.env.example`或提交Git。
 
+### Hive/Hadoop容器客户端预检（尚未切换上传实现）
+
+来源：用户2026-09-22要求先在测试环境验证容器内Hive/Hadoop客户端及`LOAD DATA LOCAL`，通过后再修改现有出退改上传代码。当前上传Worker仍使用上述`INSERT VALUES`路径；此探针不修改它。更新日期：2026-09-22。
+
+测试机已有的Hive、Hadoop、Java客户端需要只读挂载进独立的`hadoop-probe`容器。先复制`hadoop-probe.env.example`为不提交的`hadoop-probe.env`，核对五个客户端/配置目录；`hive-site.xml`必须对应目标集群。默认命令只读检查HDFS目录和`hive -e SELECT 1`，不创建表。若容器内解析不了`t217`/`t218`或访问不了集群RPC端口，探针会失败；宿主机有客户端并不代表容器能访问。
+
+```bash
+docker compose --env-file hadoop-probe.env -f docker-compose.hadoop-probe.yml run --rm hadoop-probe
+```
+
+只读通过后，操作者可以**显式指定已授权测试库**执行一个单行写入测试；脚本仅创建唯一命名的`tmp_data_report_probe_*`表、`LOAD DATA LOCAL`一行、核对行数并删除该表，不接触任何既有业务表。若写入步骤失败，应先查看探针报告的临时表名并核对清理结果。测试库可能映射生产HDFS，运行者须先确认写入权限和范围。
+
+```bash
+docker compose --env-file hadoop-probe.env -f docker-compose.hadoop-probe.yml run --rm hadoop-probe --write-db <已授权测试库>
+```
+
 ## 业务边界
 
 - 本功能只负责把用户确认的增量Excel合并到三张利润核对表，不修改利润公式或原因分类；

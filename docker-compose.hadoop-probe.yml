@@ -1,0 +1,29 @@
+# 手动运行的独立探针；不启动或修改现有 api/worker/web 服务。
+services:
+  hadoop-probe:
+    image: python:3.12-slim
+    network_mode: host
+    working_dir: /tmp
+    user: "${HADOOP_PROBE_UID:-1000}:${HADOOP_PROBE_GID:-1000}"
+    environment:
+      HOME: /tmp
+      JAVA_HOME: /opt/java
+      HADOOP_HOME: /opt/hadoop
+      HADOOP_CONF_DIR: /etc/hadoop/conf
+      HIVE_HOME: /opt/hive
+      HIVE_CONF_DIR: /etc/hive/conf
+      HADOOP_USER_NAME: ${HADOOP_PROBE_USER:-lywz}
+      HADOOP_LOG_DIR: /tmp/hadoop-logs
+      HIVE_LOG_DIR: /tmp/hive-logs
+      PATH: /opt/java/bin:/opt/hadoop/bin:/opt/hive/bin:/usr/local/bin:/usr/bin:/bin
+    volumes:
+      - ${HADOOP_CLIENT_HOME:?请设置HADOOP_CLIENT_HOME}:/opt/hadoop:ro
+      - ${HADOOP_CLIENT_CONF:?请设置HADOOP_CLIENT_CONF}:/etc/hadoop/conf:ro
+      - ${HIVE_CLIENT_HOME:?请设置HIVE_CLIENT_HOME}:/opt/hive:ro
+      - ${HIVE_CLIENT_CONF:?请设置HIVE_CLIENT_CONF}:/etc/hive/conf:ro
+      - ${JAVA_CLIENT_HOME:?请设置JAVA_CLIENT_HOME}:/opt/java:ro
+      - ./backend/data_report_api/hadoop_probe.py:/probe/hadoop_probe.py:ro
+    entrypoint: ["python", "/probe/hadoop_probe.py"]
+    command:
+      - --path
+      - ${HADOOP_PROBE_PATH:-hdfs://mycluster/warehouse/lywz/ads/ads_gds_achievement_rate_day}
