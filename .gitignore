@@ -1,5 +1,4 @@
 .env
-hadoop-probe.env
 .venv/
 __pycache__/
 .pytest_cache/

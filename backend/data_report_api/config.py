@@ -36,7 +36,24 @@ class Config:
     RISK_UPLOAD_ROOT = os.getenv("RISK_UPLOAD_ROOT", "/app/var/risk-uploads")
     RISK_UPLOAD_MAX_MB = int(os.getenv("RISK_UPLOAD_MAX_MB", "200"))
     RISK_UPLOAD_MAX_BYTES = RISK_UPLOAD_MAX_MB * 1024 * 1024
-    RISK_UPLOAD_INSERT_BATCH_SIZE = int(os.getenv("RISK_UPLOAD_INSERT_BATCH_SIZE", "2000"))
+    RISK_UPLOAD_WEBHDFS_URL = os.getenv("RISK_UPLOAD_WEBHDFS_URL", "")
+    RISK_UPLOAD_WEBHDFS_USER = os.getenv("RISK_UPLOAD_WEBHDFS_USER", HIVE_USER)
+    RISK_UPLOAD_WEBHDFS_HOST_MAP = os.getenv(
+        "RISK_UPLOAD_WEBHDFS_HOST_MAP", ""
+    )
+    RISK_UPLOAD_WEBHDFS_CONNECT_TIMEOUT = int(
+        os.getenv("RISK_UPLOAD_WEBHDFS_CONNECT_TIMEOUT", "10")
+    )
+    RISK_UPLOAD_WEBHDFS_READ_TIMEOUT = int(
+        os.getenv("RISK_UPLOAD_WEBHDFS_READ_TIMEOUT", "300")
+    )
+    RISK_UPLOAD_HDFS_URI = os.getenv("RISK_UPLOAD_HDFS_URI", "hdfs://mycluster")
+    RISK_UPLOAD_HDFS_ROOT = os.getenv(
+        "RISK_UPLOAD_HDFS_ROOT", "/tmp/data-report/risk-uploads"
+    )
+    RISK_UPLOAD_ORC_TIMEZONE = os.getenv(
+        "RISK_UPLOAD_ORC_TIMEZONE", "Asia/Shanghai"
+    )
     RISK_UPLOAD_POLL_SECONDS = int(os.getenv("RISK_UPLOAD_POLL_SECONDS", "2"))
     MAX_CONTENT_LENGTH = RISK_UPLOAD_MAX_BYTES
     JSON_AS_ASCII = False

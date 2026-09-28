@@ -2,97 +2,23 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+import tempfile
 import uuid
-from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from .data_source import DataSource
 from .risk_upload_definitions import RiskUploadDefinition
-
-
-MAX_SQL_BYTES = 4 * 1024 * 1024
-
-
-def normalize_type(value: str) -> str:
-    return re.sub(r"\s+", "", value.lower())
-
-
-def hive_string(value: str) -> str:
-    escaped = (
-        value.replace("\\", "\\\\")
-        .replace("'", "\\'")
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
-        .replace("\t", "\\t")
-        .replace("\x00", "\\0")
-    )
-    return f"'{escaped}'"
-
-
-def normalize_value(value: Any, target_type: str) -> str | None:
-    if value is None or (isinstance(value, str) and not value.strip()):
-        return None
-    if isinstance(value, bool):
-        text = "true" if value else "false"
-    elif isinstance(value, dt.datetime):
-        text = value.isoformat(sep=" ", timespec="seconds")
-    elif isinstance(value, (dt.date, dt.time)):
-        text = value.isoformat()
-    else:
-        text = str(value)
-
-    data_type = normalize_type(target_type)
-    if data_type == "string" or data_type.startswith("varchar(") or data_type.startswith("char("):
-        return text
-    stripped = text.strip().replace(",", "")
-    if data_type in {"tinyint", "smallint", "int", "bigint"}:
-        try:
-            number = Decimal(stripped)
-            if not number.is_finite() or number != number.to_integral_value():
-                raise ValueError("非整数")
-            return str(int(number))
-        except (InvalidOperation, ValueError, OverflowError) as error:
-            raise ValueError(f"无法将{value!r}转换为{data_type}") from error
-    if data_type.startswith("decimal("):
-        try:
-            number = Decimal(stripped)
-            precision, scale = (int(item) for item in re.findall(r"\d+", data_type))
-            if not number.is_finite() or abs(number) >= Decimal(10) ** (precision - scale):
-                raise ValueError("超出范围")
-            return format(number, "f")
-        except (InvalidOperation, ValueError) as error:
-            raise ValueError(f"无法将{value!r}转换为{data_type}") from error
-    if data_type in {"float", "double"}:
-        try:
-            number = Decimal(stripped)
-            if not number.is_finite():
-                raise ValueError("非有限数")
-            return format(number, "f")
-        except (InvalidOperation, ValueError) as error:
-            raise ValueError(f"无法将{value!r}转换为{data_type}") from error
-    if data_type == "boolean":
-        lowered = stripped.lower()
-        if lowered not in {"true", "false", "1", "0"}:
-            raise ValueError(f"无法将{value!r}转换为boolean")
-        return "true" if lowered in {"true", "1"} else "false"
-    if data_type == "date":
-        return text[:10]
-    if data_type == "timestamp":
-        return text
-    raise ValueError(f"暂不支持Hive字段类型：{target_type}")
-
-
-def hive_literal(value: Any, target_type: str) -> str:
-    normalized = normalize_value(value, target_type)
-    if normalized is None:
-        return "NULL"
-    data_type = normalize_type(target_type)
-    if data_type == "string" or data_type.startswith("varchar(") or data_type.startswith("char("):
-        return hive_string(normalized)
-    if data_type in {"date", "timestamp"}:
-        return f"CAST({hive_string(normalized)} AS {data_type.upper()})"
-    return normalized
+from .risk_upload_orc import (
+    create_webhdfs_client,
+    delete_hdfs_directory,
+    normalize_type,
+    orc_value,
+    upload_orc,
+    validate_hdfs_root,
+    validate_hdfs_uri,
+    write_orc,
+)
 
 
 def trim_headers(values: Iterable[Any]) -> list[str]:
@@ -149,17 +75,6 @@ def repair_refund_row(values: list[Any], header_index: dict[str, int]) -> list[A
     return repaired
 
 
-def flush_rows(cursor: Any, connection: Any, staging_table: str,
-               rows: list[str]) -> int:
-    if not rows:
-        return 0
-    cursor.execute(f"INSERT INTO TABLE {staging_table} VALUES\n" + ",\n".join(rows))
-    connection.commit()
-    count = len(rows)
-    rows.clear()
-    return count
-
-
 def ticket_key_stats(cursor: Any, table: str) -> tuple[int, int, int]:
     """Return total, non-null and distinct normalized issue ticket keys."""
     cursor.execute(
@@ -199,6 +114,9 @@ def load_excel_to_hive(
     cursor = None
     staging_table = ""
     merge_table = ""
+    local_orc_path: Path | None = None
+    webhdfs_client = None
+    remote_dir = ""
     try:
         if sheet_name not in workbook.sheetnames:
             raise ValueError(
@@ -248,57 +166,80 @@ def load_excel_to_hive(
         log(f"Excel表头与Hive目标表{len(actual_schema)}列校验通过")
 
         database = definition.target_table.split(".", 1)[0]
-        staging_table = f"{database}.tmp_risk_upload_{uuid.uuid4().hex}"
+        upload_id = uuid.uuid4().hex
+        staging_table = f"{database}.tmp_risk_upload_{upload_id}"
         column_ddl = ",\n".join(
             f"  `{name}` {data_type.upper()}" for name, data_type in actual_schema
         )
-        cursor.execute(
-            f"CREATE TEMPORARY TABLE {staging_table} (\n{column_ddl}\n) STORED AS ORC"
-        )
 
-        batch_size = max(1, min(int(config.get("RISK_UPLOAD_INSERT_BATCH_SIZE", 2000)), 5000))
-        prefix_bytes = len(f"INSERT INTO TABLE {staging_table} VALUES\n".encode("utf-8"))
-        sql_bytes = prefix_bytes
-        pending: list[str] = []
-        total = 0
-        for row_number, values in enumerate(
-            worksheet.iter_rows(min_row=2, max_col=len(headers), values_only=True),
-            start=2,
-        ):
-            row_values = list(values)
-            if definition.key == "refund":
-                row_values = repair_refund_row(row_values, header_index)
-            selected = [
-                row_values[index] if index < len(row_values) else None
-                for index in source_indexes
-            ]
-            if all(value is None or (isinstance(value, str) and not value.strip()) for value in selected):
-                continue
-            try:
-                row_sql = "(" + ", ".join(
-                    hive_literal(value, data_type)
-                    for value, (_, data_type) in zip(selected, actual_schema)
-                ) + ")"
-            except ValueError as error:
-                raise ValueError(f"Excel第{row_number}行：{error}") from error
-            row_bytes = len(row_sql.encode("utf-8"))
-            if prefix_bytes + row_bytes > MAX_SQL_BYTES:
-                raise ValueError(f"Excel第{row_number}行内容过大，已停止写入")
-            separator_bytes = 2 if pending else 0
-            if pending and (
-                len(pending) >= batch_size
-                or sql_bytes + separator_bytes + row_bytes > MAX_SQL_BYTES
+        def iter_orc_rows():
+            for row_number, values in enumerate(
+                worksheet.iter_rows(
+                    min_row=2, max_col=len(headers), values_only=True
+                ),
+                start=2,
             ):
-                total += flush_rows(cursor, connection, staging_table, pending)
-                log(f"Hive临时表已写入{total:,}行")
-                sql_bytes = prefix_bytes
-                separator_bytes = 0
-            pending.append(row_sql)
-            sql_bytes += separator_bytes + row_bytes
-        total += flush_rows(cursor, connection, staging_table, pending)
+                row_values = list(values)
+                if definition.key == "refund":
+                    row_values = repair_refund_row(row_values, header_index)
+                selected = [
+                    row_values[index] if index < len(row_values) else None
+                    for index in source_indexes
+                ]
+                if all(
+                    value is None
+                    or (isinstance(value, str) and not value.strip())
+                    for value in selected
+                ):
+                    continue
+                try:
+                    yield tuple(
+                        orc_value(value, data_type)
+                        for value, (_, data_type) in zip(selected, actual_schema)
+                    )
+                except ValueError as error:
+                    raise ValueError(f"Excel第{row_number}行：{error}") from error
+
+        with tempfile.NamedTemporaryFile(
+            prefix=f"risk-upload-{upload_id}-",
+            suffix=".orc",
+            dir=path.parent,
+            delete=False,
+        ) as temporary_file:
+            local_orc_path = Path(temporary_file.name)
+        total = write_orc(
+            local_orc_path,
+            actual_schema,
+            iter_orc_rows(),
+            str(config.get("RISK_UPLOAD_ORC_TIMEZONE", "Asia/Shanghai")),
+        )
         if total <= 0:
             raise ValueError("Excel没有有效数据行，禁止覆盖Hive目标表")
-        log(f"Excel读取完成，共{total:,}行")
+        local_orc_size = local_orc_path.stat().st_size
+        log(
+            f"Excel校验及ORC转换完成：{total:,}行，"
+            f"{local_orc_size / 1024 / 1024:.2f} MB"
+        )
+
+        remote_root = validate_hdfs_root(
+            str(config.get("RISK_UPLOAD_HDFS_ROOT", "/tmp/data-report/risk-uploads"))
+        )
+        hdfs_uri = validate_hdfs_uri(
+            str(config.get("RISK_UPLOAD_HDFS_URI", "hdfs://mycluster"))
+        )
+        remote_dir = f"{remote_root}/{upload_id}"
+        webhdfs_client = create_webhdfs_client(config)
+        remote_file, remote_size = upload_orc(
+            webhdfs_client, local_orc_path, remote_dir
+        )
+        log(f"ORC已通过WebHDFS上传：{remote_size / 1024 / 1024:.2f} MB")
+
+        hdfs_location = f"{hdfs_uri}{remote_dir}"
+        cursor.execute(
+            f"CREATE EXTERNAL TABLE {staging_table} (\n{column_ddl}\n) "
+            f"STORED AS ORC LOCATION '{hdfs_location}'"
+        )
+        log(f"Hive ORC临时表已就绪：{Path(remote_file).name}")
 
         cursor.execute(f"SELECT COUNT(1) FROM {staging_table}")
         staging_rows = int(cursor.fetchone()[0])
@@ -448,5 +389,12 @@ def load_excel_to_hive(
             try:
                 connection.close()
             except Exception:
+                pass
+        if webhdfs_client is not None and remote_dir:
+            delete_hdfs_directory(webhdfs_client, remote_dir)
+        if local_orc_path is not None:
+            try:
+                local_orc_path.unlink(missing_ok=True)
+            except OSError:
                 pass
         workbook.close()
