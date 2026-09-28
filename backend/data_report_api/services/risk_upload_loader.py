@@ -112,6 +112,7 @@ def load_excel_to_hive(
     )
     connection = None
     cursor = None
+    raw_staging_table = ""
     staging_table = ""
     merge_table = ""
     local_orc_path: Path | None = None
@@ -167,7 +168,7 @@ def load_excel_to_hive(
 
         database = definition.target_table.split(".", 1)[0]
         upload_id = uuid.uuid4().hex
-        staging_table = f"{database}.tmp_risk_upload_{upload_id}"
+        raw_staging_table = f"{database}.tmp_risk_upload_{upload_id}"
         column_ddl = ",\n".join(
             f"  `{name}` {data_type.upper()}" for name, data_type in actual_schema
         )
@@ -236,12 +237,12 @@ def load_excel_to_hive(
 
         hdfs_location = f"{hdfs_uri}{remote_dir}"
         cursor.execute(
-            f"CREATE EXTERNAL TABLE {staging_table} (\n{column_ddl}\n) "
+            f"CREATE EXTERNAL TABLE {raw_staging_table} (\n{column_ddl}\n) "
             f"STORED AS ORC LOCATION '{hdfs_location}'"
         )
         log(f"Hive ORC临时表已就绪：{Path(remote_file).name}")
 
-        cursor.execute(f"SELECT COUNT(1) FROM {staging_table}")
+        cursor.execute(f"SELECT COUNT(1) FROM {raw_staging_table}")
         staging_rows = int(cursor.fetchone()[0])
         if staging_rows != total:
             raise RuntimeError(
@@ -249,15 +250,48 @@ def load_excel_to_hive(
             )
         selected_columns = ", ".join(f"`{name}`" for name in expected_columns)
         stage_total, stage_non_null, stage_distinct = ticket_key_stats(
-            cursor, staging_table
+            cursor, raw_staging_table
         )
         if stage_non_null != stage_total:
             raise ValueError(
                 f"{definition.label}增量存在{stage_total - stage_non_null:,}行空出票票号，禁止合并"
             )
+        staging_table = raw_staging_table
         if stage_distinct != stage_total:
-            raise ValueError(
-                f"{definition.label}增量存在{stage_total - stage_distinct:,}个重复出票票号，禁止合并"
+            staging_table = f"{database}.tmp_risk_unique_{upload_id}"
+            cursor.execute(
+                f"CREATE TEMPORARY TABLE {staging_table} (\n{column_ddl}\n) "
+                "STORED AS ORC"
+            )
+            raw_columns = ", ".join(
+                f"raw_rows.`{name}`" for name in expected_columns
+            )
+            cursor.execute(
+                f"INSERT OVERWRITE TABLE {staging_table}\n"
+                f"SELECT {raw_columns}\n"
+                f"FROM {raw_staging_table} raw_rows\n"
+                "JOIN (\n"
+                "  SELECT TRIM(`issue_ticket_no`) AS ticket_key\n"
+                f"  FROM {raw_staging_table}\n"
+                "  GROUP BY TRIM(`issue_ticket_no`)\n"
+                "  HAVING COUNT(1)=1\n"
+                ") unique_keys\n"
+                "ON TRIM(raw_rows.`issue_ticket_no`)=unique_keys.ticket_key"
+            )
+            connection.commit()
+            filtered_total, filtered_non_null, filtered_distinct = ticket_key_stats(
+                cursor, staging_table
+            )
+            if (
+                filtered_total != filtered_non_null
+                or filtered_total != filtered_distinct
+            ):
+                raise RuntimeError(f"{definition.label}重复票号过滤结果校验失败")
+            duplicate_rows = stage_total - filtered_total
+            duplicate_ticket_count = stage_distinct - filtered_distinct
+            log(
+                f"{definition.label}增量已忽略{duplicate_ticket_count:,}个重复出票票号"
+                f"对应的{duplicate_rows:,}行；保留{filtered_total:,}行唯一票号数据"
             )
 
         target_total, target_non_null, target_distinct = ticket_key_stats(
@@ -374,7 +408,10 @@ def load_excel_to_hive(
         return total, target_rows
     finally:
         if cursor is not None:
-            for temporary_table in (merge_table, staging_table):
+            cleanup_tables = dict.fromkeys(
+                (merge_table, staging_table, raw_staging_table)
+            )
+            for temporary_table in cleanup_tables:
                 if not temporary_table:
                     continue
                 try:
