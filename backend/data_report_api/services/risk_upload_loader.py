@@ -166,6 +166,13 @@ def load_excel_to_hive(
             raise ValueError("分区表导入必须提供dt日期")
         log(f"Excel表头与Hive目标表{len(actual_schema)}列校验通过")
 
+        # Excel转ORC和WebHDFS上传可能耗时较长，不能一直占用最初的
+        # HiveServer2 Thrift会话，否则大文件上传后该空闲连接容易失效。
+        cursor.close()
+        cursor = None
+        connection.close()
+        connection = None
+
         database = definition.target_table.split(".", 1)[0]
         upload_id = uuid.uuid4().hex
         raw_staging_table = f"{database}.tmp_risk_upload_{upload_id}"
@@ -235,6 +242,9 @@ def load_excel_to_hive(
         )
         log(f"ORC已通过WebHDFS上传：{remote_size / 1024 / 1024:.2f} MB")
 
+        connection = source.connect()
+        cursor = connection.cursor()
+        log("Hive连接已刷新，开始校验并合并数据")
         hdfs_location = f"{hdfs_uri}{remote_dir}"
         cursor.execute(
             f"CREATE EXTERNAL TABLE {raw_staging_table} (\n{column_ddl}\n) "

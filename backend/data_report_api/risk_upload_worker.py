@@ -70,6 +70,8 @@ def run_job(store: RiskUploadStore, job: dict[str, Any], config: dict[str, Any])
     except Exception as error:
         if isinstance(error, (ValueError, RuntimeError, FileNotFoundError)):
             message = str(error)
+        elif type(error).__name__ == "TTransportException":
+            message = "Hive连接中断，任务已安全停止；请重新提交上传"
         else:
             message = f"{type(error).__name__}，请查看Worker服务日志"
         task_log(f"任务失败：{message}")
