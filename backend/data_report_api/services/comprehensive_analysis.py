@@ -16,17 +16,18 @@ DIMENSIONS = {
     "site": ("ota_code", "ota_site_code", "ota_site_cname"),
     "airline": ("airline_code",),
     "product": ("ota_code", "ota_cname", "ticket_product_raw"),
+    "policy": ("policy_operator",),
 }
 COLUMNS = (
     "row_key", "dt", "business_date", "row_type", "business_type", "ota_code", "ota_cname",
     "ota_site_code", "ota_site_cname", "airline_code", "ticket_product_raw", "business_count",
     "known_profit_cny", "estimated_profit_cny", "profit_missing_count", "source_row_count",
-    "metric_version", "etl_run_id", "etl_updated_at",
+    "metric_version", "etl_run_id", "etl_updated_at", "policy_operator",
 )
 MAX_ROWS = 100_000
 TABLE_NAME = "bi_business_profit_dimension_day"
 NOTES = [
-    "粒度：业务日 × 业务类型 × 平台 × 站点 × 源业务航司 × 机票产品原值；部门暂不纳入。",
+    "粒度：业务日 × 业务类型 × 平台 × 站点 × 政策员 × 源业务航司 × 机票产品原值；部门暂不纳入。",
     "时间：出票时间、退票申请时间、改签出票时间、增值创建时间；结束日包含当天。",
     "金额：沿用源字段的CNY业务估算口径与正负号，不代表已结算利润；不并入风控核对区利润。",
     "数量：四类业务的business_count分别按票展示，不合计为总票数或据此计算退票率。",
@@ -63,6 +64,8 @@ def dimension_label(row: dict, key: str) -> str:
         return f"{row.get('ota_site_cname') or row.get('ota_site_code') or '未知站点'} · {platform}"
     if key == "airline":
         return str(row.get("airline_code") or "未知航司")
+    if key == "policy":
+        return str(row.get("policy_operator") or "未知政策员")
     return f"{row.get('ticket_product_raw') or '待补充产品'} · {platform}"
 
 
@@ -95,7 +98,7 @@ def check_snapshot(rows: list[dict], days: list[str]) -> dict:
     for row in rows:
         if row["dt"] not in days or row["business_date"] != row["dt"]:
             raise RuntimeError("中间层业务日期与dt不一致，请重新同步")
-        if row["metric_version"] != "v1" or not row["etl_run_id"] or row["business_type"] not in BUSINESSES:
+        if row["metric_version"] not in ("v1", "v2") or not row["etl_run_id"] or row["business_type"] not in BUSINESSES:
             raise RuntimeError("中间层版本或业务运行标记异常，请重新清洗")
         if row["row_type"] not in ("data", "coverage"):
             raise RuntimeError("中间层行类型异常")
@@ -108,6 +111,8 @@ def check_snapshot(rows: list[dict], days: list[str]) -> dict:
             continue
         if len({row["etl_run_id"] for row in partition}) != 1:
             raise RuntimeError(f"{day}存在混合清洗批次，请重跑该日")
+        if len({row["metric_version"] for row in partition}) != 1:
+            raise RuntimeError(f"{day}存在混合指标版本，请重新同步")
         for business in BUSINESSES:
             markers = [row for row in partition if row["row_type"] == "coverage" and row["business_type"] == business]
             if len(markers) != 1:

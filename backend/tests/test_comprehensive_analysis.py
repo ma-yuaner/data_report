@@ -10,12 +10,13 @@ from data_report_api.config import TestConfig
 from data_report_api.services import comprehensive_analysis as module
 
 
-def fact(business="issue", count=3, known="12.1234", missing=0, platform="P1", product="普通", day="2026-09-18", key="row1"):
+def fact(business="issue", count=3, known="12.1234", missing=0, platform="P1", product="普通", policy="政策员甲", day="2026-09-18", key="row1"):
     return {
         **dict.fromkeys(module.COLUMNS), "row_key": key, "dt": day, "business_date": day,
         "row_type": "data", "business_type": business, "ota_code": platform, "ota_cname": platform,
         "ota_site_code": "S1", "ota_site_cname": "站点一", "airline_code": "HO",
-        "ticket_product_raw": product, "business_count": count, "profit_missing_count": missing,
+        "ticket_product_raw": product, "policy_operator": policy,
+        "business_count": count, "profit_missing_count": missing,
         "known_profit_cny": Decimal(known) if known is not None else None,
         "estimated_profit_cny": Decimal(known) if missing == 0 and known is not None else None,
         "metric_version": "v1", "etl_run_id": "run1", "etl_updated_at": "2026-09-18 16:29:17",
@@ -108,6 +109,21 @@ class ComprehensiveTests(unittest.TestCase):
         self.assertEqual(result["comparison"][0]["name"], "携程")
         self.assertNotIn("CTRIP", result["comparison"][0]["name"])
 
+    def test_policy_operator_supports_options_group_filter_and_unknown(self):
+        one = fact(policy="政策员甲")
+        two = fact(policy="政策员乙", key="r2")
+        unknown = fact(policy=None, key="r3")
+        result = self.analysis(snapshot([one, two, unknown]), group="policy")
+        self.assertEqual({row["name"] for row in result["comparison"]}, {"政策员甲", "政策员乙", "未知政策员"})
+        self.assertEqual(len(result["options"]["policy"]), 3)
+        selected = self.analysis(
+            snapshot([one, two, unknown]),
+            group="policy",
+            filters={"policy": module.dimension_value(two, "policy")},
+        )
+        self.assertEqual(selected["metrics"]["issue"]["count"], 3)
+        self.assertEqual([row["name"] for row in selected["comparison"]], ["政策员乙"])
+
     def test_and_filters_change_cards_trend_and_comparison_together(self):
         one, two = fact(), fact(platform="P2", key="r2")
         result = self.analysis(snapshot([one, two]), group="airline", filters={"platform": module.dimension_value(one, "platform"), "airline": module.dimension_value(one, "airline")})
@@ -124,6 +140,7 @@ class ComprehensiveTests(unittest.TestCase):
     def test_broken_coverage_version_run_or_quantity_rejected(self):
         cases = []
         rows = snapshot([fact()]); rows[-1]["etl_run_id"] = "run2"; cases.append(rows)
+        rows = snapshot([fact()]); rows[0]["metric_version"] = "v999"; cases.append(rows)
         rows = snapshot([fact()]); rows[0]["metric_version"] = "v2"; cases.append(rows)
         rows = snapshot([fact()]); rows[1]["source_row_count"] = 100; cases.append(rows)
         rows = snapshot([fact()]); rows.pop(); cases.append(rows)
@@ -152,6 +169,7 @@ class ComprehensiveTests(unittest.TestCase):
         self.analysis(snapshot([row]), filters={"platform": module.dimension_value(row, "platform")})
         query, params = self.cursor.execute.call_args.args
         self.assertIn("sibebid.bi_business_profit_dimension_day", query)
+        self.assertIn("policy_operator", query)
         self.assertNotIn("dwd_order", query)
         self.assertNotIn("OR 1=1", query)
         self.assertEqual(params, ("2026-09-18", "2026-09-18"))

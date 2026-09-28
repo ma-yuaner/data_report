@@ -1,7 +1,7 @@
 import { http, type ApiEnvelope } from './http'
 
 export type BusinessKey = 'issue' | 'refund' | 'change' | 'ancillary'
-export type DimensionKey = 'platform' | 'site' | 'airline' | 'product'
+export type DimensionKey = 'platform' | 'site' | 'airline' | 'product' | 'policy'
 export interface Metric {
   count: number | null
   profit: string | null
@@ -38,6 +38,7 @@ export interface FilterScope {
   site: string
   airline: string
   product: string
+  policy: string
 }
 export async function fetchComprehensive(scope: FilterScope, groupBy: DimensionKey): Promise<ComprehensiveData> {
   const { preset: _preset, ...params } = scope

@@ -19,7 +19,7 @@
           <a-select v-model:value="draft[dimension.key]" :aria-label="dimension.label + '筛选'" :options="filterOptions(dimension.key)" show-search option-filter-prop="label" :disabled="loading" />
         </label>
       </div>
-      <div class="scope-actions"><span>{{ hasPending ? '条件已变更，点击查询后生效' : '时间与四个业务维度可组合筛选；结束日期包含当天' }}</span>
+      <div class="scope-actions"><span>{{ hasPending ? '条件已变更，点击查询后生效' : '时间与五个分析维度可组合筛选；结束日期包含当天' }}</span>
         <div><a-button :disabled="loading" @click="resetFilters"><UndoOutlined />重置</a-button><a-button type="primary" :loading="loading" @click="applyFilters"><SearchOutlined />查询</a-button></div>
       </div>
       <a-alert v-if="rangeError" class="range-error" type="error" show-icon :message="rangeError" />
@@ -90,11 +90,11 @@ const businesses: { key: BusinessKey; label: string; countLabel: string; color: 
   { key: 'change', label: '改签', countLabel: '改签数', color: '#8570cf' },
   { key: 'ancillary', label: '增值', countLabel: '增值购买数', color: '#3aada0' },
 ]
-const dimensions: { key: DimensionKey; label: string }[] = [{ key: 'platform', label: '平台' }, { key: 'site', label: '站点' }, { key: 'airline', label: '航司' }, { key: 'product', label: '产品' }]
+const dimensions: { key: DimensionKey; label: string }[] = [{ key: 'platform', label: '平台' }, { key: 'site', label: '站点' }, { key: 'airline', label: '航司' }, { key: 'product', label: '产品' }, { key: 'policy', label: '政策员' }]
 const periodOptions = [{ label: '今日', value: 'today' }, { label: '昨日', value: 'yesterday' }, { label: '本月', value: 'month' }, { label: '本年', value: 'year' }, { label: '自定义', value: 'custom' }]
 // Calendar dates always use the company's UTC+8 business timezone.
 function businessToday() { return new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' }) }
-function todayScope(): FilterScope { const day = businessToday(); return { preset: 'today', startDate: day, endDate: day, platform: '', site: '', airline: '', product: '' } }
+function todayScope(): FilterScope { const day = businessToday(); return { preset: 'today', startDate: day, endDate: day, platform: '', site: '', airline: '', product: '', policy: '' } }
 const draft = ref<FilterScope>(todayScope())
 const applied = ref<FilterScope>({ ...draft.value })
 const groupDimension = ref<DimensionKey>('platform')
@@ -220,7 +220,7 @@ onMounted(() => { void load({ ...draft.value }) })
 .period-fields { margin: 16px 0; display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
 .date-fields { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; color: #6c7a91; font-size: 12px; }
 .date-fields :deep(.ant-picker) { width: 142px; }
-.dimension-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.dimension-fields { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; }
 .dimension-fields label { display: grid; gap: 7px; min-width: 0; color: #64728a; font-size: 12px; }
 .dimension-fields label > span { display: flex; justify-content: space-between; }
 .dimension-fields small { color: #a4aebe; font-size: 10px; }
