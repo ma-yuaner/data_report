@@ -8,6 +8,7 @@ from .services.dashboard import DashboardService
 from .services.asset_catalog import AssetCatalogService
 from .services.business_profit_analysis import BusinessProfitAnalysisService
 from .services.comprehensive_analysis import ComprehensiveAnalysisService, DIMENSIONS
+from .services.comprehensive_detail import ComprehensiveDetailService
 from .services.risk_monthly_analysis import RiskMonthlyAnalysisService
 from .services.issue_profit_analysis import IssueProfitAnalysisService
 from .services.profit_problem_center import ProfitProblemCenterService
@@ -104,6 +105,21 @@ def comprehensive_analysis():
             end_value=request.args.get("endDate"),
             group=request.args.get("groupBy", "platform"),
             filters={key: request.args.get(key) for key in DIMENSIONS},
+        ))
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+
+
+@api.get("/v1/analysis/comprehensive/details")
+def comprehensive_details():
+    try:
+        return ok(ComprehensiveDetailService(current_app.config).details(
+            start_value=request.args.get("startDate"),
+            end_value=request.args.get("endDate"),
+            business=request.args.get("businessType", ""),
+            filters={key: request.args.get(key) for key in DIMENSIONS},
+            page_value=request.args.get("page", "1"),
+            page_size_value=request.args.get("pageSize", "50"),
         ))
     except ValueError as error:
         return jsonify({"success": False, "message": str(error), "data": None}), 400

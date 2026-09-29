@@ -40,9 +40,43 @@ export interface FilterScope {
   product: string
   policy: string
 }
+export interface ComprehensiveDetailRow {
+  recordKey: string
+  eventTime: string
+  businessId: string
+  issueId: string
+  orderId: string
+  otaCode: string | null
+  otaName: string | null
+  siteCode: string | null
+  siteName: string | null
+  airline: string | null
+  product: string | null
+  policyOperator: string | null
+  segmentCount: number | null
+  profit: string | null
+  businessCount: number
+}
+export interface ComprehensiveDetailData {
+  available: boolean
+  error: string
+  source: string
+  business: { key: BusinessKey; label: string }
+  period: { startDate: string; endDate: string }
+  page: number
+  pageSize: number
+  total: number
+  rows: ComprehensiveDetailRow[]
+}
 export async function fetchComprehensive(scope: FilterScope, groupBy: DimensionKey): Promise<ComprehensiveData> {
   const { preset: _preset, ...params } = scope
   const response = await http.get<ApiEnvelope<ComprehensiveData>>('/v1/analysis/comprehensive', { params: { ...params, groupBy } })
+  if (!response.data.success) throw new Error(response.data.message)
+  return response.data.data
+}
+export async function fetchComprehensiveDetails(scope: FilterScope, businessType: BusinessKey, page = 1, pageSize = 50): Promise<ComprehensiveDetailData> {
+  const { preset: _preset, ...params } = scope
+  const response = await http.get<ApiEnvelope<ComprehensiveDetailData>>('/v1/analysis/comprehensive/details', { params: { ...params, businessType, page, pageSize } })
   if (!response.data.success) throw new Error(response.data.message)
   return response.data.data
 }

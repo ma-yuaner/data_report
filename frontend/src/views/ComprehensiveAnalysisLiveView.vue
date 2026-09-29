@@ -64,11 +64,30 @@
     </a-spin>
     <div class="handoff-note"><InfoCircleOutlined /><div><strong>口径与数据边界</strong><p v-for="note in data?.notes || []" :key="note">{{ note }}</p></div></div>
     <a-drawer v-model:open="drawerOpen" :title="drawerTitle" :width="'min(900px, 100vw)'">
-      <a-alert type="info" show-icon message="真实日汇总 · 非订单级明细" description="保留当前时间和维度条件；订单编号与原因证据不在本ADS表中，未生成模拟明细。" />
+      <a-alert type="info" show-icon message="真实日汇总" description="保留当前时间和维度条件；点击每行的“查看宽表明细”可按该业务日追溯MySQL出退改增宽表。" />
       <div class="drawer-scope"><strong>{{ applied.startDate }} 至 {{ applied.endDate }}</strong><p>{{ drawerScope }}</p></div>
       <a-alert v-if="drawerError" type="error" :message="drawerError" show-icon />
       <a-table :loading="drawerLoading" :columns="drawerColumns" :data-source="drawerRows" row-key="key" :pagination="{ pageSize: 20 }" :scroll="{ x: 620 }">
-        <template #bodyCell="{ column, record }"><template v-if="column.key === 'count'">{{ count(record.count) }} 票</template><template v-else-if="column.key === 'profit'">{{ money(record.profit) }} 元</template><template v-else-if="column.key === 'missing'">{{ count(record.profitMissingCount) }} 票</template></template>
+        <template #bodyCell="{ column, record }"><template v-if="column.key === 'count'">{{ count(record.count) }} 票</template><template v-else-if="column.key === 'profit'">{{ money(record.profit) }} 元</template><template v-else-if="column.key === 'missing'">{{ count(record.profitMissingCount) }} 票</template><template v-else-if="column.key === 'action'"><a-button type="link" size="small" @click="openWideDetail(record)">查看宽表明细</a-button></template></template>
+      </a-table>
+    </a-drawer>
+    <a-drawer v-model:open="detailOpen" :title="detailTitle" :width="'min(1280px, 100vw)'">
+      <a-alert type="info" show-icon :message="detailData?.source || 'MySQL宽表明细'" description="按所点业务日和当前平台、站点、航司、产品、政策员条件实时查询；不会把全年明细一次性加载到浏览器。" />
+      <div class="drawer-scope"><strong>{{ detailDate }}</strong><p>{{ drawerScope }}</p></div>
+      <a-alert v-if="detailError" type="error" :message="detailError" show-icon />
+      <a-table :loading="detailLoading" :columns="detailColumns" :data-source="detailData?.rows || []" row-key="recordKey"
+        :pagination="detailPagination"
+        :scroll="{ x: 1540 }" @change="changeDetailPage">
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'platform'">{{ record.otaName || record.otaCode || '—' }}</template>
+          <template v-else-if="column.key === 'site'">{{ record.siteName || record.siteCode || '—' }}</template>
+          <template v-else-if="column.key === 'airline'">{{ record.airline || '—' }}</template>
+          <template v-else-if="column.key === 'product'">{{ record.product || '宽表未同步' }}</template>
+          <template v-else-if="column.key === 'policy'">{{ record.policyOperator || '未知政策员' }}</template>
+          <template v-else-if="column.key === 'businessCount'">{{ count(record.businessCount) }} 票</template>
+          <template v-else-if="column.key === 'segment'">{{ record.segmentCount == null ? '—' : count(record.segmentCount) }}</template>
+          <template v-else-if="column.key === 'profit'"><span :class="{ negative: isNegative(record.profit) }">{{ money(record.profit) }} 元</span></template>
+        </template>
       </a-table>
     </a-drawer>
   </div>
@@ -82,7 +101,7 @@ import { ArrowRightOutlined, InfoCircleOutlined, SearchOutlined, UndoOutlined } 
 import type { EChartsCoreOption } from 'echarts/core'
 import PageHeader from '@/components/PageHeader.vue'
 import BaseChart from '@/components/BaseChart.vue'
-import { fetchComprehensive, type BusinessKey, type ComprehensiveData, type DimensionKey, type DimensionRow, type FilterScope } from '@/api/comprehensive'
+import { fetchComprehensive, fetchComprehensiveDetails, type BusinessKey, type ComprehensiveData, type ComprehensiveDetailData, type DimensionKey, type DimensionRow, type FilterScope } from '@/api/comprehensive'
 
 const businesses: { key: BusinessKey; label: string; countLabel: string; color: string }[] = [
   { key: 'issue', label: '出票', countLabel: '出票数', color: '#397cf6' },
@@ -127,6 +146,7 @@ async function load(scope: FilterScope) {
   error.value = ''
   data.value = undefined
   drawerOpen.value = false
+  detailOpen.value = false
   drawerRequestId++
   try {
     const result = await fetchComprehensive(scope, group)
@@ -188,6 +208,7 @@ const drawerData = ref<ComprehensiveData>()
 const drawerBusiness = ref<BusinessKey>()
 const drawerTitle = ref('日汇总明细')
 const drawerScope = ref('')
+const drawerFilterScope = ref<FilterScope>(todayScope())
 let drawerRequestId = 0
 async function openDetail(business?: BusinessKey, row?: DimensionRow) {
   const id = ++drawerRequestId
@@ -196,6 +217,7 @@ async function openDetail(business?: BusinessKey, row?: DimensionRow) {
   drawerError.value = ''
   drawerLoading.value = true
   const scope = { ...applied.value, ...(row ? { [groupDimension.value]: row.value } : {}) }
+  drawerFilterScope.value = scope
   drawerTitle.value = (row?.name || '当前范围') + ' · ' + (businesses.find(b => b.key === business)?.label || '出退改增') + '日汇总'
   drawerScope.value = dimensions.filter(d => scope[d.key]).map(d => d.label + '：' + optionLabel(d.key, scope[d.key])).join(' · ') || '全部范围'
   drawerOpen.value = true
@@ -205,8 +227,63 @@ async function openDetail(business?: BusinessKey, row?: DimensionRow) {
   } catch (failure) { if (id === drawerRequestId) drawerError.value = failure instanceof Error ? failure.message : '日汇总查询失败' }
   finally { if (id === drawerRequestId) drawerLoading.value = false }
 }
-const drawerRows = computed(() => drawerData.value?.available ? drawerData.value.trend.flatMap(day => businesses.filter(b => !drawerBusiness.value || b.key === drawerBusiness.value).map(b => ({ key: day.period + b.key, date: day.period, label: b.label, ...day.metrics[b.key] }))) : [])
-const drawerColumns = [{ title: '业务日', dataIndex: 'date', width: 120 }, { title: '业务', dataIndex: 'label', width: 80 }, { title: '票数', key: 'count', width: 110 }, { title: '业务估算利润', key: 'profit', width: 160 }, { title: '缺失利润票数', key: 'missing', width: 130 }]
+const drawerRows = computed(() => drawerData.value?.available ? drawerData.value.trend.flatMap(day => businesses.filter(b => !drawerBusiness.value || b.key === drawerBusiness.value).map(b => ({ key: day.period + b.key, date: day.period, businessKey: b.key, label: b.label, ...day.metrics[b.key] }))) : [])
+const drawerColumns = [{ title: '业务日', dataIndex: 'date', width: 120 }, { title: '业务', dataIndex: 'label', width: 80 }, { title: '票数', key: 'count', width: 110 }, { title: '业务估算利润', key: 'profit', width: 160 }, { title: '缺失利润票数', key: 'missing', width: 130 }, { title: '明细', key: 'action', width: 130 }]
+const detailOpen = ref(false)
+const detailLoading = ref(false)
+const detailError = ref('')
+const detailData = ref<ComprehensiveDetailData>()
+const detailBusiness = ref<BusinessKey>('issue')
+const detailDate = ref('')
+const detailTitle = ref('宽表业务明细')
+const detailPage = ref(1)
+const detailPageSize = ref(50)
+const detailPagination = computed(() => ({ current: detailPage.value, pageSize: detailPageSize.value, total: detailData.value?.total || 0, showSizeChanger: true, pageSizeOptions: ['20', '50', '100'], showTotal: (total: number) => `共 ${count(total)} 条` }))
+let detailRequestId = 0
+const detailColumns = [
+  { title: '业务时间', dataIndex: 'eventTime', width: 175, fixed: 'left' as const },
+  { title: '业务ID', dataIndex: 'businessId', width: 145 },
+  { title: '出票ID', dataIndex: 'issueId', width: 135 },
+  { title: '订单ID', dataIndex: 'orderId', width: 145 },
+  { title: '平台', key: 'platform', width: 120 },
+  { title: '站点', key: 'site', width: 150 },
+  { title: '航司', key: 'airline', width: 90 },
+  { title: '机票产品', key: 'product', width: 140 },
+  { title: '政策员', key: 'policy', width: 110 },
+  { title: '票数', key: 'businessCount', width: 90 },
+  { title: '航段数', key: 'segment', width: 90 },
+  { title: '业务估算利润', key: 'profit', width: 145, fixed: 'right' as const },
+]
+type DailyRow = { date: string; businessKey: BusinessKey; label: string }
+async function loadWideDetail() {
+  const id = ++detailRequestId
+  detailLoading.value = true
+  detailError.value = ''
+  try {
+    const scope = { ...drawerFilterScope.value, preset: 'custom', startDate: detailDate.value, endDate: detailDate.value }
+    const result = await fetchComprehensiveDetails(scope, detailBusiness.value, detailPage.value, detailPageSize.value)
+    if (id !== detailRequestId) return
+    detailData.value = result
+    detailError.value = result.error
+  } catch (failure) {
+    if (id === detailRequestId) detailError.value = failure instanceof Error ? failure.message : '宽表明细查询失败'
+  } finally { if (id === detailRequestId) detailLoading.value = false }
+}
+function openWideDetail(row: DailyRow) {
+  detailBusiness.value = row.businessKey
+  detailDate.value = row.date
+  detailTitle.value = `${row.date} · ${row.label}宽表明细`
+  detailPage.value = 1
+  detailData.value = undefined
+  detailOpen.value = true
+  void loadWideDetail()
+}
+function changeDetailPage(pagination: { current?: number; pageSize?: number }) {
+  const nextSize = pagination.pageSize || detailPageSize.value
+  detailPage.value = nextSize === detailPageSize.value ? pagination.current || 1 : 1
+  detailPageSize.value = nextSize
+  void loadWideDetail()
+}
 onMounted(() => { void load({ ...draft.value }) })
 </script>
 
