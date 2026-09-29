@@ -96,11 +96,9 @@ ISSUE_COLUMNS = (
     ("乘客名称", "passenger_name"),
     ("票数", "ticket_num"),
     ("月份", "month_name"),
-    ("正确原因", "correct_reason"),
     ("订单来源", "order_source"),
     ("产品类型", "product_type"),
-    ("计入差错", "error_included_flag"),
-    ("备注【原始】", "original_remark"),
+    ("备注【整理】", "sort_remark"),
 )
 
 

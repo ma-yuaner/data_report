@@ -5,6 +5,7 @@ from data_report_api.services.risk_upload_loader import (
     composite_key_stats,
     normalized_key_field,
 )
+from data_report_api.services.risk_upload_definitions import ISSUE_COLUMNS
 
 
 class FakeCursor:
@@ -43,3 +44,14 @@ def test_composite_key_stats_tracks_missing_and_distinct_keys():
     assert "COUNT(DISTINCT" in cursor.sql
     assert normalized_key_field("", "issue_ticket_no") in cursor.sql
     assert normalized_key_field("", "passenger_name") in cursor.sql
+
+
+def test_issue_upload_uses_latest_excel_tail_fields():
+    assert ISSUE_COLUMNS[-4:] == (
+        ("月份", "month_name"),
+        ("订单来源", "order_source"),
+        ("产品类型", "product_type"),
+        ("备注【整理】", "sort_remark"),
+    )
+    headers = {source for source, _target in ISSUE_COLUMNS}
+    assert headers.isdisjoint({"正确原因", "计入差错", "备注【原始】"})
