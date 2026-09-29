@@ -269,13 +269,18 @@ def load_excel_to_hive(
                     for value in selected
                 ):
                     continue
-                try:
-                    yield tuple(
-                        orc_value(value, data_type)
-                        for value, (_, data_type) in zip(selected, actual_schema)
-                    )
-                except ValueError as error:
-                    raise ValueError(f"Excel第{row_number}行：{error}") from error
+                converted = []
+                for source_name, value, (target_name, data_type) in zip(
+                    required_headers, selected, actual_schema
+                ):
+                    try:
+                        converted.append(orc_value(value, data_type))
+                    except ValueError as error:
+                        raise ValueError(
+                            f"Excel第{row_number}行字段“{source_name}”"
+                            f"（{target_name}）：{error}"
+                        ) from error
+                yield tuple(converted)
 
         with tempfile.NamedTemporaryFile(
             prefix=f"risk-upload-{upload_id}-",
