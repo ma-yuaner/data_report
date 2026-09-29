@@ -8,8 +8,8 @@
       class="page-alert"
       type="warning"
       show-icon
-      message="出、退、改均按出票票号 + 乘客姓名增量更新"
-      description="新组合键新增，已有组合键整行替换；上传记录的预估利润为0时，只删除对应票号与乘客的记录。系统校验复合键唯一性及合并结果后才重写对应Hive正式表，利润为空不会当作0。"
+      message="出票、退票按票号 + 乘客；改签再加改签单号"
+      description="新组合键新增，已有组合键整行替换；上传记录的预估利润为0时，只删除完全匹配组合键的记录。系统校验复合键唯一性及合并结果后才重写对应Hive正式表，利润为空不会当作0。"
     />
     <a-alert v-if="error" class="page-alert" type="error" show-icon :message="error" />
 
@@ -123,7 +123,7 @@ function confirmSubmit(definition: RiskUploadDefinition) {
   if (definition.requiresLoadDate && !forms[definition.key].loadDate) { message.warning('请选择出票表dt分区日期'); return }
   Modal.confirm({
     title: `确认增量导入${definition.label}数据？`,
-    content: `文件“${file.name}”将按出票票号 + 乘客姓名与${definition.targetTable}合并：新组合键新增，已有组合键整行替换，预估利润为0时只删除对应票号与乘客的记录。`,
+    content: `文件“${file.name}”将${definition.writeMode}，目标表为${definition.targetTable}：新组合键新增，已有组合键整行替换，预估利润为0时只删除完全匹配组合键的记录。`,
     okText: '确认增量导入',
     okType: 'danger',
     cancelText: '取消',

@@ -11,10 +11,17 @@ class RiskUploadDefinition:
     default_sheet: str
     source_to_target: tuple[tuple[str, str], ...]
     partition_date_required: bool = False
+    merge_key_fields: tuple[str, ...] = ("issue_ticket_no", "passenger_name")
 
     @property
     def write_mode(self) -> str:
-        return "按出票票号+乘客姓名增量更新；0利润删除"
+        labels = {
+            "issue_ticket_no": "出票票号",
+            "passenger_name": "乘客姓名",
+            "change_order_no": "改签单号",
+        }
+        key_label = "+".join(labels[field] for field in self.merge_key_fields)
+        return f"按{key_label}增量更新；0利润删除"
 
 
 ISSUE_COLUMNS = (
@@ -271,5 +278,6 @@ RISK_UPLOAD_DEFINITIONS = {
         target_table="lywz.dwd_order_change_profit_reconcile_year",
         default_sheet="月度明细",
         source_to_target=CHANGE_COLUMNS,
+        merge_key_fields=("issue_ticket_no", "passenger_name", "change_order_no"),
     ),
 }

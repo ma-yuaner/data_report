@@ -81,8 +81,14 @@ class CompositeKeyStats:
     total: int
     valid: int
     distinct: int
-    missing_ticket: int
-    missing_passenger: int
+    missing: dict[str, int]
+
+
+KEY_LABELS = {
+    "issue_ticket_no": "出票票号",
+    "passenger_name": "乘客姓名",
+    "change_order_no": "改签单号",
+}
 
 
 def normalized_key_field(alias: str, field: str) -> str:
@@ -94,41 +100,62 @@ def normalized_key_field(alias: str, field: str) -> str:
     return normalized
 
 
-def composite_key_join(left_alias: str, right_alias: str) -> str:
-    return (
-        f"{normalized_key_field(left_alias, 'issue_ticket_no')}="
-        f"{normalized_key_field(right_alias, 'issue_ticket_no')} AND "
-        f"{normalized_key_field(left_alias, 'passenger_name')}="
-        f"{normalized_key_field(right_alias, 'passenger_name')}"
+def composite_key_label(key_fields: tuple[str, ...]) -> str:
+    return "+".join(KEY_LABELS[field] for field in key_fields)
+
+
+def composite_key_join(
+    left_alias: str,
+    right_alias: str,
+    key_fields: tuple[str, ...] = ("issue_ticket_no", "passenger_name"),
+) -> str:
+    return " AND ".join(
+        f"{normalized_key_field(left_alias, field)}="
+        f"{normalized_key_field(right_alias, field)}"
+        for field in key_fields
     )
 
 
-def composite_key_stats(cursor: Any, table: str) -> CompositeKeyStats:
-    """Return completeness and uniqueness for ticket-plus-passenger keys."""
-    ticket = normalized_key_field("", "issue_ticket_no")
-    passenger = normalized_key_field("", "passenger_name")
-    valid_condition = (
-        "`issue_ticket_no` IS NOT NULL AND "
-        f"{ticket}<>'' AND `passenger_name` IS NOT NULL AND {passenger}<>''"
+def composite_key_stats(
+    cursor: Any,
+    table: str,
+    key_fields: tuple[str, ...] = ("issue_ticket_no", "passenger_name"),
+) -> CompositeKeyStats:
+    """Return completeness and uniqueness for a business merge key."""
+    normalized = [normalized_key_field("", field) for field in key_fields]
+    valid_condition = " AND ".join(
+        f"`{field}` IS NOT NULL AND {value}<>''"
+        for field, value in zip(key_fields, normalized)
     )
-    cursor.execute(
-        "SELECT COUNT(1), "
-        "SUM(CASE WHEN `issue_ticket_no` IS NULL "
-        f"OR {ticket}='' THEN 1 ELSE 0 END), "
-        "SUM(CASE WHEN `passenger_name` IS NULL "
-        f"OR {passenger}='' THEN 1 ELSE 0 END), "
-        f"COUNT(CASE WHEN {valid_condition} THEN 1 END), "
+    missing_expressions = [
+        f"SUM(CASE WHEN `{field}` IS NULL OR {value}='' THEN 1 ELSE 0 END)"
+        for field, value in zip(key_fields, normalized)
+    ]
+    encoded_fields = [
+        f"CONCAT(LENGTH({value}), ':', {value})" for value in normalized
+    ]
+    select_items = [
+        "COUNT(1)",
+        *missing_expressions,
+        f"COUNT(CASE WHEN {valid_condition} THEN 1 END)",
         f"COUNT(DISTINCT CASE WHEN {valid_condition} THEN "
-        f"CONCAT({ticket}, '#|#', {passenger}) END) "
-        f"FROM {table}"
+        f"CONCAT_WS('#|#', {', '.join(encoded_fields)}) END)",
+    ]
+    cursor.execute(
+        f"SELECT {', '.join(select_items)} FROM {table}"
     )
-    total, missing_ticket, missing_passenger, valid, distinct_count = cursor.fetchone()
+    result = cursor.fetchone()
+    total = result[0]
+    missing_values = result[1 : 1 + len(key_fields)]
+    valid, distinct_count = result[-2:]
     return CompositeKeyStats(
         total=int(total or 0),
         valid=int(valid or 0),
         distinct=int(distinct_count or 0),
-        missing_ticket=int(missing_ticket or 0),
-        missing_passenger=int(missing_passenger or 0),
+        missing={
+            field: int(value or 0)
+            for field, value in zip(key_fields, missing_values)
+        },
     )
 
 
@@ -301,11 +328,17 @@ def load_excel_to_hive(
                 f"Hive临时表行数不一致：Excel {total}行，临时表{staging_rows}行"
             )
         selected_columns = ", ".join(f"`{name}`" for name in expected_columns)
-        stage_stats = composite_key_stats(cursor, raw_staging_table)
+        key_fields = definition.merge_key_fields
+        key_label = composite_key_label(key_fields)
+        stage_stats = composite_key_stats(cursor, raw_staging_table, key_fields)
         if stage_stats.valid != stage_stats.total:
+            missing_detail = "、".join(
+                f"{stage_stats.missing[field]:,}行空{KEY_LABELS[field]}"
+                for field in key_fields
+                if stage_stats.missing[field]
+            )
             raise ValueError(
-                f"{definition.label}增量存在{stage_stats.missing_ticket:,}行空出票票号、"
-                f"{stage_stats.missing_passenger:,}行空乘客姓名，组合键不完整，禁止合并"
+                f"{definition.label}增量存在{missing_detail}，组合键不完整，禁止合并"
             )
         staging_table = raw_staging_table
         if stage_stats.distinct != stage_stats.total:
@@ -317,23 +350,31 @@ def load_excel_to_hive(
             raw_columns = ", ".join(
                 f"raw_rows.`{name}`" for name in expected_columns
             )
+            unique_key_select = ",\n         ".join(
+                f"{normalized_key_field('', field)} AS key_{index}"
+                for index, field in enumerate(key_fields)
+            )
+            unique_key_group = ", ".join(
+                normalized_key_field("", field) for field in key_fields
+            )
+            unique_key_join = " AND ".join(
+                f"{normalized_key_field('raw_rows', field)}=unique_keys.key_{index}"
+                for index, field in enumerate(key_fields)
+            )
             cursor.execute(
                 f"INSERT OVERWRITE TABLE {staging_table}\n"
                 f"SELECT {raw_columns}\n"
                 f"FROM {raw_staging_table} raw_rows\n"
                 "JOIN (\n"
-                "  SELECT TRIM(`issue_ticket_no`) AS ticket_key,\n"
-                "         UPPER(TRIM(`passenger_name`)) AS passenger_key\n"
+                f"  SELECT {unique_key_select}\n"
                 f"  FROM {raw_staging_table}\n"
-                "  GROUP BY TRIM(`issue_ticket_no`), "
-                "UPPER(TRIM(`passenger_name`))\n"
+                f"  GROUP BY {unique_key_group}\n"
                 "  HAVING COUNT(1)=1\n"
                 ") unique_keys\n"
-                "ON TRIM(raw_rows.`issue_ticket_no`)=unique_keys.ticket_key AND "
-                "UPPER(TRIM(raw_rows.`passenger_name`))=unique_keys.passenger_key"
+                f"ON {unique_key_join}"
             )
             connection.commit()
-            filtered_stats = composite_key_stats(cursor, staging_table)
+            filtered_stats = composite_key_stats(cursor, staging_table, key_fields)
             if (
                 filtered_stats.total != filtered_stats.valid
                 or filtered_stats.total != filtered_stats.distinct
@@ -344,14 +385,21 @@ def load_excel_to_hive(
             log(
                 f"{definition.label}增量已忽略{duplicate_key_count:,}个重复组合键"
                 f"对应的{duplicate_rows:,}行；保留{filtered_stats.total:,}行"
-                "唯一出票票号+乘客姓名数据"
+                f"唯一{key_label}数据"
             )
 
-        target_stats = composite_key_stats(cursor, definition.target_table)
+        target_stats = composite_key_stats(
+            cursor, definition.target_table, key_fields
+        )
         if target_stats.valid != target_stats.total:
+            missing_detail = "、".join(
+                f"{target_stats.missing[field]:,}行空{KEY_LABELS[field]}"
+                for field in key_fields
+                if target_stats.missing[field]
+            )
             raise RuntimeError(
-                f"Hive{definition.label}原表存在{target_stats.missing_ticket:,}行空出票票号、"
-                f"{target_stats.missing_passenger:,}行空乘客姓名，请先清理原表后再增量导入"
+                f"Hive{definition.label}原表存在{missing_detail}，"
+                "请先清理原表后再增量导入"
             )
         if target_stats.distinct != target_stats.valid:
             raise RuntimeError(
@@ -378,7 +426,7 @@ def load_excel_to_hive(
             "OR new_rows.`estimated_profit_cny`<>0 THEN 1 ELSE 0 END) "
             f"FROM {definition.target_table} old_rows "
             f"JOIN {staging_table} new_rows "
-            f"ON {composite_key_join('old_rows', 'new_rows')}"
+            f"ON {composite_key_join('old_rows', 'new_rows', key_fields)}"
         )
         deleted_rows_raw, replaced_rows_raw = cursor.fetchone()
         deleted_rows = int(deleted_rows_raw or 0)
@@ -411,7 +459,7 @@ def load_excel_to_hive(
             f"SELECT {old_columns}\n"
             f"FROM {definition.target_table} old_rows\n"
             f"LEFT JOIN {staging_table} new_keys\n"
-            f"ON {composite_key_join('old_rows', 'new_keys')}\n"
+            f"ON {composite_key_join('old_rows', 'new_keys', key_fields)}\n"
             "WHERE new_keys.`issue_ticket_no` IS NULL\n"
             "UNION ALL\n"
             f"SELECT {new_columns}\nFROM {staging_table} new_rows\n"
@@ -419,7 +467,7 @@ def load_excel_to_hive(
             "OR new_rows.`estimated_profit_cny`<>0"
         )
         connection.commit()
-        merged_stats = composite_key_stats(cursor, merge_table)
+        merged_stats = composite_key_stats(cursor, merge_table, key_fields)
         if (
             merged_stats.total != expected_rows
             or merged_stats.valid != merged_stats.total
@@ -439,7 +487,9 @@ def load_excel_to_hive(
             f"SELECT {selected_columns}\nFROM {merge_table}"
         )
         connection.commit()
-        final_stats = composite_key_stats(cursor, definition.target_table)
+        final_stats = composite_key_stats(
+            cursor, definition.target_table, key_fields
+        )
         if (
             final_stats.total != expected_rows
             or final_stats.valid != final_stats.total

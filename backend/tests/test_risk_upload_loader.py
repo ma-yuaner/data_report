@@ -5,7 +5,10 @@ from data_report_api.services.risk_upload_loader import (
     composite_key_stats,
     normalized_key_field,
 )
-from data_report_api.services.risk_upload_definitions import ISSUE_COLUMNS
+from data_report_api.services.risk_upload_definitions import (
+    ISSUE_COLUMNS,
+    RISK_UPLOAD_DEFINITIONS,
+)
 
 
 class FakeCursor:
@@ -38,8 +41,7 @@ def test_composite_key_stats_tracks_missing_and_distinct_keys():
     assert stats.total == 10
     assert stats.valid == 7
     assert stats.distinct == 6
-    assert stats.missing_ticket == 1
-    assert stats.missing_passenger == 2
+    assert stats.missing == {"issue_ticket_no": 1, "passenger_name": 2}
     assert "FROM lywz.target_table" in cursor.sql
     assert "COUNT(DISTINCT" in cursor.sql
     assert normalized_key_field("", "issue_ticket_no") in cursor.sql
@@ -55,3 +57,28 @@ def test_issue_upload_uses_latest_excel_tail_fields():
     )
     headers = {source for source, _target in ISSUE_COLUMNS}
     assert headers.isdisjoint({"正确原因", "计入差错", "备注【原始】"})
+
+
+def test_change_upload_uses_three_part_merge_key():
+    definition = RISK_UPLOAD_DEFINITIONS["change"]
+    assert definition.merge_key_fields == (
+        "issue_ticket_no",
+        "passenger_name",
+        "change_order_no",
+    )
+    assert definition.write_mode == "按出票票号+乘客姓名+改签单号增量更新；0利润删除"
+    condition = composite_key_join("old_rows", "new_rows", definition.merge_key_fields)
+    assert "TRIM(old_rows.`change_order_no`)=TRIM(new_rows.`change_order_no`)" in condition
+
+
+def test_change_composite_stats_require_change_order_number():
+    cursor = FakeCursor((10, 0, 0, 3, 7, 7))
+    stats = composite_key_stats(
+        cursor,
+        "lywz.change_table",
+        RISK_UPLOAD_DEFINITIONS["change"].merge_key_fields,
+    )
+    assert stats.valid == 7
+    assert stats.missing["change_order_no"] == 3
+    assert "`change_order_no` IS NOT NULL" in cursor.sql
+    assert "TRIM(`change_order_no`)" in cursor.sql
