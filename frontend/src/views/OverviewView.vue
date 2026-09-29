@@ -207,9 +207,9 @@ const applyPreset = (value: string | number) => {
 
 const markCustom = () => { periodPreset.value = 'custom' }
 
-const formatProfit = (value: number | null, available: boolean) => {
+const formatProfit = (value: number | string | null, available: boolean) => {
   if (!available || value === null) return '暂不可用'
-  return `${new Intl.NumberFormat('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)} 元`
+  return `${new Intl.NumberFormat('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value))} 元`
 }
 
 const formatCount = (value: number | null) => value === null ? '—' : new Intl.NumberFormat('zh-CN').format(value)

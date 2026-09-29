@@ -40,7 +40,7 @@ export interface RiskProfitMetric {
   table: string
   timeField: 'business_date' | 'stat_date'
   ticketCount: number | null
-  estimatedProfit: number | null
+  estimatedProfit: string | null
   available: boolean
   error: string | null
 }

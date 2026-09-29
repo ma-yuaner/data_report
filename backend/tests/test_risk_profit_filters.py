@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal
 
 import pytest
 
@@ -34,7 +35,7 @@ class FakeConnection:
                     raise RuntimeError("simulated query failure")
 
             def fetchone(self):
-                return (3, -120.25)
+                return (3, Decimal("-120.25123456"))
 
             def fetchall(self):
                 return connection.option_rows

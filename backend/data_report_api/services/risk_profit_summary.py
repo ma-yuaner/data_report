@@ -6,10 +6,11 @@ import threading
 import time
 from copy import deepcopy
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 
 from .data_source import DataSource, data_mode, is_live_mode
-from .profit_overview import _number, _period
+from .profit_overview import _period
 
 
 LOGGER = logging.getLogger(__name__)
@@ -30,6 +31,12 @@ PROFIT_STATUS_CONDITIONS = {
     "zero": "estimated_profit_cny = 0",
 }
 OPTION_LIMIT = 50
+MONEY_SCALE = 8
+
+
+def _decimal_text(value: Any) -> str:
+    """Keep MySQL DECIMAL(18,8) exact across the JSON boundary."""
+    return format(Decimal(str(value)), f".{MONEY_SCALE}f")
 
 
 def normalize_risk_filters(values: dict[str, Any] | None) -> dict[str, str]:
@@ -179,7 +186,7 @@ class RiskProfitSummaryService:
                         {
                             **definition,
                             "ticketCount": int(row[0] or 0),
-                            "estimatedProfit": _number(row[1] or 0),
+                            "estimatedProfit": _decimal_text(row[1] or 0),
                             "available": True,
                             "error": None,
                         }

@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 
 import pytest
 
@@ -82,7 +83,7 @@ def test_risk_profit_summary_follows_manual_source_switch_without_changing_confi
             queries.append(sql)
 
         def fetchone(self):
-            return (12, -34.56)
+            return (12, Decimal("-34.56123456"))
 
         def close(self):
             pass
@@ -105,7 +106,10 @@ def test_risk_profit_summary_follows_manual_source_switch_without_changing_confi
     assert config["DATA_MODE"] == mode
     assert result["available"] is True
     assert len(queries) == 3
-    assert all(item["ticketCount"] == 12 and item["estimatedProfit"] == -34.56 for item in result["metrics"])
+    assert all(
+        item["ticketCount"] == 12 and item["estimatedProfit"] == "-34.56123456"
+        for item in result["metrics"]
+    )
     assert "totalProfit" not in result
     assert ("MySQL" if mode == "mysql" else "Hive") in result["notes"][0]
 
