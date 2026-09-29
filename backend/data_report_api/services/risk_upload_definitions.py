@@ -14,7 +14,7 @@ class RiskUploadDefinition:
 
     @property
     def write_mode(self) -> str:
-        return "按出票票号增量更新；0利润删除"
+        return "按出票票号+乘客姓名增量更新；0利润删除"
 
 
 ISSUE_COLUMNS = (

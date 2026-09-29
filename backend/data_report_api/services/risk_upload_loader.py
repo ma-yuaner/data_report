@@ -4,6 +4,7 @@ import datetime as dt
 import re
 import tempfile
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
@@ -75,19 +76,60 @@ def repair_refund_row(values: list[Any], header_index: dict[str, int]) -> list[A
     return repaired
 
 
-def ticket_key_stats(cursor: Any, table: str) -> tuple[int, int, int]:
-    """Return total, non-null and distinct normalized issue ticket keys."""
+@dataclass(frozen=True)
+class CompositeKeyStats:
+    total: int
+    valid: int
+    distinct: int
+    missing_ticket: int
+    missing_passenger: int
+
+
+def normalized_key_field(alias: str, field: str) -> str:
+    prefix = f"{alias}." if alias else ""
+    value = f"{prefix}`{field}`"
+    normalized = f"TRIM({value})"
+    if field == "passenger_name":
+        normalized = f"UPPER({normalized})"
+    return normalized
+
+
+def composite_key_join(left_alias: str, right_alias: str) -> str:
+    return (
+        f"{normalized_key_field(left_alias, 'issue_ticket_no')}="
+        f"{normalized_key_field(right_alias, 'issue_ticket_no')} AND "
+        f"{normalized_key_field(left_alias, 'passenger_name')}="
+        f"{normalized_key_field(right_alias, 'passenger_name')}"
+    )
+
+
+def composite_key_stats(cursor: Any, table: str) -> CompositeKeyStats:
+    """Return completeness and uniqueness for ticket-plus-passenger keys."""
+    ticket = normalized_key_field("", "issue_ticket_no")
+    passenger = normalized_key_field("", "passenger_name")
+    valid_condition = (
+        "`issue_ticket_no` IS NOT NULL AND "
+        f"{ticket}<>'' AND `passenger_name` IS NOT NULL AND {passenger}<>''"
+    )
     cursor.execute(
         "SELECT COUNT(1), "
-        "COUNT(CASE WHEN `issue_ticket_no` IS NOT NULL "
-        "AND TRIM(`issue_ticket_no`)<>'' "
-        "THEN 1 END), "
-        "COUNT(DISTINCT CASE WHEN `issue_ticket_no` IS NOT NULL "
-        "AND TRIM(`issue_ticket_no`)<>'' THEN TRIM(`issue_ticket_no`) END) "
+        "SUM(CASE WHEN `issue_ticket_no` IS NULL "
+        f"OR {ticket}='' THEN 1 ELSE 0 END), "
+        "SUM(CASE WHEN `passenger_name` IS NULL "
+        f"OR {passenger}='' THEN 1 ELSE 0 END), "
+        f"COUNT(CASE WHEN {valid_condition} THEN 1 END), "
+        f"COUNT(DISTINCT CASE WHEN {valid_condition} THEN "
+        f"CONCAT({ticket}, '#|#', {passenger}) END) "
         f"FROM {table}"
     )
-    total, non_null, distinct_count = cursor.fetchone()
-    return int(total), int(non_null), int(distinct_count)
+    total, missing_ticket, missing_passenger, valid, distinct_count = cursor.fetchone()
+    return CompositeKeyStats(
+        total=int(total or 0),
+        valid=int(valid or 0),
+        distinct=int(distinct_count or 0),
+        missing_ticket=int(missing_ticket or 0),
+        missing_passenger=int(missing_passenger or 0),
+    )
 
 
 def load_excel_to_hive(
@@ -259,15 +301,14 @@ def load_excel_to_hive(
                 f"Hive临时表行数不一致：Excel {total}行，临时表{staging_rows}行"
             )
         selected_columns = ", ".join(f"`{name}`" for name in expected_columns)
-        stage_total, stage_non_null, stage_distinct = ticket_key_stats(
-            cursor, raw_staging_table
-        )
-        if stage_non_null != stage_total:
+        stage_stats = composite_key_stats(cursor, raw_staging_table)
+        if stage_stats.valid != stage_stats.total:
             raise ValueError(
-                f"{definition.label}增量存在{stage_total - stage_non_null:,}行空出票票号，禁止合并"
+                f"{definition.label}增量存在{stage_stats.missing_ticket:,}行空出票票号、"
+                f"{stage_stats.missing_passenger:,}行空乘客姓名，组合键不完整，禁止合并"
             )
         staging_table = raw_staging_table
-        if stage_distinct != stage_total:
+        if stage_stats.distinct != stage_stats.total:
             staging_table = f"{database}.tmp_risk_unique_{upload_id}"
             cursor.execute(
                 f"CREATE TEMPORARY TABLE {staging_table} (\n{column_ddl}\n) "
@@ -281,36 +322,41 @@ def load_excel_to_hive(
                 f"SELECT {raw_columns}\n"
                 f"FROM {raw_staging_table} raw_rows\n"
                 "JOIN (\n"
-                "  SELECT TRIM(`issue_ticket_no`) AS ticket_key\n"
+                "  SELECT TRIM(`issue_ticket_no`) AS ticket_key,\n"
+                "         UPPER(TRIM(`passenger_name`)) AS passenger_key\n"
                 f"  FROM {raw_staging_table}\n"
-                "  GROUP BY TRIM(`issue_ticket_no`)\n"
+                "  GROUP BY TRIM(`issue_ticket_no`), "
+                "UPPER(TRIM(`passenger_name`))\n"
                 "  HAVING COUNT(1)=1\n"
                 ") unique_keys\n"
-                "ON TRIM(raw_rows.`issue_ticket_no`)=unique_keys.ticket_key"
+                "ON TRIM(raw_rows.`issue_ticket_no`)=unique_keys.ticket_key AND "
+                "UPPER(TRIM(raw_rows.`passenger_name`))=unique_keys.passenger_key"
             )
             connection.commit()
-            filtered_total, filtered_non_null, filtered_distinct = ticket_key_stats(
-                cursor, staging_table
-            )
+            filtered_stats = composite_key_stats(cursor, staging_table)
             if (
-                filtered_total != filtered_non_null
-                or filtered_total != filtered_distinct
+                filtered_stats.total != filtered_stats.valid
+                or filtered_stats.total != filtered_stats.distinct
             ):
-                raise RuntimeError(f"{definition.label}重复票号过滤结果校验失败")
-            duplicate_rows = stage_total - filtered_total
-            duplicate_ticket_count = stage_distinct - filtered_distinct
+                raise RuntimeError(f"{definition.label}重复组合键过滤结果校验失败")
+            duplicate_rows = stage_stats.total - filtered_stats.total
+            duplicate_key_count = stage_stats.distinct - filtered_stats.distinct
             log(
-                f"{definition.label}增量已忽略{duplicate_ticket_count:,}个重复出票票号"
-                f"对应的{duplicate_rows:,}行；保留{filtered_total:,}行唯一票号数据"
+                f"{definition.label}增量已忽略{duplicate_key_count:,}个重复组合键"
+                f"对应的{duplicate_rows:,}行；保留{filtered_stats.total:,}行"
+                "唯一出票票号+乘客姓名数据"
             )
 
-        target_total, target_non_null, target_distinct = ticket_key_stats(
-            cursor, definition.target_table
-        )
-        invalid_target_rows = target_total - target_non_null
-        if target_distinct != target_non_null:
+        target_stats = composite_key_stats(cursor, definition.target_table)
+        if target_stats.valid != target_stats.total:
             raise RuntimeError(
-                f"Hive{definition.label}原表存在{target_non_null - target_distinct:,}个重复出票票号，"
+                f"Hive{definition.label}原表存在{target_stats.missing_ticket:,}行空出票票号、"
+                f"{target_stats.missing_passenger:,}行空乘客姓名，请先清理原表后再增量导入"
+            )
+        if target_stats.distinct != target_stats.valid:
+            raise RuntimeError(
+                f"Hive{definition.label}原表存在"
+                f"{target_stats.valid - target_stats.distinct:,}行重复组合键记录，"
                 "请先清理原表后再增量导入"
             )
 
@@ -332,8 +378,7 @@ def load_excel_to_hive(
             "OR new_rows.`estimated_profit_cny`<>0 THEN 1 ELSE 0 END) "
             f"FROM {definition.target_table} old_rows "
             f"JOIN {staging_table} new_rows "
-            "ON TRIM(old_rows.`issue_ticket_no`)="
-            "TRIM(new_rows.`issue_ticket_no`)"
+            f"ON {composite_key_join('old_rows', 'new_rows')}"
         )
         deleted_rows_raw, replaced_rows_raw = cursor.fetchone()
         deleted_rows = int(deleted_rows_raw or 0)
@@ -341,13 +386,13 @@ def load_excel_to_hive(
         added_rows = upsert_rows - replaced_rows
         unmatched_delete_rows = delete_requests - deleted_rows
         expected_rows = (
-            target_total - invalid_target_rows - deleted_rows
+            target_stats.total - deleted_rows
             - replaced_rows + upsert_rows
         )
         log(
-            f"{definition.label}票号校验通过：原表{target_total:,}行，"
+            f"{definition.label}复合键校验通过：原表{target_stats.total:,}行，"
             f"新增{added_rows:,}行，整行替换{replaced_rows:,}行，"
-            f"删除{deleted_rows:,}行，清理空票号{invalid_target_rows:,}行，"
+            f"删除{deleted_rows:,}行，"
             f"未命中删除指令{unmatched_delete_rows:,}行"
         )
 
@@ -366,56 +411,51 @@ def load_excel_to_hive(
             f"SELECT {old_columns}\n"
             f"FROM {definition.target_table} old_rows\n"
             f"LEFT JOIN {staging_table} new_keys\n"
-            "ON TRIM(old_rows.`issue_ticket_no`)="
-            "TRIM(new_keys.`issue_ticket_no`)\n"
+            f"ON {composite_key_join('old_rows', 'new_keys')}\n"
             "WHERE new_keys.`issue_ticket_no` IS NULL\n"
-            "AND old_rows.`issue_ticket_no` IS NOT NULL\n"
-            "AND TRIM(old_rows.`issue_ticket_no`)<>''\n"
             "UNION ALL\n"
             f"SELECT {new_columns}\nFROM {staging_table} new_rows\n"
             "WHERE new_rows.`estimated_profit_cny` IS NULL "
             "OR new_rows.`estimated_profit_cny`<>0"
         )
         connection.commit()
-        merged_total, merged_non_null, merged_distinct = ticket_key_stats(
-            cursor, merge_table
-        )
+        merged_stats = composite_key_stats(cursor, merge_table)
         if (
-            merged_total != expected_rows
-            or merged_non_null != merged_total
-            or merged_distinct != merged_total
+            merged_stats.total != expected_rows
+            or merged_stats.valid != merged_stats.total
+            or merged_stats.distinct != merged_stats.total
         ):
             raise RuntimeError(
                 f"{definition.label}合并临时表校验失败："
-                f"计划{expected_rows:,}行，实际{merged_total:,}行，"
-                f"唯一票号{merged_distinct:,}个"
+                f"计划{expected_rows:,}行，实际{merged_stats.total:,}行，"
+                f"唯一复合键{merged_stats.distinct:,}个"
             )
-        log(f"{definition.label}合并临时表校验通过，共{merged_total:,}行，开始重写正式表")
+        log(
+            f"{definition.label}合并临时表校验通过，共{merged_stats.total:,}行，"
+            "开始重写正式表"
+        )
         cursor.execute(
             f"INSERT OVERWRITE TABLE {definition.target_table}\n"
             f"SELECT {selected_columns}\nFROM {merge_table}"
         )
         connection.commit()
-        target_rows, target_non_null, target_distinct = ticket_key_stats(
-            cursor, definition.target_table
-        )
+        final_stats = composite_key_stats(cursor, definition.target_table)
         if (
-            target_rows != expected_rows
-            or target_non_null != target_rows
-            or target_distinct != target_rows
+            final_stats.total != expected_rows
+            or final_stats.valid != final_stats.total
+            or final_stats.distinct != final_stats.total
         ):
             raise RuntimeError(
                 f"{definition.label}正式表校验失败："
-                f"计划{expected_rows:,}行，实际{target_rows:,}行，"
-                f"唯一票号{target_distinct:,}个"
+                f"计划{expected_rows:,}行，实际{final_stats.total:,}行，"
+                f"唯一复合键{final_stats.distinct:,}个"
             )
         log(
             f"{definition.label}增量导入完成：新增{added_rows:,}行，"
             f"替换{replaced_rows:,}行，删除{deleted_rows:,}行，"
-            f"清理空票号{invalid_target_rows:,}行，"
-            f"正式表共{target_rows:,}行"
+            f"正式表共{final_stats.total:,}行"
         )
-        return total, target_rows
+        return total, final_stats.total
     finally:
         if cursor is not None:
             cleanup_tables = dict.fromkeys(
