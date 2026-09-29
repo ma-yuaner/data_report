@@ -4,6 +4,7 @@ from data_report_api.services.risk_upload_loader import (
     composite_key_join,
     composite_key_stats,
     normalized_key_field,
+    upgrade_decimal_scale,
 )
 from data_report_api.services.risk_upload_definitions import (
     ISSUE_COLUMNS,
@@ -21,6 +22,14 @@ class FakeCursor:
 
     def fetchone(self):
         return self.result
+
+
+class RecordingCursor:
+    def __init__(self):
+        self.statements: list[str] = []
+
+    def execute(self, sql: str):
+        self.statements.append(sql)
 
 
 def test_composite_key_join_matches_ticket_and_normalized_passenger():
@@ -82,3 +91,23 @@ def test_change_composite_stats_require_change_order_number():
     assert stats.missing["change_order_no"] == 3
     assert "`change_order_no` IS NOT NULL" in cursor.sql
     assert "TRIM(`change_order_no`)" in cursor.sql
+
+
+def test_all_legacy_decimal_columns_are_upgraded_to_eight_places():
+    cursor = RecordingCursor()
+
+    fields = upgrade_decimal_scale(
+        cursor,
+        "lywz.dwd_order_refund_profit_reconcile_year",
+        [
+            ("estimated_profit_cny", "decimal(18,4)"),
+            ("actual_profit_cny", "decimal(18,4)"),
+            ("refund_estimated_exchange_rate", "decimal(18,8)"),
+            ("ticket_num", "bigint"),
+        ],
+    )
+
+    assert fields == ["estimated_profit_cny", "actual_profit_cny"]
+    assert len(cursor.statements) == 2
+    assert all("DECIMAL(18,8)" in sql for sql in cursor.statements)
+    assert all("decimal(18,4)" not in sql for sql in cursor.statements)

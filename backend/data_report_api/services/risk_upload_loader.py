@@ -56,6 +56,25 @@ def describe_target(cursor: Any, target_table: str) -> tuple[list[tuple[str, str
     return columns, partitioned
 
 
+def upgrade_decimal_scale(
+    cursor: Any,
+    target_table: str,
+    columns: list[tuple[str, str]],
+) -> list[str]:
+    """Upgrade every legacy DECIMAL(18,4) target column to DECIMAL(18,8)."""
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*", target_table):
+        raise ValueError(f"Hive目标表名称不安全：{target_table}")
+    fields = [name for name, data_type in columns if data_type == "decimal(18,4)"]
+    for name in fields:
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+            raise ValueError(f"Hive字段名不安全：{name}")
+        cursor.execute(
+            f"ALTER TABLE {target_table} CHANGE COLUMN "
+            f"`{name}` `{name}` DECIMAL(18,8)"
+        )
+    return fields
+
+
 def repair_refund_row(values: list[Any], header_index: dict[str, int]) -> list[Any]:
     pcc_index = header_index.get("订位PCC")
     ticket_index = header_index.get("票数")
@@ -213,6 +232,27 @@ def load_excel_to_hive(
         connection = source.connect()
         cursor = connection.cursor()
         actual_schema, partitioned = describe_target(cursor, definition.target_table)
+        upgraded_fields = upgrade_decimal_scale(
+            cursor, definition.target_table, actual_schema
+        )
+        if upgraded_fields:
+            connection.commit()
+            actual_schema, partitioned = describe_target(
+                cursor, definition.target_table
+            )
+            remaining = [
+                name
+                for name, data_type in actual_schema
+                if data_type == "decimal(18,4)"
+            ]
+            if remaining:
+                raise RuntimeError(
+                    f"Hive目标表仍有DECIMAL(18,4)字段：{remaining}"
+                )
+            log(
+                f"Hive目标表已自动将{len(upgraded_fields)}个"
+                "DECIMAL(18,4)字段升级为DECIMAL(18,8)"
+            )
         actual_columns = [name for name, _ in actual_schema]
         if actual_columns != expected_columns:
             first = next(
