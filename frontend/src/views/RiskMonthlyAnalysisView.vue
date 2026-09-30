@@ -1,6 +1,6 @@
 <template>
   <div class="page-wrap risk-monthly-page">
-    <PageHeader eyebrow="RISK CONTROL" title="风控分析" description="利润核对 · 快速对比出票、改签、退票的票数与月度金额"><a-tag color="blue">实际数据 · MySQL</a-tag></PageHeader>
+    <PageHeader eyebrow="RISK CONTROL" title="风控总览" description="利润核对 · 快速对比出票、改签、退票的票数与月度金额"><a-tag color="blue">实际数据 · MySQL</a-tag></PageHeader>
     <a-alert class="source-banner" type="info" show-icon :message="data?.source || 'MySQL · sibebid'" :description="'金额为CNY预估利润，不代表财务结算。' + (data ? ' 查询于：' + data.generatedAt.replace('T', ' ').slice(0, 19) : '')" />
     <section class="scope-panel">
       <div class="section-heading"><h2>核对记录统计范围</h2><span>默认今日 · 可快速切换本年查看月度对比</span></div>

@@ -29,7 +29,12 @@
         <a-sub-menu key="risk">
           <template #icon><SafetyCertificateOutlined /></template>
           <template #title>风控分析</template>
-          <a-menu-item key="/risk-analysis">利润分析</a-menu-item>
+          <a-menu-item key="/risk-analysis">风控总览</a-menu-item>
+          <a-menu-item key="/risk-analysis/issue">出票利润分析</a-menu-item>
+          <a-menu-item key="/risk-analysis/refund">退票利润分析</a-menu-item>
+          <a-menu-item key="/risk-analysis/change">改签利润分析</a-menu-item>
+          <a-menu-item key="/risk-analysis/errors">差错分析</a-menu-item>
+          <a-menu-item key="/risk-analysis/orders">订单明细</a-menu-item>
           <a-menu-item key="/risk-analysis/upload">数据上传</a-menu-item>
         </a-sub-menu>
         <a-sub-menu key="smart">

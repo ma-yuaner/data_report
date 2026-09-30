@@ -10,6 +10,7 @@ from .services.business_profit_analysis import BusinessProfitAnalysisService
 from .services.comprehensive_analysis import ComprehensiveAnalysisService, DIMENSIONS
 from .services.comprehensive_detail import ComprehensiveDetailService
 from .services.risk_monthly_analysis import RiskMonthlyAnalysisService
+from .services.risk_business_analysis import RiskBusinessAnalysisService
 from .services.issue_profit_analysis import IssueProfitAnalysisService
 from .services.profit_problem_center import ProfitProblemCenterService
 from .services.risk_profit_summary import RISK_FILTER_FIELDS, RiskProfitSummaryService
@@ -133,6 +134,28 @@ def risk_monthly_analysis():
             business_type=request.args.get("businessType", "all"),
             profit_status=request.args.get("profitStatus", "all"),
             date_basis=request.args.get("dateBasis", "reconcile"),
+        ))
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+
+
+@api.get("/v1/analysis/risk-business/<business_type>")
+def risk_business_analysis(business_type: str):
+    try:
+        return ok(RiskBusinessAnalysisService(current_app.config).analysis(
+            business_type=business_type,
+            start_value=request.args.get("startDate"),
+            end_value=request.args.get("endDate"),
+            group=request.args.get("groupBy", "platform"),
+            filters={
+                key: request.args.get(key)
+                for key in (
+                    "platform", "site", "department", "airline", "supplier",
+                    "policy", "reason", "verifyResult", "profitStatus",
+                )
+            },
+            page_value=request.args.get("page", "1"),
+            page_size_value=request.args.get("pageSize", "30"),
         ))
     except ValueError as error:
         return jsonify({"success": False, "message": str(error), "data": None}), 400

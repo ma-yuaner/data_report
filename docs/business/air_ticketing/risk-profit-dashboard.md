@@ -1,0 +1,56 @@
+# 风控利润分析看板 V1
+
+来源：用户于 2026-09-30 提供《2026年1-8月机票业务汇总.xlsx》，要求只参考其结构规划风控看板，并确认开始开发。工作簿仅用于识别已有分析板块，不把其中金额、公式、筛选字典直接写入系统。
+
+状态：菜单、真实 MySQL 查询、维度分析和订单下钻已实现；差错标准字段待补齐。更新时间：2026-09-30。
+
+## 菜单与入口
+
+```text
+风控分析
+├─ 风控总览          /risk-analysis
+├─ 出票利润分析      /risk-analysis/issue
+├─ 退票利润分析      /risk-analysis/refund
+├─ 改签利润分析      /risk-analysis/change
+├─ 差错分析          /risk-analysis/errors
+├─ 订单明细          /risk-analysis/orders
+└─ 数据上传          /risk-analysis/upload
+```
+
+风控总览沿用出退改月度核对页面。三个利润专题和统一订单明细通过 `/api/v1/analysis/risk-business/<business_type>` 读取 MySQL，不查询 Hive、不使用演示数字。数据上传功能保持原样。
+
+## 数据与口径
+
+| 业务 | MySQL 表 | 日期字段 | 标准原因字段 | 核实字段 |
+|---|---|---|---|---|
+| 出票 | `sibebid.bi_order_issue_profit_reconcile_year` | `business_date` | `profit_reason_type` | `risk_verify_result` |
+| 退票 | `sibebid.bi_order_refund_profit_reconcile_year` | `stat_date` | 暂无 | `verify_result` |
+| 改签 | `sibebid.bi_order_change_profit_reconcile_year` | `stat_date` | 暂无 | `verify_result` |
+
+- 票数：`SUM(ticket_num)`，不以源记录数替代。
+- 利润：`SUM(estimated_profit_cny)`，CNY 业务预估利润，不代表财务结算。
+- 亏损记录：源记录 `estimated_profit_cny < 0`，不是按汇总净利润判断。
+- 平均每张亏损：亏损金额绝对值 / 亏损票数。
+- 亏损票数占比：亏损票数 / 所选记录总票数。
+- NULL 票数或利润不按 0 补齐；受影响的完整指标显示为空，并提示源数据不完整。
+
+筛选支持日期、盈亏状态、平台、站点、业务部门、航司、供应商、政策员、核实结果；出票额外支持标准盈亏原因。页面按月展示趋势，可依次按上述维度定位，再把全部当前条件带入订单列表。
+
+## 订单下钻
+
+订单明细直接来自对应核对表，展示统计日期、OTA订单号、关联订单号、业务单号、出票票号、乘客、平台、站点、部门、航司、航程、供应商、政策员、操作员、标准原因、核实结果、利润备注、票数、预估利润和实际利润推算。
+
+`actual_profit_cny` 明确标记为源表“实际利润（推算）”，不能描述为财务已结算。订单详情用于证据核对，不自动判定责任或根因。
+
+## 差错分析边界
+
+Excel 中存在差错总量、部门、原因及交叉分析，但当前明细已移除“计入差错、正确原因、备注【原始】”，且退票、改签没有统一差错标记。因此 V1 只建立菜单、字段就绪检查和后续分析路径，不根据利润正负或 `sort_remark` 自动猜测差错。
+
+正式启用至少需要：
+
+- `error_flag`：是否计入差错；
+- `error_reason`：标准差错原因字典值；
+- 现有 `org_cname` 和业务类型继续作为部门、业务维度；
+- 保留可回到核对明细的订单键。
+
+退票、改签的标准盈亏原因同样待数据层补齐。在此之前，`profit_remark` 只在订单详情作为原始证据展示，不能冒充标准原因维度。
