@@ -38,6 +38,13 @@
             <a-menu-item key="/risk-analysis/orders">订单明细</a-menu-item>
             <a-menu-item key="/risk-analysis/upload">数据上传</a-menu-item>
           </a-sub-menu>
+          <a-sub-menu key="customer-service">
+            <template #icon><CustomerServiceOutlined /></template>
+            <template #title>客服分析</template>
+            <a-menu-item key="customer-service-refund" disabled>退票分析</a-menu-item>
+            <a-menu-item key="customer-service-change" disabled>改签分析</a-menu-item>
+            <a-menu-item key="customer-service-flight-change" disabled>清Q/航变分析</a-menu-item>
+          </a-sub-menu>
           <a-sub-menu key="smart">
             <template #icon><RobotOutlined /></template>
             <template #title>智能分析</template>
@@ -87,7 +94,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  BarChartOutlined, DashboardOutlined, DatabaseOutlined, LineChartOutlined,
+  BarChartOutlined, CustomerServiceOutlined, DashboardOutlined, DatabaseOutlined, LineChartOutlined,
   MenuFoldOutlined, MenuUnfoldOutlined, RobotOutlined, SafetyCertificateOutlined, WarningOutlined,
 } from '@ant-design/icons-vue'
 import type { MenuProps } from 'ant-design-vue'
