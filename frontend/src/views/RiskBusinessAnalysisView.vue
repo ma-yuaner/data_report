@@ -140,6 +140,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { DatePicker as ADatePicker } from 'ant-design-vue'
 import dateLocale from 'ant-design-vue/es/date-picker/locale/zh_CN'
 import { InfoCircleOutlined, SearchOutlined } from '@ant-design/icons-vue'
 import type { EChartsCoreOption } from 'echarts/core'
