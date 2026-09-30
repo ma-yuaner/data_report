@@ -40,29 +40,21 @@ export interface FilterScope {
   product: string
   policy: string
 }
-export interface ComprehensiveDetailRow {
-  recordKey: string
-  eventTime: string
-  businessId: string
-  issueId: string
-  orderId: string
-  otaCode: string | null
-  otaName: string | null
-  siteCode: string | null
-  siteName: string | null
-  airline: string | null
-  product: string | null
-  policyOperator: string | null
-  segmentCount: number | null
-  profit: string | null
-  businessCount: number
+export type ComprehensiveDetailValueType = 'text' | 'date' | 'datetime' | 'count' | 'money'
+export interface ComprehensiveDetailColumn {
+  key: string
+  title: string
+  valueType: ComprehensiveDetailValueType
+  width: number
 }
+export type ComprehensiveDetailRow = { recordKey: string } & Record<string, string | number | null>
 export interface ComprehensiveDetailData {
   available: boolean
   error: string
   source: string
   business: { key: BusinessKey; label: string }
   period: { startDate: string; endDate: string }
+  columns: ComprehensiveDetailColumn[]
   page: number
   pageSize: number
   total: number

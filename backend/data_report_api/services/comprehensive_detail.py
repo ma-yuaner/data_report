@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -13,68 +13,152 @@ from .data_source import DataSource
 
 
 @dataclass(frozen=True)
+class DetailColumn:
+    key: str
+    title: str
+    expression: str
+    value_type: str = "text"
+    width: int = 140
+
+
+@dataclass(frozen=True)
 class DetailSpec:
     table: str
     time_field: str
-    event_id: str
-    issue_id: str | None
-    airline: str
-    profit: str
-    segments: str | None
-    quantity: str
-    base_condition: str | None = None
+    order_field: str
+    platform_filters: tuple[tuple[str, int], ...]
+    site_filters: tuple[tuple[str, int], ...]
+    airline_field: str
+    policy_field: str
+    columns: tuple[DetailColumn, ...]
+
+
+def column(
+    key: str,
+    title: str,
+    field_or_expression: str,
+    value_type: str = "text",
+    width: int = 140,
+    *,
+    raw: bool = False,
+) -> DetailColumn:
+    expression = field_or_expression if raw else f"src.{field_or_expression}"
+    return DetailColumn(key, title, expression, value_type, width)
 
 
 DETAIL_SPECS = {
     "issue": DetailSpec(
-        table="bi_order_issue_year",
-        time_field="operator_date",
-        event_id="order_id",
-        issue_id=None,
-        airline="air_line",
-        profit="issue_profit",
-        segments="segment_num",
-        quantity="COALESCE(src.iss_num,0)",
-        base_condition=(
-            "src.order_status='TICKETED' AND src.issue_status='I_UPDATED' "
-            "AND src.refund_flag<>3 AND src.refund_issue_flag='否'"
-        ),
-    ),
-    "refund": DetailSpec(
-        table="bi_refund_issue_year",
-        time_field="apply_datetime",
-        event_id="refund_issue_id",
-        issue_id="issue_id",
-        airline="marketing_airline_s",
-        profit="refund_profit",
-        segments="segment_num",
-        quantity="1",
-        base_condition=(
-            "src.business_type_desc IN ('正常退票（退票）','售后退票作废（退票）') "
-            "AND src.supplier_refund_operator IS NOT NULL "
-            "AND TRIM(src.supplier_refund_operator)<>''"
+        table="bi_order_issue_profit_reconcile_year",
+        time_field="business_date",
+        order_field="issue_ticket_no",
+        platform_filters=(("src.ota_cname", 1),),
+        site_filters=(("src.ota_site_cname", 2),),
+        airline_field="marketing_airline",
+        policy_field="policy_operator",
+        columns=(
+            column("otaName", "OTA平台名称", "ota_cname", width=125),
+            column("siteName", "站点名称", "ota_site_cname", width=150),
+            column("issueDate", "出票日期", "issue_date", "date", 115),
+            column("otaOrderNo", "OTA订单号", "ota_order_no", width=150),
+            column("relationOrderNo", "关联订单号", "relation_order_no", width=150),
+            column("issueTicketNo", "出票票号", "issue_ticket_no", width=150),
+            column("profitReason", "业务盈亏原因", "profit_reason_type", width=160),
+            column("profitRemark", "利润备注", "profit_remark", width=220),
+            column("airRoute", "航程", "air_route", width=160),
+            column("airline", "航司", "marketing_airline", width=85),
+            column("segmentCount", "航段数", "segment_num", "count", 90),
+            column("supplierName", "供应商名称", "supplier_cname", width=150),
+            column("estimatedProfit", "预估利润(公式)", "estimated_profit_cny", "money", 145),
+            column("policyOperator", "政策员", "policy_operator", width=110),
+            column("operator", "出票员", "issue_operator", width=110),
+            column("ticketCount", "票数", "ticket_num", "count", 85),
+            column(
+                "singleSegmentProfit",
+                "单段利润",
+                "CASE WHEN src.segment_num IS NULL OR src.segment_num=0 "
+                "THEN NULL ELSE src.estimated_profit_cny/src.segment_num END",
+                "money",
+                125,
+                raw=True,
+            ),
         ),
     ),
     "change": DetailSpec(
-        table="bi_change_issue_year",
-        time_field="change_issue_time",
-        event_id="change_issue_id",
-        issue_id="issue_id",
-        airline="air_line",
-        profit="change_profit",
-        segments=None,
-        quantity="1",
+        table="bi_order_change_profit_reconcile_year",
+        time_field="stat_date",
+        order_field="change_order_no",
+        platform_filters=(("src.ota_cname", 1),),
+        site_filters=(("src.ota_site_cname", 2),),
+        airline_field="marketing_airline",
+        policy_field="policy_operator",
+        columns=(
+            column("otaName", "OTA平台名称", "ota_cname", width=125),
+            column("siteName", "站点名称", "ota_site_cname", width=150),
+            column("businessDate", "业务日期", "stat_date", "date", 115),
+            column("otaOrderNo", "OTA订单号", "ota_order_no", width=150),
+            column("relationOrderNo", "关联订单号", "relation_order_no", width=150),
+            column("issueTicketNo", "出票票号", "issue_ticket_no", width=150),
+            column("changeOrderNo", "改签单号", "change_order_no", width=150),
+            column("profitRemark", "利润备注", "profit_remark", width=220),
+            column("airline", "航司", "marketing_airline", width=85),
+            column("supplierName", "供应商名称", "supplier_cname", width=150),
+            column("estimatedProfit", "预估利润(公式)", "estimated_profit_cny", "money", 145),
+            column("policyOperator", "政策员", "policy_operator", width=110),
+            column("operator", "操作员", "change_operator", width=110),
+            column("performanceCategory", "业绩分类", "performance_category", width=155),
+            column("ticketCount", "票数", "ticket_num", "count", 85),
+        ),
+    ),
+    "refund": DetailSpec(
+        table="bi_order_refund_profit_reconcile_year",
+        time_field="business_date",
+        order_field="refund_order_no",
+        platform_filters=(("src.ota_cname", 1),),
+        site_filters=(("src.ota_site_cname", 2),),
+        airline_field="marketing_airline",
+        policy_field="policy_operator",
+        columns=(
+            column("otaName", "OTA平台名称", "ota_cname", width=125),
+            column("siteName", "站点名称", "ota_site_cname", width=150),
+            column("businessDate", "业务日期", "business_date", "date", 115),
+            column("otaOrderNo", "OTA订单号", "ota_order_no", width=150),
+            column("relationOrderNo", "关联订单号", "relation_order_no", width=150),
+            column("issueTicketNo", "出票票号", "issue_ticket_no", width=150),
+            column("profitRemark", "利润备注", "profit_remark", width=220),
+            column("airline", "航司", "marketing_airline", width=85),
+            column("supplierName", "供应商名称", "supplier_cname", width=150),
+            column("estimatedProfit", "预估利润(公式)", "estimated_profit_cny", "money", 145),
+            column("actualProfit", "实际利润(推算)", "actual_profit_cny", "money", 145),
+            column("policyOperator", "政策员", "policy_operator", width=110),
+            column("operator", "操作员", "refund_operator", width=110),
+            column("performanceCategory", "业绩分类", "performance_category", width=155),
+            column("ticketCount", "票数", "ticket_num", "count", 85),
+        ),
     ),
     "ancillary": DetailSpec(
         table="bi_aux_pur_year",
         time_field="create_time",
-        event_id="pur_id",
-        issue_id=None,
-        airline="air_line",
-        profit="profit",
-        segments="flight_num",
-        quantity="1",
-        base_condition="src.aux_status='已购买'",
+        order_field="pur_id",
+        platform_filters=(("src.ota_code", 0), ("src.ota_cname", 1)),
+        site_filters=(("src.ota_code", 0), ("src.ota_site_code", 1), ("src.ota_site_cname", 2)),
+        airline_field="air_line",
+        policy_field="policy_operator",
+        columns=(
+            column("otaName", "OTA平台名称", "ota_cname", width=125),
+            column("siteName", "站点名称", "ota_site_cname", width=150),
+            column("businessDate", "业务日期", "DATE(src.create_time)", "date", 115, raw=True),
+            column("entryDate", "进单日期", "create_time", "datetime", 175),
+            column("otaOrderNo", "OTA订单号", "ota_order_no", width=150),
+            column("relationOrderNo", "关联订单号", "order_id", width=150),
+            column("issueTicketNo", "出票票号", "CAST(NULL AS CHAR)", width=150, raw=True),
+            column("airline", "航司", "air_line", width=85),
+            column("supplierName", "供应商名称", "supplier_cname", width=150),
+            column("estimatedProfit", "预估利润(公式)", "profit", "money", 145),
+            column("policyOperator", "政策员", "policy_operator", width=110),
+            column("operator", "操作员", "operator_name", width=110),
+            column("performanceCategory", "业绩分类", "CAST(NULL AS CHAR)", width=155, raw=True),
+            column("ticketCount", "票数", "1", "count", 85, raw=True),
+        ),
     ),
 }
 
@@ -129,52 +213,45 @@ def build_detail_queries(
     table = f"{database}.{spec.table}"
     conditions = [f"src.{spec.time_field}>=%s", f"src.{spec.time_field}<%s"]
     parameters: list[str] = [start_date, next_date]
-    if spec.base_condition:
-        conditions.append(spec.base_condition)
 
-    direct_dimensions = {
-        "platform": ("src.ota_code", "src.ota_cname"),
-        "site": ("src.ota_code", "src.ota_site_code", "src.ota_site_cname"),
-        "airline": (f"src.{spec.airline}",),
-        "policy": ("src.policy_operator",),
+    mappings = {
+        "platform": spec.platform_filters,
+        "site": spec.site_filters,
+        "airline": ((f"src.{spec.airline_field}", 0),),
+        "policy": ((f"src.{spec.policy_field}", 0),),
     }
-    for key, expressions in direct_dimensions.items():
+    for key, expressions in mappings.items():
         if key not in filters:
             continue
-        for expression, value in zip(expressions, filters[key]):
-            condition, values = normalized_condition(expression, value)
+        for expression, value_index in expressions:
+            condition, values = normalized_condition(expression, filters[key][value_index])
             conditions.append(condition)
             parameters.extend(values)
 
-    issue_id = (
-        f"CAST(src.{spec.issue_id} AS CHAR)"
-        if spec.issue_id
-        else "CAST(NULL AS CHAR)"
-    )
-    segments = (
-        f"CAST(src.{spec.segments} AS SIGNED)"
-        if spec.segments
-        else "CAST(NULL AS SIGNED)"
-    )
     where_clause = "\n  AND ".join(conditions)
     count_query = f"SELECT COUNT(1) FROM {table} src WHERE {where_clause}"
     offset = (page - 1) * page_size
+    select_clause = ",\n       ".join(item.expression for item in spec.columns)
     data_query = (
-        "SELECT "
-        f"CAST(src.{spec.time_field} AS CHAR), "
-        f"CAST(src.{spec.event_id} AS CHAR), {issue_id}, "
-        "CAST(src.order_id AS CHAR),\n"
-        "       NULLIF(TRIM(src.ota_code),''), NULLIF(TRIM(src.ota_cname),''), "
-        "NULLIF(TRIM(src.ota_site_code),''), NULLIF(TRIM(src.ota_site_cname),''),\n"
-        f"       NULLIF(TRIM(src.{spec.airline}),''), CAST(NULL AS CHAR), "
-        f"NULLIF(TRIM(src.policy_operator),''), {segments},\n"
-        f"       src.{spec.profit}, CAST({spec.quantity} AS SIGNED)\n"
+        f"SELECT {select_clause}\n"
         f"FROM {table} src\n"
         f"WHERE {where_clause}\n"
-        f"ORDER BY src.{spec.time_field} DESC, src.{spec.event_id} DESC\n"
+        f"ORDER BY src.{spec.time_field} DESC, src.{spec.order_field} DESC\n"
         "LIMIT %s OFFSET %s"
     )
     return count_query, data_query, parameters, [*parameters, page_size, offset]
+
+
+def serialize_value(value: Any, value_type: str) -> str | int | None:
+    if value is None:
+        return None
+    if value_type == "count":
+        return int(value)
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, (date, datetime)):
+        return str(value)
+    return str(value)
 
 
 class ComprehensiveDetailService:
@@ -206,7 +283,7 @@ class ComprehensiveDetailService:
         parsed_filters = parse_detail_filters(filters)
         if "product" in parsed_filters:
             raise ValueError(
-                "当前MySQL出退改增宽表尚未同步与ADS一致的机票产品字段，"
+                "当前MySQL明细宽表尚未同步与ADS一致的机票产品字段，"
                 "不能忽略产品条件返回错误明细；请先补充ticket_product_raw字段。"
             )
         spec = DETAIL_SPECS[business]
@@ -216,6 +293,15 @@ class ComprehensiveDetailService:
             "source": f"MySQL · {self.source.database}.{spec.table}",
             "business": {"key": business, "label": BUSINESS_LABELS[business]},
             "period": {"startDate": first.isoformat(), "endDate": last.isoformat()},
+            "columns": [
+                {
+                    "key": item.key,
+                    "title": item.title,
+                    "valueType": item.value_type,
+                    "width": item.width,
+                }
+                for item in spec.columns
+            ],
             "page": page,
             "pageSize": page_size,
             "total": 0,
@@ -240,29 +326,13 @@ class ComprehensiveDetailService:
             data_cursor.execute(data_query, data_params)
             raw_rows = data_cursor.fetchall()
             rows = []
-            for index, row in enumerate(raw_rows, start=(page - 1) * page_size + 1):
-                profit = row[12]
-                rows.append(
-                    {
-                        "recordKey": f"{business}-{index}-{row[1] or ''}-{row[3] or ''}",
-                        "eventTime": str(row[0] or ""),
-                        "businessId": str(row[1] or ""),
-                        "issueId": str(row[2] or ""),
-                        "orderId": str(row[3] or ""),
-                        "otaCode": row[4],
-                        "otaName": row[5],
-                        "siteCode": row[6],
-                        "siteName": row[7],
-                        "airline": row[8],
-                        "product": row[9],
-                        "policyOperator": row[10],
-                        "segmentCount": int(row[11]) if row[11] is not None else None,
-                        "profit": str(profit) if isinstance(profit, Decimal) else (
-                            str(profit) if profit is not None else None
-                        ),
-                        "businessCount": int(row[13] or 0),
-                    }
-                )
+            for index, raw_row in enumerate(raw_rows, start=(page - 1) * page_size + 1):
+                row = {
+                    item.key: serialize_value(value, item.value_type)
+                    for item, value in zip(spec.columns, raw_row)
+                }
+                row["recordKey"] = f"{business}-{page}-{index}"
+                rows.append(row)
             response["rows"] = rows
             response["total"] = total
             response["available"] = True

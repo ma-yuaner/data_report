@@ -72,21 +72,16 @@
       </a-table>
     </a-drawer>
     <a-drawer v-model:open="detailOpen" :title="detailTitle" :width="'min(1280px, 100vw)'">
-      <a-alert type="info" show-icon :message="detailData?.source || 'MySQL宽表明细'" description="按所点业务日和当前平台、站点、航司、产品、政策员条件实时查询；不会把全年明细一次性加载到浏览器。" />
+      <a-alert type="info" show-icon :message="detailData?.source || 'MySQL宽表明细'" description="按所点业务日和当前平台、站点、航司、产品、政策员条件实时查询；列项按出、退、改、增业务分别展示。" />
       <div class="drawer-scope"><strong>{{ detailDate }}</strong><p>{{ drawerScope }}</p></div>
       <a-alert v-if="detailError" type="error" :message="detailError" show-icon />
       <a-table :loading="detailLoading" :columns="detailColumns" :data-source="detailData?.rows || []" row-key="recordKey"
         :pagination="detailPagination"
-        :scroll="{ x: 1540 }" @change="changeDetailPage">
+        :scroll="{ x: detailTableWidth }" @change="changeDetailPage">
         <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'platform'">{{ record.otaName || record.otaCode || '—' }}</template>
-          <template v-else-if="column.key === 'site'">{{ record.siteName || record.siteCode || '—' }}</template>
-          <template v-else-if="column.key === 'airline'">{{ record.airline || '—' }}</template>
-          <template v-else-if="column.key === 'product'">{{ record.product || '宽表未同步' }}</template>
-          <template v-else-if="column.key === 'policy'">{{ record.policyOperator || '未知政策员' }}</template>
-          <template v-else-if="column.key === 'businessCount'">{{ count(record.businessCount) }} 票</template>
-          <template v-else-if="column.key === 'segment'">{{ record.segmentCount == null ? '—' : count(record.segmentCount) }}</template>
-          <template v-else-if="column.key === 'profit'"><span :class="{ negative: isNegative(record.profit) }">{{ money(record.profit) }} 元</span></template>
+          <span :class="{ negative: column.valueType === 'money' && isNegative(detailValue(record, column.key)) }">
+            {{ formatDetailValue(record, column.key, column.valueType) }}
+          </span>
         </template>
       </a-table>
     </a-drawer>
@@ -101,7 +96,7 @@ import { ArrowRightOutlined, InfoCircleOutlined, SearchOutlined, UndoOutlined } 
 import type { EChartsCoreOption } from 'echarts/core'
 import PageHeader from '@/components/PageHeader.vue'
 import BaseChart from '@/components/BaseChart.vue'
-import { fetchComprehensive, fetchComprehensiveDetails, type BusinessKey, type ComprehensiveData, type ComprehensiveDetailData, type DimensionKey, type DimensionRow, type FilterScope } from '@/api/comprehensive'
+import { fetchComprehensive, fetchComprehensiveDetails, type BusinessKey, type ComprehensiveData, type ComprehensiveDetailData, type ComprehensiveDetailRow, type ComprehensiveDetailValueType, type DimensionKey, type DimensionRow, type FilterScope } from '@/api/comprehensive'
 
 const businesses: { key: BusinessKey; label: string; countLabel: string; color: string }[] = [
   { key: 'issue', label: '出票', countLabel: '出票数', color: '#397cf6' },
@@ -132,7 +127,7 @@ const dimensionOptions = dimensions.map(d => ({ label: '按' + d.label, value: d
 const formatter = new Intl.NumberFormat('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const money = (amount: string | number | null | undefined) => amount == null ? '—' : formatter.format(Number(amount))
 const count = (amount: number | null | undefined) => amount == null ? '—' : new Intl.NumberFormat('zh-CN').format(amount)
-const isNegative = (amount: string | null | undefined) => amount != null && Number(amount) < 0
+const isNegative = (amount: string | number | null | undefined) => amount != null && Number(amount) < 0
 const chartNumber = (amount: string | null | undefined) => amount == null ? null : Number(amount)
 const isBusinessKey = (key: unknown): key is BusinessKey => businesses.some(b => b.key === key)
 const filterOptions = (key: DimensionKey) => [{ label: '全部' + dimensions.find(d => d.key === key)!.label, value: '' }, ...(data.value?.options[key] || [])]
@@ -240,20 +235,20 @@ const detailPage = ref(1)
 const detailPageSize = ref(50)
 const detailPagination = computed(() => ({ current: detailPage.value, pageSize: detailPageSize.value, total: detailData.value?.total || 0, showSizeChanger: true, pageSizeOptions: ['20', '50', '100'], showTotal: (total: number) => `共 ${count(total)} 条` }))
 let detailRequestId = 0
-const detailColumns = [
-  { title: '业务时间', dataIndex: 'eventTime', width: 175, fixed: 'left' as const },
-  { title: '业务ID', dataIndex: 'businessId', width: 145 },
-  { title: '出票ID', dataIndex: 'issueId', width: 135 },
-  { title: '订单ID', dataIndex: 'orderId', width: 145 },
-  { title: '平台', key: 'platform', width: 120 },
-  { title: '站点', key: 'site', width: 150 },
-  { title: '航司', key: 'airline', width: 90 },
-  { title: '机票产品', key: 'product', width: 140 },
-  { title: '政策员', key: 'policy', width: 110 },
-  { title: '票数', key: 'businessCount', width: 90 },
-  { title: '航段数', key: 'segment', width: 90 },
-  { title: '业务估算利润', key: 'profit', width: 145, fixed: 'right' as const },
-]
+const detailColumns = computed(() => (detailData.value?.columns || []).map((column, index) => ({
+  ...column,
+  dataIndex: column.key,
+  fixed: index === 0 ? 'left' as const : undefined,
+})))
+const detailTableWidth = computed(() => detailColumns.value.reduce((total, column) => total + column.width, 0))
+function detailValue(record: ComprehensiveDetailRow, key: string) { return record[key] }
+function formatDetailValue(record: ComprehensiveDetailRow, key: string, valueType: ComprehensiveDetailValueType) {
+  const value = detailValue(record, key)
+  if (value == null || value === '') return '—'
+  if (valueType === 'money') return `${money(value)} 元`
+  if (valueType === 'count') return count(Number(value))
+  return String(value)
+}
 type DailyRow = { date: string; businessKey: BusinessKey; label: string }
 async function loadWideDetail() {
   const id = ++detailRequestId

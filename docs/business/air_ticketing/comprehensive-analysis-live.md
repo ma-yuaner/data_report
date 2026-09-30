@@ -13,7 +13,7 @@
 
 页面展示四业务票数、业务估算利润、合计、业务日趋势、业务构成与可切换维度的分页对比。出票、退票、改签、增值购买数量均以“票”为页面单位，不显示“记录数”或“条”。平台筛选和平台对比仅展示`ota_cname`中文名称，不展示`ota_code`；编码只保留在内部筛选值中。分页不截取汇总。分析此项保留原筛选并增加条件；日汇总抽屉查询同一时间/维度范围，每个“业务日 × 业务类型”可继续按当前条件查询MySQL宽表明细。
 
-宽表明细接口为`/api/v1/analysis/comprehensive/details`，按业务分别读取`sibebid.bi_order_issue_year`、`bi_refund_issue_year`、`bi_change_issue_year`、`bi_aux_pur_year`。查询强制按业务日进入，单次最多31天、每页最多100条；先查询记录总数，再分页读取宽表行，不连接Hive、不加载全年明细。出票宽表本身是聚合数据，页面同时展示该行`iss_num`票数，不能把一行误称为一张票。
+宽表明细接口为`/api/v1/analysis/comprehensive/details`。为满足业务字段清单，出票、退票、改签分别读取`sibebid.bi_order_issue_profit_reconcile_year`、`bi_order_refund_profit_reconcile_year`、`bi_order_change_profit_reconcile_year`，增值读取`bi_aux_pur_year`；接口同时返回当前业务的列定义，页面不再用一套固定列覆盖四类业务。查询强制按业务日进入，单次最多31天、每页最多100条；先查询记录总数，再分页读取宽表行，不连接Hive、不加载全年明细。出票单段利润按`estimated_profit_cny / segment_num`展示，航段为空或为0时保留空值。增值源表尚无出票票号和业绩分类，两列保留在业务清单中并显示为空，不推造字段值。
 
 2026-09-29只读结构核对确认：四张MySQL宽表具备平台、站点、业务航司和政策员字段，但尚未具备与ADS口径一致的`ticket_product_raw`；出票宽表也没有`product_type`。因此带产品条件下钻时接口明确停止并提示补充字段，不能忽略产品条件返回错误明细。后续应在四张承接宽表同步统一的`ticket_product_raw`后再开放产品明细筛选。
 
