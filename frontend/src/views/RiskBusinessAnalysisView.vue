@@ -9,8 +9,8 @@
 
     <section class="scope-panel" aria-label="风控利润分析筛选">
       <div class="section-heading">
-        <h2>统计与下钻范围</h2>
-        <span>默认今日 · 名称筛选为精确匹配 · 最长366天</span>
+        <h2>核对记录统计范围</h2>
+        <span>默认今日 · 可快速切换本年 · 最长366天</span>
       </div>
       <div class="period-fields">
         <a-segmented v-model:value="preset" :options="periodOptions" :disabled="loading" @change="applyPreset" />
@@ -22,10 +22,14 @@
         </div>
       </div>
 
-      <div class="filter-grid">
+      <div class="filter-grid period-filter-grid">
+        <label><span>快捷选择年份</span><a-select v-model:value="year" :options="yearOptions" :disabled="loading" @change="selectYear" /></label>
         <label v-if="ordersOnly"><span>业务类型</span><a-select v-model:value="selectedBusiness" :options="businessOptions" @change="changeBusiness" /></label>
         <label><span>盈亏范围</span><a-select v-model:value="draft.profitStatus" :options="profitOptions" /></label>
         <label v-if="!ordersOnly"><span>对比维度</span><a-select v-model:value="draft.groupBy" :options="groupOptions" /></label>
+      </div>
+      <div class="dimension-filter-title"><strong>维度筛选</strong><span>名称精确匹配；留空表示全部</span></div>
+      <div class="filter-grid">
         <label v-for="field in filterFields" :key="field.key">
           <span>{{ field.label }}<small v-if="field.key === 'reason' && !reasonEnabled">当前表未标准化</small></span>
           <a-input v-model:value="draft[field.key]" allow-clear :disabled="field.key === 'reason' && !reasonEnabled"
@@ -159,6 +163,7 @@ const defaultSource = computed(() => `MySQL · sibebid.${businessMeta.value.tabl
 const timeField = computed(() => businessMeta.value.timeField)
 const timeFieldLabel = computed(() => `核对日期（${data.value?.period.timeField || timeField.value}）`)
 const today = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
+const currentYear = Number(today().slice(0, 4))
 function defaultScope(): RiskBusinessScope {
   const day = today()
   return { startDate: day, endDate: day, platform: '', site: '', department: '', airline: '', supplier: '', policy: '', reason: '', verifyResult: '', profitStatus: 'all', groupBy: 'platform', page: 1, pageSize: 30 }
@@ -166,12 +171,14 @@ function defaultScope(): RiskBusinessScope {
 const draft = ref<RiskBusinessScope>(defaultScope())
 const applied = ref<RiskBusinessScope>({ ...draft.value })
 const preset = ref('today')
+const year = ref(currentYear)
 const data = ref<RiskBusinessData>()
 const loading = ref(false)
 const error = ref('')
 const rangeError = ref('')
 let requestId = 0
 const periodOptions = [{ label: '今日', value: 'today' }, { label: '昨日', value: 'yesterday' }, { label: '本月', value: 'month' }, { label: '本年', value: 'year' }, { label: '自定义', value: 'custom' }]
+const yearOptions = Array.from({ length: 6 }, (_, index) => ({ label: `${currentYear - index}年`, value: currentYear - index }))
 const profitOptions = [{ label: '全部盈亏', value: 'all' }, { label: '仅亏损', value: 'loss' }, { label: '仅盈利', value: 'profit' }, { label: '零利润', value: 'zero' }]
 const defaultGroups: { label: string; value: RiskGroupKey }[] = [
   { label: '按平台', value: 'platform' }, { label: '按站点', value: 'site' }, { label: '按业务部门', value: 'department' },
@@ -234,11 +241,22 @@ function applyPreset(value: string | number) {
   if (token === 'yesterday') { first = new Date(Date.parse(day) - 86400000).toISOString().slice(0, 10); last = first }
   if (token === 'month') first = day.slice(0, 7) + '-01'
   if (token === 'year') first = day.slice(0, 4) + '-01-01'
+  year.value = currentYear
   draft.value = { ...draft.value, startDate: first, endDate: last, page: 1 }
   applyFilters()
 }
-function resetFilters() { preset.value = 'today'; draft.value = defaultScope(); void load({ ...draft.value }) }
-function changeBusiness() { preset.value = 'today'; draft.value = defaultScope(); void load({ ...draft.value }) }
+function selectYear() {
+  preset.value = year.value === currentYear ? 'year' : 'custom'
+  draft.value = {
+    ...draft.value,
+    startDate: `${year.value}-01-01`,
+    endDate: year.value === currentYear ? today() : `${year.value}-12-31`,
+    page: 1,
+  }
+  applyFilters()
+}
+function resetFilters() { preset.value = 'today'; year.value = currentYear; draft.value = defaultScope(); void load({ ...draft.value }) }
+function changeBusiness() { preset.value = 'today'; year.value = currentYear; draft.value = defaultScope(); void load({ ...draft.value }) }
 function changePage(page: number, pageSize: number) { draft.value = { ...applied.value, page, pageSize }; void load({ ...draft.value }) }
 function drillDimension(row: RiskDimensionRow) {
   if (row.value == null) return
@@ -296,9 +314,13 @@ onMounted(() => { void load({ ...draft.value }) })
 .date-fields { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: #6c7a91; font-size: 12px; }
 .date-fields :deep(.ant-picker) { width: 142px; }
 .filter-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.period-filter-grid { margin-bottom: 16px; }
 .filter-grid label { display: grid; gap: 6px; color: #64728a; font-size: 12px; }
 .filter-grid label span { display: flex; justify-content: space-between; gap: 5px; }
 .filter-grid label small { color: #b28744; font-size: 9px; }
+.dimension-filter-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 2px 0 10px; padding-top: 14px; border-top: 1px solid #edf0f5; }
+.dimension-filter-title strong { color: #475569; font-size: 12px; }
+.dimension-filter-title span { color: #8995a7; font-size: 10px; }
 .scope-actions { margin-top: 16px; padding-top: 14px; border-top: 1px solid #edf0f5; }
 .scope-actions > div { display: flex; gap: 8px; }
 .applied-scope { margin: 15px 2px; flex-wrap: wrap; color: #526079; font-size: 12px; }

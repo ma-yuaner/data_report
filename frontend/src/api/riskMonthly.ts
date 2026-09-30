@@ -30,8 +30,24 @@ export interface RiskMonthlyData {
   months: { month: string; label: string; isPartial: boolean; metrics: Partial<Record<RiskBusinessKey, RiskMetric>>; summary: RiskMetric }[]
   notes: string[]
 }
+export interface RiskDailyData {
+  source: string
+  available: boolean
+  error: string
+  generatedAt: string
+  period: { startDate: string; endDate: string }
+  filters: Omit<RiskScope, 'startDate' | 'endDate'>
+  businesses: { key: RiskBusinessKey; label: string; table: string; timeField: string }[]
+  summary: RiskMetric
+  days: { date: string; label: string; metrics: Partial<Record<RiskBusinessKey, RiskMetric>>; summary: RiskMetric }[]
+}
 export async function getRiskMonthly(scope: RiskScope): Promise<RiskMonthlyData> {
   const response = await http.get<ApiEnvelope<RiskMonthlyData>>('/v1/analysis/risk-monthly', { params: scope })
+  if (!response.data.success) throw new Error(response.data.message)
+  return response.data.data
+}
+export async function getRiskDaily(scope: RiskScope): Promise<RiskDailyData> {
+  const response = await http.get<ApiEnvelope<RiskDailyData>>('/v1/analysis/risk-daily', { params: scope })
   if (!response.data.success) throw new Error(response.data.message)
   return response.data.data
 }

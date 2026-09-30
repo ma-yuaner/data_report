@@ -149,6 +149,37 @@ class RiskMonthlyTests(unittest.TestCase):
         self.assertEqual(client.get('/api/v1/analysis/risk-monthly?dateBasis=dt').status_code, 400)
         self.assertEqual(client.get('/api/v1/analysis/risk-monthly?businessType=invalid').status_code, 400)
 
+    def test_daily_returns_each_calendar_day_and_keeps_exact_decimal(self):
+        self.cursor.fetchall.return_value = [
+            ('issue', '2026-09-01', 2, 3, Decimal('-10.1234'), 0, 0),
+            ('refund', '2026-09-02', 1, 1, Decimal('2.0001'), 0, 0),
+        ]
+        result = module.RiskMonthlyAnalysisService({}).daily(
+            '2026-09-01', '2026-09-03', business_type='all', profit_status='all',
+        )
+        self.assertTrue(result['available'])
+        self.assertEqual(len(result['days']), 3)
+        self.assertEqual(result['days'][0]['metrics']['issue']['ticketCount'], 3)
+        self.assertEqual(result['days'][0]['metrics']['issue']['estimatedProfit'], '-10.1234')
+        self.assertEqual(result['days'][1]['metrics']['refund']['estimatedProfit'], '2.0001')
+        self.assertEqual(result['days'][2]['summary']['status'], 'no_records')
+        sql, parameters = self.cursor.execute.call_args.args
+        self.assertEqual(sql.count('UNION ALL'), 2)
+        self.assertIn('SUBSTR(business_date,1,10)', sql)
+        self.assertEqual(parameters, ('2026-09-01', '2026-09-04') * 3)
+
+    def test_daily_rejects_ranges_over_31_days_and_route_is_available(self):
+        service = module.RiskMonthlyAnalysisService({})
+        with self.assertRaisesRegex(ValueError, '31天'):
+            service.daily('2026-01-01', '2026-02-01')
+        self.source.connect.assert_not_called()
+
+        client = create_app(TestConfig).test_client()
+        response = client.get('/api/v1/analysis/risk-daily?startDate=2026-09-01&endDate=2026-09-03')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json['data']['available'])
+        self.assertEqual(client.get('/api/v1/analysis/risk-daily?startDate=2026-01-01&endDate=2026-02-01').status_code, 400)
+
 
 if __name__ == '__main__':
     unittest.main()

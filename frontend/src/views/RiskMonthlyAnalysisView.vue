@@ -36,7 +36,7 @@
         <BaseChart v-if="data?.available && data.summary.status !== 'no_records'" :option="trendOption" chart-label="出退改月度票数与预估利润趋势" /><a-empty v-else description="所选核对表记录未就绪或没有记录，不显示模拟结果" />
         <p class="chart-note">负数保留原值；无记录或缺失指标留空，不画成0。标注“部分期间”的月份只统计所选日期，不与整月等同。</p>
       </a-card>
-      <a-card :bordered="false" class="analysis-panel monthly-panel"><template #title><div class="panel-title"><span>月度票数与金额对比</span><small>每行一个月份 · 出退改并列查看</small></div></template>
+      <a-card :bordered="false" class="analysis-panel monthly-panel"><template #title><div class="panel-title"><span>月度票数与金额对比</span><small>每行一个月份 · 可从右侧查看每日数据</small></div></template>
         <a-table class="monthly-table" :columns="columns" :data-source="data?.months || []" row-key="month" :pagination="false" :scroll="{ x: 1120 }" :locale="{ emptyText: '查询成功后显示所选期间的月度数据' }">
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'month'"><strong>{{ record.label }}</strong><a-tag v-if="record.isPartial" color="gold" class="partial-tag">部分期间</a-tag></template>
@@ -45,13 +45,31 @@
               <div v-else class="profit-cell"><strong :class="{ negative: negative(record.metrics[column.business]?.estimatedProfit) }">{{ money(record.metrics[column.business]?.estimatedProfit) }}</strong><small v-if="record.metrics[column.business]?.profitMissingCount">缺失 {{ count(record.metrics[column.business].profitMissingCount) }} 条 · 已知 {{ money(record.metrics[column.business].knownProfit) }}</small><small v-else-if="record.metrics[column.business]?.status === 'no_records'">无记录</small></div>
             </template>
             <template v-else-if="column.key === 'total'"><strong :class="{ negative: negative(record.summary.estimatedProfit) }">{{ money(record.summary.estimatedProfit) }}</strong></template>
-            <template v-else-if="column.key === 'action'"><a-button type="link" size="small" :disabled="loading" @click="selectMonth(record.month)">看本月</a-button></template>
+            <template v-else-if="column.key === 'action'"><a-button type="link" size="small" :disabled="loading" @click="openDaily(record)">查看每日</a-button></template>
           </template>
           <template #footer><div class="comparison-footer"><span>当前范围 {{ data?.months.length || 0 }} 个月份 · 票数按ticket_num求和，不以记录条数替代</span><strong>预估利润合计：{{ money(data?.summary.estimatedProfit) }} 元</strong></div></template>
         </a-table>
       </a-card>
     </a-spin>
     <div class="notes"><InfoCircleOutlined /><div><strong>统计口径与边界</strong><p v-for="note in data?.notes || []" :key="note">{{ note }}</p></div></div>
+
+    <a-drawer v-model:open="dailyOpen" width="1080" :title="dailyTitle">
+      <p class="drawer-scope">{{ dailyStart }} 至 {{ dailyEnd }} · 继承当前业务类型、盈亏范围和日期口径</p>
+      <a-alert v-if="dailyError" class="range-error" type="error" show-icon :message="dailyError" />
+      <a-spin :spinning="dailyLoading" tip="正在查询每日核对数据">
+        <a-table class="monthly-table" :columns="dailyColumns" :data-source="dailyData?.days || []" row-key="date" :pagination="false" :scroll="{ x: 980 }" :locale="{ emptyText: '当前月份没有可展示的每日核对数据' }">
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'date'"><strong>{{ record.date }}</strong><small class="day-label">{{ record.label }}</small></template>
+            <template v-else-if="column.business">
+              <span v-if="column.metric === 'tickets'">{{ count(record.metrics[column.business]?.ticketCount) }}</span>
+              <div v-else class="profit-cell"><strong :class="{ negative: negative(record.metrics[column.business]?.estimatedProfit) }">{{ money(record.metrics[column.business]?.estimatedProfit) }}</strong><small v-if="record.metrics[column.business]?.profitMissingCount">缺失 {{ count(record.metrics[column.business].profitMissingCount) }} 条</small><small v-else-if="record.metrics[column.business]?.status === 'no_records'">无记录</small></div>
+            </template>
+            <template v-else-if="column.key === 'total'"><strong :class="{ negative: negative(record.summary.estimatedProfit) }">{{ money(record.summary.estimatedProfit) }}</strong></template>
+          </template>
+          <template #footer><div class="comparison-footer"><span>无记录日期保留为—，不会当成0</span><strong>所选每日预估利润合计：{{ money(dailyData?.summary.estimatedProfit) }} 元</strong></div></template>
+        </a-table>
+      </a-spin>
+    </a-drawer>
   </div>
 </template>
 
@@ -63,7 +81,7 @@ import { InfoCircleOutlined } from '@ant-design/icons-vue'
 import type { EChartsCoreOption } from 'echarts/core'
 import PageHeader from '@/components/PageHeader.vue'
 import BaseChart from '@/components/BaseChart.vue'
-import { getRiskMonthly, type RiskMonthlyData, type RiskScope } from '@/api/riskMonthly'
+import { getRiskDaily, getRiskMonthly, type RiskDailyData, type RiskMonthlyData, type RiskScope } from '@/api/riskMonthly'
 
 const today = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
 const currentYear = Number(today().slice(0, 4))
@@ -101,6 +119,7 @@ async function applyFilters() {
   loading.value = true
   data.value = undefined
   error.value = ''
+  dailyOpen.value = false
   try { const result = await getRiskMonthly(scope); if (id === requestId) { data.value = result; error.value = result.error } }
   catch (failure) { if (id === requestId) error.value = failure instanceof Error ? failure.message : '风控月度查询失败' }
   finally { if (id === requestId) loading.value = false }
@@ -117,26 +136,50 @@ function applyPreset(value: string | number) {
   void applyFilters()
 }
 function selectYear() { preset.value = year.value === currentYear ? 'year' : 'custom'; draft.value = { ...draft.value, startDate: String(year.value) + '-01-01', endDate: year.value === currentYear ? today() : String(year.value) + '-12-31' }; void applyFilters() }
-function selectMonth(month: string) {
-  const lastDay = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10)
-  preset.value = 'custom'
-  year.value = Number(month.slice(0, 4))
-  draft.value = { ...applied.value, startDate: month + '-01', endDate: month === today().slice(0, 7) ? today() : lastDay }
-  void applyFilters()
-}
 function resetFilters() { preset.value = 'today'; year.value = currentYear; draft.value = todayScope(); void applyFilters() }
 const columns = computed(() => [
   { title: '月份', key: 'month', width: 160, fixed: 'left' as const },
   ...(data.value?.businesses || []).map(b => ({ title: b.label, children: [{ title: '票数', key: b.key + '-tickets', business: b.key, metric: 'tickets', width: 90 }, { title: '预估利润 / 元', key: b.key + '-profit', business: b.key, metric: 'profit', width: 155 }] })),
-  { title: '核对金额合计 / 元', key: 'total', width: 165 }, { title: '快速筛选', key: 'action', width: 100, fixed: 'right' as const },
+  { title: '核对金额合计 / 元', key: 'total', width: 165 }, { title: '每日明细', key: 'action', width: 100, fixed: 'right' as const },
 ])
 const trendOption = computed<EChartsCoreOption>(() => ({
-  animation: false, color: (data.value?.businesses || []).map(b => colors[b.key]), tooltip: { trigger: 'axis' },
+  animation: false, color: (data.value?.businesses || []).map(b => colors[b.key]), tooltip: { trigger: 'axis', valueFormatter: (value: unknown) => new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 0 }).format(Number(value)) },
   legend: { top: 0, left: 0 }, grid: { left: 80, right: 20, top: 48, bottom: 40 },
   xAxis: { type: 'category', data: data.value?.months.map(month => month.month + (month.isPartial ? '（部分）' : '')) || [] },
   yAxis: { type: 'value', name: chartMetric.value === 'profit' ? '预估利润 / 元' : '票数' },
   series: (data.value?.businesses || []).map(b => ({ name: b.label, type: 'bar' as const, barMaxWidth: 25, data: data.value?.months.map(month => { const value = chartMetric.value === 'profit' ? month.metrics[b.key]?.estimatedProfit : month.metrics[b.key]?.ticketCount; return value == null ? null : Number(value) }) || [] })),
 }))
+const dailyOpen = ref(false)
+const dailyLoading = ref(false)
+const dailyError = ref('')
+const dailyData = ref<RiskDailyData>()
+const dailyTitle = ref('月度每日数据')
+const dailyStart = ref('')
+const dailyEnd = ref('')
+let dailyRequestId = 0
+const dailyColumns = computed(() => [
+  { title: '日期', key: 'date', width: 135, fixed: 'left' as const },
+  ...(dailyData.value?.businesses || []).map(b => ({ title: b.label, children: [{ title: '票数', key: b.key + '-tickets', business: b.key, metric: 'tickets', width: 90 }, { title: '预估利润 / 元', key: b.key + '-profit', business: b.key, metric: 'profit', width: 150 }] })),
+  { title: '当日金额合计 / 元', key: 'total', width: 165, fixed: 'right' as const },
+])
+async function openDaily(row: RiskMonthlyData['months'][number]) {
+  const id = ++dailyRequestId
+  const monthStart = row.month + '-01'
+  const monthEnd = new Date(Date.UTC(Number(row.month.slice(0, 4)), Number(row.month.slice(5, 7)), 0)).toISOString().slice(0, 10)
+  dailyStart.value = applied.value.startDate > monthStart ? applied.value.startDate : monthStart
+  dailyEnd.value = applied.value.endDate < monthEnd ? applied.value.endDate : monthEnd
+  dailyTitle.value = `${row.label} · 每日票数与金额`
+  dailyData.value = undefined
+  dailyError.value = ''
+  dailyLoading.value = true
+  dailyOpen.value = true
+  try {
+    const result = await getRiskDaily({ ...applied.value, startDate: dailyStart.value, endDate: dailyEnd.value })
+    if (id === dailyRequestId) { dailyData.value = result; dailyError.value = result.error }
+  } catch (failure) {
+    if (id === dailyRequestId) dailyError.value = failure instanceof Error ? failure.message : '每日核对数据查询失败'
+  } finally { if (id === dailyRequestId) dailyLoading.value = false }
+}
 onMounted(() => { void applyFilters() })
 </script>
 
@@ -182,6 +225,8 @@ onMounted(() => { void applyFilters() })
 .notes { display: flex; gap: 10px; padding: 10px 2px; color: #8293a9; font-size: 11px; line-height: 1.7; }
 .notes p { margin: 5px 0; }
 .negative { color: #c34b5b !important; }
+.drawer-scope { margin: 0 0 14px; color: #718096; font-size: 12px; }
+.day-label { display: block; margin-top: 3px; color: #98a3b2; font-size: 9px; }
 @media (max-width: 1100px) { .summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } .summary-total { grid-column: 1 / -1; } }
 @media (max-width: 800px) { .filter-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); } .summary-grid { grid-template-columns: minmax(0, 1fr); } .section-heading, .scope-actions, .panel-title { flex-wrap: wrap; } }
 @media (max-width: 560px) { .scope-panel { padding: 15px 12px; } .period-fields :deep(.ant-segmented) { max-width: 100%; overflow-x: auto; } .analysis-panel :deep(.ant-card-body) { padding: 14px 12px; } }

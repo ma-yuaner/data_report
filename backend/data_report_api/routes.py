@@ -139,6 +139,19 @@ def risk_monthly_analysis():
         return jsonify({"success": False, "message": str(error), "data": None}), 400
 
 
+@api.get("/v1/analysis/risk-daily")
+def risk_daily_analysis():
+    try:
+        return ok(RiskMonthlyAnalysisService(current_app.config).daily(
+            start_value=request.args.get("startDate"), end_value=request.args.get("endDate"),
+            business_type=request.args.get("businessType", "all"),
+            profit_status=request.args.get("profitStatus", "all"),
+            date_basis=request.args.get("dateBasis", "reconcile"),
+        ))
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+
+
 @api.get("/v1/analysis/risk-business/<business_type>")
 def risk_business_analysis(business_type: str):
     try:
