@@ -15,41 +15,43 @@
         </div>
       </div>
 
-      <a-menu v-model:openKeys="openKeys" theme="dark" mode="inline" :selected-keys="selectedKeys" @click="handleMenuClick">
-        <a-menu-item key="/overview"><template #icon><DashboardOutlined /></template>经营总览</a-menu-item>
-        <a-sub-menu key="analysis">
-          <template #icon><LineChartOutlined /></template>
-          <template #title>业务分析</template>
+      <div class="sidebar-menu-scroll">
+        <a-menu v-model:openKeys="openKeys" theme="dark" mode="inline" :selected-keys="selectedKeys" @click="handleMenuClick">
+          <a-menu-item key="/overview"><template #icon><DashboardOutlined /></template>经营总览</a-menu-item>
+          <a-sub-menu key="analysis">
+            <template #icon><LineChartOutlined /></template>
+            <template #title>业务分析</template>
             <a-menu-item key="/analysis/comprehensive">综合分析</a-menu-item>
-          <a-menu-item key="/analysis/issue">出票分析</a-menu-item>
-          <a-menu-item key="/analysis/refund">退票分析</a-menu-item>
-          <a-menu-item key="/analysis/change">改签分析</a-menu-item>
-          <a-menu-item key="/analysis/ancillary">增值分析</a-menu-item>
-        </a-sub-menu>
-        <a-sub-menu key="risk">
-          <template #icon><SafetyCertificateOutlined /></template>
-          <template #title>风控分析</template>
-          <a-menu-item key="/risk-analysis">风控总览</a-menu-item>
-          <a-menu-item key="/risk-analysis/issue">出票利润分析</a-menu-item>
-          <a-menu-item key="/risk-analysis/refund">退票利润分析</a-menu-item>
-          <a-menu-item key="/risk-analysis/change">改签利润分析</a-menu-item>
-          <a-menu-item key="/risk-analysis/errors">差错分析</a-menu-item>
-          <a-menu-item key="/risk-analysis/orders">订单明细</a-menu-item>
-          <a-menu-item key="/risk-analysis/upload">数据上传</a-menu-item>
-        </a-sub-menu>
-        <a-sub-menu key="smart">
-          <template #icon><RobotOutlined /></template>
-          <template #title>智能分析</template>
-          <a-menu-item key="/smart-analysis">智能分析首页</a-menu-item>
-          <a-sub-menu key="smart-placement">
-            <template #title>智能投放</template>
-            <a-menu-item key="smart-placement-policy" disabled>投放政策</a-menu-item>
-            <a-menu-item key="smart-placement-orders" disabled>收单情况</a-menu-item>
+            <a-menu-item key="/analysis/issue">出票分析</a-menu-item>
+            <a-menu-item key="/analysis/refund">退票分析</a-menu-item>
+            <a-menu-item key="/analysis/change">改签分析</a-menu-item>
+            <a-menu-item key="/analysis/ancillary">增值分析</a-menu-item>
           </a-sub-menu>
-        </a-sub-menu>
-        <a-menu-item key="/problems"><template #icon><WarningOutlined /></template>问题中心</a-menu-item>
-        <a-menu-item key="/data-assets"><template #icon><DatabaseOutlined /></template>数据资产</a-menu-item>
-      </a-menu>
+          <a-sub-menu key="risk">
+            <template #icon><SafetyCertificateOutlined /></template>
+            <template #title>风控分析</template>
+            <a-menu-item key="/risk-analysis">风控总览</a-menu-item>
+            <a-menu-item key="/risk-analysis/issue">出票利润分析</a-menu-item>
+            <a-menu-item key="/risk-analysis/refund">退票利润分析</a-menu-item>
+            <a-menu-item key="/risk-analysis/change">改签利润分析</a-menu-item>
+            <a-menu-item key="/risk-analysis/errors">差错分析</a-menu-item>
+            <a-menu-item key="/risk-analysis/orders">订单明细</a-menu-item>
+            <a-menu-item key="/risk-analysis/upload">数据上传</a-menu-item>
+          </a-sub-menu>
+          <a-sub-menu key="smart">
+            <template #icon><RobotOutlined /></template>
+            <template #title>智能分析</template>
+            <a-menu-item key="/smart-analysis">智能分析首页</a-menu-item>
+            <a-sub-menu key="smart-placement">
+              <template #title>智能投放</template>
+              <a-menu-item key="smart-placement-policy" disabled>投放政策</a-menu-item>
+              <a-menu-item key="smart-placement-orders" disabled>收单情况</a-menu-item>
+            </a-sub-menu>
+          </a-sub-menu>
+          <a-menu-item key="/problems"><template #icon><WarningOutlined /></template>问题中心</a-menu-item>
+          <a-menu-item key="/data-assets"><template #icon><DatabaseOutlined /></template>数据资产</a-menu-item>
+        </a-menu>
+      </div>
 
       <div v-if="!appStore.collapsed" class="sidebar-note">
         <SafetyCertificateOutlined />
