@@ -20,7 +20,7 @@ def encoded_filters(include_product: bool = False):
     return result
 
 
-def test_issue_queries_use_mysql_reconcile_wide_table_and_bound_dimensions():
+def test_issue_queries_use_mysql_business_wide_table_and_bound_dimensions():
     count_query, data_query, count_params, data_params = module.build_detail_queries(
         database="sibebid",
         business="issue",
@@ -31,18 +31,22 @@ def test_issue_queries_use_mysql_reconcile_wide_table_and_bound_dimensions():
         page_size=50,
     )
 
-    assert "sibebid.bi_order_issue_profit_reconcile_year" in count_query
+    assert "sibebid.bi_order_issue_year" in count_query
+    assert "src.order_status='TICKETED'" in count_query
     assert "NULLIF(TRIM(src.ota_cname),'')=%s" in count_query
     assert "NULLIF(TRIM(src.ota_site_cname),'')=%s" in count_query
-    assert "NULLIF(TRIM(src.marketing_airline),'')=%s" in count_query
+    assert "NULLIF(TRIM(src.air_line),'')=%s" in count_query
     assert "NULLIF(TRIM(src.policy_operator),'')=%s" in count_query
-    assert "src.estimated_profit_cny/src.segment_num" in data_query
-    assert "ORDER BY src.business_date DESC" in data_query
+    assert "src.issue_profit/src.segment_num" in data_query
+    assert "ORDER BY src.operator_date DESC" in data_query
     assert data_query.endswith("LIMIT %s OFFSET %s")
     assert count_params == [
         "2026-09-29",
         "2026-09-30",
+        "CTRIP",
         "携程",
+        "CTRIP",
+        "LY",
         "乐游携程一部",
         "AH",
         "李小青",
@@ -53,8 +57,8 @@ def test_issue_queries_use_mysql_reconcile_wide_table_and_bound_dimensions():
 @pytest.mark.parametrize(
     ("business", "source_table", "time_field", "airline"),
     [
-        ("refund", "bi_order_refund_profit_reconcile_year", "business_date", "marketing_airline"),
-        ("change", "bi_order_change_profit_reconcile_year", "stat_date", "marketing_airline"),
+        ("refund", "bi_refund_issue_year", "apply_datetime", "marketing_airline_s"),
+        ("change", "bi_change_issue_year", "change_issue_time", "air_line"),
         ("ancillary", "bi_aux_pur_year", "create_time", "air_line"),
     ],
 )
@@ -155,7 +159,7 @@ def test_service_returns_mysql_rows_without_hive_or_demo_fallback():
         )
 
     assert result["available"] is True
-    assert result["source"] == "MySQL · sibebid.bi_order_issue_profit_reconcile_year"
+    assert result["source"] == "MySQL · sibebid.bi_order_issue_year"
     assert result["total"] == 1
     assert result["rows"][0]["estimatedProfit"] == "12.34000000"
     assert result["rows"][0]["ticketCount"] == 3

@@ -31,6 +31,7 @@ class DetailSpec:
     airline_field: str
     policy_field: str
     columns: tuple[DetailColumn, ...]
+    base_condition: str | None = None
 
 
 def column(
@@ -48,91 +49,100 @@ def column(
 
 DETAIL_SPECS = {
     "issue": DetailSpec(
-        table="bi_order_issue_profit_reconcile_year",
-        time_field="business_date",
-        order_field="issue_ticket_no",
-        platform_filters=(("src.ota_cname", 1),),
-        site_filters=(("src.ota_site_cname", 2),),
-        airline_field="marketing_airline",
+        table="bi_order_issue_year",
+        time_field="operator_date",
+        order_field="order_id",
+        platform_filters=(("src.ota_code", 0), ("src.ota_cname", 1)),
+        site_filters=(("src.ota_code", 0), ("src.ota_site_code", 1), ("src.ota_site_cname", 2)),
+        airline_field="air_line",
         policy_field="policy_operator",
         columns=(
             column("otaName", "OTA平台名称", "ota_cname", width=125),
             column("siteName", "站点名称", "ota_site_cname", width=150),
-            column("issueDate", "出票日期", "issue_date", "date", 115),
+            column("issueDate", "出票日期", "DATE(src.operator_date)", "date", 115, raw=True),
             column("otaOrderNo", "OTA订单号", "ota_order_no", width=150),
-            column("relationOrderNo", "关联订单号", "relation_order_no", width=150),
-            column("issueTicketNo", "出票票号", "issue_ticket_no", width=150),
-            column("profitReason", "业务盈亏原因", "profit_reason_type", width=160),
-            column("profitRemark", "利润备注", "profit_remark", width=220),
-            column("airRoute", "航程", "air_route", width=160),
-            column("airline", "航司", "marketing_airline", width=85),
+            column("relationOrderNo", "关联订单号", "order_id", width=150),
+            column("issueTicketNo", "出票票号", "CAST(NULL AS CHAR)", width=150, raw=True),
+            column("profitReason", "业务盈亏原因", "CAST(NULL AS CHAR)", width=160, raw=True),
+            column("profitRemark", "利润备注", "CAST(NULL AS CHAR)", width=220, raw=True),
+            column("airRoute", "航程", "segment_airport", width=160),
+            column("airline", "航司", "air_line", width=85),
             column("segmentCount", "航段数", "segment_num", "count", 90),
-            column("supplierName", "供应商名称", "supplier_cname", width=150),
-            column("estimatedProfit", "预估利润(公式)", "estimated_profit_cny", "money", 145),
+            column("supplierName", "供应商名称", "supplier_name", width=150),
+            column("estimatedProfit", "预估利润(公式)", "issue_profit", "money", 145),
             column("policyOperator", "政策员", "policy_operator", width=110),
             column("operator", "出票员", "issue_operator", width=110),
-            column("ticketCount", "票数", "ticket_num", "count", 85),
+            column("ticketCount", "票数", "iss_num", "count", 85),
             column(
                 "singleSegmentProfit",
                 "单段利润",
                 "CASE WHEN src.segment_num IS NULL OR src.segment_num=0 "
-                "THEN NULL ELSE src.estimated_profit_cny/src.segment_num END",
+                "THEN NULL ELSE src.issue_profit/src.segment_num END",
                 "money",
                 125,
                 raw=True,
             ),
         ),
+        base_condition=(
+            "src.order_status='TICKETED' AND src.issue_status='I_UPDATED' "
+            "AND src.refund_flag<>3 AND src.refund_issue_flag='否'"
+        ),
     ),
     "change": DetailSpec(
-        table="bi_order_change_profit_reconcile_year",
-        time_field="stat_date",
-        order_field="change_order_no",
-        platform_filters=(("src.ota_cname", 1),),
-        site_filters=(("src.ota_site_cname", 2),),
-        airline_field="marketing_airline",
+        table="bi_change_issue_year",
+        time_field="change_issue_time",
+        order_field="change_issue_id",
+        platform_filters=(("src.ota_code", 0), ("src.ota_cname", 1)),
+        site_filters=(("src.ota_code", 0), ("src.ota_site_code", 1), ("src.ota_site_cname", 2)),
+        airline_field="air_line",
         policy_field="policy_operator",
         columns=(
             column("otaName", "OTA平台名称", "ota_cname", width=125),
             column("siteName", "站点名称", "ota_site_cname", width=150),
-            column("businessDate", "业务日期", "stat_date", "date", 115),
+            column("businessDate", "业务日期", "DATE(src.change_issue_time)", "date", 115, raw=True),
             column("otaOrderNo", "OTA订单号", "ota_order_no", width=150),
-            column("relationOrderNo", "关联订单号", "relation_order_no", width=150),
-            column("issueTicketNo", "出票票号", "issue_ticket_no", width=150),
-            column("changeOrderNo", "改签单号", "change_order_no", width=150),
+            column("relationOrderNo", "关联订单号", "order_id", width=150),
+            column("issueTicketNo", "出票票号", "old_issue_ticket_no", width=150),
+            column("changeOrderNo", "改签单号", "ota_change_no", width=150),
             column("profitRemark", "利润备注", "profit_remark", width=220),
-            column("airline", "航司", "marketing_airline", width=85),
+            column("airline", "航司", "air_line", width=85),
             column("supplierName", "供应商名称", "supplier_cname", width=150),
-            column("estimatedProfit", "预估利润(公式)", "estimated_profit_cny", "money", 145),
+            column("estimatedProfit", "预估利润(公式)", "change_profit", "money", 145),
             column("policyOperator", "政策员", "policy_operator", width=110),
             column("operator", "操作员", "change_operator", width=110),
-            column("performanceCategory", "业绩分类", "performance_category", width=155),
-            column("ticketCount", "票数", "ticket_num", "count", 85),
+            column("performanceCategory", "业绩分类", "change_category", width=155),
+            column("ticketCount", "票数", "1", "count", 85, raw=True),
         ),
     ),
     "refund": DetailSpec(
-        table="bi_order_refund_profit_reconcile_year",
-        time_field="business_date",
-        order_field="refund_order_no",
-        platform_filters=(("src.ota_cname", 1),),
-        site_filters=(("src.ota_site_cname", 2),),
-        airline_field="marketing_airline",
+        table="bi_refund_issue_year",
+        time_field="apply_datetime",
+        order_field="refund_issue_id",
+        platform_filters=(("src.ota_code", 0), ("src.ota_cname", 1)),
+        site_filters=(("src.ota_code", 0), ("src.ota_site_code", 1), ("src.ota_site_cname", 2)),
+        airline_field="marketing_airline_s",
         policy_field="policy_operator",
         columns=(
             column("otaName", "OTA平台名称", "ota_cname", width=125),
             column("siteName", "站点名称", "ota_site_cname", width=150),
-            column("businessDate", "业务日期", "business_date", "date", 115),
+            column("businessDate", "业务日期", "DATE(src.apply_datetime)", "date", 115, raw=True),
             column("otaOrderNo", "OTA订单号", "ota_order_no", width=150),
-            column("relationOrderNo", "关联订单号", "relation_order_no", width=150),
-            column("issueTicketNo", "出票票号", "issue_ticket_no", width=150),
+            column("relationOrderNo", "关联订单号", "order_id", width=150),
+            column("issueTicketNo", "出票票号", "refund_ticket_no", width=150),
             column("profitRemark", "利润备注", "profit_remark", width=220),
-            column("airline", "航司", "marketing_airline", width=85),
+            column("airline", "航司", "marketing_airline_s", width=85),
             column("supplierName", "供应商名称", "supplier_cname", width=150),
-            column("estimatedProfit", "预估利润(公式)", "estimated_profit_cny", "money", 145),
-            column("actualProfit", "实际利润(推算)", "actual_profit_cny", "money", 145),
+            column("estimatedProfit", "预估利润(公式)", "refund_profit", "money", 145),
+            column("actualProfit", "实际利润(推算)", "CAST(NULL AS DECIMAL(18,8))", "money", 145, raw=True),
             column("policyOperator", "政策员", "policy_operator", width=110),
             column("operator", "操作员", "refund_operator", width=110),
-            column("performanceCategory", "业绩分类", "performance_category", width=155),
-            column("ticketCount", "票数", "ticket_num", "count", 85),
+            column("performanceCategory", "业绩分类", "business_type_desc", width=155),
+            column("ticketCount", "票数", "1", "count", 85, raw=True),
+        ),
+        base_condition=(
+            "src.business_type_desc IN ('正常退票（退票）','售后退票作废（退票）') "
+            "AND src.supplier_refund_operator IS NOT NULL "
+            "AND TRIM(src.supplier_refund_operator)<>''"
         ),
     ),
     "ancillary": DetailSpec(
@@ -159,6 +169,7 @@ DETAIL_SPECS = {
             column("performanceCategory", "业绩分类", "CAST(NULL AS CHAR)", width=155, raw=True),
             column("ticketCount", "票数", "1", "count", 85, raw=True),
         ),
+        base_condition="src.aux_status='已购买'",
     ),
 }
 
@@ -213,6 +224,8 @@ def build_detail_queries(
     table = f"{database}.{spec.table}"
     conditions = [f"src.{spec.time_field}>=%s", f"src.{spec.time_field}<%s"]
     parameters: list[str] = [start_date, next_date]
+    if spec.base_condition:
+        conditions.append(spec.base_condition)
 
     mappings = {
         "platform": spec.platform_filters,
