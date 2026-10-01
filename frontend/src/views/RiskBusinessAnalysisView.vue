@@ -77,6 +77,7 @@
 
         <a-card :bordered="false" class="analysis-panel dimension-panel">
           <template #title><div class="panel-title"><span>{{ groupLabel }}明细对比</span><small>最多展示亏损靠前的50项</small></div></template>
+          <template #extra><a-button type="primary" ghost :disabled="loading || !data?.available" @click="openOrdersDrawer">查看当前范围订单</a-button></template>
           <a-table :columns="dimensionColumns" :data-source="data?.dimensions || []" row-key="key" :pagination="false" :scroll="{ x: 850 }">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'name'"><strong>{{ record.name }}</strong></template>
@@ -90,30 +91,31 @@
         </a-card>
       </template>
 
-      <a-card :bordered="false" class="analysis-panel orders-panel">
+      <a-card v-if="ordersOnly" :bordered="false" class="analysis-panel orders-panel">
         <template #title><div class="panel-title"><span>{{ businessMeta.label }}订单明细</span><small>{{ count(data?.orders.total) }} 条核对记录 · 当前条件直接下钻</small></div></template>
-        <a-table :columns="orderColumns" :data-source="data?.orders.rows || []" row-key="recordKey" :pagination="false" :scroll="{ x: 1420 }" :locale="{ emptyText: '当前条件没有订单明细，不生成模拟记录' }">
-          <template #bodyCell="{ column, record }">
-            <template v-if="column.key === 'date'">{{ record.businessDate }}</template>
-            <template v-else-if="column.key === 'order'"><div class="order-id"><strong>{{ record.otaOrderNo || '—' }}</strong><small>{{ record.issueTicketNo || '无票号' }}</small></div></template>
-            <template v-else-if="column.key === 'channel'"><div class="order-id"><strong>{{ record.platform || '未填写' }}</strong><small>{{ record.site || '未填写站点' }}</small></div></template>
-            <template v-else-if="column.key === 'airline'">{{ record.airline || '—' }}</template>
-            <template v-else-if="column.key === 'department'">{{ record.department || '—' }}</template>
-            <template v-else-if="column.key === 'policy'">{{ record.policyOperator || '—' }}</template>
-            <template v-else-if="column.key === 'reason'">{{ record.reason || '—' }}</template>
-            <template v-else-if="column.key === 'verify'">{{ record.verifyResult || '—' }}</template>
-            <template v-else-if="column.key === 'tickets'">{{ count(record.ticketCount) }}</template>
-            <template v-else-if="column.key === 'profit'"><strong :class="{ negative: negative(record.estimatedProfit) }">{{ money(record.estimatedProfit) }}</strong></template>
-            <template v-else-if="column.key === 'action'"><a-button type="link" size="small" @click="openOrder(record)">查看详情</a-button></template>
-          </template>
-        </a-table>
-        <div class="pagination-row"><span>按{{ data?.period.timeField || timeField }}倒序，亏损金额较低的记录优先</span><a-pagination :current="data?.orders.page || applied.page" :page-size="data?.orders.pageSize || applied.pageSize" :total="data?.orders.total || 0" :show-size-changer="true" :page-size-options="['20','30','50','100']" show-less-items @change="changePage" @showSizeChange="changePage" /></div>
+        <RiskOrdersTable
+          :rows="data?.orders.rows || []" :total="data?.orders.total || 0"
+          :page="data?.orders.page || applied.page" :page-size="data?.orders.pageSize || applied.pageSize"
+          :time-field="data?.period.timeField || timeField" :loading="loading"
+          @change-page="changePage" @open-order="openOrder"
+        />
       </a-card>
     </a-spin>
 
     <div class="notes"><InfoCircleOutlined /><div><strong>统计口径与边界</strong><p v-for="note in data?.notes || defaultNotes" :key="note">{{ note }}</p></div></div>
 
-    <a-drawer v-model:open="drawerOpen" width="620" :title="`${businessMeta.label}订单详情`">
+    <a-drawer v-if="!ordersOnly" v-model:open="ordersDrawerOpen" class="orders-drawer" :width="'min(1280px, 100vw)'" :title="`${businessMeta.label}订单明细`">
+      <a-alert type="info" show-icon message="当前分析条件的真实订单" description="继承页面已查询的统计期间、盈亏范围和全部维度筛选；分页不会改变主页面汇总。" />
+      <div class="orders-drawer-scope"><strong>{{ applied.startDate }} 至 {{ applied.endDate }}</strong><p>{{ ordersDrawerScope }}</p></div>
+      <RiskOrdersTable
+        :rows="data?.orders.rows || []" :total="data?.orders.total || 0"
+        :page="data?.orders.page || applied.page" :page-size="data?.orders.pageSize || applied.pageSize"
+        :time-field="data?.period.timeField || timeField" :loading="loading"
+        @change-page="changePage" @open-order="openOrder"
+      />
+    </a-drawer>
+
+    <a-drawer v-model:open="orderDetailOpen" width="620" :title="`${businessMeta.label}订单详情`">
       <a-descriptions v-if="selectedOrder" :column="1" bordered size="small">
         <a-descriptions-item label="统计日期">{{ selectedOrder.businessDate || '—' }}</a-descriptions-item>
         <a-descriptions-item label="OTA订单号">{{ selectedOrder.otaOrderNo || '—' }}</a-descriptions-item>
@@ -140,12 +142,19 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { DatePicker as ADatePicker } from 'ant-design-vue'
+import {
+  DatePicker as ADatePicker,
+  Descriptions as ADescriptions,
+  DescriptionsItem as ADescriptionsItem,
+  Drawer as ADrawer,
+  Empty as AEmpty,
+} from 'ant-design-vue'
 import dateLocale from 'ant-design-vue/es/date-picker/locale/zh_CN'
 import { InfoCircleOutlined, SearchOutlined } from '@ant-design/icons-vue'
 import type { EChartsCoreOption } from 'echarts/core'
 import PageHeader from '@/components/PageHeader.vue'
 import BaseChart from '@/components/BaseChart.vue'
+import RiskOrdersTable from '@/components/RiskOrdersTable.vue'
 import { fetchRiskBusiness, type RiskBusinessData, type RiskBusinessKey, type RiskBusinessScope, type RiskDimensionRow, type RiskGroupKey, type RiskOrderRow } from '@/api/riskBusiness'
 
 const props = withDefaults(defineProps<{ businessType?: RiskBusinessKey; ordersOnly?: boolean }>(), { businessType: 'issue', ordersOnly: false })
@@ -211,6 +220,16 @@ const defaultNotes = [
   '票数按SUM(ticket_num)，利润按SUM(estimated_profit_cny)，不使用记录条数替代票数。',
   '页面只展示MySQL核对表真实结果；没有记录时不生成模拟数据。',
 ]
+const ordersDrawerOpen = ref(false)
+const orderDetailOpen = ref(false)
+const selectedOrder = ref<RiskOrderRow>()
+const ordersDrawerScope = computed(() => {
+  const tags = [
+    labelOf(profitOptions, applied.value.profitStatus),
+    ...appliedFilterTags.value.map(item => `${item.label}：${item.value}`),
+  ]
+  return tags.join(' · ') || '全部核对记录'
+})
 
 async function load(scope: RiskBusinessScope) {
   const id = ++requestId
@@ -232,6 +251,8 @@ function applyFilters() {
   if (!reasonEnabled.value) draft.value.reason = ''
   if (!groupOptions.value.some(item => item.value === draft.value.groupBy)) draft.value.groupBy = 'platform'
   draft.value.page = 1
+  ordersDrawerOpen.value = false
+  orderDetailOpen.value = false
   void load({ ...draft.value })
 }
 function applyPreset(value: string | number) {
@@ -256,17 +277,22 @@ function selectYear() {
   }
   applyFilters()
 }
-function resetFilters() { preset.value = 'today'; year.value = currentYear; draft.value = defaultScope(); void load({ ...draft.value }) }
-function changeBusiness() { preset.value = 'today'; year.value = currentYear; draft.value = defaultScope(); void load({ ...draft.value }) }
+function resetFilters() { preset.value = 'today'; year.value = currentYear; draft.value = defaultScope(); ordersDrawerOpen.value = false; orderDetailOpen.value = false; void load({ ...draft.value }) }
+function changeBusiness() { preset.value = 'today'; year.value = currentYear; draft.value = defaultScope(); ordersDrawerOpen.value = false; orderDetailOpen.value = false; void load({ ...draft.value }) }
 function changePage(page: number, pageSize: number) { draft.value = { ...applied.value, page, pageSize }; void load({ ...draft.value }) }
-function drillDimension(row: RiskDimensionRow) {
+function openOrdersDrawer() {
+  orderDetailOpen.value = false
+  ordersDrawerOpen.value = true
+}
+async function drillDimension(row: RiskDimensionRow) {
   if (row.value == null) return
+  draft.value = { ...applied.value, page: 1 }
   const group = applied.value.groupBy
   if (group === 'verifyResult') draft.value.verifyResult = row.value
   else if (group === 'reason') draft.value.reason = row.value
   else draft.value[group] = row.value
-  draft.value.page = 1
-  void load({ ...draft.value })
+  await load({ ...draft.value })
+  if (!error.value) openOrdersDrawer()
 }
 
 const trendOption = computed<EChartsCoreOption>(() => ({
@@ -287,17 +313,7 @@ const dimensionColumns = computed(() => [
   { title: '亏损票数', key: 'lossTickets', width: 110 }, { title: '预估利润 / 元', key: 'profit', width: 150 },
   { title: '亏损票数占比', key: 'share', width: 130 }, { title: '下钻', key: 'action', width: 130, fixed: 'right' as const },
 ])
-const orderColumns = [
-  { title: '日期', key: 'date', width: 115, fixed: 'left' as const }, { title: 'OTA订单 / 票号', key: 'order', width: 190 },
-  { title: '平台 / 站点', key: 'channel', width: 170 }, { title: '航司', key: 'airline', width: 80 },
-  { title: '业务部门', key: 'department', width: 130 }, { title: '政策员', key: 'policy', width: 100 },
-  { title: '盈亏原因', key: 'reason', width: 150 }, { title: '核实结果', key: 'verify', width: 120 },
-  { title: '票数', key: 'tickets', width: 80 }, { title: '预估利润 / 元', key: 'profit', width: 140 },
-  { title: '详情', key: 'action', width: 100, fixed: 'right' as const },
-]
-const drawerOpen = ref(false)
-const selectedOrder = ref<RiskOrderRow>()
-function openOrder(row: RiskOrderRow) { selectedOrder.value = row; drawerOpen.value = true }
+function openOrder(row: RiskOrderRow) { selectedOrder.value = row; orderDetailOpen.value = true }
 
 watch(() => props.businessType, value => {
   if (!props.ordersOnly && value !== selectedBusiness.value) { selectedBusiness.value = value; resetFilters() }
@@ -308,9 +324,9 @@ onMounted(() => { void load({ ...draft.value }) })
 <style scoped>
 .source-banner, .range-error { margin-bottom: 14px; border-radius: 10px; }
 .scope-panel { padding: 18px 20px; margin-bottom: 14px; border: 1px solid #e4e9f0; border-radius: 12px; background: #fff; }
-.section-heading, .scope-actions, .panel-title, .pagination-row, .applied-scope { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.section-heading, .scope-actions, .panel-title, .applied-scope { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .section-heading h2 { margin: 0; color: #26344b; font-size: 14px; }
-.section-heading span, .scope-actions > span, .panel-title small, .pagination-row > span { color: #8995a7; font-size: 11px; }
+.section-heading span, .scope-actions > span, .panel-title small { color: #8995a7; font-size: 11px; }
 .period-fields { margin: 16px 0; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
 .date-fields { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: #6c7a91; font-size: 12px; }
 .date-fields :deep(.ant-picker) { width: 142px; }
@@ -337,15 +353,13 @@ onMounted(() => { void load({ ...draft.value }) })
 .analysis-panel { min-width: 0; margin-bottom: 14px; border: 1px solid #e4e9f0; border-radius: 12px; }
 .analysis-panel :deep(.ant-card-head) { min-height: 54px; color: #2e3c52; font-size: 14px; }
 .analysis-panel :deep(.base-chart) { min-height: 310px; height: 310px; }
-.dimension-panel :deep(.ant-table-cell), .orders-panel :deep(.ant-table-cell) { padding: 12px 10px; font-size: 11px; }
-.order-id { display: grid; gap: 3px; }
-.order-id strong { color: #334155; font-size: 11px; }
-.order-id small { color: #8793a5; font-size: 9px; }
-.pagination-row { padding-top: 16px; flex-wrap: wrap; }
+.dimension-panel :deep(.ant-table-cell), .orders-panel :deep(.ant-table-cell), .orders-drawer :deep(.ant-table-cell) { padding: 12px 10px; font-size: 11px; }
+.orders-drawer-scope { margin: 14px 0; padding: 12px 14px; border: 1px solid #e5eaf1; border-radius: 10px; background: #f7f9fc; color: #526079; font-size: 12px; }
+.orders-drawer-scope p { margin: 4px 0 0; color: #7d89a0; font-size: 11px; }
 .notes { display: flex; gap: 10px; padding: 10px 2px; color: #8293a9; font-size: 11px; line-height: 1.7; }
 .notes p { margin: 5px 0; }
 .drawer-warning { margin-top: 16px; }
 @media (max-width: 1250px) { .risk-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } .filter-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 900px) { .analysis-grid { grid-template-columns: 1fr; } .filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 600px) { .risk-kpi-grid, .filter-grid { grid-template-columns: 1fr; } .scope-actions, .pagination-row { align-items: stretch; flex-direction: column; } }
+@media (max-width: 600px) { .risk-kpi-grid, .filter-grid { grid-template-columns: 1fr; } .scope-actions { align-items: stretch; flex-direction: column; } }
 </style>
