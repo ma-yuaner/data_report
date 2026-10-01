@@ -93,6 +93,21 @@ def total_profit(metrics: dict) -> str | None:
     return str(sum((Decimal(metrics[key]["profit"]) for key in BUSINESSES), Decimal(0)))
 
 
+def metric_changes(current: dict, previous: dict, available: bool) -> dict:
+    changes = {}
+    for business in BUSINESSES:
+        current_metric = current[business]
+        previous_metric = previous[business]
+        count_change = None
+        profit_change = None
+        if available and current_metric["count"] is not None and previous_metric["count"] is not None:
+            count_change = int(current_metric["count"]) - int(previous_metric["count"])
+        if available and current_metric["profit"] is not None and previous_metric["profit"] is not None:
+            profit_change = str(Decimal(current_metric["profit"]) - Decimal(previous_metric["profit"]))
+        changes[business] = {"count": count_change, "profit": profit_change}
+    return changes
+
+
 def check_snapshot(rows: list[dict], days: list[str]) -> dict:
     by_day: dict[str, list[dict]] = defaultdict(list)
     for row in rows:
@@ -231,3 +246,48 @@ class ComprehensiveAnalysisService:
                 cursor.close()
             if connection is not None:
                 connection.close()
+
+    def diagnosis(self, start_value=None, end_value=None, group="platform", filters=None):
+        first, last = parse_period(start_value, end_value)
+        filters = dict(filters or {})
+        current = self.analysis(first.isoformat(), last.isoformat(), group, dict(filters))
+        day_count = (last - first).days + 1
+        previous_end = first - timedelta(days=1)
+        previous_start = previous_end - timedelta(days=day_count - 1)
+        previous_period = {"startDate": previous_start.isoformat(), "endDate": previous_end.isoformat()}
+        unavailable_metrics = aggregate([], False)
+        previous = {
+            "available": False,
+            "error": "本期数据尚未就绪，未查询上期对比。" if not current["available"] else "",
+            "period": previous_period,
+            "coverage": {"missingDays": [], "availableDays": [], "updatedAt": ""},
+            "metrics": unavailable_metrics,
+            "totalProfit": None,
+        }
+        if current["available"]:
+            previous_result = self.analysis(
+                previous_start.isoformat(), previous_end.isoformat(), group, dict(filters)
+            )
+            previous = {
+                key: previous_result[key]
+                for key in ("available", "error", "period", "coverage", "metrics", "totalProfit")
+            }
+        comparable = current["available"] and previous["available"]
+        total_change = None
+        if comparable and current["totalProfit"] is not None and previous["totalProfit"] is not None:
+            total_change = str(Decimal(current["totalProfit"]) - Decimal(previous["totalProfit"]))
+        return {
+            "source": current["source"],
+            "available": current["available"],
+            "error": current["error"],
+            "current": current,
+            "previous": previous,
+            "changes": {
+                "totalProfit": total_change,
+                "metrics": metric_changes(current["metrics"], previous["metrics"], comparable),
+            },
+            "notes": [
+                "上期采用紧邻本期之前的等长自然日范围；上期覆盖不完整时不计算变化金额。",
+                "变化只说明业务结果差异，不自动认定原因、责任或财务结算结果。",
+            ],
+        }

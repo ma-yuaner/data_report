@@ -60,9 +60,27 @@ export interface ComprehensiveDetailData {
   total: number
   rows: ComprehensiveDetailRow[]
 }
+export interface ComprehensiveDiagnosisData {
+  source: string
+  available: boolean
+  error: string
+  current: ComprehensiveData
+  previous: Pick<ComprehensiveData, 'available' | 'error' | 'period' | 'coverage' | 'metrics' | 'totalProfit'>
+  changes: {
+    totalProfit: string | null
+    metrics: Record<BusinessKey, { count: number | null; profit: string | null }>
+  }
+  notes: string[]
+}
 export async function fetchComprehensive(scope: FilterScope, groupBy: DimensionKey): Promise<ComprehensiveData> {
   const { preset: _preset, ...params } = scope
   const response = await http.get<ApiEnvelope<ComprehensiveData>>('/v1/analysis/comprehensive', { params: { ...params, groupBy } })
+  if (!response.data.success) throw new Error(response.data.message)
+  return response.data.data
+}
+export async function fetchComprehensiveDiagnosis(scope: FilterScope, groupBy: DimensionKey): Promise<ComprehensiveDiagnosisData> {
+  const { preset: _preset, ...params } = scope
+  const response = await http.get<ApiEnvelope<ComprehensiveDiagnosisData>>('/v1/analysis/comprehensive/diagnosis', { params: { ...params, groupBy } })
   if (!response.data.success) throw new Error(response.data.message)
   return response.data.data
 }

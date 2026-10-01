@@ -111,6 +111,19 @@ def comprehensive_analysis():
         return jsonify({"success": False, "message": str(error), "data": None}), 400
 
 
+@api.get("/v1/analysis/comprehensive/diagnosis")
+def comprehensive_diagnosis():
+    try:
+        return ok(ComprehensiveAnalysisService(current_app.config).diagnosis(
+            start_value=request.args.get("startDate"),
+            end_value=request.args.get("endDate"),
+            group=request.args.get("groupBy", "platform"),
+            filters={key: request.args.get(key) for key in DIMENSIONS},
+        ))
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+
+
 @api.get("/v1/analysis/comprehensive/details")
 def comprehensive_details():
     try:

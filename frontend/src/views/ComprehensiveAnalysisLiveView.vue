@@ -56,13 +56,55 @@
             <template v-if="column.key === 'name'"><strong>{{ record.name }}</strong></template>
             <template v-else-if="isBusinessKey(column.key)"><div class="metric-cell"><strong :class="{ negative: isNegative(record.metrics[column.key].profit) }">{{ money(record.metrics[column.key].profit) }}<small> 元</small></strong><span>{{ count(record.metrics[column.key].count) }} 票</span><span v-if="record.metrics[column.key].profitMissingCount">缺失利润 {{ count(record.metrics[column.key].profitMissingCount) }} 票</span></div></template>
             <template v-else-if="column.key === 'total'"><strong :class="{ negative: isNegative(record.totalProfit) }">{{ money(record.totalProfit) }} 元</strong></template>
-            <template v-else-if="column.key === 'action'"><a-button type="link" size="small" @click="drillDimension(record)">分析此项</a-button><a-button type="link" size="small" @click="openDetail(undefined, record)">日汇总</a-button></template>
+            <template v-else-if="column.key === 'action'"><a-button type="link" size="small" @click="openDiagnosis(record)">分析此项</a-button><a-button type="link" size="small" @click="openDetail(undefined, record)">日汇总</a-button></template>
           </template>
           <template #footer><div class="comparison-footer"><span>当前范围共 {{ data?.comparison.length || 0 }} 个{{ groupLabel }} · 分页仅影响显示，不截取总额</span><span>合计利润：{{ money(data?.totalProfit) }} 元</span></div></template>
         </a-table>
       </a-card>
     </a-spin>
     <div class="handoff-note"><InfoCircleOutlined /><div><strong>口径与数据边界</strong><p v-for="note in data?.notes || []" :key="note">{{ note }}</p></div></div>
+    <a-drawer v-model:open="diagnosisOpen" :title="diagnosisTitle" :width="'min(1180px, 100vw)'">
+      <a-alert type="info" show-icon message="经营诊断 V1" description="基于当前ADS结果做等长上期对比与维度定位；只说明数据变化，不自动认定原因、责任或财务结算结果。" />
+      <div class="drawer-scope diagnosis-scope"><strong>{{ diagnosisData?.current.period.startDate || diagnosisScope.startDate }} 至 {{ diagnosisData?.current.period.endDate || diagnosisScope.endDate }}</strong><p>{{ diagnosisScopeText }}</p></div>
+      <a-alert v-if="diagnosisError" class="range-error" type="error" show-icon :message="diagnosisError" />
+      <a-spin :spinning="diagnosisLoading" tip="正在生成经营诊断">
+        <template v-if="diagnosisData?.available">
+          <div class="diagnosis-summary-grid">
+            <section><span>本期总业务估算利润</span><strong :class="{ negative: isNegative(diagnosisData.current.totalProfit) }">{{ money(diagnosisData.current.totalProfit) }}<em> 元</em></strong><small>{{ diagnosisData.current.period.startDate }} 至 {{ diagnosisData.current.period.endDate }}</small></section>
+            <section><span>上期总业务估算利润</span><strong :class="{ negative: isNegative(diagnosisData.previous.totalProfit) }">{{ money(diagnosisData.previous.totalProfit) }}<em v-if="diagnosisData.previous.totalProfit != null"> 元</em></strong><small>{{ diagnosisData.previous.period.startDate }} 至 {{ diagnosisData.previous.period.endDate }}</small></section>
+            <section><span>利润变化</span><strong :class="changeClass(diagnosisData.changes.totalProfit)">{{ signedMoney(diagnosisData.changes.totalProfit) }}<em v-if="diagnosisData.changes.totalProfit != null"> 元</em></strong><small>本期减上期 · 上期不完整时不计算</small></section>
+          </div>
+          <a-alert class="diagnosis-insight" type="warning" show-icon message="数据诊断提示" :description="diagnosisInsight" />
+          <div class="diagnosis-business-grid">
+            <section v-for="business in businesses" :key="business.key" :style="{ '--business-color': business.color }">
+              <div><strong>{{ business.label }}</strong><span>{{ count(diagnosisData.current.metrics[business.key].count) }} 票</span></div>
+              <b :class="{ negative: isNegative(diagnosisData.current.metrics[business.key].profit) }">{{ money(diagnosisData.current.metrics[business.key].profit) }} 元</b>
+              <p>上期 {{ count(diagnosisData.previous.metrics[business.key].count) }} 票 · {{ money(diagnosisData.previous.metrics[business.key].profit) }} 元</p>
+              <small :class="changeClass(diagnosisData.changes.metrics[business.key].profit)">利润变化 {{ signedMoney(diagnosisData.changes.metrics[business.key].profit) }} 元 · 票数 {{ signedCount(diagnosisData.changes.metrics[business.key].count) }}</small>
+            </section>
+          </div>
+          <a-card :bordered="false" class="analysis-panel diagnosis-dimension-panel">
+            <template #title><div class="panel-title"><span>继续定位问题维度</span><small>当前利润较低项优先 · 最多显示10项</small></div></template>
+            <template #extra><a-button type="primary" ghost @click="openDiagnosisDaily">查看当前诊断日汇总</a-button></template>
+            <div v-if="diagnosisGroupOptions.length" class="comparison-toolbar">
+              <a-segmented v-model:value="diagnosisGroup" :options="diagnosisGroupOptions" :disabled="diagnosisLoading" @change="changeDiagnosisGroup" />
+              <span>选择下一维度，或点击某项继续缩小范围</span>
+            </div>
+            <a-alert v-else type="success" show-icon message="五个维度已全部限定" description="可查看当前诊断日汇总，并继续下钻出退改增宽表订单。" />
+            <a-table v-if="diagnosisGroupOptions.length" class="dimension-table" :columns="diagnosisColumns" :data-source="diagnosisRows" row-key="key" :pagination="false" :scroll="{ x: 1050 }" :locale="{ emptyText: '当前条件在该维度下没有可分析数据' }">
+              <template #bodyCell="{ column, record }">
+                <template v-if="column.key === 'name'"><strong>{{ record.name }}</strong></template>
+                <template v-else-if="isBusinessKey(column.key)"><div class="metric-cell"><strong :class="{ negative: isNegative(record.metrics[column.key].profit) }">{{ money(record.metrics[column.key].profit) }}<small> 元</small></strong><span>{{ count(record.metrics[column.key].count) }} 票</span></div></template>
+                <template v-else-if="column.key === 'total'"><strong :class="{ negative: isNegative(record.totalProfit) }">{{ money(record.totalProfit) }} 元</strong></template>
+                <template v-else-if="column.key === 'action'"><a-button type="link" size="small" @click="continueDiagnosis(record)">继续分析</a-button></template>
+              </template>
+            </a-table>
+          </a-card>
+          <div class="diagnosis-notes"><p v-for="note in diagnosisData.notes" :key="note">{{ note }}</p></div>
+        </template>
+        <a-empty v-else-if="!diagnosisLoading" description="当前范围无法生成经营诊断" />
+      </a-spin>
+    </a-drawer>
     <a-drawer v-model:open="drawerOpen" :title="drawerTitle" :width="'min(900px, 100vw)'">
       <a-alert type="info" show-icon message="真实日汇总" description="保留当前时间和维度条件；点击每行的“查看宽表明细”可按该业务日追溯MySQL出退改增宽表。" />
       <div class="drawer-scope"><strong>{{ applied.startDate }} 至 {{ applied.endDate }}</strong><p>{{ drawerScope }}</p></div>
@@ -96,7 +138,7 @@ import { ArrowRightOutlined, InfoCircleOutlined, SearchOutlined, UndoOutlined } 
 import type { EChartsCoreOption } from 'echarts/core'
 import PageHeader from '@/components/PageHeader.vue'
 import BaseChart from '@/components/BaseChart.vue'
-import { fetchComprehensive, fetchComprehensiveDetails, type BusinessKey, type ComprehensiveData, type ComprehensiveDetailData, type ComprehensiveDetailRow, type ComprehensiveDetailValueType, type DimensionKey, type DimensionRow, type FilterScope } from '@/api/comprehensive'
+import { fetchComprehensive, fetchComprehensiveDiagnosis, fetchComprehensiveDetails, type BusinessKey, type ComprehensiveData, type ComprehensiveDiagnosisData, type ComprehensiveDetailData, type ComprehensiveDetailRow, type ComprehensiveDetailValueType, type DimensionKey, type DimensionRow, type FilterScope } from '@/api/comprehensive'
 
 const businesses: { key: BusinessKey; label: string; countLabel: string; color: string }[] = [
   { key: 'issue', label: '出票', countLabel: '出票数', color: '#397cf6' },
@@ -128,10 +170,46 @@ const formatter = new Intl.NumberFormat('zh-CN', { minimumFractionDigits: 2, max
 const money = (amount: string | number | null | undefined) => amount == null ? '—' : formatter.format(Number(amount))
 const count = (amount: number | null | undefined) => amount == null ? '—' : new Intl.NumberFormat('zh-CN').format(amount)
 const isNegative = (amount: string | number | null | undefined) => amount != null && Number(amount) < 0
+const signedMoney = (amount: string | null | undefined) => amount == null ? '—' : `${Number(amount) > 0 ? '+' : ''}${money(amount)}`
+const signedCount = (amount: number | null | undefined) => amount == null ? '—' : `${amount > 0 ? '+' : ''}${count(amount)}`
+const changeClass = (amount: string | null | undefined) => ({ positive: amount != null && Number(amount) > 0, negative: amount != null && Number(amount) < 0 })
 const chartNumber = (amount: string | null | undefined) => amount == null ? null : Number(amount)
 const isBusinessKey = (key: unknown): key is BusinessKey => businesses.some(b => b.key === key)
 const filterOptions = (key: DimensionKey) => [{ label: '全部' + dimensions.find(d => d.key === key)!.label, value: '' }, ...(data.value?.options[key] || [])]
 function optionLabel(key: DimensionKey, value: string) { return data.value?.options[key].find(o => o.value === value)?.label || JSON.parse(value).filter(Boolean).join(' · ') || '未知' }
+
+const diagnosisOpen = ref(false)
+const diagnosisLoading = ref(false)
+const diagnosisError = ref('')
+const diagnosisData = ref<ComprehensiveDiagnosisData>()
+const diagnosisScope = ref<FilterScope>(todayScope())
+const diagnosisGroup = ref<DimensionKey>('platform')
+const diagnosisTitle = ref('经营诊断')
+let diagnosisRequestId = 0
+const diagnosisGroupOptions = computed(() => dimensions.filter(dimension => !diagnosisScope.value[dimension.key]).map(dimension => ({ label: '按' + dimension.label, value: dimension.key })))
+const diagnosisScopeText = computed(() => dimensions.filter(dimension => diagnosisScope.value[dimension.key]).map(dimension => `${dimension.label}：${optionLabel(dimension.key, diagnosisScope.value[dimension.key])}`).join(' → ') || '全部范围')
+const diagnosisRows = computed(() => [...(diagnosisData.value?.current.comparison || [])].sort((left, right) => {
+  if (left.totalProfit == null) return right.totalProfit == null ? left.name.localeCompare(right.name, 'zh-CN') : 1
+  if (right.totalProfit == null) return -1
+  return Number(left.totalProfit) - Number(right.totalProfit) || left.name.localeCompare(right.name, 'zh-CN')
+}).slice(0, 10))
+const diagnosisInsight = computed(() => {
+  const result = diagnosisData.value
+  if (!result?.available) return result?.error || '当前范围无法生成诊断。'
+  if (!result.previous.available) return `本期数据可用，但${result.previous.error || '上期数据覆盖不完整'}，暂不计算期间变化。`
+  if (result.changes.totalProfit == null) return '本期或上期存在缺失利润，不能计算完整利润变化；请先处理数据完整性。'
+  const total = Number(result.changes.totalProfit)
+  const direction = total > 0 ? `增加 ${money(result.changes.totalProfit)} 元` : total < 0 ? `减少 ${money(Math.abs(total))} 元` : '持平'
+  const changed = businesses.map(business => ({ business, value: result.changes.metrics[business.key].profit })).filter(item => item.value != null)
+  const declines = changed.filter(item => Number(item.value) < 0).sort((left, right) => Number(left.value) - Number(right.value))
+  const growth = changed.filter(item => Number(item.value) > 0).sort((left, right) => Number(right.value) - Number(left.value))
+  const focus = declines[0]
+    ? `四类业务中${declines[0].business.label}利润下降最多（${signedMoney(declines[0].value)} 元）。`
+    : growth[0]
+      ? `四类业务中${growth[0].business.label}利润增长最多（${signedMoney(growth[0].value)} 元）。`
+      : '四类业务利润均与上期持平。'
+  return `本期总业务估算利润较等长上期${direction}。${focus}该提示只描述数据变化，不代表已经确认业务原因。`
+})
 
 async function load(scope: FilterScope) {
   const id = ++requestId
@@ -142,7 +220,9 @@ async function load(scope: FilterScope) {
   data.value = undefined
   drawerOpen.value = false
   detailOpen.value = false
+  diagnosisOpen.value = false
   drawerRequestId++
+  diagnosisRequestId++
   try {
     const result = await fetchComprehensive(scope, group)
     if (id !== requestId) return
@@ -173,17 +253,50 @@ function applyPreset(value: string | number) {
 function resetFilters() { draft.value = todayScope(); groupDimension.value = 'platform'; applyFilters() }
 function removeDimension(key: DimensionKey) { draft.value = { ...applied.value, [key]: '' }; applyFilters() }
 function changeGroup() { void load({ ...applied.value }) }
-function drillDimension(row: DimensionRow) {
-  draft.value = { ...applied.value, [groupDimension.value]: row.value }
-  const next = dimensions.find(d => !draft.value[d.key])
-  if (next) groupDimension.value = next.key
-  applyFilters()
+function nextDiagnosisGroup(scope: FilterScope, fallback: DimensionKey) {
+  return dimensions.find(dimension => !scope[dimension.key])?.key || fallback
+}
+async function loadDiagnosis() {
+  const id = ++diagnosisRequestId
+  diagnosisLoading.value = true
+  diagnosisError.value = ''
+  diagnosisData.value = undefined
+  try {
+    const result = await fetchComprehensiveDiagnosis(diagnosisScope.value, diagnosisGroup.value)
+    if (id !== diagnosisRequestId) return
+    diagnosisData.value = result
+    diagnosisError.value = result.error
+  } catch (failure) {
+    if (id === diagnosisRequestId) diagnosisError.value = failure instanceof Error ? failure.message : '经营诊断查询失败'
+  } finally { if (id === diagnosisRequestId) diagnosisLoading.value = false }
+}
+function openDiagnosis(row: DimensionRow) {
+  const selectedDimension = groupDimension.value
+  diagnosisScope.value = { ...applied.value, [selectedDimension]: row.value }
+  diagnosisGroup.value = nextDiagnosisGroup(diagnosisScope.value, selectedDimension)
+  diagnosisTitle.value = `${row.name} · 经营诊断`
+  diagnosisOpen.value = true
+  void loadDiagnosis()
+}
+function changeDiagnosisGroup() { void loadDiagnosis() }
+function continueDiagnosis(row: DimensionRow) {
+  const selectedDimension = diagnosisGroup.value
+  diagnosisScope.value = { ...diagnosisScope.value, [selectedDimension]: row.value }
+  diagnosisGroup.value = nextDiagnosisGroup(diagnosisScope.value, selectedDimension)
+  diagnosisTitle.value = `${row.name} · 经营诊断`
+  void loadDiagnosis()
 }
 const comparisonColumns = computed(() => [
   { title: groupLabel.value, key: 'name', width: 170, fixed: 'left' as const },
   ...businesses.map(b => ({ title: b.label + '利润 / 票数', key: b.key, width: 165 })),
   { title: '合计利润', key: 'total', width: 145, sorter: (a: DimensionRow, b: DimensionRow) => a.totalProfit == null ? (b.totalProfit == null ? 0 : 1) : b.totalProfit == null ? -1 : Number(a.totalProfit) - Number(b.totalProfit) },
   { title: '继续分析', key: 'action', width: 160, fixed: 'right' as const },
+])
+const diagnosisColumns = computed(() => [
+  { title: dimensions.find(dimension => dimension.key === diagnosisGroup.value)?.label || '维度', key: 'name', width: 170, fixed: 'left' as const },
+  ...businesses.map(business => ({ title: business.label + '利润 / 票数', key: business.key, width: 155 })),
+  { title: '合计利润', key: 'total', width: 140 },
+  { title: '下钻', key: 'action', width: 100, fixed: 'right' as const },
 ])
 const trendOption = computed<EChartsCoreOption>(() => ({
   animation: false, color: businesses.map(b => b.color), tooltip: { trigger: 'axis', valueFormatter: (value: number) => money(value) + ' 元' },
@@ -205,6 +318,18 @@ const drawerTitle = ref('日汇总明细')
 const drawerScope = ref('')
 const drawerFilterScope = ref<FilterScope>(todayScope())
 let drawerRequestId = 0
+function openDiagnosisDaily() {
+  if (!diagnosisData.value?.current) return
+  drawerRequestId++
+  drawerBusiness.value = undefined
+  drawerData.value = diagnosisData.value.current
+  drawerError.value = diagnosisData.value.current.error
+  drawerLoading.value = false
+  drawerFilterScope.value = { ...diagnosisScope.value }
+  drawerTitle.value = `${diagnosisTitle.value.replace(' · 经营诊断', '')} · 出退改增日汇总`
+  drawerScope.value = diagnosisScopeText.value
+  drawerOpen.value = true
+}
 async function openDetail(business?: BusinessKey, row?: DimensionRow) {
   const id = ++drawerRequestId
   drawerBusiness.value = business
@@ -329,9 +454,27 @@ onMounted(() => { void load({ ...draft.value }) })
 .comparison-footer { flex-wrap: wrap; color: #8b98aa; font-size: 11px; }
 .handoff-note { display: flex; gap: 10px; padding: 18px 2px; color: #8293a9; font-size: 11px; line-height: 1.7; }
 .handoff-note p { margin: 5px 0; }
+.diagnosis-scope { padding: 13px 15px; border: 1px solid #e5eaf1; border-radius: 10px; background: #f7f9fc; }
+.diagnosis-scope p { margin: 5px 0 0; color: #718097; }
+.diagnosis-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.diagnosis-summary-grid section { padding: 17px; border: 1px solid #e4e9f0; border-radius: 11px; background: #fff; }
+.diagnosis-summary-grid span, .diagnosis-summary-grid small { display: block; color: #7f8ba0; font-size: 10px; }
+.diagnosis-summary-grid strong { display: block; margin: 11px 0 8px; color: #26354c; font-size: 23px; white-space: nowrap; }
+.diagnosis-summary-grid em { margin-left: 4px; font-size: 10px; font-style: normal; font-weight: 400; }
+.diagnosis-insight { margin-bottom: 14px; border-radius: 10px; }
+.diagnosis-business-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.diagnosis-business-grid section { min-width: 0; padding: 15px; border: 1px solid #e4e9f0; border-top: 3px solid var(--business-color); border-radius: 10px; background: #fff; }
+.diagnosis-business-grid section > div { display: flex; justify-content: space-between; gap: 8px; color: #58677e; font-size: 11px; }
+.diagnosis-business-grid section > div span { color: #8c98aa; }
+.diagnosis-business-grid b { display: block; margin: 13px 0 9px; color: #26354c; font-size: 18px; white-space: nowrap; }
+.diagnosis-business-grid p, .diagnosis-business-grid small { display: block; margin: 5px 0 0; color: #8c98aa; font-size: 10px; line-height: 1.6; }
+.diagnosis-dimension-panel { margin-bottom: 14px; }
+.diagnosis-notes { padding: 0 2px; color: #8995a7; font-size: 10px; line-height: 1.7; }
+.diagnosis-notes p { margin: 4px 0; }
+.positive { color: #278a68 !important; }
 .negative { color: #c34b5b !important; }
 .drawer-scope { margin: 20px 0; color: #586b86; font-size: 12px; }
 @media (max-width: 1200px) { .summary-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } .summary-total { grid-column: 1 / -1; } }
-@media (max-width: 900px) { .dimension-fields, .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .charts-grid { grid-template-columns: minmax(0, 1fr); } .section-heading, .scope-actions { flex-wrap: wrap; } }
-@media (max-width: 560px) { .scope-panel { padding: 15px 12px; } .date-fields :deep(.ant-picker) { width: 124px; } .business-card { padding-inline: 12px; } .analysis-panel :deep(.ant-card-body) { padding: 14px 12px; } }
+@media (max-width: 900px) { .dimension-fields, .summary-grid, .diagnosis-summary-grid, .diagnosis-business-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .charts-grid { grid-template-columns: minmax(0, 1fr); } .section-heading, .scope-actions { flex-wrap: wrap; } }
+@media (max-width: 560px) { .scope-panel { padding: 15px 12px; } .date-fields :deep(.ant-picker) { width: 124px; } .business-card { padding-inline: 12px; } .analysis-panel :deep(.ant-card-body) { padding: 14px 12px; } .diagnosis-summary-grid, .diagnosis-business-grid { grid-template-columns: 1fr; } }
 </style>

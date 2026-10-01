@@ -23,11 +23,12 @@ def fact(business="issue", count=3, known="12.1234", missing=0, platform="P1", p
     }
 
 
-def snapshot(data=()):
+def snapshot(data=(), day=None):
     rows = list(copy.deepcopy(data))
+    snapshot_day = day or (rows[0]["dt"] if rows else "2026-09-18")
     for business in module.BUSINESSES:
         selected = [row for row in rows if row["business_type"] == business]
-        marker = fact(business=business, key="coverage-" + business)
+        marker = fact(business=business, day=snapshot_day, key="coverage-" + business)
         marker.update(row_type="coverage", business_count=None, known_profit_cny=None, estimated_profit_cny=None,
                       source_row_count=sum(row["business_count"] for row in selected),
                       profit_missing_count=sum(row["profit_missing_count"] for row in selected))
@@ -182,6 +183,35 @@ class ComprehensiveTests(unittest.TestCase):
         self.assertFalse(result["available"])
         self.assertIsNone(result["totalProfit"])
 
+    def test_diagnosis_compares_equal_previous_period_with_decimal_changes(self):
+        current_rows = snapshot([fact(count=3, known="12.1234")])
+        previous_rows = snapshot([fact(count=2, known="10.0000", day="2026-09-17")])
+        self.cursor.fetchmany.side_effect = [
+            [tuple(row.get(column) for column in module.COLUMNS) for row in current_rows],
+            [tuple(row.get(column) for column in module.COLUMNS) for row in previous_rows],
+        ]
+        result = module.ComprehensiveAnalysisService({}).diagnosis(
+            "2026-09-18", "2026-09-18", group="airline"
+        )
+        self.assertTrue(result["available"])
+        self.assertTrue(result["previous"]["available"])
+        self.assertEqual(result["previous"]["period"], {"startDate": "2026-09-17", "endDate": "2026-09-17"})
+        self.assertEqual(result["changes"]["totalProfit"], "2.1234")
+        self.assertEqual(result["changes"]["metrics"]["issue"], {"count": 1, "profit": "2.1234"})
+        self.assertEqual(result["current"]["comparison"][0]["name"], "HO")
+
+    def test_diagnosis_does_not_publish_change_when_previous_is_missing(self):
+        current_rows = snapshot([fact()])
+        self.cursor.fetchmany.side_effect = [
+            [tuple(row.get(column) for column in module.COLUMNS) for row in current_rows],
+            [],
+        ]
+        result = module.ComprehensiveAnalysisService({}).diagnosis("2026-09-18", "2026-09-18")
+        self.assertTrue(result["available"])
+        self.assertFalse(result["previous"]["available"])
+        self.assertIsNone(result["changes"]["totalProfit"])
+        self.assertIsNone(result["changes"]["metrics"]["issue"]["profit"])
+
     def test_input_validation_before_connect(self):
         service = module.ComprehensiveAnalysisService({})
         for args in [("2026-09-19", "2026-09-18"), ("2025-01-01", "2026-09-18"), ("invalid", "2026-09-18")]:
@@ -204,6 +234,15 @@ class ComprehensiveTests(unittest.TestCase):
         self.assertEqual(good.status_code, 200)
         self.assertTrue(good.json["data"]["available"])
         self.assertEqual(client.get("/api/v1/analysis/comprehensive?groupBy=department").status_code, 400)
+        current_rows = snapshot([fact()])
+        previous_rows = snapshot([fact(day="2026-09-17")])
+        self.cursor.fetchmany.side_effect = [
+            [tuple(row.get(column) for column in module.COLUMNS) for row in current_rows],
+            [tuple(row.get(column) for column in module.COLUMNS) for row in previous_rows],
+        ]
+        diagnosis = client.get("/api/v1/analysis/comprehensive/diagnosis?startDate=2026-09-18&endDate=2026-09-18")
+        self.assertEqual(diagnosis.status_code, 200)
+        self.assertEqual(diagnosis.json["data"]["changes"]["totalProfit"], "0.0000")
 
 
 if __name__ == "__main__":
