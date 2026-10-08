@@ -239,7 +239,26 @@ body { background: #f2f5f9; }
 .problem-note { margin-top: 13px; padding-top: 13px; display: flex; align-items: flex-start; gap: 8px; border-top: 1px solid #edf0f4; color: #78869a; font-size: 11px; line-height: 1.65; }
 .not-found { min-height: 100vh; display: grid; place-items: center; background: #f2f5f9; }
 
+.auth-page { min-height: 100vh; padding: 32px 18px; display: grid; place-items: center; background: radial-gradient(circle at 18% 12%, rgba(63,131,248,.18), transparent 34%), linear-gradient(145deg, #0d1a2e, #172d4d 58%, #1f4d86); }
+.auth-panel { width: min(430px, 100%); padding: 38px; border: 1px solid rgba(255,255,255,.72); border-radius: 18px; background: rgba(255,255,255,.97); box-shadow: 0 28px 70px rgba(3,14,31,.32); }
+.auth-panel-compact { width: min(460px, 100%); }
+.auth-brand-mark { width: 48px; height: 48px; margin-bottom: 22px; display: grid; place-items: center; border-radius: 13px; color: #fff; background: linear-gradient(145deg, #3f83f8, #275fd2); font-size: 23px; box-shadow: 0 10px 24px rgba(39,95,210,.22); }
+.auth-heading > span { color: #3178f6; font-size: 10px; font-weight: 700; letter-spacing: .14em; }
+.auth-heading h1 { margin: 7px 0; color: #172033; font-size: 25px; }
+.auth-heading p { margin: 0; color: #748195; font-size: 13px; line-height: 1.6; }
+.auth-form { margin-top: 26px; display: grid; gap: 17px; }
+.auth-form label { display: grid; gap: 7px; }
+.auth-form label > span { color: #475569; font-size: 12px; font-weight: 500; }
+.auth-security-note { margin-top: 21px; padding-top: 17px; border-top: 1px solid #edf0f4; color: #8a96a8; font-size: 11px; text-align: center; }
+.account-create-grid { display: grid; grid-template-columns: minmax(150px,1fr) minmax(150px,1fr) minmax(220px,1.4fr) auto auto; gap: 12px; align-items: center; }
+.account-switch { display: flex; align-items: center; gap: 8px; color: #56657a; font-size: 12px; white-space: nowrap; }
+.account-identity { display: grid; gap: 3px; }
+.account-identity strong { color: #334155; font-size: 12px; }
+.account-identity code, .account-page td code { color: #7d89a0; font-size: 10px; }
+.account-modal-note { margin: 14px 0 0; color: #7b8798; font-size: 12px; line-height: 1.6; }
+
 @media (max-width: 1100px) {
+  .account-create-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .kpi-grid, .coverage-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .profit-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .issue-summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -268,6 +287,8 @@ body { background: #f2f5f9; }
 }
 
 @media (max-width: 600px) {
+  .auth-panel { padding: 28px 22px; }
+  .account-create-grid { grid-template-columns: 1fr; }
   .kpi-grid, .kpi-grid.three, .coverage-grid, .asset-summary, .profit-metric-grid, .problem-summary-grid, .problem-domain-grid { grid-template-columns: 1fr; }
   .profit-filter-fields { width: 100%; align-items: stretch; flex-direction: column; }
   .issue-summary-grid { grid-template-columns: 1fr; }

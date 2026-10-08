@@ -81,7 +81,20 @@
         </div>
         <div class="header-actions">
           <a-tag color="blue">业务估算利润</a-tag>
-          <div class="user-entry"><a-avatar size="small">数</a-avatar><span>数据管理员</span></div>
+          <a-dropdown placement="bottomRight">
+            <div class="user-entry">
+              <a-avatar size="small">{{ userInitial }}</a-avatar>
+              <span>{{ authStore.user?.displayName ?? authStore.user?.username }}</span>
+            </div>
+            <template #overlay>
+              <a-menu @click="handleUserMenu">
+                <a-menu-item v-if="authStore.user?.isAdmin" key="admin"><TeamOutlined />账号管理</a-menu-item>
+                <a-menu-item key="password"><LockOutlined />修改密码</a-menu-item>
+                <a-menu-divider />
+                <a-menu-item key="logout"><LogoutOutlined />退出登录</a-menu-item>
+              </a-menu>
+            </template>
+          </a-dropdown>
         </div>
       </a-layout-header>
 
@@ -95,15 +108,19 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   BarChartOutlined, CustomerServiceOutlined, DashboardOutlined, DatabaseOutlined, LineChartOutlined,
-  MenuFoldOutlined, MenuUnfoldOutlined, RobotOutlined, SafetyCertificateOutlined, WarningOutlined,
+  LockOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, RobotOutlined,
+  SafetyCertificateOutlined, TeamOutlined, WarningOutlined,
 } from '@ant-design/icons-vue'
 import type { MenuProps } from 'ant-design-vue'
 import { useAppStore } from '@/stores/app'
+import { useAuthStore } from '@/stores/auth'
 
 const appStore = useAppStore()
+const authStore = useAuthStore()
 const route = useRoute()
 const router = useRouter()
 const selectedKeys = computed(() => [route.path === '/analysis/profit' ? '/analysis/issue' : route.path])
+const userInitial = computed(() => (authStore.user?.displayName || authStore.user?.username || '数').slice(0, 1))
 const openKeys = ref<string[]>([])
 watch(() => route.path, path => {
   openKeys.value = path.startsWith('/analysis') ? ['analysis']
@@ -113,5 +130,14 @@ watch(() => route.path, path => {
 
 const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
   if (typeof key === 'string' && key.startsWith('/')) router.push(key)
+}
+
+const handleUserMenu: MenuProps['onClick'] = async ({ key }) => {
+  if (key === 'admin') await router.push('/admin/users')
+  if (key === 'password') await router.push('/change-password')
+  if (key === 'logout') {
+    await authStore.logout()
+    await router.replace('/login')
+  }
 }
 </script>

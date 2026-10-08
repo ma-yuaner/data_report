@@ -1,9 +1,12 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import AppLayout from '@/layouts/AppLayout.vue'
+import { useAuthStore } from '@/stores/auth'
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
+    { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue'), meta: { title: '登录', public: true } },
+    { path: '/change-password', name: 'change-password', component: () => import('@/views/ChangePasswordView.vue'), meta: { title: '修改密码' } },
     {
       path: '/',
       component: AppLayout,
@@ -25,10 +28,26 @@ const router = createRouter({
         { path: 'smart-analysis', name: 'smart-analysis', component: () => import('@/views/SmartAnalysisView.vue'), meta: { title: '智能分析', section: '智能分析' } },
         { path: 'problems', name: 'problems', component: () => import('@/views/ProblemsView.vue'), meta: { title: '问题中心', section: '问题中心' } },
         { path: 'data-assets', name: 'assets', component: () => import('@/views/AssetsView.vue'), meta: { title: '数据资产', section: '数据资产' } },
+        { path: 'admin/users', name: 'admin-users', component: () => import('@/views/AdminUsersView.vue'), meta: { title: '账号管理', section: '系统管理', requiresAdmin: true } },
       ],
     },
-    { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('@/views/NotFoundView.vue') },
+    { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('@/views/NotFoundView.vue'), meta: { title: '页面不存在' } },
   ],
+})
+
+router.beforeEach(async (to) => {
+  if (to.meta.public) return true
+  const authStore = useAuthStore()
+  if (!authStore.initialized) {
+    try { await authStore.fetchMe() }
+    catch { return { name: 'login', query: { redirect: to.fullPath } } }
+  }
+  if (!authStore.user) return { name: 'login', query: { redirect: to.fullPath } }
+  if (authStore.user.mustChangePassword && to.name !== 'change-password') {
+    return { name: 'change-password', query: { first: '1' } }
+  }
+  if (to.meta.requiresAdmin && !authStore.user.isAdmin) return '/overview'
+  return true
 })
 
 router.afterEach((to) => {

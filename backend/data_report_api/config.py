@@ -57,6 +57,21 @@ class Config:
     RISK_UPLOAD_POLL_SECONDS = int(os.getenv("RISK_UPLOAD_POLL_SECONDS", "2"))
     MAX_CONTENT_LENGTH = RISK_UPLOAD_MAX_BYTES
     JSON_AS_ASCII = False
+    AUTH_ENABLED = env_bool("AUTH_ENABLED", True)
+    AUTH_AUTO_CREATE_TABLES = env_bool("AUTH_AUTO_CREATE_TABLES", True)
+    AUTH_IDLE_TIMEOUT_SECONDS = int(os.getenv("AUTH_IDLE_TIMEOUT_SECONDS", "14400"))
+    AUTH_ABSOLUTE_TIMEOUT_SECONDS = int(os.getenv("AUTH_ABSOLUTE_TIMEOUT_SECONDS", "86400"))
+    AUTH_SESSION_TOUCH_SECONDS = int(os.getenv("AUTH_SESSION_TOUCH_SECONDS", "60"))
+    AUTH_MAX_FAILED_ATTEMPTS = int(os.getenv("AUTH_MAX_FAILED_ATTEMPTS", "5"))
+    AUTH_LOCK_SECONDS = int(os.getenv("AUTH_LOCK_SECONDS", "900"))
+    AUTH_COOKIE_NAME = os.getenv("AUTH_COOKIE_NAME", "data_report_session")
+    AUTH_CSRF_COOKIE_NAME = os.getenv("AUTH_CSRF_COOKIE_NAME", "data_report_csrf")
+    AUTH_COOKIE_SECURE = env_bool("AUTH_COOKIE_SECURE", False)
+    AUTH_BOOTSTRAP_ADMIN_USERNAME = os.getenv("AUTH_BOOTSTRAP_ADMIN_USERNAME", "")
+    AUTH_BOOTSTRAP_ADMIN_PASSWORD = os.getenv("AUTH_BOOTSTRAP_ADMIN_PASSWORD", "")
+    AUTH_BOOTSTRAP_ADMIN_DISPLAY_NAME = os.getenv(
+        "AUTH_BOOTSTRAP_ADMIN_DISPLAY_NAME", "系统管理员"
+    )
 
 
 class TestConfig(Config):
@@ -69,3 +84,5 @@ class TestConfig(Config):
     HIVE_USER = ""
     RISK_UPLOAD_ENABLED = False
     RISK_UPLOAD_ROOT = "/tmp/data-report-risk-upload-tests"
+    AUTH_ENABLED = False
+    AUTH_COOKIE_SECURE = False

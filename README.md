@@ -56,6 +56,24 @@ docker compose up -d --build
 - 数据中心：`http://127.0.0.1:1818`
 - 后端健康检查：`http://127.0.0.1:5160/api/health`
 
+### 首次登录初始化
+
+本地账号保存在 MySQL `sibebid.auth_user`，会话和审计分别保存在
+`auth_session`、`auth_audit_log`。应用默认自动建表；若部署账号没有DDL权限，先手工执行
+[本地认证表DDL](docs/sql/local-auth-schema.sql)，再将 `AUTH_AUTO_CREATE_TABLES=false`。
+
+第一次启动前只在服务器 `.env` 临时配置：
+
+```dotenv
+AUTH_BOOTSTRAP_ADMIN_USERNAME=admin
+AUTH_BOOTSTRAP_ADMIN_PASSWORD=
+AUTH_BOOTSTRAP_ADMIN_DISPLAY_NAME=系统管理员
+```
+
+请在等号后填写仅部署人员知道的初始密码（至少8位且包含字母和数字）。启动后使用该账号登录并按提示修改密码，再从 `.env` 删除
+`AUTH_BOOTSTRAP_ADMIN_PASSWORD` 并重新创建容器。系统不开放自助注册；后续账号由管理员在右上角“账号管理”中创建。
+会话闲置4小时失效，单次登录最长24小时；管理员禁用账号或重置密码后，该账号已有会话立即失效。
+
 经营总览及各业务分析页提供今日、昨日、本月、本年和自定义日期查询，默认展示今日，避免首次打开扫描大时间范围。项目默认使用 `DATA_MODE=mysql` 读取 `sibebid`；在 `.env` 中填写 `MYSQL_HOST`、`MYSQL_USER` 等连接信息即可。MySQL 临时不可用时，将 `DATA_MODE` 手工改成 `hive` 并重启 API。原经营指标和底部的“风控利润核对”都跟随此手工切换，不自动混用两个数据源；核对区默认读取 MySQL 的三张 `bi_order_*_profit_reconcile_year` 表，不纳入上方经营利润合计。连接密码只能保存在部署环境的 `.env`，不得提交到 Git。
 
 “业务分析 → 出票分析”提供利润和业务量趋势、平台/航司/供应商/组织贡献，以及首批 12 个分析字段的非空率体检。退票、改签和增值分析首版只展示数量、利润、单笔利润、负利润记录和趋势，避免在问题尚未明确时堆叠无效维度。
