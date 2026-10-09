@@ -30,6 +30,7 @@
 - 开发风控利润专题、维度分析、订单下钻与差错分析：阅读 [risk-profit-dashboard.md](risk-profit-dashboard.md)
 - 开发或使用风控出退改Excel上传Hive：阅读 [risk-data-upload.md](risk-data-upload.md)
 - 开发综合分析真实MySQL ADS查询、筛选与质量校验：阅读 [comprehensive-analysis-live.md](comprehensive-analysis-live.md)
+- 开发智能投放任务流、政策认领和收单关注：阅读 [smart-placement-mvp.md](smart-placement-mvp.md)
 - 追溯综合分析历史界面预览：阅读 [comprehensive-analysis-preview.md](comprehensive-analysis-preview.md)
 - 配置 MySQL 默认查询或临时切回 Hive：阅读 [data-source-switch.md](data-source-switch.md)
 - 开发出票利润分析和检查字段齐全度：阅读 [issue-profit-analysis.md](issue-profit-analysis.md)

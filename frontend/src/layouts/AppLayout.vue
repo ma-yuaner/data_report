@@ -51,8 +51,8 @@
             <a-menu-item key="/smart-analysis">智能分析首页</a-menu-item>
             <a-sub-menu key="smart-placement">
               <template #title>智能投放</template>
-              <a-menu-item key="smart-placement-policy" disabled>投放政策</a-menu-item>
-              <a-menu-item key="smart-placement-orders" disabled>收单情况</a-menu-item>
+              <a-menu-item key="/smart-analysis/placement/policies">投放政策</a-menu-item>
+              <a-menu-item key="/smart-analysis/placement/orders">收单情况</a-menu-item>
             </a-sub-menu>
           </a-sub-menu>
           <a-menu-item key="/problems"><template #icon><WarningOutlined /></template>问题中心</a-menu-item>
@@ -131,7 +131,8 @@ const openKeys = ref<string[]>([])
 watch(() => route.path, path => {
   openKeys.value = path.startsWith('/analysis') ? ['analysis']
     : path.startsWith('/risk-analysis') ? ['risk']
-      : path.startsWith('/smart-analysis') ? ['smart']
+      : path.startsWith('/smart-analysis/placement/') ? ['smart', 'smart-placement']
+        : path.startsWith('/smart-analysis') ? ['smart']
         : path.startsWith('/admin/') ? ['system'] : []
 }, { immediate: true })
 

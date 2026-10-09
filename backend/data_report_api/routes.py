@@ -17,6 +17,7 @@ from .services.risk_profit_summary import RISK_FILTER_FIELDS, RiskProfitSummaryS
 from .services.risk_upload import RiskUploadService
 from .services.data_source import DataSource, data_mode, is_live_mode
 from .services.telemetry import TelemetryService, TelemetryUnavailable
+from .services.smart_placement import SmartPlacementService, SmartPlacementUnavailable
 
 
 api = Blueprint("api", __name__)
@@ -196,6 +197,114 @@ def comprehensive_details():
         ))
     except ValueError as error:
         return jsonify({"success": False, "message": str(error), "data": None}), 400
+
+
+@api.get("/v1/smart-placement/tasks")
+def smart_placement_tasks():
+    try:
+        return ok(SmartPlacementService(current_app.config).list_tasks(
+            status=request.args.get("status", ""),
+            keyword=request.args.get("keyword", ""),
+            platform=request.args.get("platform", ""),
+            airline=request.args.get("airline", ""),
+            owner=request.args.get("owner", ""),
+            page=int(request.args.get("page", "1")),
+            page_size=int(request.args.get("pageSize", "30")),
+        ))
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except SmartPlacementUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.post("/v1/smart-placement/tasks")
+def create_smart_placement_task():
+    try:
+        return ok(SmartPlacementService(current_app.config).create_task(g.current_user, json_body()), "投放机会已保存"), 201
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except SmartPlacementUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.get("/v1/smart-placement/tasks/<int:task_id>")
+def smart_placement_task_detail(task_id: int):
+    try:
+        return ok(SmartPlacementService(current_app.config).task_detail(task_id))
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 404
+    except SmartPlacementUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.post("/v1/smart-placement/tasks/<int:task_id>/reviews")
+def review_smart_placement_task(task_id: int):
+    try:
+        return ok(SmartPlacementService(current_app.config).review_task(g.current_user, task_id, json_body()), "审核结果已提交")
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except SmartPlacementUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.post("/v1/smart-placement/tasks/<int:task_id>/claim")
+def claim_smart_placement_task(task_id: int):
+    try:
+        return ok(SmartPlacementService(current_app.config).claim_task(g.current_user, task_id, json_body()), "任务认领成功")
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except SmartPlacementUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.post("/v1/smart-placement/tasks/<int:task_id>/executions")
+def register_smart_placement_execution(task_id: int):
+    try:
+        return ok(SmartPlacementService(current_app.config).register_execution(g.current_user, task_id, json_body()), "投放结果已登记")
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except SmartPlacementUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.get("/v1/smart-placement/orders")
+def smart_placement_orders():
+    try:
+        return ok(SmartPlacementService(current_app.config).list_orders(
+            start_date=request.args.get("startDate", ""),
+            end_date=request.args.get("endDate", ""),
+            attention_status=request.args.get("attentionStatus", ""),
+            platform=request.args.get("platform", ""),
+            airline=request.args.get("airline", ""),
+            owner=request.args.get("owner", ""),
+            keyword=request.args.get("keyword", ""),
+            page=int(request.args.get("page", "1")),
+            page_size=int(request.args.get("pageSize", "30")),
+        ))
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except SmartPlacementUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.patch("/v1/smart-placement/orders/<int:match_id>/attention")
+def update_smart_placement_attention(match_id: int):
+    try:
+        return ok(SmartPlacementService(current_app.config).update_attention(g.current_user, match_id, json_body()), "订单关注状态已更新")
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except SmartPlacementUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
 
 
 @api.get("/v1/analysis/risk-monthly")
