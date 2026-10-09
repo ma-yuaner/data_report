@@ -106,6 +106,7 @@ def comprehensive_analysis():
             end_value=request.args.get("endDate"),
             group=request.args.get("groupBy", "platform"),
             filters={key: request.args.get(key) for key in DIMENSIONS},
+            sort=request.args.get("sortBy", "segments"),
         ))
     except ValueError as error:
         return jsonify({"success": False, "message": str(error), "data": None}), 400

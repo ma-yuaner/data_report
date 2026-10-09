@@ -21,9 +21,11 @@ DIMENSIONS = {
 COLUMNS = (
     "row_key", "dt", "business_date", "row_type", "business_type", "ota_code", "ota_cname",
     "ota_site_code", "ota_site_cname", "airline_code", "ticket_product_raw", "business_count",
-    "known_profit_cny", "estimated_profit_cny", "profit_missing_count", "source_row_count",
-    "metric_version", "etl_run_id", "etl_updated_at", "policy_operator",
+    "segment_count", "segment_missing_count", "known_profit_cny", "estimated_profit_cny",
+    "profit_missing_count", "source_row_count", "metric_version", "etl_run_id", "etl_updated_at",
+    "policy_operator",
 )
+SORT_FIELDS = ("segments", "profit")
 MAX_ROWS = 100_000
 TABLE_NAME = "bi_business_profit_dimension_day"
 NOTES = [
@@ -31,6 +33,7 @@ NOTES = [
     "时间：出票时间、退票申请时间、改签出票时间、增值创建时间；结束日包含当天。",
     "金额：沿用源字段的CNY业务估算口径与正负号，不代表已结算利润；不并入风控核对区利润。",
     "数量：四类业务的business_count分别按票展示，不合计为总票数或据此计算退票率。",
+    "航段：出票航段数取ADS的segment_count已知值汇总；segment_missing_count单独提示，不将缺失航段当作0。",
     "产品：保留平台内原值，不推定正式分类；未关联产品的业务保留在待补充产品中。",
     "航司：出票取marketing_airline，退票取marketing_airline_s，改签取新航司air_line，增值取air_line；多航司原值不拆分。",
     "返点、后返、汇率、实际结算、ADM及增值退款完整性尚未确认；无缺失利润字段不等于财务数据完整。",
@@ -75,10 +78,15 @@ def aggregate(rows: list[dict], available: bool = True) -> dict:
         selected = [row for row in rows if row["business_type"] == business]
         quantity = sum(int(row["business_count"]) for row in selected)
         missing = sum(int(row["profit_missing_count"]) for row in selected)
+        segment_values = [int(row["segment_count"]) for row in selected if row["segment_count"] is not None]
+        segment_count = sum(segment_values) if segment_values else (0 if not selected else None)
+        segment_missing = sum(int(row["segment_missing_count"] or 0) for row in selected)
         amounts = [Decimal(str(row["known_profit_cny"])) for row in selected if row["known_profit_cny"] is not None]
         known = sum(amounts, Decimal(0)) if amounts or not selected else None
         result[business] = {
             "count": quantity if available else None,
+            "segmentCount": segment_count if available else None,
+            "segmentMissingCount": segment_missing if available else 0,
             "profit": str(known) if available and missing == 0 else None,
             "knownProfit": str(known) if available and known is not None else None,
             "profitMissingCount": missing if available else 0,
@@ -168,10 +176,12 @@ class ComprehensiveAnalysisService:
         # This dataset is MySQL-only; switching it must not mutate other modules' global mode.
         self.source = DataSource({**config, "DATA_MODE": "mysql"})
 
-    def analysis(self, start_value=None, end_value=None, group="platform", filters=None):
+    def analysis(self, start_value=None, end_value=None, group="platform", filters=None, sort="segments"):
         first, last = parse_period(start_value, end_value)
         if group not in DIMENSIONS:
             raise ValueError("不支持的分组维度")
+        if sort not in SORT_FIELDS:
+            raise ValueError("不支持的排序方式")
         filters = filters or {}
         for key in DIMENSIONS:
             token = filters.get(key)
@@ -233,7 +243,27 @@ class ComprehensiveAnalysisService:
             for token, grouped in comparison.items():
                 metrics = aggregate(grouped)
                 response["comparison"].append({"key": token, "value": token, "name": dimension_label(grouped[0], group), "metrics": metrics, "totalProfit": total_profit(metrics)})
-            response["comparison"].sort(key=lambda row: (row["totalProfit"] is None, -(Decimal(row["totalProfit"]) if row["totalProfit"] is not None else Decimal(0)), row["name"]))
+            def comparison_sort_key(row):
+                issue = row["metrics"]["issue"]
+                segments = issue["segmentCount"]
+                profit = issue["profit"]
+                if sort == "profit":
+                    return (
+                        profit is None,
+                        -(Decimal(profit) if profit is not None else Decimal(0)),
+                        segments is None,
+                        -(segments or 0),
+                        row["name"],
+                    )
+                return (
+                    segments is None,
+                    -(segments or 0),
+                    profit is None,
+                    -(Decimal(profit) if profit is not None else Decimal(0)),
+                    row["name"],
+                )
+
+            response["comparison"].sort(key=comparison_sort_key)
             response["available"] = True
             return response
         except Exception as error:

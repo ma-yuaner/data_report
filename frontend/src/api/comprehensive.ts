@@ -2,8 +2,11 @@ import { http, type ApiEnvelope } from './http'
 
 export type BusinessKey = 'issue' | 'refund' | 'change' | 'ancillary'
 export type DimensionKey = 'platform' | 'site' | 'airline' | 'product' | 'policy'
+export type ComparisonSortKey = 'segments' | 'profit'
 export interface Metric {
   count: number | null
+  segmentCount: number | null
+  segmentMissingCount: number
   profit: string | null
   knownProfit: string | null
   profitMissingCount: number
@@ -72,9 +75,9 @@ export interface ComprehensiveDiagnosisData {
   }
   notes: string[]
 }
-export async function fetchComprehensive(scope: FilterScope, groupBy: DimensionKey): Promise<ComprehensiveData> {
+export async function fetchComprehensive(scope: FilterScope, groupBy: DimensionKey, sortBy: ComparisonSortKey = 'segments'): Promise<ComprehensiveData> {
   const { preset: _preset, ...params } = scope
-  const response = await http.get<ApiEnvelope<ComprehensiveData>>('/v1/analysis/comprehensive', { params: { ...params, groupBy } })
+  const response = await http.get<ApiEnvelope<ComprehensiveData>>('/v1/analysis/comprehensive', { params: { ...params, groupBy, sortBy } })
   if (!response.data.success) throw new Error(response.data.message)
   return response.data.data
 }

@@ -10,13 +10,19 @@ from data_report_api.config import TestConfig
 from data_report_api.services import comprehensive_analysis as module
 
 
-def fact(business="issue", count=3, known="12.1234", missing=0, platform="P1", product="普通", policy="政策员甲", day="2026-09-18", key="row1"):
+def fact(
+    business="issue", count=3, known="12.1234", missing=0, platform="P1",
+    product="普通", policy="政策员甲", day="2026-09-18", key="row1",
+    segments=5, segment_missing=0,
+):
     return {
         **dict.fromkeys(module.COLUMNS), "row_key": key, "dt": day, "business_date": day,
         "row_type": "data", "business_type": business, "ota_code": platform, "ota_cname": platform,
         "ota_site_code": "S1", "ota_site_cname": "站点一", "airline_code": "HO",
         "ticket_product_raw": product, "policy_operator": policy,
         "business_count": count, "profit_missing_count": missing,
+        "segment_count": segments if business in ("issue", "ancillary") else None,
+        "segment_missing_count": segment_missing if business in ("issue", "ancillary") else None,
         "known_profit_cny": Decimal(known) if known is not None else None,
         "estimated_profit_cny": Decimal(known) if missing == 0 and known is not None else None,
         "metric_version": "v1", "etl_run_id": "run1", "etl_updated_at": "2026-09-18 16:29:17",
@@ -30,6 +36,7 @@ def snapshot(data=(), day=None):
         selected = [row for row in rows if row["business_type"] == business]
         marker = fact(business=business, day=snapshot_day, key="coverage-" + business)
         marker.update(row_type="coverage", business_count=None, known_profit_cny=None, estimated_profit_cny=None,
+                      segment_count=None, segment_missing_count=None,
                       source_row_count=sum(row["business_count"] for row in selected),
                       profit_missing_count=sum(row["profit_missing_count"] for row in selected))
         rows.append(marker)
@@ -58,6 +65,8 @@ class ComprehensiveTests(unittest.TestCase):
         self.assertTrue(result["available"])
         self.assertEqual(result["totalProfit"], "12.0000")
         self.assertEqual(result["metrics"]["issue"]["count"], 3)
+        self.assertEqual(result["metrics"]["issue"]["segmentCount"], 5)
+        self.assertEqual(result["metrics"]["issue"]["segmentMissingCount"], 0)
         self.assertEqual(result["metrics"]["refund"]["count"], 2)
         self.assertEqual(result["trend"][0]["totalProfit"], result["totalProfit"])
         self.assertEqual(result["comparison"][0]["totalProfit"], result["totalProfit"])
@@ -131,6 +140,17 @@ class ComprehensiveTests(unittest.TestCase):
         self.assertEqual(result["metrics"]["issue"]["count"], 3)
         self.assertEqual(result["comparison"][0]["totalProfit"], "12.1234")
         self.assertEqual(len(result["options"]["platform"]), 2)
+
+    def test_comparison_defaults_to_issue_segments_and_can_sort_by_issue_profit(self):
+        high_profit = fact(platform="P1", known="100.0000", segments=2, key="p1")
+        high_segments = fact(platform="P2", known="10.0000", segments=7, segment_missing=1, key="p2")
+        rows = snapshot([high_profit, high_segments])
+        default_result = self.analysis(rows, group="platform")
+        profit_result = self.analysis(rows, group="platform", sort="profit")
+        self.assertEqual([row["name"] for row in default_result["comparison"]], ["P2", "P1"])
+        self.assertEqual(default_result["comparison"][0]["metrics"]["issue"]["segmentCount"], 7)
+        self.assertEqual(default_result["comparison"][0]["metrics"]["issue"]["segmentMissingCount"], 1)
+        self.assertEqual([row["name"] for row in profit_result["comparison"]], ["P1", "P2"])
 
     def test_empty_filter_result_is_covered_zero(self):
         result = self.analysis(snapshot([fact()]), filters={"airline": '["ZZ"]'})
@@ -217,6 +237,7 @@ class ComprehensiveTests(unittest.TestCase):
         for args in [("2026-09-19", "2026-09-18"), ("2025-01-01", "2026-09-18"), ("invalid", "2026-09-18")]:
             with self.assertRaises(ValueError): service.analysis(*args)
         with self.assertRaises(ValueError): service.analysis(group="department")
+        with self.assertRaises(ValueError): service.analysis(sort="totalProfit")
         for token in ['"HO"', '[1]', '["HO", "CA"]']:
             with self.assertRaises(ValueError): service.analysis(filters={"airline": token})
         self.source.connect.assert_not_called()
@@ -234,6 +255,7 @@ class ComprehensiveTests(unittest.TestCase):
         self.assertEqual(good.status_code, 200)
         self.assertTrue(good.json["data"]["available"])
         self.assertEqual(client.get("/api/v1/analysis/comprehensive?groupBy=department").status_code, 400)
+        self.assertEqual(client.get("/api/v1/analysis/comprehensive?sortBy=totalProfit").status_code, 400)
         current_rows = snapshot([fact()])
         previous_rows = snapshot([fact(day="2026-09-17")])
         self.cursor.fetchmany.side_effect = [
