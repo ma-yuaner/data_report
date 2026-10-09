@@ -2,23 +2,18 @@
 -- 应用默认可自动执行同等DDL；MySQL应用账号无建表权限时手工执行本文件。
 USE `sibebid`;
 
-CREATE TABLE IF NOT EXISTS `auth_user` (
-  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `username` varchar(64) NOT NULL,
-  `display_name` varchar(100) NOT NULL,
-  `password_hash` varchar(255) NOT NULL,
-  `is_admin` tinyint(1) NOT NULL DEFAULT 0,
-  `is_enabled` tinyint(1) NOT NULL DEFAULT 1,
-  `must_change_password` tinyint(1) NOT NULL DEFAULT 1,
+-- 账号主数据直接复用既有sys_user；本表只补充登录安全状态，不改sys_user结构。
+CREATE TABLE IF NOT EXISTS `auth_user_security` (
+  `user_id` int NOT NULL,
+  `must_change_password` tinyint(1) NOT NULL DEFAULT 0,
   `failed_attempts` int NOT NULL DEFAULT 0,
   `locked_until` datetime NULL,
   `password_changed_at` datetime NULL,
   `created_at` datetime NOT NULL,
   `updated_at` datetime NOT NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_auth_user_username` (`username`),
-  KEY `idx_auth_user_enabled_admin` (`is_enabled`,`is_admin`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='数据中心本地登录账号';
+  PRIMARY KEY (`user_id`),
+  KEY `idx_auth_user_security_lock` (`locked_until`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='sys_user登录安全扩展';
 
 CREATE TABLE IF NOT EXISTS `auth_session` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,

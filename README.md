@@ -58,11 +58,14 @@ docker compose up -d --build
 
 ### 首次登录初始化
 
-本地账号保存在 MySQL `sibebid.auth_user`，会话和审计分别保存在
-`auth_session`、`auth_audit_log`。应用默认自动建表；若部署账号没有DDL权限，先手工执行
+本地账号直接复用 MySQL `sibebid.sys_user`；角色 `admin` 对应系统管理员，
+`analyst`、`viewer` 当前均按普通用户处理。密码沿用该表的 bcrypt 哈希。
+`sys_user_menu` 暂不参与登录和菜单控制。失败锁定、会话和审计分别保存在
+`auth_user_security`、`auth_session`、`auth_audit_log`。应用默认自动建立这三张认证扩展表；若部署账号没有DDL权限，先手工执行
 [本地认证表DDL](docs/sql/local-auth-schema.sql)，再将 `AUTH_AUTO_CREATE_TABLES=false`。
+完整字段适配、接口、权限和验收标准见[本地账号登录技术方案](docs/product/local-account-auth-technical-design.md)。
 
-第一次启动前只在服务器 `.env` 临时配置：
+仅当 `sys_user` 还是空表时，第一次启动前才需要在服务器 `.env` 临时配置：
 
 ```dotenv
 AUTH_BOOTSTRAP_ADMIN_USERNAME=admin

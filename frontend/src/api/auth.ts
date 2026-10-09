@@ -3,6 +3,7 @@ import { http, type ApiEnvelope } from './http'
 export interface AuthUser {
   id: number
   username: string
+  email: string
   displayName: string
   isAdmin: boolean
   isEnabled: boolean
@@ -31,8 +32,8 @@ export const authApi = {
   logout: () => http.post<ApiEnvelope<null>>('/auth/logout').then(response => response.data.data),
   changePassword: (currentPassword: string, newPassword: string) => http.post<ApiEnvelope<{ csrfToken: string }>>('/auth/change-password', { currentPassword, newPassword }).then(response => response.data.data),
   users: () => http.get<ApiEnvelope<AuthUser[]>>('/admin/users').then(response => response.data.data),
-  createUser: (payload: { username: string; displayName: string; initialPassword: string; isAdmin: boolean }) => http.post<ApiEnvelope<AuthUser>>('/admin/users', payload).then(response => response.data.data),
-  updateUser: (id: number, payload: { displayName?: string; isAdmin?: boolean; isEnabled?: boolean }) => http.patch<ApiEnvelope<AuthUser>>(`/admin/users/${id}`, payload).then(response => response.data.data),
+  createUser: (payload: { username: string; email: string; displayName: string; initialPassword: string; isAdmin: boolean }) => http.post<ApiEnvelope<AuthUser>>('/admin/users', payload).then(response => response.data.data),
+  updateUser: (id: number, payload: { displayName?: string; email?: string; isAdmin?: boolean; isEnabled?: boolean }) => http.patch<ApiEnvelope<AuthUser>>(`/admin/users/${id}`, payload).then(response => response.data.data),
   resetPassword: (id: number, newPassword: string) => http.post<ApiEnvelope<null>>(`/admin/users/${id}/reset-password`, { newPassword }).then(response => response.data.data),
   audits: (limit = 200) => http.get<ApiEnvelope<AuthAudit[]>>('/admin/audits', { params: { limit } }).then(response => response.data.data),
 }

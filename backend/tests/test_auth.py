@@ -56,6 +56,13 @@ def test_health_is_public_but_business_api_requires_login(auth_client):
     assert response.get_json()["code"] == "AUTH_REQUIRED"
 
 
+def test_passwords_are_bcrypt_hashes(auth_app):
+    _app, store = auth_app
+    user = store.get_user_by_username("admin")
+    assert user is not None
+    assert user["password_hash"].startswith(("$2a$", "$2b$", "$2y$"))
+
+
 def test_first_login_requires_password_change_then_allows_business_api(auth_client):
     login_response = login(auth_client)
     assert login_response.status_code == 200
@@ -131,13 +138,32 @@ def test_admin_can_manage_users_and_ordinary_user_cannot(auth_client):
         "/api/admin/users",
         json={
             "username": "analyst01", "displayName": "分析员",
+            "email": "analyst01@example.com",
             "initialPassword": "Analyst123", "isAdmin": False,
         },
         headers={"X-CSRF-Token": admin_csrf},
     )
     assert created.status_code == 201
-    user_id = created.get_json()["data"]["id"]
+    created_user = created.get_json()["data"]
+    user_id = created_user["id"]
+    assert created_user["email"] == "analyst01@example.com"
     assert auth_client.get("/api/admin/users").status_code == 200
+
+    duplicate_email = auth_client.post(
+        "/api/admin/users",
+        json={"username": "analyst02", "displayName": "分析员2", "email": "analyst01@example.com", "initialPassword": "Analyst234", "isAdmin": False},
+        headers={"X-CSRF-Token": admin_csrf},
+    )
+    assert duplicate_email.status_code == 409
+    assert duplicate_email.get_json()["code"] == "EMAIL_EXISTS"
+
+    edited = auth_client.patch(
+        f"/api/admin/users/{user_id}",
+        json={"displayName": "高级分析员", "email": "analyst-new@example.com"},
+        headers={"X-CSRF-Token": admin_csrf},
+    )
+    assert edited.status_code == 200
+    assert edited.get_json()["data"]["email"] == "analyst-new@example.com"
 
     ordinary_client = auth_client.application.test_client()
     ordinary_login = login(ordinary_client, "analyst01", "Analyst123")
@@ -162,7 +188,7 @@ def test_password_reset_revokes_sessions_and_audits_are_available(auth_client):
     admin_csrf = csrf(changed)
     created = auth_client.post(
         "/api/admin/users",
-        json={"username": "viewer01", "displayName": "查看员", "initialPassword": "Viewer123", "isAdmin": False},
+        json={"username": "viewer01", "displayName": "查看员", "email": "viewer01@example.com", "initialPassword": "Viewer123", "isAdmin": False},
         headers={"X-CSRF-Token": admin_csrf},
     ).get_json()["data"]
 

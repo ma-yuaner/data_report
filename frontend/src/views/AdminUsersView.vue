@@ -9,6 +9,7 @@
       <div class="account-create-grid">
         <a-input v-model:value="createForm.username" placeholder="用户名（字母/数字/._-）" />
         <a-input v-model:value="createForm.displayName" placeholder="姓名" />
+        <a-input v-model:value="createForm.email" placeholder="邮箱" />
         <a-input-password v-model:value="createForm.initialPassword" placeholder="初始密码（至少8位，含字母和数字）" />
         <label class="account-switch"><a-switch v-model:checked="createForm.isAdmin" />管理员</label>
         <a-button type="primary" :loading="creating" @click="createAccount">创建账号</a-button>
@@ -19,7 +20,7 @@
       <a-table :columns="userColumns" :data-source="users" :loading="loading" row-key="id" :pagination="false" :scroll="{ x: 920 }">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'identity'">
-            <div class="account-identity"><strong>{{ record.displayName }}</strong><code>{{ record.username }}</code></div>
+            <div class="account-identity"><strong>{{ record.displayName }}</strong><code>{{ record.username }} · {{ record.email }}</code></div>
           </template>
           <template v-else-if="column.key === 'role'"><a-tag :color="record.isAdmin ? 'blue' : 'default'">{{ record.isAdmin ? '管理员' : '普通用户' }}</a-tag></template>
           <template v-else-if="column.key === 'status'"><a-tag :color="record.isEnabled ? 'green' : 'red'">{{ record.isEnabled ? '已启用' : '已禁用' }}</a-tag></template>
@@ -27,6 +28,7 @@
           <template v-else-if="column.key === 'createdAt'">{{ formatTime(record.createdAt) }}</template>
           <template v-else-if="column.key === 'actions'">
             <a-space>
+              <a-button size="small" @click="openEdit(record)">编辑</a-button>
               <a-button size="small" @click="toggleEnabled(record)">{{ record.isEnabled ? '禁用' : '启用' }}</a-button>
               <a-button size="small" @click="toggleAdmin(record)">{{ record.isAdmin ? '设为普通用户' : '设为管理员' }}</a-button>
               <a-button size="small" type="link" @click="openReset(record)">重置密码</a-button>
@@ -51,6 +53,12 @@
       <a-input-password v-model:value="resetPasswordValue" placeholder="新初始密码（至少8位，含字母和数字）" />
       <p class="account-modal-note">重置后该账号的所有登录会话立即失效，下次登录必须再次修改密码。</p>
     </a-modal>
+    <a-modal v-model:open="editVisible" title="修改账号资料" ok-text="保存" cancel-text="取消" :confirm-loading="editing" @ok="saveEdit">
+      <div class="account-edit-form">
+        <label><span>姓名</span><a-input v-model:value="editForm.displayName" /></label>
+        <label><span>邮箱</span><a-input v-model:value="editForm.email" /></label>
+      </div>
+    </a-modal>
   </div>
 </template>
 
@@ -65,14 +73,18 @@ const audits = ref<AuthAudit[]>([])
 const loading = ref(false)
 const creating = ref(false)
 const resetting = ref(false)
+const editing = ref(false)
 const resetVisible = ref(false)
+const editVisible = ref(false)
 const resetTarget = ref<AuthUser | null>(null)
+const editTarget = ref<AuthUser | null>(null)
 const resetPasswordValue = ref('')
-const createForm = reactive({ username: '', displayName: '', initialPassword: '', isAdmin: false })
+const createForm = reactive({ username: '', displayName: '', email: '', initialPassword: '', isAdmin: false })
+const editForm = reactive({ displayName: '', email: '' })
 const userColumns = [
   { title: '账号', key: 'identity', width: 190 }, { title: '角色', key: 'role', width: 100 },
   { title: '状态', key: 'status', width: 100 }, { title: '密码状态', key: 'password', width: 120 },
-  { title: '创建时间', key: 'createdAt', width: 170 }, { title: '操作', key: 'actions', width: 330 },
+  { title: '创建时间', key: 'createdAt', width: 170 }, { title: '操作', key: 'actions', width: 390 },
 ]
 const auditColumns = [
   { title: '时间', key: 'createdAt', width: 170 }, { title: '账号', dataIndex: 'username', width: 120 },
@@ -91,20 +103,28 @@ const createAccount = async () => {
   creating.value = true
   try {
     await authApi.createUser({ ...createForm })
-    Object.assign(createForm, { username: '', displayName: '', initialPassword: '', isAdmin: false })
+    Object.assign(createForm, { username: '', displayName: '', email: '', initialPassword: '', isAdmin: false })
     message.success('账号创建成功')
     await load()
   } catch (error) { message.error(error instanceof Error ? error.message : '创建失败') }
   finally { creating.value = false }
 }
 
-const update = async (record: AuthUser, payload: { isEnabled?: boolean; isAdmin?: boolean }) => {
+const update = async (record: AuthUser, payload: { displayName?: string; email?: string; isEnabled?: boolean; isAdmin?: boolean }) => {
   try { await authApi.updateUser(record.id, payload); message.success('账号已更新'); await load() }
   catch (error) { message.error(error instanceof Error ? error.message : '更新失败') }
 }
 const toggleEnabled = (record: AuthUser) => Modal.confirm({ title: `${record.isEnabled ? '禁用' : '启用'}账号`, content: record.isEnabled ? '禁用后该账号现有会话将立即失效。' : '确认恢复该账号登录？', onOk: () => update(record, { isEnabled: !record.isEnabled }) })
 const toggleAdmin = (record: AuthUser) => Modal.confirm({ title: '调整管理员身份', content: `确认将该账号设为${record.isAdmin ? '普通用户' : '管理员'}？`, onOk: () => update(record, { isAdmin: !record.isAdmin }) })
 const openReset = (record: AuthUser) => { resetTarget.value = record; resetPasswordValue.value = ''; resetVisible.value = true }
+const openEdit = (record: AuthUser) => { editTarget.value = record; Object.assign(editForm, { displayName: record.displayName, email: record.email }); editVisible.value = true }
+const saveEdit = async () => {
+  if (!editTarget.value) return
+  editing.value = true
+  try { await authApi.updateUser(editTarget.value.id, { ...editForm }); message.success('账号资料已更新'); editVisible.value = false; await load() }
+  catch (error) { message.error(error instanceof Error ? error.message : '更新失败') }
+  finally { editing.value = false }
+}
 const resetPassword = async () => {
   if (!resetTarget.value) return
   resetting.value = true

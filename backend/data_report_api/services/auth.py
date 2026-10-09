@@ -10,12 +10,14 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
-from werkzeug.security import check_password_hash, generate_password_hash
+import bcrypt
+from werkzeug.security import check_password_hash
 
 from .data_source import DataSource
 
 
 USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]{3,64}$")
+EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 
 def utc_now() -> datetime:
@@ -24,6 +26,19 @@ def utc_now() -> datetime:
 
 def token_hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def password_hash(value: str) -> str:
+    return bcrypt.hashpw(value.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def password_matches(stored_hash: str, candidate: str) -> bool:
+    try:
+        if stored_hash.startswith(("$2a$", "$2b$", "$2y$")):
+            return bcrypt.checkpw(candidate.encode("utf-8"), stored_hash.encode("utf-8"))
+        return check_password_hash(stored_hash, candidate)
+    except (TypeError, ValueError):
+        return False
 
 
 class AuthError(Exception):
@@ -36,23 +51,17 @@ class AuthError(Exception):
 class MySqlAuthStore:
     TABLE_STATEMENTS = (
         """
-        CREATE TABLE IF NOT EXISTS auth_user (
-            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-            username VARCHAR(64) NOT NULL,
-            display_name VARCHAR(100) NOT NULL,
-            password_hash VARCHAR(255) NOT NULL,
-            is_admin TINYINT(1) NOT NULL DEFAULT 0,
-            is_enabled TINYINT(1) NOT NULL DEFAULT 1,
-            must_change_password TINYINT(1) NOT NULL DEFAULT 1,
+        CREATE TABLE IF NOT EXISTS auth_user_security (
+            user_id INT NOT NULL,
+            must_change_password TINYINT(1) NOT NULL DEFAULT 0,
             failed_attempts INT NOT NULL DEFAULT 0,
             locked_until DATETIME NULL,
             password_changed_at DATETIME NULL,
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
-            PRIMARY KEY (id),
-            UNIQUE KEY uk_auth_user_username (username),
-            KEY idx_auth_user_enabled_admin (is_enabled, is_admin)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='数据中心本地登录账号'
+            PRIMARY KEY (user_id),
+            KEY idx_auth_user_security_lock (locked_until)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='sys_user登录安全扩展'
         """,
         """
         CREATE TABLE IF NOT EXISTS auth_session (
@@ -90,6 +99,19 @@ class MySqlAuthStore:
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='数据中心认证审计日志'
         """,
     )
+    USER_SELECT = """
+        SELECT u.id, u.username, u.email,
+               coalesce(nullif(u.full_name, ''), u.username) AS display_name,
+               u.hashed_password AS password_hash,
+               (u.role = 'admin') AS is_admin,
+               u.is_active AS is_enabled,
+               coalesce(sec.must_change_password, 0) AS must_change_password,
+               coalesce(sec.failed_attempts, 0) AS failed_attempts,
+               sec.locked_until, sec.password_changed_at,
+               u.created_at, u.updated_at
+        FROM sys_user u
+        LEFT JOIN auth_user_security sec ON sec.user_id = u.id
+    """
 
     def __init__(self, config: dict[str, Any]):
         mysql_config = dict(config)
@@ -138,95 +160,147 @@ class MySqlAuthStore:
             connection.close()
 
     def user_count(self) -> int:
-        row = self._fetchone("SELECT count(1) AS total FROM auth_user")
+        row = self._fetchone("SELECT count(1) AS total FROM sys_user")
         return int(row["total"] if row else 0)
 
     def enabled_admin_count(self) -> int:
         row = self._fetchone(
-            "SELECT count(1) AS total FROM auth_user WHERE is_admin = 1 AND is_enabled = 1"
+            "SELECT count(1) AS total FROM sys_user WHERE role = 'admin' AND is_active = 1"
         )
         return int(row["total"] if row else 0)
 
     def get_user_by_username(self, username: str) -> dict[str, Any] | None:
-        return self._fetchone("SELECT * FROM auth_user WHERE username = %s", (username,))
+        return self._fetchone(f"{self.USER_SELECT} WHERE u.username = %s", (username,))
 
     def get_user_by_id(self, user_id: int) -> dict[str, Any] | None:
-        return self._fetchone("SELECT * FROM auth_user WHERE id = %s", (user_id,))
+        return self._fetchone(f"{self.USER_SELECT} WHERE u.id = %s", (user_id,))
+
+    def get_user_by_email(self, email: str) -> dict[str, Any] | None:
+        return self._fetchone(f"{self.USER_SELECT} WHERE u.email = %s", (email,))
 
     def create_user(self, values: dict[str, Any]) -> dict[str, Any]:
-        user_id = self._execute(
-            """
-            INSERT INTO auth_user (
-                username, display_name, password_hash, is_admin, is_enabled,
-                must_change_password, failed_attempts, locked_until,
-                password_changed_at, created_at, updated_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, 0, NULL, %s, %s, %s)
-            """,
-            (
-                values["username"], values["display_name"], values["password_hash"],
-                int(values["is_admin"]), int(values["is_enabled"]),
-                int(values["must_change_password"]), values.get("password_changed_at"),
-                values["created_at"], values["updated_at"],
-            ),
-        )
+        connection = self.source.connect()
+        try:
+            connection.begin()
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO sys_user (
+                        username, email, hashed_password, full_name, role,
+                        is_active, last_login_at, created_at, updated_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, NULL, %s, %s)
+                    """,
+                    (
+                        values["username"], values["email"],
+                        values["password_hash"], values["display_name"],
+                        "admin" if values["is_admin"] else "analyst",
+                        int(values["is_enabled"]), values["created_at"], values["updated_at"],
+                    ),
+                )
+                user_id = int(cursor.lastrowid)
+                cursor.execute(
+                    """
+                    INSERT INTO auth_user_security (
+                        user_id, must_change_password, failed_attempts, locked_until,
+                        password_changed_at, created_at, updated_at
+                    ) VALUES (%s, %s, 0, NULL, %s, %s, %s)
+                    """,
+                    (
+                        user_id, int(values["must_change_password"]),
+                        values.get("password_changed_at"), values["created_at"], values["updated_at"],
+                    ),
+                )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
         return self.get_user_by_id(user_id) or {}
 
     def update_login_failure(
         self, user_id: int, failed_attempts: int, locked_until: datetime | None, now: datetime
     ) -> None:
         self._execute(
-            "UPDATE auth_user SET failed_attempts = %s, locked_until = %s, updated_at = %s WHERE id = %s",
-            (failed_attempts, locked_until, now, user_id),
+            """
+            INSERT INTO auth_user_security (
+                user_id, must_change_password, failed_attempts, locked_until,
+                password_changed_at, created_at, updated_at
+            ) VALUES (%s, 0, %s, %s, NULL, %s, %s)
+            ON DUPLICATE KEY UPDATE failed_attempts = VALUES(failed_attempts),
+                locked_until = VALUES(locked_until), updated_at = VALUES(updated_at)
+            """,
+            (user_id, failed_attempts, locked_until, now, now),
         )
 
     def reset_login_state(self, user_id: int, now: datetime) -> None:
         self._execute(
-            "UPDATE auth_user SET failed_attempts = 0, locked_until = NULL, updated_at = %s WHERE id = %s",
-            (now, user_id),
+            """
+            INSERT INTO auth_user_security (
+                user_id, must_change_password, failed_attempts, locked_until,
+                password_changed_at, created_at, updated_at
+            ) VALUES (%s, 0, 0, NULL, NULL, %s, %s)
+            ON DUPLICATE KEY UPDATE failed_attempts = 0, locked_until = NULL,
+                updated_at = VALUES(updated_at)
+            """,
+            (user_id, now, now),
         )
 
     def set_password(
         self, user_id: int, password_hash: str, must_change: bool, now: datetime
     ) -> None:
-        self._execute(
-            """
-            UPDATE auth_user
-            SET password_hash = %s, must_change_password = %s, failed_attempts = 0,
-                locked_until = NULL, password_changed_at = %s, updated_at = %s
-            WHERE id = %s
-            """,
-            (password_hash, int(must_change), now, now, user_id),
-        )
+        connection = self.source.connect()
+        try:
+            connection.begin()
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE sys_user SET hashed_password = %s, updated_at = %s WHERE id = %s",
+                    (password_hash, now, user_id),
+                )
+                cursor.execute(
+                    """
+                    INSERT INTO auth_user_security (
+                        user_id, must_change_password, failed_attempts, locked_until,
+                        password_changed_at, created_at, updated_at
+                    ) VALUES (%s, %s, 0, NULL, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE must_change_password = VALUES(must_change_password),
+                        failed_attempts = 0, locked_until = NULL,
+                        password_changed_at = VALUES(password_changed_at), updated_at = VALUES(updated_at)
+                    """,
+                    (user_id, int(must_change), now, now, now),
+                )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
 
     def update_user(self, user_id: int, values: dict[str, Any], now: datetime) -> None:
         assignments: list[str] = []
         params: list[Any] = []
-        mapping = {
-            "display_name": "display_name",
-            "is_admin": "is_admin",
-            "is_enabled": "is_enabled",
-        }
-        for key, column in mapping.items():
-            if key in values:
-                assignments.append(f"{column} = %s")
-                params.append(int(values[key]) if key.startswith("is_") else values[key])
+        if "display_name" in values:
+            assignments.append("full_name = %s")
+            params.append(values["display_name"])
+        if "email" in values:
+            assignments.append("email = %s")
+            params.append(values["email"])
+        if "is_admin" in values:
+            assignments.append("role = %s")
+            params.append("admin" if values["is_admin"] else "analyst")
+        if "is_enabled" in values:
+            assignments.append("is_active = %s")
+            params.append(int(values["is_enabled"]))
         if not assignments:
             return
         assignments.append("updated_at = %s")
         params.extend((now, user_id))
         self._execute(
-            f"UPDATE auth_user SET {', '.join(assignments)} WHERE id = %s", tuple(params)
+            f"UPDATE sys_user SET {', '.join(assignments)} WHERE id = %s", tuple(params)
         )
 
     def list_users(self) -> list[dict[str, Any]]:
-        return self._fetchall(
-            """
-            SELECT id, username, display_name, is_admin, is_enabled,
-                   must_change_password, failed_attempts, locked_until,
-                   password_changed_at, created_at, updated_at
-            FROM auth_user ORDER BY id
-            """
-        )
+        return self._fetchall(f"{self.USER_SELECT} ORDER BY u.id")
 
     def create_session(self, values: dict[str, Any]) -> None:
         self._execute(
@@ -250,12 +324,18 @@ class MySqlAuthStore:
             SELECT s.id AS session_id, s.user_id, s.token_hash, s.csrf_token_hash,
                    s.created_at AS session_created_at, s.last_seen_at,
                    s.absolute_expires_at, s.revoked_at,
-                   u.id, u.username, u.display_name, u.password_hash,
-                   u.is_admin, u.is_enabled, u.must_change_password,
-                   u.failed_attempts, u.locked_until, u.password_changed_at,
+                   u.id, u.username, u.email,
+                   coalesce(nullif(u.full_name, ''), u.username) AS display_name,
+                   u.hashed_password AS password_hash,
+                   (u.role = 'admin') AS is_admin,
+                   u.is_active AS is_enabled,
+                   coalesce(sec.must_change_password, 0) AS must_change_password,
+                   coalesce(sec.failed_attempts, 0) AS failed_attempts,
+                   sec.locked_until, sec.password_changed_at,
                    u.created_at, u.updated_at
             FROM auth_session s
-            JOIN auth_user u ON u.id = s.user_id
+            JOIN sys_user u ON u.id = s.user_id
+            LEFT JOIN auth_user_security sec ON sec.user_id = u.id
             WHERE s.token_hash = %s
             """,
             (hashed_token,),
@@ -333,6 +413,10 @@ class MemoryAuthStore:
     def get_user_by_id(self, user_id: int) -> dict[str, Any] | None:
         with self._lock:
             return deepcopy(self.users.get(user_id))
+
+    def get_user_by_email(self, email: str) -> dict[str, Any] | None:
+        with self._lock:
+            return deepcopy(next((row for row in self.users.values() if row.get("email") == email), None))
 
     def create_user(self, values: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
@@ -427,6 +511,7 @@ class AuthManager:
                     username=username,
                     display_name=str(self.config.get("AUTH_BOOTSTRAP_ADMIN_DISPLAY_NAME", "系统管理员")),
                     password=password,
+                    email=None,
                     is_admin=True,
                     must_change_password=True,
                 )
@@ -454,12 +539,15 @@ class AuthManager:
     def validate_password(password: str) -> None:
         if len(password) < 8 or not any(char.isalpha() for char in password) or not any(char.isdigit() for char in password):
             raise AuthError("密码至少8位，且必须同时包含字母和数字")
+        if len(password.encode("utf-8")) > 72:
+            raise AuthError("密码UTF-8长度不能超过72字节")
 
     @staticmethod
     def public_user(user: dict[str, Any]) -> dict[str, Any]:
         return {
             "id": int(user["id"]),
             "username": str(user["username"]),
+            "email": str(user.get("email") or ""),
             "displayName": str(user["display_name"]),
             "isAdmin": bool(user["is_admin"]),
             "isEnabled": bool(user["is_enabled"]),
@@ -498,7 +586,7 @@ class AuthManager:
         locked_until = user.get("locked_until") if user else None
         if locked_until and locked_until > now:
             invalid = True
-        if invalid or not check_password_hash(str(user.get("password_hash", "")), password):
+        if invalid or not password_matches(str(user.get("password_hash", "")), password):
             if user and bool(user.get("is_enabled")) and not (locked_until and locked_until > now):
                 attempts = int(user.get("failed_attempts") or 0) + 1
                 max_attempts = int(self.config.get("AUTH_MAX_FAILED_ATTEMPTS", 5))
@@ -558,14 +646,14 @@ class AuthManager:
         ip_address: str, user_agent: str,
     ) -> dict[str, str]:
         fresh = self.store.get_user_by_id(int(user["id"]))
-        if not fresh or not check_password_hash(str(fresh["password_hash"]), current_password):
+        if not fresh or not password_matches(str(fresh["password_hash"]), current_password):
             self.audit("change_password", False, user=user, ip_address=ip_address, user_agent=user_agent, detail={"reason": "invalid_current_password"})
             raise AuthError("当前密码错误", 400, "INVALID_CURRENT_PASSWORD")
         self.validate_password(new_password)
-        if check_password_hash(str(fresh["password_hash"]), new_password):
+        if password_matches(str(fresh["password_hash"]), new_password):
             raise AuthError("新密码不能与当前密码相同")
         now = self.now_fn()
-        self.store.set_password(int(user["id"]), generate_password_hash(new_password, method="scrypt"), False, now)
+        self.store.set_password(int(user["id"]), password_hash(new_password), False, now)
         self.store.revoke_user_sessions(int(user["id"]), now)
         updated = self.store.get_user_by_id(int(user["id"])) or fresh
         session = self.create_session(updated, ip_address, user_agent, now)
@@ -578,19 +666,24 @@ class AuthManager:
 
     def _create_user(
         self, *, username: str, display_name: str, password: str,
-        is_admin: bool, must_change_password: bool,
+        is_admin: bool, must_change_password: bool, email: str | None,
     ) -> dict[str, Any]:
         username = self.normalize_username(username)
         name = display_name.strip()
         if not name or len(name) > 100:
             raise AuthError("姓名不能为空且不能超过100个字符")
         self.validate_password(password)
+        normalized_email = (email or f"{username}@data-report.local").strip().lower()
+        if len(normalized_email) > 100 or not EMAIL_RE.fullmatch(normalized_email):
+            raise AuthError("邮箱格式不合法")
         if self.store.get_user_by_username(username):
             raise AuthError("用户名已存在", 409, "USERNAME_EXISTS")
+        if self.store.get_user_by_email(normalized_email):
+            raise AuthError("邮箱已存在", 409, "EMAIL_EXISTS")
         now = self.now_fn()
         return self.store.create_user({
-            "username": username, "display_name": name,
-            "password_hash": generate_password_hash(password, method="scrypt"),
+            "username": username, "email": normalized_email, "display_name": name,
+            "password_hash": password_hash(password),
             "is_admin": is_admin, "is_enabled": True,
             "must_change_password": must_change_password,
             "password_changed_at": None, "created_at": now, "updated_at": now,
@@ -598,12 +691,13 @@ class AuthManager:
 
     def create_user(
         self, actor: dict[str, Any], *, username: str, display_name: str,
-        password: str, is_admin: bool, ip_address: str, user_agent: str,
+        password: str, is_admin: bool, email: str | None,
+        ip_address: str, user_agent: str,
     ) -> dict[str, Any]:
         self.require_admin(actor)
         user = self._create_user(
             username=username, display_name=display_name, password=password,
-            is_admin=is_admin, must_change_password=True,
+            is_admin=is_admin, must_change_password=True, email=email,
         )
         self.audit("create_user", True, user=actor, ip_address=ip_address, user_agent=user_agent, detail={"targetUserId": user["id"], "targetUsername": user["username"], "isAdmin": is_admin})
         return self.public_user(user)
@@ -628,6 +722,14 @@ class AuthManager:
             if not display_name or len(display_name) > 100:
                 raise AuthError("姓名不能为空且不能超过100个字符")
             cleaned["display_name"] = display_name
+        if "email" in values:
+            email = str(values["email"]).strip().lower()
+            if len(email) > 100 or not EMAIL_RE.fullmatch(email):
+                raise AuthError("邮箱格式不合法")
+            email_owner = self.store.get_user_by_email(email)
+            if email_owner and int(email_owner["id"]) != target_id:
+                raise AuthError("邮箱已存在", 409, "EMAIL_EXISTS")
+            cleaned["email"] = email
         for key in ("is_admin", "is_enabled"):
             if key in values:
                 if not isinstance(values[key], bool):
@@ -650,7 +752,7 @@ class AuthManager:
             raise AuthError("账号不存在", 404, "USER_NOT_FOUND")
         self.validate_password(new_password)
         now = self.now_fn()
-        self.store.set_password(target_id, generate_password_hash(new_password, method="scrypt"), True, now)
+        self.store.set_password(target_id, password_hash(new_password), True, now)
         self.store.revoke_user_sessions(target_id, now)
         self.audit("reset_password", True, user=actor, ip_address=ip_address, user_agent=user_agent, detail={"targetUserId": target_id, "targetUsername": target["username"]})
 

@@ -102,7 +102,7 @@ def login():
 def me():
     if not current_app.config["AUTH_ENABLED"]:
         return ok({
-            "user": {"id": 0, "username": "development", "displayName": "开发模式", "isAdmin": True, "isEnabled": True, "mustChangePassword": False},
+            "user": {"id": 0, "username": "development", "email": "development@local", "displayName": "开发模式", "isAdmin": True, "isEnabled": True, "mustChangePassword": False},
             "csrfToken": "development",
         })
     return ok({"user": manager().public_user(g.current_user), "csrfToken": g.current_csrf_token})
@@ -148,6 +148,7 @@ def create_user():
         g.current_user,
         username=str(values.get("username", "")),
         display_name=str(values.get("displayName", "")),
+        email=str(values.get("email", "")) or None,
         password=str(values.get("initialPassword", "")),
         is_admin=values.get("isAdmin") is True,
         ip_address=ip_address,
@@ -163,6 +164,7 @@ def update_user(user_id: int):
     changes = {}
     for api_key, store_key in (
         ("displayName", "display_name"),
+        ("email", "email"),
         ("isAdmin", "is_admin"),
         ("isEnabled", "is_enabled"),
     ):
