@@ -17,6 +17,7 @@ from .services.risk_profit_summary import RISK_FILTER_FIELDS, RiskProfitSummaryS
 from .services.risk_upload import RiskUploadService
 from .services.data_source import DataSource, data_mode, is_live_mode
 from .services.telemetry import TelemetryService, TelemetryUnavailable
+from .services.smart_analysis import DIMENSIONS as SMART_DIMENSIONS, SmartAnalysisService
 
 
 api = Blueprint("api", __name__)
@@ -193,6 +194,73 @@ def comprehensive_details():
             filters={key: request.args.get(key) for key in DIMENSIONS},
             page_value=request.args.get("page", "1"),
             page_size_value=request.args.get("pageSize", "50"),
+        ))
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+
+
+def smart_filters() -> dict[str, str | None]:
+    return {key: request.args.get(key) for key in SMART_DIMENSIONS}
+
+
+def smart_period_args() -> dict[str, str | None]:
+    return {
+        "start_value": request.args.get("startDate"),
+        "end_value": request.args.get("endDate"),
+        "first_dep_start": request.args.get("firstDepStart"),
+        "first_dep_end": request.args.get("firstDepEnd"),
+        "order_start": request.args.get("orderStart"),
+        "order_end": request.args.get("orderEnd"),
+    }
+
+
+@api.get("/v1/smart-analysis/overview")
+def smart_analysis_overview():
+    try:
+        return ok(SmartAnalysisService(current_app.config).overview(
+            **smart_period_args(), filters=smart_filters(),
+        ))
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+
+
+@api.get("/v1/smart-analysis/dimensions")
+def smart_analysis_dimensions():
+    try:
+        return ok(SmartAnalysisService(current_app.config).dimensions(
+            **smart_period_args(), filters=smart_filters(),
+            group_by=request.args.get("groupBy", "airline,platform"),
+            smart_type=request.args.get("smartType", "all"),
+            sort_by=request.args.get("sortBy", "smartProfit"),
+            direction=request.args.get("direction", "desc"),
+            page_value=request.args.get("page", "1"),
+            page_size_value=request.args.get("pageSize", "20"),
+        ))
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+
+
+@api.get("/v1/smart-analysis/details")
+def smart_analysis_details():
+    try:
+        return ok(SmartAnalysisService(current_app.config).details(
+            **smart_period_args(), filters=smart_filters(),
+            smart_type=request.args.get("smartType", "all"),
+            stage=request.args.get("stage", "all"),
+            fields_value=request.args.get("fields"),
+            page_value=request.args.get("page", "1"),
+            page_size_value=request.args.get("pageSize", "20"),
+        ))
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+
+
+@api.get("/v1/smart-analysis/filter-options")
+def smart_analysis_filter_options():
+    try:
+        return ok(SmartAnalysisService(current_app.config).filter_options(
+            **smart_period_args(), filters=smart_filters(),
+            field=request.args.get("field", ""), search=request.args.get("search"),
         ))
     except ValueError as error:
         return jsonify({"success": False, "message": str(error), "data": None}), 400

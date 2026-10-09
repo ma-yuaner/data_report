@@ -48,7 +48,12 @@
           <a-sub-menu key="smart">
             <template #icon><RobotOutlined /></template>
             <template #title>智能分析</template>
-            <a-menu-item key="/smart-analysis">智能分析首页</a-menu-item>
+            <a-sub-menu key="smart-overall">
+              <template #title>智能整体分析首页</template>
+              <a-menu-item key="/smart-analysis/overview">智能总览</a-menu-item>
+              <a-menu-item key="/smart-analysis/dimensions">维度分析</a-menu-item>
+              <a-menu-item key="/smart-analysis/details">出票明细</a-menu-item>
+            </a-sub-menu>
             <a-sub-menu key="smart-placement">
               <template #title>智能投放</template>
               <a-menu-item key="smart-placement-policy" disabled>投放政策</a-menu-item>
@@ -131,7 +136,7 @@ const openKeys = ref<string[]>([])
 watch(() => route.path, path => {
   openKeys.value = path.startsWith('/analysis') ? ['analysis']
     : path.startsWith('/risk-analysis') ? ['risk']
-      : path.startsWith('/smart-analysis') ? ['smart']
+      : path.startsWith('/smart-analysis') ? ['smart', 'smart-overall']
         : path.startsWith('/admin/') ? ['system'] : []
 }, { immediate: true })
 

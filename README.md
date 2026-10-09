@@ -7,7 +7,7 @@
 - 经营总览：统一查看出、退、改、增利润及总预估利润；
 - 业务分析：出票、退票、改签、增值四个实际数据入口；
 - 风控分析：预留 ADM、平台罚单、投诉及高风险售后等风控分析入口，指标与数据待确认后接入；
-- 智能分析：预留智能问数、经营诊断和主动预警工作区，模型、规则与权限确认后接入；
+- 智能分析：基于Hive真实数据提供智能总览、维度分析和出票明细；规则配置与智能投放仍待后续接入；
 - 问题中心：统一查看四类业务负利润规模和 Top 证据明细；
 - 数据资产：四张核心业务表、当前指标口径和最新数据时间。
 
@@ -97,6 +97,10 @@ AUTH_BOOTSTRAP_ADMIN_DISPLAY_NAME=系统管理员
 - `GET /api/v1/analysis/issue-profit`：出票利润与维度分析；
 - `GET /api/v1/analysis/risk-monthly`：MySQL出退改核对月度票数与预估利润对比；
 - `GET /api/v1/analysis/business-profit/{refund|change|ancillary}`：退改增统一分析契约；
+- `GET /api/v1/smart-analysis/overview`：Hive智能出票总览及日/月趋势；
+- `GET /api/v1/smart-analysis/dimensions`：Hive智能出票多维组合分析；
+- `GET /api/v1/smart-analysis/details`：Hive智能出票明细分页与证据字段；
+- `GET /api/v1/smart-analysis/filter-options`：智能分析筛选值建议；
 - `GET /api/v1/problems/profit-loss`：四类业务负利润问题及证据；
 - `GET /api/v1/assets/catalog`：核心表、指标和更新状态。
 
