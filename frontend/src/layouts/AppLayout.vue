@@ -57,6 +57,12 @@
           </a-sub-menu>
           <a-menu-item key="/problems"><template #icon><WarningOutlined /></template>问题中心</a-menu-item>
           <a-menu-item key="/data-assets"><template #icon><DatabaseOutlined /></template>数据资产</a-menu-item>
+          <a-sub-menu v-if="authStore.user?.isAdmin" key="system">
+            <template #icon><MonitorOutlined /></template>
+            <template #title>系统管理</template>
+            <a-menu-item key="/admin/behavior">用户行为监控</a-menu-item>
+            <a-menu-item key="/admin/users">账号管理</a-menu-item>
+          </a-sub-menu>
         </a-menu>
       </div>
 
@@ -108,7 +114,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   BarChartOutlined, CustomerServiceOutlined, DashboardOutlined, DatabaseOutlined, LineChartOutlined,
-  LockOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, RobotOutlined,
+  LockOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, MonitorOutlined, RobotOutlined,
   SafetyCertificateOutlined, TeamOutlined, WarningOutlined,
 } from '@ant-design/icons-vue'
 import type { MenuProps } from 'ant-design-vue'
@@ -125,7 +131,8 @@ const openKeys = ref<string[]>([])
 watch(() => route.path, path => {
   openKeys.value = path.startsWith('/analysis') ? ['analysis']
     : path.startsWith('/risk-analysis') ? ['risk']
-      : path.startsWith('/smart-analysis') ? ['smart'] : []
+      : path.startsWith('/smart-analysis') ? ['smart']
+        : path.startsWith('/admin/') ? ['system'] : []
 }, { immediate: true })
 
 const handleMenuClick: MenuProps['onClick'] = ({ key }) => {

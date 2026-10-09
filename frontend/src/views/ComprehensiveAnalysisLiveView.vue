@@ -20,7 +20,7 @@
         </label>
       </div>
       <div class="scope-actions"><span>{{ hasPending ? '条件已变更，点击查询后生效' : '时间与五个分析维度可组合筛选；结束日期包含当天' }}</span>
-        <div><a-button :disabled="loading" @click="resetFilters"><UndoOutlined />重置</a-button><a-button type="primary" :loading="loading" @click="applyFilters"><SearchOutlined />查询</a-button></div>
+        <div><a-button data-telemetry-code="comprehensive-filter-reset" data-telemetry-name="重置筛选" :disabled="loading" @click="resetFilters"><UndoOutlined />重置</a-button><a-button type="primary" data-telemetry-code="comprehensive-filter-query" data-telemetry-name="应用筛选" data-telemetry-event="filter_apply" :loading="loading" @click="applyFilters"><SearchOutlined />查询</a-button></div>
       </div>
       <a-alert v-if="rangeError" class="range-error" type="error" show-icon :message="rangeError" />
     </section>
@@ -61,7 +61,7 @@
             <template v-if="column.key === 'name'"><strong>{{ record.name }}</strong></template>
             <template v-else-if="isBusinessKey(column.key)"><div class="metric-cell"><strong :class="{ negative: isNegative(record.metrics[column.key].profit) }">{{ money(record.metrics[column.key].profit) }}<small> 元</small></strong><span>{{ count(record.metrics[column.key].count) }} 票</span><span v-if="column.key === 'issue'">{{ count(record.metrics.issue.segmentCount) }} 航段</span><span v-if="record.metrics[column.key].profitMissingCount">缺失利润 {{ count(record.metrics[column.key].profitMissingCount) }} 票</span><span v-if="column.key === 'issue' && record.metrics.issue.segmentMissingCount" class="metric-missing">航段缺失 {{ count(record.metrics.issue.segmentMissingCount) }} 票</span></div></template>
             <template v-else-if="column.key === 'total'"><strong :class="{ negative: isNegative(record.totalProfit) }">{{ money(record.totalProfit) }} 元</strong></template>
-            <template v-else-if="column.key === 'action'"><a-button type="link" size="small" @click="openDiagnosis(record)">分析此项</a-button><a-button type="link" size="small" @click="openDetail(undefined, record)">日汇总</a-button></template>
+            <template v-else-if="column.key === 'action'"><a-button type="link" size="small" data-telemetry-code="comprehensive-diagnosis-open" data-telemetry-name="分析此项" data-telemetry-event="drilldown_open" @click="openDiagnosis(record)">分析此项</a-button><a-button type="link" size="small" data-telemetry-code="comprehensive-daily-open" data-telemetry-name="日汇总" data-telemetry-event="detail_open" @click="openDetail(undefined, record)">日汇总</a-button></template>
           </template>
           <template #footer><div class="comparison-footer"><span>当前范围共 {{ data?.comparison.length || 0 }} 个{{ groupLabel }} · 分页仅影响显示，不截取总额</span><span>合计利润：{{ money(data?.totalProfit) }} 元</span></div></template>
         </a-table>

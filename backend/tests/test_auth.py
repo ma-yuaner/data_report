@@ -172,6 +172,7 @@ def test_admin_can_manage_users_and_ordinary_user_cannot(auth_client):
     )
     assert ordinary_changed.status_code == 200
     assert ordinary_client.get("/api/admin/users").status_code == 403
+    assert ordinary_client.get("/api/v1/admin/telemetry/dashboard").status_code == 403
 
     disabled = auth_client.patch(
         f"/api/admin/users/{user_id}",

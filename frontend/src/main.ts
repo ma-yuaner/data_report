@@ -10,11 +10,13 @@ import App from './App.vue'
 import router from './router'
 import { setAuthFailureHandler } from './api/http'
 import { useAuthStore } from './stores/auth'
+import { initializeTelemetry } from './telemetry/tracker'
 import './styles/main.css'
 
 const app = createApp(App)
 const pinia = createPinia()
 app.use(pinia)
+initializeTelemetry(router, () => useAuthStore(pinia).user)
 setAuthFailureHandler((error) => {
   const authStore = useAuthStore(pinia)
   if (error.code === 'PASSWORD_CHANGE_REQUIRED' && authStore.user) {

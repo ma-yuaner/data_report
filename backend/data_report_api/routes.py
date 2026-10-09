@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, current_app, g, jsonify, request
 
 from .services.dashboard import DashboardService
 from .services.asset_catalog import AssetCatalogService
@@ -16,6 +16,7 @@ from .services.profit_problem_center import ProfitProblemCenterService
 from .services.risk_profit_summary import RISK_FILTER_FIELDS, RiskProfitSummaryService
 from .services.risk_upload import RiskUploadService
 from .services.data_source import DataSource, data_mode, is_live_mode
+from .services.telemetry import TelemetryService, TelemetryUnavailable
 
 
 api = Blueprint("api", __name__)
@@ -23,6 +24,13 @@ api = Blueprint("api", __name__)
 
 def ok(data, message: str = "OK"):
     return jsonify({"success": True, "message": message, "data": data})
+
+
+def json_body() -> dict:
+    values = request.get_json(silent=True)
+    if not isinstance(values, dict):
+        raise ValueError("请求内容必须为JSON对象")
+    return values
 
 
 @api.get("/health")
@@ -53,6 +61,56 @@ def meta():
             "disclaimer": f"当前接入{source.engine_label}实际业务数据，利润为业务估算口径，不代表财务结算。" if source else "当前为MVP演示数据，不代表正式经营或财务口径。",
         }
     )
+
+
+@api.post("/v1/telemetry/visits")
+def start_telemetry_visit():
+    try:
+        return ok(TelemetryService(current_app.config).start_visit(
+            g.current_user, getattr(g, "current_session", {}), json_body()
+        ), "页面访问已记录"), 201
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except TelemetryUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.patch("/v1/telemetry/visits/<visit_id>")
+def update_telemetry_visit(visit_id: str):
+    try:
+        return ok(TelemetryService(current_app.config).update_visit(
+            g.current_user, visit_id, json_body()
+        ), "页面访问已更新")
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except TelemetryUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.post("/v1/telemetry/events")
+def record_telemetry_events():
+    try:
+        return ok(TelemetryService(current_app.config).record_events(
+            g.current_user, getattr(g, "current_session", {}), json_body()
+        ), "行为事件已记录"), 202
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except TelemetryUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.get("/v1/admin/telemetry/dashboard")
+def telemetry_dashboard():
+    try:
+        return ok(TelemetryService(current_app.config).dashboard(
+            g.current_user,
+            start_value=request.args.get("startDate"),
+            end_value=request.args.get("endDate"),
+        ))
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
 
 
 @api.get("/v1/dashboard/overview")
