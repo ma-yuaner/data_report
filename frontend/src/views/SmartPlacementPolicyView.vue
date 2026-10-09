@@ -63,56 +63,93 @@
       </a-table>
     </a-card>
 
-    <a-modal v-model:open="createOpen" title="新建投放分析机会" width="min(980px, 96vw)" :footer="null" :mask-closable="false">
+    <a-modal
+      v-model:open="createOpen"
+      title="新建投放分析机会"
+      width="min(1120px, 96vw)"
+      wrap-class-name="placement-create-modal"
+      :footer="null"
+      :mask-closable="false"
+    >
+      <div class="form-intro">
+        <div class="intro-mark">01</div>
+        <div><strong>先把投放机会描述清楚</strong><span>所有业务条件独立填写；未填写的可选条件表示不限，不使用斜杠合并多个字段。</span></div>
+      </div>
+
       <a-form layout="vertical" class="task-form">
-        <h3>分析信息</h3>
-        <div class="form-grid">
-          <a-form-item class="span-2" label="机会名称" required><a-input v-model:value="taskForm.opportunityName" /></a-form-item>
-          <a-form-item label="机会来源" required><a-select v-model:value="taskForm.opportunitySource" :options="sourceOptions" /></a-form-item>
-          <a-form-item label="分析规则编号"><a-input v-model:value="taskForm.analysisRuleCode" placeholder="人工新建可不填" /></a-form-item>
-          <a-form-item label="分析开始日期" required><a-date-picker v-model:value="taskForm.analysisStartDate" value-format="YYYY-MM-DD" /></a-form-item>
-          <a-form-item label="分析结束日期" required><a-date-picker v-model:value="taskForm.analysisEndDate" value-format="YYYY-MM-DD" /></a-form-item>
-        </div>
+        <section class="form-section">
+          <header class="section-heading"><span>1</span><div><h3>分析来源</h3><p>记录机会从哪里发现，以及使用哪段历史数据完成判断。</p></div></header>
+          <div class="form-grid three">
+            <a-form-item class="span-2" label="机会名称" required><a-input v-model:value="taskForm.opportunityName" placeholder="例如：携程东南亚航线低价投放机会" /></a-form-item>
+            <a-form-item label="机会来源" required><a-select v-model:value="taskForm.opportunitySource" :options="sourceOptions" /></a-form-item>
+            <a-form-item label="分析规则编号"><a-input v-model:value="taskForm.analysisRuleCode" placeholder="人工新增可不填" /></a-form-item>
+            <a-form-item label="分析开始日期" required><a-date-picker v-model:value="taskForm.analysisStartDate" value-format="YYYY-MM-DD" /></a-form-item>
+            <a-form-item label="分析结束日期" required><a-date-picker v-model:value="taskForm.analysisEndDate" value-format="YYYY-MM-DD" /></a-form-item>
+          </div>
+        </section>
 
-        <h3>投放范围</h3>
-        <div class="form-grid three">
-          <a-form-item label="平台名称" required><a-input v-model:value="taskForm.platformName" /></a-form-item>
-          <a-form-item label="平台编码"><a-input v-model:value="taskForm.platformCode" /></a-form-item>
-          <a-form-item label="站点名称"><a-input v-model:value="taskForm.siteName" /></a-form-item>
-          <a-form-item label="站点编码"><a-input v-model:value="taskForm.siteCode" /></a-form-item>
-          <a-form-item label="航司" required><a-input v-model:value="taskForm.airlineCode" placeholder="例如 HO" /></a-form-item>
-          <a-form-item label="航程类型"><a-select v-model:value="taskForm.journeyType" :options="journeyOptions" allow-clear /></a-form-item>
-          <a-form-item label="出发地"><a-input v-model:value="taskForm.departureCode" placeholder="城市或机场编码" /></a-form-item>
-          <a-form-item label="到达地"><a-input v-model:value="taskForm.arrivalCode" placeholder="城市或机场编码" /></a-form-item>
-          <a-form-item label="完整航程"><a-input v-model:value="taskForm.routeText" placeholder="例如 PVG-KUL,KUL-PVG" /></a-form-item>
-          <a-form-item label="航班号"><a-input v-model:value="taskForm.flightNos" placeholder="多个用英文逗号分隔" /></a-form-item>
-          <a-form-item label="包含舱位"><a-input v-model:value="taskForm.includeCabins" placeholder="例如 Y,B,M" /></a-form-item>
-          <a-form-item label="排除舱位"><a-input v-model:value="taskForm.excludeCabins" placeholder="例如 X,N；不能与包含舱位重复" /></a-form-item>
-          <a-form-item label="产品类型"><a-input v-model:value="taskForm.productType" /></a-form-item>
-          <a-form-item label="订单开始日期"><a-date-picker v-model:value="taskForm.orderStartDate" value-format="YYYY-MM-DD" /></a-form-item>
-          <a-form-item label="订单结束日期"><a-date-picker v-model:value="taskForm.orderEndDate" value-format="YYYY-MM-DD" /></a-form-item>
-          <a-form-item label="起飞开始日期"><a-date-picker v-model:value="taskForm.travelStartDate" value-format="YYYY-MM-DD" /></a-form-item>
-          <a-form-item label="起飞结束日期"><a-date-picker v-model:value="taskForm.travelEndDate" value-format="YYYY-MM-DD" /></a-form-item>
-        </div>
+        <section class="form-section">
+          <header class="section-heading"><span>2</span><div><h3>投放范围</h3><p>名称、编码、航程和舱位分别落库，后续订单匹配直接使用这些字段。</p></div></header>
+          <div class="form-grid three">
+            <a-form-item label="平台名称" required><a-input v-model:value="taskForm.platformName" placeholder="例如：携程" /></a-form-item>
+            <a-form-item label="平台编码"><a-input v-model:value="taskForm.platformCode" placeholder="例如：CTRIP" /></a-form-item>
+            <a-form-item label="产品类型"><a-input v-model:value="taskForm.productType" placeholder="例如：公布转私有" /></a-form-item>
+            <a-form-item label="站点名称"><a-input v-model:value="taskForm.siteName" placeholder="例如：乐游携程一部" /></a-form-item>
+            <a-form-item label="站点编码"><a-input v-model:value="taskForm.siteCode" placeholder="业务系统站点编码" /></a-form-item>
+            <a-form-item label="航司" required><a-input v-model:value="taskForm.airlineCode" placeholder="例如：HO" /></a-form-item>
+            <a-form-item label="航程类型"><a-select v-model:value="taskForm.journeyType" :options="journeyOptions" allow-clear placeholder="选择航程类型" /></a-form-item>
+            <a-form-item label="出发地"><a-input v-model:value="taskForm.departureCode" placeholder="城市或机场编码" /></a-form-item>
+            <a-form-item label="到达地"><a-input v-model:value="taskForm.arrivalCode" placeholder="城市或机场编码" /></a-form-item>
+            <a-form-item class="span-3" label="完整航程"><a-input v-model:value="taskForm.routeText" placeholder="例如：PVG-KUL,KUL-PVG" /></a-form-item>
+            <a-form-item label="航班号"><a-input v-model:value="taskForm.flightNos" placeholder="多个值用英文逗号分隔" /></a-form-item>
+            <a-form-item label="包含舱位"><a-input v-model:value="taskForm.includeCabins" placeholder="例如：Y,B,M" /></a-form-item>
+            <a-form-item label="排除舱位"><a-input v-model:value="taskForm.excludeCabins" placeholder="例如：X,N" /></a-form-item>
+          </div>
+          <div class="field-tip"><strong>舱位规则：</strong>包含舱位与排除舱位不能出现相同值；不限制时保持为空。</div>
+        </section>
 
-        <h3>投放建议与价值</h3>
-        <div class="form-grid three">
-          <a-form-item class="span-2" label="建议投放方式" required><a-input v-model:value="taskForm.placementMethod" /></a-form-item>
-          <a-form-item label="优先级" required><a-select v-model:value="taskForm.priority" :options="priorityOptions" /></a-form-item>
-          <a-form-item label="建议调整值"><a-input-number v-model:value="taskForm.adjustmentValue" :precision="4" /></a-form-item>
-          <a-form-item label="调整单位"><a-select v-model:value="taskForm.adjustmentUnit" :options="adjustmentOptions" allow-clear /></a-form-item>
-          <a-form-item label="期望完成时间" required><a-date-picker v-model:value="taskForm.expectedCompleteAt" show-time value-format="YYYY-MM-DD HH:mm:ss" /></a-form-item>
-          <a-form-item label="历史票数"><a-input-number v-model:value="taskForm.historicalTicketCount" :min="0" /></a-form-item>
-          <a-form-item label="历史航段数"><a-input-number v-model:value="taskForm.historicalSegmentCount" :min="0" /></a-form-item>
-          <a-form-item label="历史利润CNY"><a-input-number v-model:value="taskForm.historicalProfitCny" :precision="4" /></a-form-item>
-          <a-form-item label="预估月票数"><a-input-number v-model:value="taskForm.estimatedMonthTicketCount" :min="0" /></a-form-item>
-          <a-form-item label="预估月利润CNY"><a-input-number v-model:value="taskForm.estimatedMonthProfitCny" :precision="4" /></a-form-item>
-          <a-form-item label="建议生效时间"><a-date-picker v-model:value="taskForm.suggestedEffectiveStart" show-time value-format="YYYY-MM-DD HH:mm:ss" /></a-form-item>
-          <a-form-item label="建议失效时间"><a-date-picker v-model:value="taskForm.suggestedEffectiveEnd" show-time value-format="YYYY-MM-DD HH:mm:ss" /></a-form-item>
-          <a-form-item class="span-3" label="分析结论" required><a-textarea v-model:value="taskForm.analysisConclusion" :rows="3" /></a-form-item>
-          <a-form-item class="span-3" label="风险提示"><a-textarea v-model:value="taskForm.riskNote" :rows="2" /></a-form-item>
+        <section class="form-section">
+          <header class="section-heading"><span>3</span><div><h3>适用时间</h3><p>订单日期控制何时进单，起飞日期控制航班适用范围，政策有效期控制实际投放窗口。</p></div></header>
+          <div class="form-grid three">
+            <a-form-item label="订单开始日期"><a-date-picker v-model:value="taskForm.orderStartDate" value-format="YYYY-MM-DD" /></a-form-item>
+            <a-form-item label="订单结束日期"><a-date-picker v-model:value="taskForm.orderEndDate" value-format="YYYY-MM-DD" /></a-form-item>
+            <a-form-item label="期望完成时间" required><a-date-picker v-model:value="taskForm.expectedCompleteAt" show-time value-format="YYYY-MM-DD HH:mm:ss" /></a-form-item>
+            <a-form-item label="起飞开始日期"><a-date-picker v-model:value="taskForm.travelStartDate" value-format="YYYY-MM-DD" /></a-form-item>
+            <a-form-item label="起飞结束日期"><a-date-picker v-model:value="taskForm.travelEndDate" value-format="YYYY-MM-DD" /></a-form-item>
+            <div class="grid-placeholder" aria-hidden="true"></div>
+            <a-form-item label="建议生效时间"><a-date-picker v-model:value="taskForm.suggestedEffectiveStart" show-time value-format="YYYY-MM-DD HH:mm:ss" /></a-form-item>
+            <a-form-item label="建议失效时间"><a-date-picker v-model:value="taskForm.suggestedEffectiveEnd" show-time value-format="YYYY-MM-DD HH:mm:ss" /></a-form-item>
+          </div>
+        </section>
+
+        <section class="form-section">
+          <header class="section-heading"><span>4</span><div><h3>策略与收益测算</h3><p>明确准备如何投放、历史依据和预估价值，供两级审核判断是否值得执行。</p></div></header>
+          <div class="form-grid three">
+            <a-form-item class="span-2" label="建议投放方式" required><a-input v-model:value="taskForm.placementMethod" placeholder="例如：价格下调20元，小流量测试3天" /></a-form-item>
+            <a-form-item label="优先级" required><a-select v-model:value="taskForm.priority" :options="priorityOptions" /></a-form-item>
+            <a-form-item label="建议调整值"><a-input-number v-model:value="taskForm.adjustmentValue" :precision="4" placeholder="请输入调整值" /></a-form-item>
+            <a-form-item label="调整单位"><a-select v-model:value="taskForm.adjustmentUnit" :options="adjustmentOptions" allow-clear /></a-form-item>
+            <div class="metric-hint"><span>口径提示</span><strong>以下均为业务估算值</strong><small>不直接作为财务结算结果</small></div>
+            <a-form-item label="历史票数"><a-input-number v-model:value="taskForm.historicalTicketCount" :min="0" placeholder="0" /></a-form-item>
+            <a-form-item label="历史航段数"><a-input-number v-model:value="taskForm.historicalSegmentCount" :min="0" placeholder="0" /></a-form-item>
+            <a-form-item label="历史利润CNY"><a-input-number v-model:value="taskForm.historicalProfitCny" :precision="4" placeholder="0.0000" /></a-form-item>
+            <a-form-item label="预估月票数"><a-input-number v-model:value="taskForm.estimatedMonthTicketCount" :min="0" placeholder="0" /></a-form-item>
+            <a-form-item label="预估月利润CNY"><a-input-number v-model:value="taskForm.estimatedMonthProfitCny" :precision="4" placeholder="0.0000" /></a-form-item>
+          </div>
+        </section>
+
+        <section class="form-section conclusion-section">
+          <header class="section-heading"><span>5</span><div><h3>结论与风险</h3><p>说明为什么值得投放，以及执行过程中需要重点防范什么。</p></div></header>
+          <div class="form-grid one">
+            <a-form-item label="分析结论" required><a-textarea v-model:value="taskForm.analysisConclusion" :rows="4" placeholder="填写数据依据、主要发现和预期结果" /></a-form-item>
+            <a-form-item label="风险提示"><a-textarea v-model:value="taskForm.riskNote" :rows="3" placeholder="填写航司、舱位、价格、库存或履约风险" /></a-form-item>
+          </div>
+        </section>
+
+        <div class="modal-actions">
+          <span>保存草稿不会进入审核流程</span>
+          <div><a-button @click="createOpen=false">取消</a-button><a-button :loading="saving" @click="saveTask(false)">保存草稿</a-button><a-button type="primary" :loading="saving" @click="saveTask(true)">提交数据审核</a-button></div>
         </div>
-        <div class="modal-actions"><a-button @click="createOpen=false">取消</a-button><a-button :loading="saving" @click="saveTask(false)">保存草稿</a-button><a-button type="primary" :loading="saving" @click="saveTask(true)">提交数据审核</a-button></div>
       </a-form>
     </a-modal>
 
@@ -268,9 +305,38 @@ async function load(targetPage = page.value) {
 function resetFilters() { filters.value = { keyword: '', status: '', platform: '', airline: '' }; void load(1) }
 function changePage(value: { current?: number; pageSize?: number }) { const size = value.pageSize || pageSize.value; page.value = size === pageSize.value ? value.current || 1 : 1; pageSize.value = size; void load(page.value) }
 function openCreate() { taskForm.value = blankTask(); createOpen.value = true }
+function normalizeList(value?: string) { return String(value || '').replace(/，/g, ',').split(',').map(item => item.trim()).filter(Boolean).join(',') }
+function validateTaskForm(values: PlacementTaskInput) {
+  const required: [keyof PlacementTaskInput, string][] = [
+    ['opportunityName', '机会名称'], ['opportunitySource', '机会来源'],
+    ['analysisStartDate', '分析开始日期'], ['analysisEndDate', '分析结束日期'],
+    ['platformName', '平台名称'], ['airlineCode', '航司'],
+    ['placementMethod', '建议投放方式'], ['priority', '优先级'],
+    ['expectedCompleteAt', '期望完成时间'], ['analysisConclusion', '分析结论'],
+  ]
+  const missing = required.find(([key]) => !String(values[key] ?? '').trim())
+  if (missing) return `请填写${missing[1]}`
+  if (values.analysisEndDate < values.analysisStartDate) return '分析结束日期不能早于开始日期'
+  if (values.orderStartDate && values.orderEndDate && values.orderEndDate < values.orderStartDate) return '订单结束日期不能早于开始日期'
+  if (values.travelStartDate && values.travelEndDate && values.travelEndDate < values.travelStartDate) return '起飞结束日期不能早于开始日期'
+  if (values.suggestedEffectiveStart && values.suggestedEffectiveEnd && values.suggestedEffectiveEnd <= values.suggestedEffectiveStart) return '建议失效时间必须晚于生效时间'
+  const included = new Set(normalizeList(values.includeCabins).toUpperCase().split(',').filter(Boolean))
+  const excluded = normalizeList(values.excludeCabins).toUpperCase().split(',').filter(Boolean)
+  const overlap = excluded.filter(item => included.has(item))
+  return overlap.length ? `包含舱位和排除舱位不能重复：${overlap.join(',')}` : ''
+}
 async function saveTask(submit: boolean) {
+  const values = {
+    ...taskForm.value,
+    flightNos: normalizeList(taskForm.value.flightNos),
+    includeCabins: normalizeList(taskForm.value.includeCabins).toUpperCase(),
+    excludeCabins: normalizeList(taskForm.value.excludeCabins).toUpperCase(),
+  }
+  const validationError = validateTaskForm(values)
+  if (validationError) { message.warning(validationError); return }
+  taskForm.value = values
   saving.value = true
-  try { const result = await createPlacementTask({ ...taskForm.value, submit }); message.success(submit ? `任务${result.taskNo}已提交审核` : `草稿${result.taskNo}已保存`); createOpen.value = false; await load(1) }
+  try { const result = await createPlacementTask({ ...values, submit }); message.success(submit ? `任务${result.taskNo}已提交审核` : `草稿${result.taskNo}已保存`); createOpen.value = false; await load(1) }
   catch (failure) { message.error(failure instanceof Error ? failure.message : '保存失败') }
   finally { saving.value = false }
 }
@@ -290,6 +356,10 @@ onMounted(() => { void load(1) })
 </script>
 
 <style scoped>
+:global(.placement-create-modal .ant-modal-content) { overflow: hidden; border: 1px solid #dfe6ef; border-radius: 14px; box-shadow: 0 24px 70px rgba(29,44,68,.22); }
+:global(.placement-create-modal .ant-modal-header) { margin-bottom: 0; padding: 20px 24px 15px; border-bottom: 1px solid #edf0f5; }
+:global(.placement-create-modal .ant-modal-title) { color: #20324d; font-size: 18px; font-weight: 700; }
+:global(.placement-create-modal .ant-modal-body) { max-height: calc(100vh - 130px); overflow-y: auto; padding: 18px 24px 22px; background: #f7f9fc; }
 .smart-placement-page { padding-bottom: 34px; }
 .page-alert { margin-bottom: 14px; border-radius: 10px; }
 .summary-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
@@ -301,9 +371,15 @@ onMounted(() => { void load(1) })
 .panel-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; }.panel-title small { color: #8a96a9; font-size: 11px; }
 .filter-bar { display: grid; grid-template-columns: minmax(220px, 1fr) 170px 150px 120px auto auto; gap: 10px; margin-bottom: 16px; }
 .task-link { padding: 0; border: 0; text-align: left; background: transparent; cursor: pointer; }.task-link strong, .task-link small, .scope-cell strong, .scope-cell span { display: block; }.task-link strong { color: #275fae; }.task-link small, .scope-cell span { margin-top: 3px; color: #8290a4; font-size: 11px; }.scope-cell .exclude { color: #c15b69; }
-.task-form h3 { margin: 14px 0 12px; padding-bottom: 7px; border-bottom: 1px solid #edf0f4; color: #33415a; font-size: 14px; }
-.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }.form-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }.span-2 { grid-column: span 2; }.span-3 { grid-column: span 3; }
-.form-grid :deep(.ant-picker), .form-grid :deep(.ant-input-number) { width: 100%; }.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }.modal-alert { margin-bottom: 16px; }.review-checks { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
+.form-intro { display: flex; align-items: center; gap: 14px; margin: 0 0 18px; padding: 14px 16px; border: 1px solid #cfe0fb; border-radius: 12px; background: linear-gradient(135deg,#f5f9ff,#fbfdff); }
+.intro-mark { display: grid; flex: 0 0 42px; height: 42px; place-items: center; border-radius: 11px; color: #fff; font-weight: 700; background: #2867b7; box-shadow: 0 6px 14px rgba(40,103,183,.2); }.form-intro strong,.form-intro span { display: block; }.form-intro strong { color: #24354f; font-size: 14px; }.form-intro span { margin-top: 3px; color: #718096; font-size: 12px; line-height: 1.6; }
+.task-form { display: grid; gap: 14px; }.form-section { padding: 18px 20px 4px; border: 1px solid #e4eaf2; border-radius: 12px; background: #fff; }.form-section:nth-of-type(even) { background: #fbfcfe; }
+.section-heading { display: flex; align-items: flex-start; gap: 11px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #edf1f6; }.section-heading > span { display: grid; flex: 0 0 27px; height: 27px; place-items: center; border-radius: 8px; color: #2867b7; font-size: 12px; font-weight: 700; background: #eaf2ff; }.section-heading h3 { margin: 1px 0 0; color: #253752; font-size: 15px; line-height: 1.3; }.section-heading p { margin: 4px 0 0; color: #8793a5; font-size: 11px; line-height: 1.5; }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 18px; }.form-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }.form-grid.one { grid-template-columns: 1fr; }.span-2 { grid-column: span 2; }.span-3 { grid-column: span 3; }
+.task-form :deep(.ant-form-item) { margin-bottom: 16px; }.task-form :deep(.ant-form-item-label) { min-height: 29px; padding-bottom: 6px; }.task-form :deep(.ant-form-item-label > label) { height: auto; color: #46546a; font-size: 12px; font-weight: 600; }.task-form :deep(.ant-input),.task-form :deep(.ant-input-number),.task-form :deep(.ant-picker),.task-form :deep(.ant-select) { width: 100%; }.task-form :deep(.ant-input),.task-form :deep(.ant-picker),.task-form :deep(.ant-input-number),.task-form :deep(.ant-select-selector) { min-height: 38px; border-radius: 7px !important; }.task-form :deep(.ant-input-number-input) { height: 36px; }.task-form :deep(textarea.ant-input) { min-height: auto; padding-top: 9px; line-height: 1.65; }
+.field-tip { margin: -3px 0 14px; padding: 9px 12px; border-left: 3px solid #d79d30; border-radius: 4px 8px 8px 4px; color: #7d6840; font-size: 11px; background: #fff9ed; }.metric-hint { align-self: start; min-height: 67px; margin-bottom: 16px; padding: 9px 12px; border: 1px dashed #cfdcf0; border-radius: 8px; background: #f7faff; }.metric-hint span,.metric-hint strong,.metric-hint small { display: block; }.metric-hint span { color: #6f86a8; font-size: 10px; }.metric-hint strong { margin: 3px 0 1px; color: #355a8e; font-size: 12px; }.metric-hint small { color: #8b98aa; font-size: 10px; }.conclusion-section { padding-bottom: 4px; }.grid-placeholder { min-height: 1px; }
+.modal-actions { position: sticky; bottom: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 2px -2px -2px; padding: 14px 2px 2px; border-top: 1px solid #e7ecf3; background: rgba(255,255,255,.96); }.modal-actions > span { color: #8a96a8; font-size: 11px; }.modal-actions > div { display: flex; gap: 8px; }.modal-alert { margin-bottom: 16px; }.review-checks { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
 @media (max-width: 1180px) { .summary-grid { grid-template-columns: repeat(3, 1fr); } .filter-bar { grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 760px) { .summary-grid, .form-grid, .form-grid.three, .review-checks { grid-template-columns: 1fr; }.span-2,.span-3 { grid-column: auto; }.filter-bar { grid-template-columns: 1fr 1fr; }.flow-card { overflow-x: auto; } }
+@media (max-width: 820px) { .form-grid,.form-grid.three { grid-template-columns: repeat(2,minmax(0,1fr)); }.span-3 { grid-column: span 2; }.grid-placeholder { display: none; } }
+@media (max-width: 600px) { .summary-grid, .form-grid, .form-grid.three, .review-checks { grid-template-columns: 1fr; }.span-2,.span-3 { grid-column: auto; }.filter-bar { grid-template-columns: 1fr 1fr; }.flow-card { overflow-x: auto; }.form-section { padding: 15px 14px 2px; }.modal-actions { align-items: stretch; flex-direction: column; }.modal-actions > div { display: grid; grid-template-columns: repeat(3,1fr); } }
 </style>
