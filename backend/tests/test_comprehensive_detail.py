@@ -106,19 +106,55 @@ def test_detail_columns_follow_business_workbook(business, expected_titles):
     assert [item.title for item in module.DETAIL_SPECS[business].columns] == expected_titles
 
 
-def test_product_filter_is_blocked_until_wide_tables_have_matching_field():
+@pytest.mark.parametrize("business", ["issue", "refund", "change", "ancillary"])
+def test_product_filter_uses_the_normalized_mysql_detail_field(business):
+    count_query, _data_query, count_params, _data_params = module.build_detail_queries(
+        database="sibebid",
+        business=business,
+        start_date="2026-10-08",
+        next_date="2026-10-09",
+        filters=module.parse_detail_filters({"product": '["CTRIP","携程","公布转私有"]'}),
+        page=1,
+        page_size=50,
+    )
+
+    assert "NULLIF(TRIM(src.ota_code),'')=%s" in count_query
+    assert "NULLIF(TRIM(src.ota_cname),'')=%s" in count_query
+    assert "NULLIF(TRIM(src.ticket_product_raw),'')=%s" in count_query
+    assert count_params == ["2026-10-08", "2026-10-09", "CTRIP", "携程", "公布转私有"]
+
+
+def test_unknown_product_filter_keeps_null_semantics():
+    count_query, _data_query, count_params, _data_params = module.build_detail_queries(
+        database="sibebid",
+        business="refund",
+        start_date="2026-10-08",
+        next_date="2026-10-09",
+        filters={"product": ["CTRIP", "携程", None]},
+        page=1,
+        page_size=50,
+    )
+
+    assert "NULLIF(TRIM(src.ticket_product_raw),'') IS NULL" in count_query
+    assert count_params == ["2026-10-08", "2026-10-09", "CTRIP", "携程"]
+
+
+def test_missing_normalized_product_column_has_actionable_error():
     source = MagicMock()
     source.database = "sibebid"
+    connection = source.connect.return_value
+    cursor = connection.cursor.return_value
+    cursor.execute.side_effect = Exception(1054, "Unknown column 'src.ticket_product_raw'")
     with patch.object(module, "DataSource", return_value=source):
-        service = module.ComprehensiveDetailService({})
-        with pytest.raises(ValueError, match="ticket_product_raw"):
-            service.details(
-                start_value="2026-09-29",
-                end_value="2026-09-29",
-                business="issue",
-                filters=encoded_filters(include_product=True),
-            )
-    source.connect.assert_not_called()
+        result = module.ComprehensiveDetailService({}).details(
+            start_value="2026-10-08",
+            end_value="2026-10-08",
+            business="issue",
+            filters={"product": '["CTRIP","携程","公布转私有"]'},
+        )
+
+    assert result["available"] is False
+    assert "回补ticket_product_raw" in result["error"]
 
 
 def test_service_returns_mysql_rows_without_hive_or_demo_fallback():

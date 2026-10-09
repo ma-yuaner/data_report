@@ -231,6 +231,14 @@ def build_detail_queries(
         "platform": spec.platform_filters,
         "site": spec.site_filters,
         "airline": ((f"src.{spec.airline_field}", 0),),
+        # The ADS product token carries its OTA namespace plus the normalized
+        # ticket product.  All four MySQL detail tables receive this derived
+        # field from the same Hive rule used by the ADS ETL.
+        "product": (
+            ("src.ota_code", 0),
+            ("src.ota_cname", 1),
+            ("src.ticket_product_raw", 2),
+        ),
         "policy": ((f"src.{spec.policy_field}", 0),),
     }
     for key, expressions in mappings.items():
@@ -267,6 +275,13 @@ def serialize_value(value: Any, value_type: str) -> str | int | None:
     return str(value)
 
 
+def missing_product_column(error: Exception) -> bool:
+    detail = " ".join(str(item) for item in getattr(error, "args", ())).lower()
+    return "ticket_product_raw" in detail and (
+        "unknown column" in detail or "不存在" in detail or "1054" in detail
+    )
+
+
 class ComprehensiveDetailService:
     def __init__(self, config: dict[str, Any]):
         self.source = DataSource({**config, "DATA_MODE": "mysql"})
@@ -294,11 +309,6 @@ class ComprehensiveDetailService:
         if page < 1 or page > 10_000 or page_size < 1 or page_size > 100:
             raise ValueError("页码必须大于0，每页最多100条")
         parsed_filters = parse_detail_filters(filters)
-        if "product" in parsed_filters:
-            raise ValueError(
-                "当前MySQL明细宽表尚未同步与ADS一致的机票产品字段，"
-                "不能忽略产品条件返回错误明细；请先补充ticket_product_raw字段。"
-            )
         spec = DETAIL_SPECS[business]
         response = {
             "available": False,
@@ -350,9 +360,15 @@ class ComprehensiveDetailService:
             response["total"] = total
             response["available"] = True
             return response
-        except Exception:
+        except Exception as error:
             logging.getLogger(__name__).exception("MySQL comprehensive detail query failed")
-            response["error"] = "宽表明细查询失败，请检查MySQL连接、源表字段与当前筛选条件。"
+            if "product" in parsed_filters and missing_product_column(error):
+                response["error"] = (
+                    "MySQL宽表尚未完成统一机票产品同步，请先执行字段DDL并回补"
+                    "ticket_product_raw后再按产品下钻。"
+                )
+            else:
+                response["error"] = "宽表明细查询失败，请检查MySQL连接、源表字段与当前筛选条件。"
             return response
         finally:
             if count_cursor is not None:

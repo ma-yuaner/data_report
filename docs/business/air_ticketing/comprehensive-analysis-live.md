@@ -1,7 +1,7 @@
 # 综合分析：MySQL ADS实际数据
 
 来源：用户2026-09-20确认Hive ADS已同步到MySQL `sibebid.bi_business_profit_dimension_day`，明确要求综合分析切换到该表；部门沿用此前暂不纳入要求。
-状态：MySQL承接数据源与部门范围已确认；2026-10-02将“分析此项”升级为经营诊断V1；2026-10-09综合分析增加出票航段展示与排序。Hive仍是最终解释来源。财务确认阶段、产品业务字典、唯一票粒度与同步完整性仍待业务/财务验证。
+状态：MySQL承接数据源与部门范围已确认；2026-10-02将“分析此项”升级为经营诊断V1；2026-10-09综合分析增加出票航段展示与排序，并确认宽表产品下钻统一使用与ADS同口径的`ticket_product_raw`。Hive仍是最终解释来源。财务确认阶段、产品业务字典、唯一票粒度与同步完整性仍待业务/财务验证。
 更新日期：2026-10-09。
 
 ## 页面与接口
@@ -19,7 +19,7 @@
 
 宽表明细接口为`/api/v1/analysis/comprehensive/details`，按业务分别读取`sibebid.bi_order_issue_year`、`bi_refund_issue_year`、`bi_change_issue_year`、`bi_aux_pur_year`，与综合ADS的业务日期口径和数据覆盖范围保持一致；不能为了补齐展示字段改读更新周期不同的利润核对表。接口同时返回当前业务的列定义，页面不再用一套固定列覆盖四类业务。查询强制按业务日进入，单次最多31天、每页最多100条；先查询记录总数，再分页读取宽表行，不连接Hive、不加载全年明细。出票单段利润按`issue_profit / segment_num`展示，航段为空或为0时保留空值。源宽表没有的字段保留在业务清单中并显示为空，不推造字段值；当前包括出票的出票票号、业务盈亏原因和利润备注，退票的实际利润，以及增值的出票票号和业绩分类。
 
-2026-09-29只读结构核对确认：四张MySQL宽表具备平台、站点、业务航司和政策员字段，但尚未具备与ADS口径一致的`ticket_product_raw`；出票宽表也没有`product_type`。因此带产品条件下钻时接口明确停止并提示补充字段，不能忽略产品条件返回错误明细。后续应在四张承接宽表同步统一的`ticket_product_raw`后再开放产品明细筛选。
+2026-10-09只读验证确认：ADS中携程“公布转私有”在2026-10-08分别为出票2923、退票112、改签80、增值0。直接用退票`product_name`得到141条，口径不一致；增值`product_name`实际为行李等增值产品；出票、改签承接表没有可直接使用的机票产品字段，且当前MySQL订单宽表的`order_id`关联测试无匹配。因此不能把不同业务中同名或近似的`product_type/product_name`直接当作统一机票产品。四张MySQL明细承接表应同步与Hive ADS完全同规则生成的`ticket_product_raw`和`product_status`；产品下钻同时绑定`ota_code`、`ota_cname`和`ticket_product_raw`，不忽略产品条件，也不使用含义不同的增值产品字段。
 
 ## 取数与质量
 
@@ -34,5 +34,7 @@
 ## 部署与验证
 
 沿用现有MySQL连接环境变量，`MYSQL_DATABASE`默认为`sibebid`；服务器正常构建API和web镜像即可，端口1818/5160不变。本模块固定读取MySQL承接表，不受全局`DATA_MODE`临时切换影响。MySQL镜像表必须已有可空字段`policy_operator`并完成Hive v2同步；本次接口不执行建表或数据写入。
+
+统一机票产品宽表下钻按以下顺序上线：先执行Hive `dws_business_ticket_product_relation_year` DDL并运行`bi_business_ticket_product_relation_etl.py`全量任务，再创建四张带统一产品字段的Hive源视图；随后执行`docs/sql/comprehensive-detail-ticket-product.sql`给四张MySQL承接表补字段，在现有Hive→MySQL全量同步任务中将源表切到对应视图并增加`ticket_product_raw/product_status`映射。同步完成后以同一日期、OTA编码和产品对比ADS业务数与明细票数；验证通过后产品下钻无需再次发布应用。仓库当前没有四张承接表的DataX任务定义，因此不在应用代码中猜测或修改服务器外部调度配置。
 
 新增离线测试 `backend/tests/test_comprehensive_analysis.py`，覆盖四类coverage、真实零/缺日期、混合批次、计数一致性、NULL利润、Decimal、产品平台命名空间、交叉筛选、ADS查询范围、异常无演示回退和API校验。
