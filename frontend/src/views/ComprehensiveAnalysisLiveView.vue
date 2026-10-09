@@ -101,7 +101,7 @@
                 <template v-if="column.key === 'name'"><strong>{{ record.name }}</strong></template>
                 <template v-else-if="isBusinessKey(column.key)"><div class="metric-cell"><strong :class="{ negative: isNegative(record.metrics[column.key].profit) }">{{ money(record.metrics[column.key].profit) }}<small> 元</small></strong><span>{{ count(record.metrics[column.key].count) }} 票</span><span v-if="column.key === 'issue'">{{ count(record.metrics.issue.segmentCount) }} 航段</span><span v-if="column.key === 'issue' && record.metrics.issue.segmentMissingCount" class="metric-missing">航段缺失 {{ count(record.metrics.issue.segmentMissingCount) }} 票</span></div></template>
                 <template v-else-if="column.key === 'total'"><strong :class="{ negative: isNegative(record.totalProfit) }">{{ money(record.totalProfit) }} 元</strong></template>
-                <template v-else-if="column.key === 'action'"><a-button type="link" size="small" @click="continueDiagnosis(record)">继续分析</a-button></template>
+                <template v-else-if="column.key === 'action'"><a-button type="link" size="small" @click="continueDiagnosis(record)">继续分析</a-button><a-button type="link" size="small" @click="openDiagnosisDetail(record)">查看明细</a-button></template>
               </template>
             </a-table>
           </a-card>
@@ -112,7 +112,7 @@
     </a-drawer>
     <a-drawer v-model:open="drawerOpen" :title="drawerTitle" :width="'min(900px, 100vw)'">
       <a-alert type="info" show-icon message="真实日汇总" description="保留当前时间和维度条件；点击每行的“查看宽表明细”可按该业务日追溯MySQL出退改增宽表。" />
-      <div class="drawer-scope"><strong>{{ applied.startDate }} 至 {{ applied.endDate }}</strong><p>{{ drawerScope }}</p></div>
+      <div class="drawer-scope"><strong>{{ drawerFilterScope.startDate }} 至 {{ drawerFilterScope.endDate }}</strong><p>{{ drawerScope }}</p></div>
       <a-alert v-if="drawerError" type="error" :message="drawerError" show-icon />
       <a-table :loading="drawerLoading" :columns="drawerColumns" :data-source="drawerRows" row-key="key" :pagination="{ pageSize: 20 }" :scroll="{ x: 620 }">
         <template #bodyCell="{ column, record }"><template v-if="column.key === 'count'">{{ count(record.count) }} 票</template><template v-else-if="column.key === 'segments'">{{ record.businessKey === 'issue' ? count(record.segmentCount) + ' 航段' : '—' }}</template><template v-else-if="column.key === 'profit'">{{ money(record.profit) }} 元</template><template v-else-if="column.key === 'missing'">{{ count(record.profitMissingCount) }} 票</template><template v-else-if="column.key === 'action'"><a-button type="link" size="small" @click="openWideDetail(record)">查看宽表明细</a-button></template></template>
@@ -120,7 +120,7 @@
     </a-drawer>
     <a-drawer v-model:open="detailOpen" :title="detailTitle" :width="'min(1280px, 100vw)'">
       <a-alert type="info" show-icon :message="detailData?.source || 'MySQL宽表明细'" description="按所点业务日和当前平台、站点、航司、产品、政策员条件实时查询；列项按出、退、改、增业务分别展示。" />
-      <div class="drawer-scope"><strong>{{ detailDate }}</strong><p>{{ drawerScope }}</p></div>
+      <div class="drawer-scope detail-scope"><div><strong>{{ detailDate }}</strong><p>{{ detailScopeText }}</p></div><label><span>查看宽表</span><a-select v-model:value="detailBusiness" :options="businessOptions" :disabled="detailLoading" @change="changeDetailBusiness" /></label></div>
       <a-alert v-if="detailError" type="error" :message="detailError" show-icon />
       <a-table :loading="detailLoading" :columns="detailColumns" :data-source="detailData?.rows || []" row-key="recordKey"
         :pagination="detailPagination"
@@ -151,6 +151,7 @@ const businesses: { key: BusinessKey; label: string; countLabel: string; color: 
   { key: 'change', label: '改签', countLabel: '改签数', color: '#8570cf' },
   { key: 'ancillary', label: '增值', countLabel: '增值购买数', color: '#3aada0' },
 ]
+const businessOptions = businesses.map(business => ({ label: `${business.label}宽表`, value: business.key }))
 const dimensions: { key: DimensionKey; label: string }[] = [{ key: 'platform', label: '平台' }, { key: 'site', label: '站点' }, { key: 'airline', label: '航司' }, { key: 'product', label: '产品' }, { key: 'policy', label: '政策员' }]
 const periodOptions = [{ label: '今日', value: 'today' }, { label: '昨日', value: 'yesterday' }, { label: '本月', value: 'month' }, { label: '本年', value: 'year' }, { label: '自定义', value: 'custom' }]
 // Calendar dates always use the company's UTC+8 business timezone.
@@ -184,6 +185,7 @@ const chartNumber = (amount: string | null | undefined) => amount == null ? null
 const isBusinessKey = (key: unknown): key is BusinessKey => businesses.some(b => b.key === key)
 const filterOptions = (key: DimensionKey) => [{ label: '全部' + dimensions.find(d => d.key === key)!.label, value: '' }, ...(data.value?.options[key] || [])]
 function optionLabel(key: DimensionKey, value: string) { return data.value?.options[key].find(o => o.value === value)?.label || JSON.parse(value).filter(Boolean).join(' · ') || '未知' }
+function scopeText(scope: FilterScope) { return dimensions.filter(dimension => scope[dimension.key]).map(dimension => `${dimension.label}：${optionLabel(dimension.key, scope[dimension.key])}`).join(' · ') || '全部范围' }
 
 const diagnosisOpen = ref(false)
 const diagnosisLoading = ref(false)
@@ -304,7 +306,7 @@ const diagnosisColumns = computed(() => [
   { title: dimensions.find(dimension => dimension.key === diagnosisGroup.value)?.label || '维度', key: 'name', width: 170, fixed: 'left' as const },
   ...businesses.map(business => ({ title: business.key === 'issue' ? '出票利润 / 票数 / 航段' : business.label + '利润 / 票数', key: business.key, width: business.key === 'issue' ? 185 : 155 })),
   { title: '合计利润', key: 'total', width: 140 },
-  { title: '下钻', key: 'action', width: 100, fixed: 'right' as const },
+  { title: '下钻', key: 'action', width: 170, fixed: 'right' as const },
 ])
 const trendOption = computed<EChartsCoreOption>(() => ({
   animation: false, color: businesses.map(b => b.color), tooltip: { trigger: 'axis', valueFormatter: (value: number) => money(value) + ' 元' },
@@ -326,34 +328,42 @@ const drawerTitle = ref('日汇总明细')
 const drawerScope = ref('')
 const drawerFilterScope = ref<FilterScope>(todayScope())
 let drawerRequestId = 0
-function openDiagnosisDaily() {
-  if (!diagnosisData.value?.current) return
-  drawerRequestId++
-  drawerBusiness.value = undefined
-  drawerData.value = diagnosisData.value.current
-  drawerError.value = diagnosisData.value.current.error
-  drawerLoading.value = false
-  drawerFilterScope.value = { ...diagnosisScope.value }
-  drawerTitle.value = `${diagnosisTitle.value.replace(' · 经营诊断', '')} · 出退改增日汇总`
-  drawerScope.value = diagnosisScopeText.value
-  drawerOpen.value = true
-}
-async function openDetail(business?: BusinessKey, row?: DimensionRow) {
+async function openDailySummary(scope: FilterScope, title: string, business?: BusinessKey, cached?: ComprehensiveData, group: DimensionKey = groupDimension.value) {
   const id = ++drawerRequestId
   drawerBusiness.value = business
-  drawerData.value = undefined
-  drawerError.value = ''
-  drawerLoading.value = true
-  const scope = { ...applied.value, ...(row ? { [groupDimension.value]: row.value } : {}) }
-  drawerFilterScope.value = scope
-  drawerTitle.value = (row?.name || '当前范围') + ' · ' + (businesses.find(b => b.key === business)?.label || '出退改增') + '日汇总'
-  drawerScope.value = dimensions.filter(d => scope[d.key]).map(d => d.label + '：' + optionLabel(d.key, scope[d.key])).join(' · ') || '全部范围'
+  drawerData.value = cached
+  drawerError.value = cached?.error || ''
+  drawerLoading.value = !cached
+  drawerFilterScope.value = { ...scope }
+  drawerTitle.value = title
+  drawerScope.value = scopeText(scope)
   drawerOpen.value = true
+  if (cached) return
   try {
-    const result = row ? await fetchComprehensive(scope, groupDimension.value, comparisonSort.value) : data.value!
+    const result = await fetchComprehensive(scope, group, comparisonSort.value)
     if (id === drawerRequestId) { drawerData.value = result; drawerError.value = result.error }
   } catch (failure) { if (id === drawerRequestId) drawerError.value = failure instanceof Error ? failure.message : '日汇总查询失败' }
   finally { if (id === drawerRequestId) drawerLoading.value = false }
+}
+function openDiagnosisDaily() {
+  if (!diagnosisData.value?.current) return
+  void openDailySummary(
+    { ...diagnosisScope.value },
+    `${diagnosisTitle.value.replace(' · 经营诊断', '')} · 出退改增日汇总`,
+    undefined,
+    diagnosisData.value.current,
+    diagnosisGroup.value,
+  )
+}
+function openDiagnosisDetail(row: DimensionRow) {
+  const scope = { ...diagnosisScope.value, [diagnosisGroup.value]: row.value }
+  void openDailySummary(scope, `${row.name} · 出退改增日汇总`, undefined, undefined, diagnosisGroup.value)
+}
+function openDetail(business?: BusinessKey, row?: DimensionRow) {
+  const scope = { ...applied.value, ...(row ? { [groupDimension.value]: row.value } : {}) }
+  const title = (row?.name || '当前范围') + ' · ' + (businesses.find(b => b.key === business)?.label || '出退改增') + '日汇总'
+  const cached = row ? undefined : data.value
+  void openDailySummary(scope, title, business, cached)
 }
 const drawerRows = computed(() => drawerData.value?.available ? drawerData.value.trend.flatMap(day => businesses.filter(b => !drawerBusiness.value || b.key === drawerBusiness.value).map(b => ({ key: day.period + b.key, date: day.period, businessKey: b.key, label: b.label, ...day.metrics[b.key] }))) : [])
 const drawerColumns = [{ title: '业务日', dataIndex: 'date', width: 120 }, { title: '业务', dataIndex: 'label', width: 80 }, { title: '票数', key: 'count', width: 110 }, { title: '出票航段数', key: 'segments', width: 120 }, { title: '业务估算利润', key: 'profit', width: 160 }, { title: '缺失利润票数', key: 'missing', width: 130 }, { title: '明细', key: 'action', width: 130 }]
@@ -366,6 +376,8 @@ const detailDate = ref('')
 const detailTitle = ref('宽表业务明细')
 const detailPage = ref(1)
 const detailPageSize = ref(50)
+const detailFilterScope = ref<FilterScope>(todayScope())
+const detailScopeText = ref('全部范围')
 const detailPagination = computed(() => ({ current: detailPage.value, pageSize: detailPageSize.value, total: detailData.value?.total || 0, showSizeChanger: true, pageSizeOptions: ['20', '50', '100'], showTotal: (total: number) => `共 ${count(total)} 条` }))
 let detailRequestId = 0
 const detailColumns = computed(() => (detailData.value?.columns || []).map((column, index) => ({
@@ -388,7 +400,7 @@ async function loadWideDetail() {
   detailLoading.value = true
   detailError.value = ''
   try {
-    const scope = { ...drawerFilterScope.value, preset: 'custom', startDate: detailDate.value, endDate: detailDate.value }
+    const scope = { ...detailFilterScope.value, preset: 'custom', startDate: detailDate.value, endDate: detailDate.value }
     const result = await fetchComprehensiveDetails(scope, detailBusiness.value, detailPage.value, detailPageSize.value)
     if (id !== detailRequestId) return
     detailData.value = result
@@ -400,10 +412,18 @@ async function loadWideDetail() {
 function openWideDetail(row: DailyRow) {
   detailBusiness.value = row.businessKey
   detailDate.value = row.date
+  detailFilterScope.value = { ...drawerFilterScope.value }
+  detailScopeText.value = drawerScope.value
   detailTitle.value = `${row.date} · ${row.label}宽表明细`
   detailPage.value = 1
   detailData.value = undefined
   detailOpen.value = true
+  void loadWideDetail()
+}
+function changeDetailBusiness() {
+  detailPage.value = 1
+  detailData.value = undefined
+  detailTitle.value = `${detailDate.value} · ${businesses.find(business => business.key === detailBusiness.value)?.label || ''}宽表明细`
   void loadWideDetail()
 }
 function changeDetailPage(pagination: { current?: number; pageSize?: number }) {
@@ -486,7 +506,11 @@ onMounted(() => { void load({ ...draft.value }) })
 .positive { color: #278a68 !important; }
 .negative { color: #c34b5b !important; }
 .drawer-scope { margin: 20px 0; color: #586b86; font-size: 12px; }
+.detail-scope { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.detail-scope > div { min-width: 0; }
+.detail-scope label { flex: none; display: flex; align-items: center; gap: 8px; color: #64728a; font-size: 12px; }
+.detail-scope :deep(.ant-select) { width: 132px; }
 @media (max-width: 1200px) { .summary-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } .summary-total { grid-column: 1 / -1; } }
 @media (max-width: 900px) { .dimension-fields, .summary-grid, .diagnosis-summary-grid, .diagnosis-business-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .charts-grid { grid-template-columns: minmax(0, 1fr); } .section-heading, .scope-actions { flex-wrap: wrap; } }
-@media (max-width: 560px) { .scope-panel { padding: 15px 12px; } .date-fields :deep(.ant-picker) { width: 124px; } .business-card { padding-inline: 12px; } .analysis-panel :deep(.ant-card-body) { padding: 14px 12px; } .diagnosis-summary-grid, .diagnosis-business-grid { grid-template-columns: 1fr; } }
+@media (max-width: 560px) { .scope-panel { padding: 15px 12px; } .date-fields :deep(.ant-picker) { width: 124px; } .business-card { padding-inline: 12px; } .analysis-panel :deep(.ant-card-body) { padding: 14px 12px; } .diagnosis-summary-grid, .diagnosis-business-grid { grid-template-columns: 1fr; } .detail-scope { align-items: flex-start; flex-direction: column; } }
 </style>
