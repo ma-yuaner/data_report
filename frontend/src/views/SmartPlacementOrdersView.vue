@@ -31,6 +31,7 @@
       <div class="filter-bar">
         <a-range-picker
           v-model:value="dateRange"
+          :locale="dateLocale"
           value-format="YYYY-MM-DD"
           :allow-clear="false"
         />
@@ -132,7 +133,15 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { message } from 'ant-design-vue'
+import {
+  Drawer as ADrawer,
+  Empty as AEmpty,
+  Form as AForm,
+  FormItem as AFormItem,
+  RangePicker as ARangePicker,
+  message,
+} from 'ant-design-vue'
+import dateLocale from 'ant-design-vue/es/date-picker/locale/zh_CN'
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import {

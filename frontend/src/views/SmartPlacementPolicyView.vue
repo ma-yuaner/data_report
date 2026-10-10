@@ -67,6 +67,7 @@
               <a-button v-if="record.status === 'CLAIMABLE'" type="link" size="small" @click="openClaim(record)">认领</a-button>
               <a-button v-if="record.status === 'IN_PROGRESS'" type="link" size="small" @click="openExecution(record)">登记投放</a-button>
               <a-button v-if="record.status === 'MONITORING'" type="link" size="small" @click="router.push('/smart-analysis/placement/orders')">查看收单</a-button>
+              <a-button v-if="canDelete(record)" type="link" danger size="small" @click="confirmDelete(record)">删除</a-button>
             </a-space>
           </template>
         </template>
@@ -98,8 +99,8 @@
             <PlacementField class="span-2" label="机会名称" required hint="用于任务池与审核列表识别，例如：携程东南亚航线低价机会"><a-input v-model:value="taskForm.opportunityName" placeholder="请输入机会名称" /></PlacementField>
             <PlacementField label="机会来源" required hint="选择本次机会的发现渠道"><a-select v-model:value="taskForm.opportunitySource" :options="sourceOptions" /></PlacementField>
             <PlacementField label="分析规则编号" hint="由规则识别时填写；人工创建可以留空"><a-input v-model:value="taskForm.analysisRuleCode" placeholder="请输入规则编号" /></PlacementField>
-            <PlacementField label="分析开始日期" required hint="历史样本统计的起始日期"><a-date-picker v-model:value="taskForm.analysisStartDate" class="date-control" value-format="YYYY-MM-DD" placeholder="请选择分析开始日期" /></PlacementField>
-            <PlacementField label="分析结束日期" required hint="历史样本统计的截止日期"><a-date-picker v-model:value="taskForm.analysisEndDate" class="date-control" value-format="YYYY-MM-DD" placeholder="请选择分析结束日期" /></PlacementField>
+            <PlacementField label="分析开始日期" required hint="历史样本统计的起始日期"><a-date-picker v-model:value="taskForm.analysisStartDate" :locale="dateLocale" class="date-control" value-format="YYYY-MM-DD" placeholder="请选择分析开始日期" /></PlacementField>
+            <PlacementField label="分析结束日期" required hint="历史样本统计的截止日期"><a-date-picker v-model:value="taskForm.analysisEndDate" :locale="dateLocale" class="date-control" value-format="YYYY-MM-DD" placeholder="请选择分析结束日期" /></PlacementField>
           </div>
         </section>
 
@@ -125,13 +126,13 @@
         <section class="form-section">
           <header class="section-heading"><span>3</span><div><h3>适用时间</h3><p>区分订单范围、起飞范围和政策生效窗口。</p></div><em>7 个字段</em></header>
           <div class="form-grid three">
-            <PlacementField label="订单开始日期" hint="订单进入匹配范围的起始日期"><a-date-picker v-model:value="taskForm.orderStartDate" class="date-control" value-format="YYYY-MM-DD" placeholder="请选择订单开始日期" /></PlacementField>
-            <PlacementField label="订单结束日期" hint="订单进入匹配范围的截止日期"><a-date-picker v-model:value="taskForm.orderEndDate" class="date-control" value-format="YYYY-MM-DD" placeholder="请选择订单结束日期" /></PlacementField>
-            <PlacementField label="期望完成时间" required hint="投放人员应完成执行登记的时间"><a-date-picker v-model:value="taskForm.expectedCompleteAt" class="date-control" show-time value-format="YYYY-MM-DD HH:mm:ss" placeholder="请选择期望完成时间" /></PlacementField>
-            <PlacementField label="起飞开始日期" hint="适用航班的最早起飞日期"><a-date-picker v-model:value="taskForm.travelStartDate" class="date-control" value-format="YYYY-MM-DD" placeholder="请选择起飞开始日期" /></PlacementField>
-            <PlacementField label="起飞结束日期" hint="适用航班的最晚起飞日期"><a-date-picker v-model:value="taskForm.travelEndDate" class="date-control" value-format="YYYY-MM-DD" placeholder="请选择起飞结束日期" /></PlacementField>
-            <PlacementField label="建议生效时间" state="提交必填" hint="建议政策开始生效的时间"><a-date-picker v-model:value="taskForm.suggestedEffectiveStart" class="date-control" show-time value-format="YYYY-MM-DD HH:mm:ss" placeholder="请选择建议生效时间" /></PlacementField>
-            <PlacementField label="建议失效时间" state="提交必填" hint="建议政策停止匹配的时间"><a-date-picker v-model:value="taskForm.suggestedEffectiveEnd" class="date-control" show-time value-format="YYYY-MM-DD HH:mm:ss" placeholder="请选择建议失效时间" /></PlacementField>
+            <PlacementField label="订单开始日期" hint="订单进入匹配范围的起始日期"><a-date-picker v-model:value="taskForm.orderStartDate" :locale="dateLocale" class="date-control" value-format="YYYY-MM-DD" placeholder="请选择订单开始日期" /></PlacementField>
+            <PlacementField label="订单结束日期" hint="订单进入匹配范围的截止日期"><a-date-picker v-model:value="taskForm.orderEndDate" :locale="dateLocale" class="date-control" value-format="YYYY-MM-DD" placeholder="请选择订单结束日期" /></PlacementField>
+            <PlacementField label="期望完成时间" required hint="投放人员应完成执行登记的时间"><a-date-picker v-model:value="taskForm.expectedCompleteAt" :locale="dateLocale" class="date-control" show-time value-format="YYYY-MM-DD HH:mm:ss" placeholder="请选择期望完成时间" /></PlacementField>
+            <PlacementField label="起飞开始日期" hint="适用航班的最早起飞日期"><a-date-picker v-model:value="taskForm.travelStartDate" :locale="dateLocale" class="date-control" value-format="YYYY-MM-DD" placeholder="请选择起飞开始日期" /></PlacementField>
+            <PlacementField label="起飞结束日期" hint="适用航班的最晚起飞日期"><a-date-picker v-model:value="taskForm.travelEndDate" :locale="dateLocale" class="date-control" value-format="YYYY-MM-DD" placeholder="请选择起飞结束日期" /></PlacementField>
+            <PlacementField label="建议生效时间" state="提交必填" hint="建议政策开始生效的时间"><a-date-picker v-model:value="taskForm.suggestedEffectiveStart" :locale="dateLocale" class="date-control" show-time value-format="YYYY-MM-DD HH:mm:ss" placeholder="请选择建议生效时间" /></PlacementField>
+            <PlacementField label="建议失效时间" state="提交必填" hint="建议政策停止匹配的时间"><a-date-picker v-model:value="taskForm.suggestedEffectiveEnd" :locale="dateLocale" class="date-control" show-time value-format="YYYY-MM-DD HH:mm:ss" placeholder="请选择建议失效时间" /></PlacementField>
           </div>
         </section>
 
@@ -179,7 +180,7 @@
         <PlacementField v-if="reviewStage === 'POLICY_MANAGER'" label="政策可执行性" required hint="不可执行时不能选择审核通过"><a-select v-model:value="reviewForm.policyExecutableLevel" :options="executableOptions" /></PlacementField>
         <PlacementField v-if="reviewStage === 'POLICY_MANAGER'" label="风险等级" required hint="评估本次政策执行风险"><a-select v-model:value="reviewForm.riskLevel" :options="priorityOptions" /></PlacementField>
         <PlacementField label="调整后优先级" hint="留空表示保持原优先级"><a-select v-model:value="reviewForm.adjustedPriority" :options="priorityOptions" allow-clear placeholder="保持不变" /></PlacementField>
-        <PlacementField label="调整后完成时间" hint="留空表示保持原截止时间"><a-date-picker v-model:value="reviewForm.adjustedCompleteAt" show-time value-format="YYYY-MM-DD HH:mm:ss" /></PlacementField>
+        <PlacementField label="调整后完成时间" hint="留空表示保持原截止时间"><a-date-picker v-model:value="reviewForm.adjustedCompleteAt" :locale="dateLocale" show-time value-format="YYYY-MM-DD HH:mm:ss" placeholder="请选择调整后完成时间" /></PlacementField>
         <PlacementField v-if="reviewStage === 'POLICY_MANAGER'" class="span-2" label="风险控制要求" hint="填写价格、库存、航司或履约限制"><a-textarea v-model:value="reviewForm.riskControlRequirement" :rows="2" /></PlacementField>
         <PlacementField v-if="reviewStage === 'POLICY_MANAGER'" class="span-2" label="可认领范围" hint="填写可认领人员或小组；首版不做岗位权限过滤"><a-input v-model:value="reviewForm.claimScope" /></PlacementField>
         <PlacementField class="span-2" label="审核意见" :required="reviewForm.result !== 'APPROVED'" hint="退回或驳回时必须说明原因和修改要求"><a-textarea v-model:value="reviewForm.comment" :rows="3" /></PlacementField>
@@ -190,7 +191,7 @@
     <a-modal v-model:open="claimOpen" title="认领投放任务" width="min(620px, 94vw)" wrap-class-name="placement-action-modal" :footer="null" :mask-closable="false">
       <div class="action-context"><div><strong>{{ activeTask?.opportunityName }}</strong><span>{{ activeTask?.taskNo }}</span></div><p>认领后任务进入“执行中”，当前账号成为唯一负责人。</p></div>
       <div class="form-grid one">
-        <PlacementField label="计划完成时间" required hint="负责人承诺完成投放登记的时间"><a-date-picker v-model:value="claimForm.plannedCompleteAt" show-time value-format="YYYY-MM-DD HH:mm:ss" /></PlacementField>
+        <PlacementField label="计划完成时间" required hint="负责人承诺完成投放登记的时间"><a-date-picker v-model:value="claimForm.plannedCompleteAt" :locale="dateLocale" show-time value-format="YYYY-MM-DD HH:mm:ss" placeholder="请选择计划完成时间" /></PlacementField>
         <PlacementField label="认领备注" hint="说明资源准备、执行计划或其他情况"><a-textarea v-model:value="claimForm.note" :rows="3" /></PlacementField>
       </div>
       <div class="dialog-actions"><a-button @click="claimOpen=false">取消</a-button><a-button type="primary" :loading="saving" @click="submitClaim">确认认领</a-button></div>
@@ -205,12 +206,12 @@
             <PlacementField label="投放结果" required><a-select v-model:value="executionForm.result" :options="executionResultOptions" /></PlacementField>
             <PlacementField v-if="executionForm.result === 'SUCCESS'" label="外部政策 ID" required hint="用于订单匹配和外部追溯"><a-input v-model:value="executionForm.externalPolicyId" /></PlacementField>
             <PlacementField v-if="executionForm.result === 'SUCCESS'" label="外部政策名称" hint="外部系统中的政策名称"><a-input v-model:value="executionForm.externalPolicyName" /></PlacementField>
-            <PlacementField v-if="executionForm.result === 'SUCCESS'" label="实际投放时间" required><a-date-picker v-model:value="executionForm.actualPlacementAt" show-time value-format="YYYY-MM-DD HH:mm:ss" /></PlacementField>
-            <PlacementField v-if="executionForm.result === 'SUCCESS'" label="政策生效时间" required><a-date-picker v-model:value="executionForm.effectiveStartAt" show-time value-format="YYYY-MM-DD HH:mm:ss" /></PlacementField>
-            <PlacementField v-if="executionForm.result === 'SUCCESS'" label="政策失效时间" required><a-date-picker v-model:value="executionForm.effectiveEndAt" show-time value-format="YYYY-MM-DD HH:mm:ss" /></PlacementField>
+            <PlacementField v-if="executionForm.result === 'SUCCESS'" label="实际投放时间" required><a-date-picker v-model:value="executionForm.actualPlacementAt" :locale="dateLocale" show-time value-format="YYYY-MM-DD HH:mm:ss" placeholder="请选择实际投放时间" /></PlacementField>
+            <PlacementField v-if="executionForm.result === 'SUCCESS'" label="政策生效时间" required><a-date-picker v-model:value="executionForm.effectiveStartAt" :locale="dateLocale" show-time value-format="YYYY-MM-DD HH:mm:ss" placeholder="请选择政策生效时间" /></PlacementField>
+            <PlacementField v-if="executionForm.result === 'SUCCESS'" label="政策失效时间" required><a-date-picker v-model:value="executionForm.effectiveEndAt" :locale="dateLocale" show-time value-format="YYYY-MM-DD HH:mm:ss" placeholder="请选择政策失效时间" /></PlacementField>
             <PlacementField v-if="executionForm.result === 'FAILED'" label="失败类型" required><a-select v-model:value="executionForm.failureType" :options="failureTypeOptions" /></PlacementField>
             <PlacementField v-if="executionForm.result === 'FAILED'" label="是否重新执行" hint="开启后任务仍保持执行中"><a-switch v-model:checked="executionForm.retryRequired" /></PlacementField>
-            <PlacementField v-if="executionForm.result === 'FAILED' && executionForm.retryRequired" label="下次处理时间" required><a-date-picker v-model:value="executionForm.nextHandleAt" show-time value-format="YYYY-MM-DD HH:mm:ss" /></PlacementField>
+            <PlacementField v-if="executionForm.result === 'FAILED' && executionForm.retryRequired" label="下次处理时间" required><a-date-picker v-model:value="executionForm.nextHandleAt" :locale="dateLocale" show-time value-format="YYYY-MM-DD HH:mm:ss" placeholder="请选择下次处理时间" /></PlacementField>
             <PlacementField v-if="executionForm.result === 'FAILED'" class="span-3" label="失败原因" required><a-textarea v-model:value="executionForm.failureReason" :rows="3" /></PlacementField>
           </div>
         </section>
@@ -339,14 +340,28 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { message } from 'ant-design-vue'
+import {
+  CheckboxGroup as ACheckboxGroup,
+  DatePicker as ADatePicker,
+  Descriptions as ADescriptions,
+  DescriptionsItem as ADescriptionsItem,
+  Drawer as ADrawer,
+  Empty as AEmpty,
+  Form as AForm,
+  InputNumber as AInputNumber,
+  Modal,
+  Steps as ASteps,
+  Timeline as ATimeline,
+  message,
+} from 'ant-design-vue'
+import dateLocale from 'ant-design-vue/es/date-picker/locale/zh_CN'
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons-vue'
 import { useRouter } from 'vue-router'
 import PageHeader from '@/components/PageHeader.vue'
 import PlacementField from '@/components/PlacementField.vue'
 import { useAuthStore } from '@/stores/auth'
 import {
-  claimPlacementTask, createPlacementTask, executePlacementTask, fetchPlacementTask,
+  claimPlacementTask, createPlacementTask, deletePlacementTask, executePlacementTask, fetchPlacementTask,
   fetchPlacementDimensions, fetchPlacementTasks, reviewPlacementTask, updatePlacementTask,
   type PlacementDimensionOption, type PlacementDimensionOptions, type PlacementPriority,
   type PlacementTaskDetail, type PlacementTaskInput, type PlacementTaskList,
@@ -438,7 +453,7 @@ const reviewResultMap: Record<string, { label: string; color: string }> = {
   APPROVED: { label: '通过', color: 'green' }, RETURNED: { label: '退回修改', color: 'orange' }, REJECTED: { label: '驳回终止', color: 'red' },
 }
 const actionLabelMap: Record<string, string> = {
-  CREATE: '保存草稿', UPDATE: '更新草稿', SUBMIT: '提交审核', RESUBMIT: '重新提交', REVIEW: '审核', CLAIM: '认领', EXECUTE: '登记投放', ATTENTION: '订单关注',
+  CREATE: '保存草稿', UPDATE: '更新草稿', DELETE: '删除任务', SUBMIT: '提交审核', RESUBMIT: '重新提交', REVIEW: '审核', CLAIM: '认领', EXECUTE: '登记投放', ATTENTION: '订单关注',
 }
 const reviewResultMeta = (value: unknown) => reviewResultMap[String(value)] || { label: valueOrDash(value), color: 'default' }
 const actionLabel = (value: unknown) => actionLabelMap[String(value)] || valueOrDash(value)
@@ -604,6 +619,22 @@ async function saveTask(submit: boolean) {
   finally { saving.value = false }
 }
 const canEdit = (row: PlacementTaskRow) => row.status === 'DRAFT' && (Boolean(authStore.user?.isAdmin) || row.createdById === authStore.user?.id)
+const canDelete = (row: PlacementTaskRow) => ['DRAFT', 'REJECTED'].includes(row.status) && (Boolean(authStore.user?.isAdmin) || row.createdById === authStore.user?.id)
+function confirmDelete(row: PlacementTaskRow) {
+  Modal.confirm({
+    title: '确认删除投放任务？',
+    content: `将删除“${row.opportunityName}”（${row.taskNo}）。删除后不再出现在任务列表，但操作记录仍会保留。`,
+    okText: '确认删除',
+    okType: 'danger',
+    cancelText: '取消',
+    async onOk() {
+      await deletePlacementTask(row.id)
+      message.success('投放任务已删除')
+      const nextPage = (data.value?.rows.length || 0) <= 1 && page.value > 1 ? page.value - 1 : page.value
+      await load(nextPage)
+    },
+  })
+}
 const isReviewable = (row: PlacementTaskRow) => Boolean(authStore.user?.isAdmin) && ['PENDING_DATA_REVIEW', 'PENDING_POLICY_REVIEW'].includes(row.status)
 function openReview(row: PlacementTaskRow) {
   activeTask.value = row

@@ -254,8 +254,10 @@ def _dict_row(cursor, row: Any) -> dict[str, Any] | None:
 
 
 def _json_value(value: Any) -> Any:
-    if isinstance(value, (datetime, date)):
+    if isinstance(value, datetime):
         return value.isoformat(sep=" ")
+    if isinstance(value, date):
+        return value.isoformat()
     if isinstance(value, Decimal):
         return format(value, "f")
     return value
@@ -583,6 +585,42 @@ class SmartPlacementService:
             if _is_missing_table(error):
                 raise SmartPlacementUnavailable("智能投放表尚未创建，请先执行smart-placement-schema.sql") from error
             raise SmartPlacementUnavailable("智能投放任务修改失败") from error
+        finally:
+            if cursor is not None: cursor.close()
+            if connection is not None: connection.close()
+
+    def delete_task(self, user: dict[str, Any], task_id: int) -> dict[str, Any]:
+        actor = _actor(user)
+        now = _now()
+        connection = cursor = None
+        try:
+            connection = self.source.connect(); connection.begin(); cursor = connection.cursor()
+            task = self._task_for_update(cursor, task_id)
+            if task["status"] not in {"DRAFT", "REJECTED"}:
+                raise ValueError("只有草稿或已驳回任务可以删除")
+            if int(task.get("created_by_id") or 0) != actor[0] and actor[2] != "ADMIN":
+                raise PermissionError("只能由创建人或管理员删除该任务")
+            cursor.execute(
+                f"""UPDATE {self._table(TASK_TABLE)} SET is_deleted=1,
+                        updated_by_id=%s, updated_by_name=%s,
+                        version_no=version_no+1, updated_at=%s WHERE id=%s""",
+                (actor[0], actor[1], now, task_id),
+            )
+            self._log(
+                cursor, task_id=task_id, action="DELETE", actor=actor,
+                from_status=task["status"], to_status=task["status"], note="删除投放任务",
+            )
+            connection.commit()
+            return {"id": task_id, "deleted": True}
+        except (ValueError, PermissionError):
+            if connection is not None: connection.rollback()
+            raise
+        except Exception as error:
+            if connection is not None: connection.rollback()
+            LOGGER.exception("Smart placement task delete failed")
+            if _is_missing_table(error):
+                raise SmartPlacementUnavailable("智能投放表尚未创建，请先执行smart-placement-schema.sql") from error
+            raise SmartPlacementUnavailable("智能投放任务删除失败") from error
         finally:
             if cursor is not None: cursor.close()
             if connection is not None: connection.close()

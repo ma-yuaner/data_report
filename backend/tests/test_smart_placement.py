@@ -1,3 +1,4 @@
+from datetime import date
 from unittest.mock import MagicMock
 
 import pytest
@@ -135,6 +136,62 @@ def test_update_draft_rejects_non_creator():
             {"id": 9, "display_name": "其他用户", "is_admin": False},
             17,
             task_payload(submit=False),
+        )
+
+    connection.rollback.assert_called_once()
+
+
+def test_task_detail_serializes_date_fields_without_datetime_separator():
+    service, _connection, cursor = service_with_cursor()
+    cursor.fetchone.return_value = {
+        "id": 17,
+        "task_no": "SP202610100001",
+        "analysis_start_date": date(2026, 9, 1),
+    }
+    cursor.fetchall.side_effect = [[], [], []]
+
+    result = service.task_detail(17)
+
+    assert result["task"]["analysisStartDate"] == "2026-09-01"
+
+
+def test_delete_draft_soft_deletes_and_keeps_audit_log():
+    service, connection, cursor = service_with_cursor()
+    cursor.fetchone.return_value = {
+        "id": 17,
+        "task_no": "SP202610100001",
+        "status": "DRAFT",
+        "created_by_id": 3,
+    }
+
+    result = service.delete_task(
+        {"id": 3, "display_name": "数据分析员", "is_admin": False},
+        17,
+    )
+
+    assert result == {"id": 17, "deleted": True}
+    update_query, update_params = cursor.execute.call_args_list[1].args
+    assert "SET is_deleted=1" in update_query
+    assert update_params[-1] == 17
+    log_query, log_params = cursor.execute.call_args_list[2].args
+    assert "INSERT INTO" in log_query
+    assert "DELETE" in log_params
+    connection.commit.assert_called_once()
+
+
+def test_delete_running_task_is_rejected():
+    service, connection, cursor = service_with_cursor()
+    cursor.fetchone.return_value = {
+        "id": 17,
+        "task_no": "SP202610100001",
+        "status": "MONITORING",
+        "created_by_id": 3,
+    }
+
+    with pytest.raises(ValueError, match="只有草稿或已驳回"):
+        service.delete_task(
+            {"id": 3, "display_name": "数据分析员", "is_admin": False},
+            17,
         )
 
     connection.rollback.assert_called_once()
