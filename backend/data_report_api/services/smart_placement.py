@@ -29,6 +29,7 @@ REVIEW_STAGES = {
     "POLICY_MANAGER": ("PENDING_POLICY_REVIEW", "CLAIMABLE", "policy_reviewed_at"),
 }
 REVIEW_RESULTS = frozenset({"APPROVED", "RETURNED", "REJECTED"})
+POLICY_EXECUTABLE_LEVELS = frozenset({"EXECUTABLE", "CONDITIONAL", "NOT_EXECUTABLE"})
 ATTENTION_STATUSES = frozenset({"IN_PROGRESS", "COMPLETED", "NO_ACTION"})
 CODE_RE = re.compile(r"^[A-Za-z0-9._:/-]{1,128}$")
 
@@ -109,6 +110,109 @@ def _integer(value: Any, name: str) -> int | None:
 
 def _bool(value: Any) -> bool:
     return value is True or str(value).lower() in {"1", "true", "yes"}
+
+
+def _required_value(values: dict[str, Any], key: str, name: str) -> Any:
+    value = values.get(key)
+    if value in (None, ""):
+        raise ValueError(f"{name}不能为空")
+    return value
+
+
+def _task_fields(values: dict[str, Any], *, submit: bool) -> dict[str, Any]:
+    """Validate and normalize every editable task field in one place."""
+    source = _text(values.get("opportunitySource"), "机会来源", 32, required=True).upper()
+    rule_code = _code(
+        values.get("analysisRuleCode"), "分析规则编号",
+        required=submit and source == "AUTO_ANALYSIS",
+    )
+    analysis_start = _date_value(values.get("analysisStartDate"), "分析开始日期", required=True)
+    analysis_end = _date_value(values.get("analysisEndDate"), "分析结束日期", required=True)
+    if analysis_end < analysis_start:
+        raise ValueError("分析结束日期不能早于开始日期")
+
+    order_start = _date_value(values.get("orderStartDate"), "订单开始日期")
+    order_end = _date_value(values.get("orderEndDate"), "订单结束日期")
+    if order_start and order_end and order_end < order_start:
+        raise ValueError("订单结束日期不能早于开始日期")
+    travel_start = _date_value(values.get("travelStartDate"), "起飞开始日期")
+    travel_end = _date_value(values.get("travelEndDate"), "起飞结束日期")
+    if travel_start and travel_end and travel_end < travel_start:
+        raise ValueError("起飞结束日期不能早于开始日期")
+
+    suggested_start = _datetime_value(
+        values.get("suggestedEffectiveStart"), "建议生效时间", required=submit,
+    )
+    suggested_end = _datetime_value(
+        values.get("suggestedEffectiveEnd"), "建议失效时间", required=submit,
+    )
+    if suggested_start and suggested_end and suggested_end <= suggested_start:
+        raise ValueError("建议失效时间必须晚于生效时间")
+
+    include_cabins = _text(values.get("includeCabins"), "包含舱位", 500)
+    exclude_cabins = _text(values.get("excludeCabins"), "排除舱位", 500)
+    included_list = list(dict.fromkeys(
+        item.strip().upper()
+        for item in include_cabins.replace("，", ",").split(",")
+        if item.strip()
+    ))
+    excluded_list = list(dict.fromkeys(
+        item.strip().upper()
+        for item in exclude_cabins.replace("，", ",").split(",")
+        if item.strip()
+    ))
+    overlap = sorted(set(included_list) & set(excluded_list))
+    if overlap:
+        raise ValueError(f"包含舱位和排除舱位不能重复：{','.join(overlap)}")
+
+    priority = _text(values.get("priority") or "MEDIUM", "优先级", 16).upper()
+    if priority not in PRIORITIES:
+        raise ValueError("优先级不支持")
+
+    if submit:
+        _required_value(values, "historicalTicketCount", "历史票数")
+        _required_value(values, "historicalProfitCny", "历史利润")
+        _required_value(values, "estimatedMonthTicketCount", "预估月票数")
+        _required_value(values, "estimatedMonthProfitCny", "预估月利润")
+
+    return {
+        "opportunity_name": _text(values.get("opportunityName"), "机会名称", 200, required=True),
+        "opportunity_source": source,
+        "analysis_rule_code": rule_code or None,
+        "analysis_start_date": analysis_start,
+        "analysis_end_date": analysis_end,
+        "platform_code": _code(values.get("platformCode"), "平台编码") or None,
+        "platform_name": _text(values.get("platformName"), "平台名称", 100, required=True),
+        "site_code": _code(values.get("siteCode"), "站点编码") or None,
+        "site_name": _text(values.get("siteName"), "站点名称", 150) or None,
+        "airline_code": _code(values.get("airlineCode"), "航司", required=True).upper(),
+        "departure_code": _code(values.get("departureCode"), "出发地").upper() or None,
+        "arrival_code": _code(values.get("arrivalCode"), "到达地").upper() or None,
+        "route_text": _text(values.get("routeText"), "航程", 300) or None,
+        "journey_type": _text(values.get("journeyType"), "航程类型", 32) or None,
+        "flight_nos": _text(values.get("flightNos"), "航班号", 500) or None,
+        "include_cabins": ",".join(included_list) or None,
+        "exclude_cabins": ",".join(excluded_list) or None,
+        "product_type": _text(values.get("productType"), "产品类型", 150) or None,
+        "order_start_date": order_start,
+        "order_end_date": order_end,
+        "travel_start_date": travel_start,
+        "travel_end_date": travel_end,
+        "placement_method": _text(values.get("placementMethod"), "建议投放方式", 300, required=True),
+        "adjustment_value": _decimal(values.get("adjustmentValue"), "建议调整值"),
+        "adjustment_unit": _text(values.get("adjustmentUnit"), "调整单位", 32) or None,
+        "suggested_effective_start": suggested_start,
+        "suggested_effective_end": suggested_end,
+        "historical_ticket_count": _integer(values.get("historicalTicketCount"), "历史票数"),
+        "historical_segment_count": _integer(values.get("historicalSegmentCount"), "历史航段数"),
+        "historical_profit_cny": _decimal(values.get("historicalProfitCny"), "历史利润"),
+        "estimated_month_ticket_count": _integer(values.get("estimatedMonthTicketCount"), "预估月票数"),
+        "estimated_month_profit_cny": _decimal(values.get("estimatedMonthProfitCny"), "预估月利润"),
+        "analysis_conclusion": _text(values.get("analysisConclusion"), "分析结论", 10_000, required=True),
+        "risk_note": _text(values.get("riskNote"), "风险提示", 10_000) or None,
+        "priority": priority,
+        "expected_complete_at": _datetime_value(values.get("expectedCompleteAt"), "期望完成时间", required=True),
+    }
 
 
 def _is_missing_table(error: Exception) -> bool:
@@ -241,7 +345,8 @@ class SmartPlacementService:
                        arrival_code, route_text, include_cabins, exclude_cabins,
                        product_type, placement_method, estimated_month_ticket_count,
                        estimated_month_profit_cny, priority, status,
-                       current_assignee_name, expected_complete_at, created_by_name,
+                       current_assignee_id, current_assignee_name, expected_complete_at,
+                       created_by_id, created_by_name,
                        created_at, updated_at
                 FROM {self._table(TASK_TABLE)}
                 WHERE {condition}
@@ -299,72 +404,16 @@ class SmartPlacementService:
 
     def create_task(self, user: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
         actor = _actor(user)
-        analysis_start = _date_value(values.get("analysisStartDate"), "分析开始日期", required=True)
-        analysis_end = _date_value(values.get("analysisEndDate"), "分析结束日期", required=True)
-        if analysis_end < analysis_start:
-            raise ValueError("分析结束日期不能早于开始日期")
-        include_cabins = _text(values.get("includeCabins"), "包含舱位", 500)
-        exclude_cabins = _text(values.get("excludeCabins"), "排除舱位", 500)
-        included = {item.strip().upper() for item in include_cabins.split(",") if item.strip()}
-        excluded = {item.strip().upper() for item in exclude_cabins.split(",") if item.strip()}
-        overlap = sorted(included & excluded)
-        if overlap:
-            raise ValueError(f"包含舱位和排除舱位不能重复：{','.join(overlap)}")
-        priority = _text(values.get("priority") or "MEDIUM", "优先级", 16).upper()
-        if priority not in PRIORITIES:
-            raise ValueError("优先级不支持")
-        status = "PENDING_DATA_REVIEW" if _bool(values.get("submit")) else "DRAFT"
+        submit = _bool(values.get("submit"))
+        fields = _task_fields(values, submit=submit)
+        status = "PENDING_DATA_REVIEW" if submit else "DRAFT"
         now = _now()
         task_no = self._task_no()
-        columns = [
-            "task_no", "opportunity_name", "opportunity_source", "analysis_rule_code",
-            "analysis_start_date", "analysis_end_date", "platform_code", "platform_name",
-            "site_code", "site_name", "airline_code", "departure_code", "arrival_code",
-            "route_text", "journey_type", "flight_nos", "include_cabins", "exclude_cabins",
-            "product_type", "order_start_date", "order_end_date", "travel_start_date",
-            "travel_end_date", "placement_method", "adjustment_value", "adjustment_unit",
-            "suggested_effective_start", "suggested_effective_end", "historical_ticket_count",
-            "historical_segment_count", "historical_profit_cny", "estimated_month_ticket_count",
-            "estimated_month_profit_cny", "analysis_conclusion", "risk_note", "priority",
-            "expected_complete_at", "status", "submitted_at", "created_by_id", "created_by_name",
+        columns = ["task_no", *fields.keys(), "status", "submitted_at", "created_by_id", "created_by_name",
             "updated_by_id", "updated_by_name", "created_at", "updated_at",
         ]
         params = [
-            task_no,
-            _text(values.get("opportunityName"), "机会名称", 200, required=True),
-            _text(values.get("opportunitySource"), "机会来源", 32, required=True).upper(),
-            _code(values.get("analysisRuleCode"), "分析规则编号"),
-            analysis_start, analysis_end,
-            _code(values.get("platformCode"), "平台编码"),
-            _text(values.get("platformName"), "平台名称", 100, required=True),
-            _code(values.get("siteCode"), "站点编码"),
-            _text(values.get("siteName"), "站点名称", 150),
-            _code(values.get("airlineCode"), "航司", required=True).upper(),
-            _code(values.get("departureCode"), "出发地").upper(),
-            _code(values.get("arrivalCode"), "到达地").upper(),
-            _text(values.get("routeText"), "航程", 300),
-            _text(values.get("journeyType"), "航程类型", 32),
-            _text(values.get("flightNos"), "航班号", 500),
-            include_cabins.upper(), exclude_cabins.upper(),
-            _text(values.get("productType"), "产品类型", 150),
-            _date_value(values.get("orderStartDate"), "订单开始日期"),
-            _date_value(values.get("orderEndDate"), "订单结束日期"),
-            _date_value(values.get("travelStartDate"), "起飞开始日期"),
-            _date_value(values.get("travelEndDate"), "起飞结束日期"),
-            _text(values.get("placementMethod"), "建议投放方式", 300, required=True),
-            _decimal(values.get("adjustmentValue"), "建议调整值"),
-            _text(values.get("adjustmentUnit"), "调整单位", 32),
-            _datetime_value(values.get("suggestedEffectiveStart"), "建议生效时间"),
-            _datetime_value(values.get("suggestedEffectiveEnd"), "建议失效时间"),
-            _integer(values.get("historicalTicketCount"), "历史票数"),
-            _integer(values.get("historicalSegmentCount"), "历史航段数"),
-            _decimal(values.get("historicalProfitCny"), "历史利润"),
-            _integer(values.get("estimatedMonthTicketCount"), "预估月票数"),
-            _decimal(values.get("estimatedMonthProfitCny"), "预估月利润"),
-            _text(values.get("analysisConclusion"), "分析结论", 10_000, required=True),
-            _text(values.get("riskNote"), "风险提示", 10_000),
-            priority,
-            _datetime_value(values.get("expectedCompleteAt"), "期望完成时间", required=True),
+            task_no, *fields.values(),
             status, now if status == "PENDING_DATA_REVIEW" else None,
             actor[0], actor[1], actor[0], actor[1], now, now,
         ]
@@ -387,6 +436,47 @@ class SmartPlacementService:
             if cursor is not None: cursor.close()
             if connection is not None: connection.close()
 
+    def update_task(self, user: dict[str, Any], task_id: int, values: dict[str, Any]) -> dict[str, Any]:
+        actor = _actor(user)
+        submit = _bool(values.get("submit"))
+        fields = _task_fields(values, submit=submit)
+        next_status = "PENDING_DATA_REVIEW" if submit else "DRAFT"
+        now = _now()
+        connection = cursor = None
+        try:
+            connection = self.source.connect(); connection.begin(); cursor = connection.cursor()
+            task = self._task_for_update(cursor, task_id)
+            if task["status"] != "DRAFT":
+                raise ValueError("只有草稿或退回修改的任务可以编辑")
+            if int(task.get("created_by_id") or 0) != actor[0] and actor[2] != "ADMIN":
+                raise PermissionError("只能由创建人或管理员编辑该任务")
+            assignments = ",".join(f"{name}=%s" for name in fields)
+            cursor.execute(
+                f"""UPDATE {self._table(TASK_TABLE)} SET {assignments}, status=%s,
+                        submitted_at=%s, updated_by_id=%s, updated_by_name=%s,
+                        version_no=version_no+1, updated_at=%s WHERE id=%s""",
+                tuple([*fields.values(), next_status, now if submit else task.get("submitted_at"), actor[0], actor[1], now, task_id]),
+            )
+            self._log(
+                cursor, task_id=task_id, action="RESUBMIT" if submit else "UPDATE",
+                actor=actor, from_status="DRAFT", to_status=next_status,
+                note="修改后重新提交数据经理审核" if submit else "更新草稿",
+            )
+            connection.commit()
+            return {"id": task_id, "taskNo": task["task_no"], "status": next_status}
+        except (ValueError, PermissionError):
+            if connection is not None: connection.rollback()
+            raise
+        except Exception as error:
+            if connection is not None: connection.rollback()
+            LOGGER.exception("Smart placement task update failed")
+            if _is_missing_table(error):
+                raise SmartPlacementUnavailable("智能投放表尚未创建，请先执行smart-placement-schema.sql") from error
+            raise SmartPlacementUnavailable("智能投放任务修改失败") from error
+        finally:
+            if cursor is not None: cursor.close()
+            if connection is not None: connection.close()
+
     def review_task(self, user: dict[str, Any], task_id: int, values: dict[str, Any]) -> dict[str, Any]:
         _require_manager(user)
         actor = _actor(user)
@@ -397,6 +487,23 @@ class SmartPlacementService:
         if result not in REVIEW_RESULTS:
             raise ValueError("审核结果不支持")
         comment = _text(values.get("comment"), "审核意见", 10_000, required=result != "APPROVED")
+        policy_executable = _text(values.get("policyExecutableLevel"), "政策可执行性", 32).upper()
+        risk_level = _text(values.get("riskLevel"), "风险等级", 16).upper()
+        if stage == "DATA_MANAGER" and result == "APPROVED":
+            confirmations = (
+                _bool(values.get("dataMetricConfirmed")),
+                _bool(values.get("sampleSufficient")),
+                _bool(values.get("estimatedValueConfirmed")),
+            )
+            if not all(confirmations):
+                raise ValueError("数据审核通过前必须完成数据口径、样本充分性和预估价值确认")
+        if stage == "POLICY_MANAGER":
+            if not policy_executable or policy_executable not in POLICY_EXECUTABLE_LEVELS:
+                raise ValueError("请选择有效的政策可执行性")
+            if not risk_level or risk_level not in PRIORITIES:
+                raise ValueError("请选择风险等级")
+            if result == "APPROVED" and policy_executable == "NOT_EXECUTABLE":
+                raise ValueError("政策不可执行时不能选择审核通过")
         expected_status, approved_status, reviewed_column = REVIEW_STAGES[stage]
         next_status = approved_status if result == "APPROVED" else "DRAFT" if result == "RETURNED" else "REJECTED"
         now = _now()
@@ -421,10 +528,10 @@ class SmartPlacementService:
                     _bool(values.get("dataMetricConfirmed")) if stage == "DATA_MANAGER" else None,
                     _bool(values.get("sampleSufficient")) if stage == "DATA_MANAGER" else None,
                     _bool(values.get("estimatedValueConfirmed")) if stage == "DATA_MANAGER" else None,
-                    _text(values.get("policyExecutableLevel"), "政策可执行性", 32) or None,
-                    _text(values.get("riskLevel"), "风险等级", 16) or None,
-                    _text(values.get("riskControlRequirement"), "风控要求", 10_000) or None,
-                    _text(values.get("claimScope"), "认领范围", 500) or None,
+                    policy_executable or None if stage == "POLICY_MANAGER" else None,
+                    risk_level or None if stage == "POLICY_MANAGER" else None,
+                    _text(values.get("riskControlRequirement"), "风控要求", 10_000) or None if stage == "POLICY_MANAGER" else None,
+                    _text(values.get("claimScope"), "认领范围", 500) or None if stage == "POLICY_MANAGER" else None,
                     _text(values.get("adjustedPriority"), "调整优先级", 16) or None,
                     _datetime_value(values.get("adjustedCompleteAt"), "调整完成时间"),
                     actor[0], actor[1], stage, now,
@@ -503,6 +610,7 @@ class SmartPlacementService:
         policy_id = _text(values.get("externalPolicyId"), "外部政策ID", 128, required=result == "SUCCESS")
         if policy_id and not CODE_RE.fullmatch(policy_id):
             raise ValueError("外部政策ID格式不合法")
+        failure_type = _text(values.get("failureType"), "失败类型", 64, required=result == "FAILED")
         failure_reason = _text(values.get("failureReason"), "失败原因", 10_000, required=result == "FAILED")
         actual_at = _datetime_value(values.get("actualPlacementAt"), "实际投放时间", required=result == "SUCCESS")
         effective_start = _datetime_value(values.get("effectiveStartAt"), "政策生效时间", required=result == "SUCCESS")
@@ -510,6 +618,22 @@ class SmartPlacementService:
         if effective_start and effective_end and effective_end <= effective_start:
             raise ValueError("政策失效时间必须晚于生效时间")
         retry_required = _bool(values.get("retryRequired"))
+        next_handle_at = _datetime_value(values.get("nextHandleAt"), "下次处理时间", required=result == "FAILED" and retry_required)
+        include_cabins = _text(values.get("includeCabins"), "包含舱位", 500)
+        exclude_cabins = _text(values.get("excludeCabins"), "排除舱位", 500)
+        included_list = list(dict.fromkeys(
+            item.strip().upper()
+            for item in include_cabins.replace("，", ",").split(",")
+            if item.strip()
+        ))
+        excluded_list = list(dict.fromkeys(
+            item.strip().upper()
+            for item in exclude_cabins.replace("，", ",").split(",")
+            if item.strip()
+        ))
+        overlap = sorted(set(included_list) & set(excluded_list))
+        if overlap:
+            raise ValueError(f"实际包含舱位和排除舱位不能重复：{','.join(overlap)}")
         next_status = "MONITORING" if result == "SUCCESS" else "IN_PROGRESS" if retry_required else "FAILED"
         now = _now()
         connection = cursor = None
@@ -548,17 +672,17 @@ class SmartPlacementService:
                     _code(values.get("arrivalCode"), "到达地").upper() or task.get("arrival_code"),
                     _text(values.get("routeText"), "航程", 300) or task.get("route_text"),
                     _text(values.get("flightNos"), "航班号", 500) or task.get("flight_nos"),
-                    _text(values.get("includeCabins"), "包含舱位", 500).upper() or task.get("include_cabins"),
-                    _text(values.get("excludeCabins"), "排除舱位", 500).upper() or task.get("exclude_cabins"),
+                    ",".join(included_list) or task.get("include_cabins"),
+                    ",".join(excluded_list) or task.get("exclude_cabins"),
                     _text(values.get("productType"), "产品类型", 150) or task.get("product_type"),
                     _decimal(values.get("adjustmentValue"), "实际调整值"),
                     _text(values.get("adjustmentUnit"), "调整单位", 32) or task.get("adjustment_unit"),
                     _text(values.get("placementChannel"), "投放渠道", 100) or None,
                     _text(values.get("proofUrl"), "投放凭证", 500) or None,
                     _text(values.get("executionNote"), "执行说明", 10_000) or None,
-                    _text(values.get("failureType"), "失败类型", 64) or None,
+                    failure_type or None,
                     failure_reason or None, retry_required,
-                    _datetime_value(values.get("nextHandleAt"), "下次处理时间"),
+                    next_handle_at,
                     actor[0], actor[1], now,
                 ),
             )

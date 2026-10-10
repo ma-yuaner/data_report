@@ -22,8 +22,10 @@ export interface PlacementTaskRow {
   estimatedMonthProfitCny: string | null
   priority: PlacementPriority
   status: PlacementTaskStatus
+  currentAssigneeId: number | null
   currentAssigneeName: string | null
   expectedCompleteAt: string
+  createdById: number
   createdByName: string
   createdAt: string
   updatedAt: string
@@ -142,6 +144,12 @@ export async function fetchPlacementTask(id: number) {
 
 export async function createPlacementTask(values: PlacementTaskInput) {
   const response = await http.post<ApiEnvelope<{ id: number; taskNo: string; status: PlacementTaskStatus }>>('/v1/smart-placement/tasks', values)
+  if (!response.data.success) throw new Error(response.data.message)
+  return response.data.data
+}
+
+export async function updatePlacementTask(id: number, values: PlacementTaskInput) {
+  const response = await http.patch<ApiEnvelope<{ id: number; taskNo: string; status: PlacementTaskStatus }>>(`/v1/smart-placement/tasks/${id}`, values)
   if (!response.data.success) throw new Error(response.data.message)
   return response.data.data
 }

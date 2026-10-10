@@ -239,6 +239,18 @@ def smart_placement_task_detail(task_id: int):
         return jsonify({"success": False, "message": str(error), "data": None}), 503
 
 
+@api.patch("/v1/smart-placement/tasks/<int:task_id>")
+def update_smart_placement_task(task_id: int):
+    try:
+        return ok(SmartPlacementService(current_app.config).update_task(g.current_user, task_id, json_body()), "投放机会已更新")
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except SmartPlacementUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
 @api.post("/v1/smart-placement/tasks/<int:task_id>/reviews")
 def review_smart_placement_task(task_id: int):
     try:

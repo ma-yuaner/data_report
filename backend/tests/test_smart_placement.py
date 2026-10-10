@@ -35,6 +35,12 @@ def task_payload(**changes):
         "excludeCabins": "X,N",
         "productType": "公布转私有",
         "placementMethod": "下调20元后测试投放",
+        "suggestedEffectiveStart": "2026-10-11 00:00:00",
+        "suggestedEffectiveEnd": "2026-10-18 23:59:59",
+        "historicalTicketCount": 128,
+        "historicalProfitCny": "3660.25",
+        "estimatedMonthTicketCount": 40,
+        "estimatedMonthProfitCny": "1200.00",
         "analysisConclusion": "历史订单能够支撑小范围验证",
         "priority": "HIGH",
         "expectedCompleteAt": "2026-10-10 18:00:00",
@@ -85,6 +91,98 @@ def test_review_requires_admin_before_database_access():
             {"id": 3, "display_name": "政策员", "is_admin": False},
             17,
             {"stage": "DATA_MANAGER", "result": "APPROVED"},
+        )
+
+    service.source.connect.assert_not_called()
+
+
+def test_update_draft_can_resubmit_by_creator():
+    service, connection, cursor = service_with_cursor()
+    cursor.fetchone.return_value = {
+        "id": 17,
+        "task_no": "SP202610100001",
+        "status": "DRAFT",
+        "created_by_id": 3,
+        "submitted_at": None,
+    }
+
+    result = service.update_task(
+        {"id": 3, "display_name": "数据分析员", "is_admin": False},
+        17,
+        task_payload(),
+    )
+
+    assert result == {"id": 17, "taskNo": "SP202610100001", "status": "PENDING_DATA_REVIEW"}
+    update_query, update_params = cursor.execute.call_args_list[1].args
+    assert "status=%s" in update_query
+    assert "PENDING_DATA_REVIEW" in update_params
+    connection.commit.assert_called_once()
+
+
+def test_update_draft_rejects_non_creator():
+    service, connection, cursor = service_with_cursor()
+    cursor.fetchone.return_value = {
+        "id": 17,
+        "task_no": "SP202610100001",
+        "status": "DRAFT",
+        "created_by_id": 3,
+        "submitted_at": None,
+    }
+
+    with pytest.raises(PermissionError, match="创建人或管理员"):
+        service.update_task(
+            {"id": 9, "display_name": "其他用户", "is_admin": False},
+            17,
+            task_payload(submit=False),
+        )
+
+    connection.rollback.assert_called_once()
+
+
+def test_data_review_approval_requires_all_confirmations_before_database_access():
+    service, _connection, _cursor = service_with_cursor()
+
+    with pytest.raises(ValueError, match="必须完成"):
+        service.review_task(
+            {"id": 1, "display_name": "管理员", "is_admin": True},
+            17,
+            {"stage": "DATA_MANAGER", "result": "APPROVED"},
+        )
+
+    service.source.connect.assert_not_called()
+
+
+def test_policy_review_cannot_approve_non_executable_task():
+    service, _connection, _cursor = service_with_cursor()
+
+    with pytest.raises(ValueError, match="不能选择审核通过"):
+        service.review_task(
+            {"id": 1, "display_name": "管理员", "is_admin": True},
+            17,
+            {
+                "stage": "POLICY_MANAGER",
+                "result": "APPROVED",
+                "policyExecutableLevel": "NOT_EXECUTABLE",
+                "riskLevel": "HIGH",
+            },
+        )
+
+    service.source.connect.assert_not_called()
+
+
+def test_failed_execution_retry_requires_next_handle_time_before_database_access():
+    service, _connection, _cursor = service_with_cursor()
+
+    with pytest.raises(ValueError, match="下次处理时间不能为空"):
+        service.register_execution(
+            {"id": 3, "display_name": "政策员", "is_admin": False},
+            17,
+            {
+                "result": "FAILED",
+                "failureType": "NO_RESOURCE",
+                "failureReason": "暂无资源",
+                "retryRequired": True,
+            },
         )
 
     service.source.connect.assert_not_called()

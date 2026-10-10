@@ -1,8 +1,8 @@
 <template>
-  <div class="placement-field" :class="{ 'is-required': required }">
+  <div class="placement-field" :class="{ 'is-required': required, 'is-submission': state === '提交必填' }">
     <div class="placement-field__heading">
       <span class="placement-field__label">{{ label }}</span>
-      <span class="placement-field__state">{{ required ? '必填' : '选填' }}</span>
+      <span class="placement-field__state">{{ required ? '必填' : state }}</span>
     </div>
     <div class="placement-field__control">
       <slot />
@@ -16,9 +16,11 @@ withDefaults(defineProps<{
   label: string
   required?: boolean
   hint?: string
+  state?: string
 }>(), {
   required: false,
   hint: '',
+  state: '选填',
 })
 </script>
 
@@ -71,6 +73,11 @@ withDefaults(defineProps<{
   border-color: #f5c2c7;
   color: #c43f4f;
   background: #fff6f7;
+}
+.placement-field.is-submission .placement-field__state {
+  border-color: #f1d18b;
+  color: #a46408;
+  background: #fff9e9;
 }
 .placement-field__control :deep(.ant-input),
 .placement-field__control :deep(.ant-input-number),
