@@ -86,19 +86,19 @@ def test_each_business_uses_its_mysql_wide_table(
     [
         (
             "issue",
-            ["OTA平台名称", "站点名称", "出票日期", "OTA订单号", "关联订单号", "出票票号", "业务盈亏原因", "利润备注", "航程", "航司", "航段数", "供应商名称", "预估利润(公式)", "政策员", "出票员", "票数", "单段利润"],
+            ["出票日期", "OTA订单号", "OTA平台名称", "站点名称", "航司", "航程", "航段数", "票数", "预估利润(公式)", "单段利润", "供应商名称", "政策员", "出票员"],
         ),
         (
             "change",
-            ["OTA平台名称", "站点名称", "业务日期", "OTA订单号", "关联订单号", "出票票号", "改签单号", "利润备注", "航司", "供应商名称", "预估利润(公式)", "政策员", "操作员", "业绩分类", "票数"],
+            ["业务日期", "OTA订单号", "改签单号", "出票票号", "OTA平台名称", "站点名称", "航司", "票数", "预估利润(公式)", "供应商名称", "政策员", "操作员", "业绩分类", "利润备注"],
         ),
         (
             "refund",
-            ["OTA平台名称", "站点名称", "业务日期", "OTA订单号", "关联订单号", "出票票号", "利润备注", "航司", "供应商名称", "预估利润(公式)", "实际利润(推算)", "政策员", "操作员", "业绩分类", "票数"],
+            ["业务日期", "OTA订单号", "出票票号", "OTA平台名称", "站点名称", "航司", "票数", "预估利润(公式)", "供应商名称", "政策员", "操作员", "业绩分类", "利润备注"],
         ),
         (
             "ancillary",
-            ["OTA平台名称", "站点名称", "业务日期", "进单日期", "OTA订单号", "关联订单号", "出票票号", "航司", "供应商名称", "预估利润(公式)", "政策员", "操作员", "业绩分类", "票数"],
+            ["业务日期", "进单日期", "OTA订单号", "OTA平台名称", "站点名称", "航司", "票数", "预估利润(公式)", "供应商名称", "政策员", "操作员"],
         ),
     ],
 )
@@ -167,23 +167,19 @@ def test_service_returns_mysql_rows_without_hive_or_demo_fallback():
     count_cursor.fetchone.return_value = (1,)
     data_cursor.fetchall.return_value = [
         (
-            "携程",
-            "乐游携程一部",
             "2026-09-29",
             "ota-1",
-            "relation-1",
-            "018-1234567890",
-            "RPA000",
-            "利润备注",
-            "HKG-PVG",
+            "携程",
+            "乐游携程一部",
             "AH",
+            "HKG-PVG",
             2,
-            "供应商A",
+            3,
             Decimal("12.34000000"),
+            Decimal("6.17000000"),
+            "供应商A",
             "李小青",
             "出票员A",
-            3,
-            Decimal("6.17000000"),
         )
     ]
     with patch.object(module, "DataSource", return_value=source) as data_source:
@@ -200,7 +196,7 @@ def test_service_returns_mysql_rows_without_hive_or_demo_fallback():
     assert result["rows"][0]["estimatedProfit"] == "12.34000000"
     assert result["rows"][0]["ticketCount"] == 3
     assert result["rows"][0]["singleSegmentProfit"] == "6.17000000"
-    assert result["columns"][0]["title"] == "OTA平台名称"
+    assert result["columns"][0]["title"] == "出票日期"
     assert data_source.call_args.args[0]["DATA_MODE"] == "mysql"
     count_cursor.execute.assert_called_once()
     data_cursor.execute.assert_called_once()

@@ -68,69 +68,87 @@
       </a-card>
     </a-spin>
     <div class="handoff-note"><InfoCircleOutlined /><div><strong>口径与数据边界</strong><p v-for="note in data?.notes || []" :key="note">{{ note }}</p></div></div>
-    <a-drawer v-model:open="diagnosisOpen" :title="diagnosisTitle" :width="'min(1180px, 100vw)'">
-      <a-alert type="info" show-icon message="经营诊断 V1" description="基于当前ADS结果做等长上期对比与维度定位；只说明数据变化，不自动认定原因、责任或财务结算结果。" />
-      <div class="drawer-scope diagnosis-scope"><strong>{{ diagnosisData?.current.period.startDate || diagnosisScope.startDate }} 至 {{ diagnosisData?.current.period.endDate || diagnosisScope.endDate }}</strong><p>{{ diagnosisScopeText }}</p></div>
-      <a-alert v-if="diagnosisError" class="range-error" type="error" show-icon :message="diagnosisError" />
-      <a-spin :spinning="diagnosisLoading" tip="正在生成经营诊断">
-        <template v-if="diagnosisData?.available">
-          <div class="diagnosis-summary-grid">
-            <section><span>本期总业务估算利润</span><strong :class="{ negative: isNegative(diagnosisData.current.totalProfit) }">{{ money(diagnosisData.current.totalProfit) }}<em> 元</em></strong><small>{{ diagnosisData.current.period.startDate }} 至 {{ diagnosisData.current.period.endDate }}</small></section>
-            <section><span>上期总业务估算利润</span><strong :class="{ negative: isNegative(diagnosisData.previous.totalProfit) }">{{ money(diagnosisData.previous.totalProfit) }}<em v-if="diagnosisData.previous.totalProfit != null"> 元</em></strong><small>{{ diagnosisData.previous.period.startDate }} 至 {{ diagnosisData.previous.period.endDate }}</small></section>
-            <section><span>利润变化</span><strong :class="changeClass(diagnosisData.changes.totalProfit)">{{ signedMoney(diagnosisData.changes.totalProfit) }}<em v-if="diagnosisData.changes.totalProfit != null"> 元</em></strong><small>本期减上期 · 上期不完整时不计算</small></section>
+    <a-drawer v-model:open="workspaceOpen" :title="workspaceTitle" :width="'min(1280px, 100vw)'" :body-style="{ padding: 0, overflow: 'hidden' }" @after-open-change="handleWorkspaceOpenChange">
+      <div ref="workspaceBodyRef" class="analysis-workspace-body">
+        <div class="workspace-nav">
+          <a-button v-if="workspaceCanGoBack" type="text" class="workspace-back" @click="goBackWorkspace"><ArrowLeftOutlined />返回上一层</a-button>
+          <span v-else class="workspace-origin">经营分析下钻</span>
+          <div class="workspace-steps" aria-label="分析下钻进度">
+            <span v-for="(step, index) in workspaceSteps" :key="step.key" :class="{ active: step.key === workspaceView, completed: index < workspaceStepIndex }"><i>{{ index + 1 }}</i>{{ step.label }}</span>
           </div>
-          <a-alert class="diagnosis-insight" type="warning" show-icon message="数据诊断提示" :description="diagnosisInsight" />
-          <div class="diagnosis-business-grid">
-            <section v-for="business in businesses" :key="business.key" :style="{ '--business-color': business.color }">
-              <div><strong>{{ business.label }}</strong><span>{{ count(diagnosisData.current.metrics[business.key].count) }} 票<template v-if="business.key === 'issue'"> · {{ count(diagnosisData.current.metrics.issue.segmentCount) }} 航段</template></span></div>
-              <b :class="{ negative: isNegative(diagnosisData.current.metrics[business.key].profit) }">{{ money(diagnosisData.current.metrics[business.key].profit) }} 元</b>
-              <p>上期 {{ count(diagnosisData.previous.metrics[business.key].count) }} 票 · {{ money(diagnosisData.previous.metrics[business.key].profit) }} 元</p>
-              <small :class="changeClass(diagnosisData.changes.metrics[business.key].profit)">利润变化 {{ signedMoney(diagnosisData.changes.metrics[business.key].profit) }} 元 · 票数 {{ signedCount(diagnosisData.changes.metrics[business.key].count) }}</small>
-            </section>
-          </div>
-          <a-card :bordered="false" class="analysis-panel diagnosis-dimension-panel">
-            <template #title><div class="panel-title"><span>继续定位问题维度</span><small>当前利润较低项优先 · 最多显示10项</small></div></template>
-            <template #extra><a-button type="primary" ghost @click="openDiagnosisDaily">查看当前诊断日汇总</a-button></template>
-            <div v-if="diagnosisGroupOptions.length" class="comparison-toolbar">
-              <a-segmented v-model:value="diagnosisGroup" :options="diagnosisGroupOptions" :disabled="diagnosisLoading" @change="changeDiagnosisGroup" />
-              <span>选择下一维度，或点击某项继续缩小范围</span>
-            </div>
-            <a-alert v-else type="success" show-icon message="五个维度已全部限定" description="可查看当前诊断日汇总，并继续下钻出退改增宽表订单。" />
-            <a-table v-if="diagnosisGroupOptions.length" class="dimension-table" :columns="diagnosisColumns" :data-source="diagnosisRows" row-key="key" :pagination="false" :scroll="{ x: 1050 }" :locale="{ emptyText: '当前条件在该维度下没有可分析数据' }">
+        </div>
+        <div class="workspace-content">
+          <template v-if="workspaceView === 'diagnosis'">
+            <a-alert class="workspace-alert" type="info" show-icon message="经营诊断 V1" description="基于当前ADS结果做等长上期对比与维度定位；只说明数据变化，不自动认定原因、责任或财务结算结果。" />
+            <div class="drawer-scope diagnosis-scope"><strong>{{ diagnosisData?.current.period.startDate || diagnosisScope.startDate }} 至 {{ diagnosisData?.current.period.endDate || diagnosisScope.endDate }}</strong><p>{{ diagnosisScopeText }}</p></div>
+            <a-alert v-if="diagnosisError" class="range-error" type="error" show-icon :message="diagnosisError" />
+            <a-spin :spinning="diagnosisLoading" tip="正在生成经营诊断">
+              <template v-if="diagnosisData?.available">
+                <div class="diagnosis-summary-grid">
+                  <section><span>本期总业务估算利润</span><strong :class="{ negative: isNegative(diagnosisData.current.totalProfit) }">{{ money(diagnosisData.current.totalProfit) }}<em> 元</em></strong><small>{{ diagnosisData.current.period.startDate }} 至 {{ diagnosisData.current.period.endDate }}</small></section>
+                  <section><span>上期总业务估算利润</span><strong :class="{ negative: isNegative(diagnosisData.previous.totalProfit) }">{{ money(diagnosisData.previous.totalProfit) }}<em v-if="diagnosisData.previous.totalProfit != null"> 元</em></strong><small>{{ diagnosisData.previous.period.startDate }} 至 {{ diagnosisData.previous.period.endDate }}</small></section>
+                  <section><span>利润变化</span><strong :class="changeClass(diagnosisData.changes.totalProfit)">{{ signedMoney(diagnosisData.changes.totalProfit) }}<em v-if="diagnosisData.changes.totalProfit != null"> 元</em></strong><small>本期减上期 · 上期不完整时不计算</small></section>
+                </div>
+                <a-alert class="diagnosis-insight" type="warning" show-icon message="数据诊断提示" :description="diagnosisInsight" />
+                <div class="diagnosis-business-grid">
+                  <section v-for="business in businesses" :key="business.key" :style="{ '--business-color': business.color }">
+                    <div><strong>{{ business.label }}</strong><span>{{ count(diagnosisData.current.metrics[business.key].count) }} 票<template v-if="business.key === 'issue'"> · {{ count(diagnosisData.current.metrics.issue.segmentCount) }} 航段</template></span></div>
+                    <b :class="{ negative: isNegative(diagnosisData.current.metrics[business.key].profit) }">{{ money(diagnosisData.current.metrics[business.key].profit) }} 元</b>
+                    <p>上期 {{ count(diagnosisData.previous.metrics[business.key].count) }} 票 · {{ money(diagnosisData.previous.metrics[business.key].profit) }} 元</p>
+                    <small :class="changeClass(diagnosisData.changes.metrics[business.key].profit)">利润变化 {{ signedMoney(diagnosisData.changes.metrics[business.key].profit) }} 元 · 票数 {{ signedCount(diagnosisData.changes.metrics[business.key].count) }}</small>
+                  </section>
+                </div>
+                <a-card :bordered="false" class="analysis-panel diagnosis-dimension-panel">
+                  <template #title><div class="panel-title"><span>继续定位问题维度</span><small>当前利润较低项优先 · 最多显示10项</small></div></template>
+                  <template #extra><a-button type="primary" ghost @click="openDiagnosisDaily">查看当前诊断日汇总</a-button></template>
+                  <div v-if="diagnosisGroupOptions.length" class="comparison-toolbar"><a-segmented v-model:value="diagnosisGroup" :options="diagnosisGroupOptions" :disabled="diagnosisLoading" @change="changeDiagnosisGroup" /><span>选择下一维度，或点击某项继续缩小范围</span></div>
+                  <a-alert v-else type="success" show-icon message="五个维度已全部限定" description="可查看当前诊断日汇总，并继续下钻出退改增宽表订单。" />
+                  <a-table v-if="diagnosisGroupOptions.length" class="dimension-table" :columns="diagnosisColumns" :data-source="diagnosisRows" row-key="key" :pagination="false" :scroll="{ x: 1050 }" :locale="{ emptyText: '当前条件在该维度下没有可分析数据' }">
+                    <template #bodyCell="{ column, record }">
+                      <template v-if="column.key === 'name'"><strong>{{ record.name }}</strong></template>
+                      <template v-else-if="isBusinessKey(column.key)"><div class="metric-cell"><strong :class="{ negative: isNegative(record.metrics[column.key].profit) }">{{ money(record.metrics[column.key].profit) }}<small> 元</small></strong><span>{{ count(record.metrics[column.key].count) }} 票</span><span v-if="column.key === 'issue'">{{ count(record.metrics.issue.segmentCount) }} 航段</span><span v-if="column.key === 'issue' && record.metrics.issue.segmentMissingCount" class="metric-missing">航段缺失 {{ count(record.metrics.issue.segmentMissingCount) }} 票</span></div></template>
+                      <template v-else-if="column.key === 'total'"><strong :class="{ negative: isNegative(record.totalProfit) }">{{ money(record.totalProfit) }} 元</strong></template>
+                      <template v-else-if="column.key === 'action'"><a-button type="link" size="small" @click="continueDiagnosis(record)">继续分析</a-button><a-button type="link" size="small" @click="openDiagnosisDetail(record)">查看明细</a-button></template>
+                    </template>
+                  </a-table>
+                </a-card>
+                <div class="diagnosis-notes"><p v-for="note in diagnosisData.notes" :key="note">{{ note }}</p></div>
+              </template>
+              <a-empty v-else-if="!diagnosisLoading" description="当前范围无法生成经营诊断" />
+            </a-spin>
+          </template>
+
+          <template v-else-if="workspaceView === 'daily'">
+            <a-alert class="workspace-alert" type="info" show-icon message="真实日汇总" description="保留当前时间和维度条件；选择业务日后可继续追溯对应MySQL宽表。" />
+            <div class="drawer-scope daily-scope"><div><span>统计期间</span><strong>{{ drawerFilterScope.startDate }} 至 {{ drawerFilterScope.endDate }}</strong></div><p>{{ drawerScope }}</p></div>
+            <a-alert v-if="drawerError" class="range-error" type="error" :message="drawerError" show-icon />
+            <a-table class="daily-detail-table" size="middle" :loading="drawerLoading" :columns="drawerColumns" :data-source="drawerRows" row-key="key" :pagination="{ pageSize: 20, hideOnSinglePage: true }" :scroll="{ x: 650 }">
               <template #bodyCell="{ column, record }">
-                <template v-if="column.key === 'name'"><strong>{{ record.name }}</strong></template>
-                <template v-else-if="isBusinessKey(column.key)"><div class="metric-cell"><strong :class="{ negative: isNegative(record.metrics[column.key].profit) }">{{ money(record.metrics[column.key].profit) }}<small> 元</small></strong><span>{{ count(record.metrics[column.key].count) }} 票</span><span v-if="column.key === 'issue'">{{ count(record.metrics.issue.segmentCount) }} 航段</span><span v-if="column.key === 'issue' && record.metrics.issue.segmentMissingCount" class="metric-missing">航段缺失 {{ count(record.metrics.issue.segmentMissingCount) }} 票</span></div></template>
-                <template v-else-if="column.key === 'total'"><strong :class="{ negative: isNegative(record.totalProfit) }">{{ money(record.totalProfit) }} 元</strong></template>
-                <template v-else-if="column.key === 'action'"><a-button type="link" size="small" @click="continueDiagnosis(record)">继续分析</a-button><a-button type="link" size="small" @click="openDiagnosisDetail(record)">查看明细</a-button></template>
+                <template v-if="column.key === 'business'"><span class="business-pill" :style="{ '--business-color': businessColor(record.businessKey) }">{{ record.label }}</span></template>
+                <template v-else-if="column.key === 'count'"><strong>{{ count(record.count) }}</strong><small> 票</small></template>
+                <template v-else-if="column.key === 'segments'">{{ record.businessKey === 'issue' ? count(record.segmentCount) + ' 航段' : '—' }}</template>
+                <template v-else-if="column.key === 'profit'"><strong :class="{ negative: isNegative(record.profit) }">{{ money(record.profit) }}</strong><small> 元</small></template>
+                <template v-else-if="column.key === 'action'"><a-button type="link" size="small" @click="openWideDetail(record)">查看宽表明细<ArrowRightOutlined /></a-button></template>
               </template>
             </a-table>
-          </a-card>
-          <div class="diagnosis-notes"><p v-for="note in diagnosisData.notes" :key="note">{{ note }}</p></div>
-        </template>
-        <a-empty v-else-if="!diagnosisLoading" description="当前范围无法生成经营诊断" />
-      </a-spin>
-    </a-drawer>
-    <a-drawer v-model:open="drawerOpen" :title="drawerTitle" :width="'min(900px, 100vw)'">
-      <a-alert type="info" show-icon message="真实日汇总" description="保留当前时间和维度条件；点击每行的“查看宽表明细”可按该业务日追溯MySQL出退改增宽表。" />
-      <div class="drawer-scope"><strong>{{ drawerFilterScope.startDate }} 至 {{ drawerFilterScope.endDate }}</strong><p>{{ drawerScope }}</p></div>
-      <a-alert v-if="drawerError" type="error" :message="drawerError" show-icon />
-      <a-table :loading="drawerLoading" :columns="drawerColumns" :data-source="drawerRows" row-key="key" :pagination="{ pageSize: 20 }" :scroll="{ x: 620 }">
-        <template #bodyCell="{ column, record }"><template v-if="column.key === 'count'">{{ count(record.count) }} 票</template><template v-else-if="column.key === 'segments'">{{ record.businessKey === 'issue' ? count(record.segmentCount) + ' 航段' : '—' }}</template><template v-else-if="column.key === 'profit'">{{ money(record.profit) }} 元</template><template v-else-if="column.key === 'missing'">{{ count(record.profitMissingCount) }} 票</template><template v-else-if="column.key === 'action'"><a-button type="link" size="small" @click="openWideDetail(record)">查看宽表明细</a-button></template></template>
-      </a-table>
-    </a-drawer>
-    <a-drawer v-model:open="detailOpen" :title="detailTitle" :width="'min(1280px, 100vw)'">
-      <a-alert type="info" show-icon :message="detailData?.source || 'MySQL宽表明细'" description="按所点业务日和当前平台、站点、航司、产品、政策员条件实时查询；列项按出、退、改、增业务分别展示。" />
-      <div class="drawer-scope detail-scope"><div><strong>{{ detailDate }}</strong><p>{{ detailScopeText }}</p></div><label><span>查看宽表</span><a-select v-model:value="detailBusiness" :options="businessOptions" :disabled="detailLoading" @change="changeDetailBusiness" /></label></div>
-      <a-alert v-if="detailError" type="error" :message="detailError" show-icon />
-      <a-table :loading="detailLoading" :columns="detailColumns" :data-source="detailData?.rows || []" row-key="recordKey"
-        :pagination="detailPagination"
-        :scroll="{ x: detailTableWidth }" @change="changeDetailPage">
-        <template #bodyCell="{ column, record }">
-          <span :class="{ negative: column.valueType === 'money' && isNegative(detailValue(record, column.key)) }">
-            {{ formatDetailValue(record, column.key, column.valueType) }}
-          </span>
-        </template>
-      </a-table>
+          </template>
+
+          <template v-else>
+            <a-alert class="workspace-alert" type="info" show-icon :message="detailData?.source || 'MySQL宽表明细'" description="仅展示源表真实存在的字段；关键信息靠前，业务备注置后。" />
+            <div class="drawer-scope detail-scope"><div><span>业务日期</span><strong>{{ detailDate }}</strong><p>{{ detailScopeText }}</p></div><label><span>查看宽表</span><a-select v-model:value="detailBusiness" :options="businessOptions" :disabled="detailLoading" @change="changeDetailBusiness" /></label></div>
+            <a-alert v-if="detailError" class="range-error" type="error" :message="detailError" show-icon />
+            <a-table class="wide-detail-table" size="small" :loading="detailLoading" :columns="detailColumns" :data-source="detailData?.rows || []" row-key="recordKey"
+              :pagination="detailPagination" :sticky="detailSticky"
+              :scroll="{ x: detailTableWidth, y: 'calc(100vh - 390px)' }" @change="changeDetailPage">
+              <template #bodyCell="{ column, record }">
+                <span :class="{ negative: column.valueType === 'money' && isNegative(detailValue(record, column.key)), 'key-value': ['otaOrderNo', 'issueTicketNo', 'changeOrderNo'].includes(column.key) }">
+                  {{ formatDetailValue(record, column.key, column.valueType) }}
+                </span>
+              </template>
+            </a-table>
+          </template>
+        </div>
+      </div>
     </a-drawer>
   </div>
 </template>
@@ -139,7 +157,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { DatePicker as ADatePicker, Drawer as ADrawer, Empty as AEmpty } from 'ant-design-vue'
 import dateLocale from 'ant-design-vue/es/date-picker/locale/zh_CN'
-import { ArrowRightOutlined, InfoCircleOutlined, SearchOutlined, UndoOutlined } from '@ant-design/icons-vue'
+import { ArrowLeftOutlined, ArrowRightOutlined, InfoCircleOutlined, SearchOutlined, UndoOutlined } from '@ant-design/icons-vue'
 import type { EChartsCoreOption } from 'echarts/core'
 import PageHeader from '@/components/PageHeader.vue'
 import BaseChart from '@/components/BaseChart.vue'
@@ -187,7 +205,36 @@ const filterOptions = (key: DimensionKey) => [{ label: '全部' + dimensions.fin
 function optionLabel(key: DimensionKey, value: string) { return data.value?.options[key].find(o => o.value === value)?.label || JSON.parse(value).filter(Boolean).join(' · ') || '未知' }
 function scopeText(scope: FilterScope) { return dimensions.filter(dimension => scope[dimension.key]).map(dimension => `${dimension.label}：${optionLabel(dimension.key, scope[dimension.key])}`).join(' · ') || '全部范围' }
 
-const diagnosisOpen = ref(false)
+type WorkspaceView = 'diagnosis' | 'daily' | 'detail'
+const workspaceOpen = ref(false)
+const workspaceView = ref<WorkspaceView>('diagnosis')
+const workspaceHistory = ref<WorkspaceView[]>([])
+const workspaceBodyRef = ref<HTMLElement | null>(null)
+const workspaceSteps: { key: WorkspaceView; label: string }[] = [
+  { key: 'diagnosis', label: '经营诊断' },
+  { key: 'daily', label: '日汇总' },
+  { key: 'detail', label: '宽表明细' },
+]
+const workspaceStepIndex = computed(() => workspaceSteps.findIndex(step => step.key === workspaceView.value))
+const workspaceCanGoBack = computed(() => workspaceHistory.value.length > 0)
+const detailSticky = { offsetHeader: 0, offsetScroll: 12, getContainer: () => workspaceBodyRef.value || document.body }
+function showWorkspace(view: WorkspaceView, reset = false) {
+  if (reset || !workspaceOpen.value) workspaceHistory.value = []
+  else if (workspaceView.value !== view) workspaceHistory.value.push(workspaceView.value)
+  workspaceView.value = view
+  workspaceOpen.value = true
+  requestAnimationFrame(() => workspaceBodyRef.value?.scrollTo({ top: 0, behavior: 'smooth' }))
+}
+function goBackWorkspace() {
+  const previous = workspaceHistory.value.pop()
+  if (!previous) { workspaceOpen.value = false; return }
+  workspaceView.value = previous
+  requestAnimationFrame(() => workspaceBodyRef.value?.scrollTo({ top: 0, behavior: 'smooth' }))
+}
+function handleWorkspaceOpenChange(open: boolean) {
+  if (!open) workspaceHistory.value = []
+}
+
 const diagnosisLoading = ref(false)
 const diagnosisError = ref('')
 const diagnosisData = ref<ComprehensiveDiagnosisData>()
@@ -227,9 +274,8 @@ async function load(scope: FilterScope) {
   loading.value = true
   error.value = ''
   data.value = undefined
-  drawerOpen.value = false
-  detailOpen.value = false
-  diagnosisOpen.value = false
+  workspaceOpen.value = false
+  workspaceHistory.value = []
   drawerRequestId++
   diagnosisRequestId++
   try {
@@ -285,7 +331,7 @@ function openDiagnosis(row: DimensionRow) {
   diagnosisScope.value = { ...applied.value, [selectedDimension]: row.value }
   diagnosisGroup.value = nextDiagnosisGroup(diagnosisScope.value, selectedDimension)
   diagnosisTitle.value = `${row.name} · 经营诊断`
-  diagnosisOpen.value = true
+  showWorkspace('diagnosis', true)
   void loadDiagnosis()
 }
 function changeDiagnosisGroup() { void loadDiagnosis() }
@@ -319,7 +365,6 @@ const compositionOption = computed<EChartsCoreOption>(() => ({
   grid: { left: 45, right: 25, top: 28, bottom: 35 }, xAxis: { type: 'value' }, yAxis: { type: 'category', inverse: true, data: businesses.map(b => b.label) },
   series: [{ type: 'bar', barMaxWidth: 18, data: businesses.map(b => ({ value: chartNumber(metric(b.key)?.profit), itemStyle: { color: b.color, borderRadius: 3 } })) }],
 }))
-const drawerOpen = ref(false)
 const drawerLoading = ref(false)
 const drawerError = ref('')
 const drawerData = ref<ComprehensiveData>()
@@ -328,7 +373,7 @@ const drawerTitle = ref('日汇总明细')
 const drawerScope = ref('')
 const drawerFilterScope = ref<FilterScope>(todayScope())
 let drawerRequestId = 0
-async function openDailySummary(scope: FilterScope, title: string, business?: BusinessKey, cached?: ComprehensiveData, group: DimensionKey = groupDimension.value) {
+async function openDailySummary(scope: FilterScope, title: string, business?: BusinessKey, cached?: ComprehensiveData, group: DimensionKey = groupDimension.value, resetNavigation = false) {
   const id = ++drawerRequestId
   drawerBusiness.value = business
   drawerData.value = cached
@@ -337,7 +382,7 @@ async function openDailySummary(scope: FilterScope, title: string, business?: Bu
   drawerFilterScope.value = { ...scope }
   drawerTitle.value = title
   drawerScope.value = scopeText(scope)
-  drawerOpen.value = true
+  showWorkspace('daily', resetNavigation)
   if (cached) return
   try {
     const result = await fetchComprehensive(scope, group, comparisonSort.value)
@@ -363,17 +408,18 @@ function openDetail(business?: BusinessKey, row?: DimensionRow) {
   const scope = { ...applied.value, ...(row ? { [groupDimension.value]: row.value } : {}) }
   const title = (row?.name || '当前范围') + ' · ' + (businesses.find(b => b.key === business)?.label || '出退改增') + '日汇总'
   const cached = row ? undefined : data.value
-  void openDailySummary(scope, title, business, cached)
+  void openDailySummary(scope, title, business, cached, groupDimension.value, true)
 }
 const drawerRows = computed(() => drawerData.value?.available ? drawerData.value.trend.flatMap(day => businesses.filter(b => !drawerBusiness.value || b.key === drawerBusiness.value).map(b => ({ key: day.period + b.key, date: day.period, businessKey: b.key, label: b.label, ...day.metrics[b.key] }))) : [])
-const drawerColumns = [{ title: '业务日', dataIndex: 'date', width: 120 }, { title: '业务', dataIndex: 'label', width: 80 }, { title: '票数', key: 'count', width: 110 }, { title: '出票航段数', key: 'segments', width: 120 }, { title: '业务估算利润', key: 'profit', width: 160 }, { title: '缺失利润票数', key: 'missing', width: 130 }, { title: '明细', key: 'action', width: 130 }]
-const detailOpen = ref(false)
+const drawerColumns = [{ title: '业务日', dataIndex: 'date', width: 120 }, { title: '业务', key: 'business', width: 90 }, { title: '票数', key: 'count', width: 110 }, { title: '出票航段数', key: 'segments', width: 120 }, { title: '业务估算利润', key: 'profit', width: 170 }, { title: '', key: 'action', width: 150, fixed: 'right' as const }]
+function businessColor(key: BusinessKey) { return businesses.find(business => business.key === key)?.color || '#397cf6' }
 const detailLoading = ref(false)
 const detailError = ref('')
 const detailData = ref<ComprehensiveDetailData>()
 const detailBusiness = ref<BusinessKey>('issue')
 const detailDate = ref('')
 const detailTitle = ref('宽表业务明细')
+const workspaceTitle = computed(() => workspaceView.value === 'diagnosis' ? diagnosisTitle.value : workspaceView.value === 'daily' ? drawerTitle.value : detailTitle.value)
 const detailPage = ref(1)
 const detailPageSize = ref(50)
 const detailFilterScope = ref<FilterScope>(todayScope())
@@ -384,6 +430,7 @@ const detailColumns = computed(() => (detailData.value?.columns || []).map((colu
   ...column,
   dataIndex: column.key,
   fixed: index === 0 ? 'left' as const : undefined,
+  ellipsis: column.valueType === 'text' ? { showTitle: true } : false,
 })))
 const detailTableWidth = computed(() => detailColumns.value.reduce((total, column) => total + column.width, 0))
 function detailValue(record: ComprehensiveDetailRow, key: string) { return record[key] }
@@ -417,7 +464,7 @@ function openWideDetail(row: DailyRow) {
   detailTitle.value = `${row.date} · ${row.label}宽表明细`
   detailPage.value = 1
   detailData.value = undefined
-  detailOpen.value = true
+  showWorkspace('detail')
   void loadWideDetail()
 }
 function changeDetailBusiness() {
@@ -505,12 +552,39 @@ onMounted(() => { void load({ ...draft.value }) })
 .diagnosis-notes p { margin: 4px 0; }
 .positive { color: #278a68 !important; }
 .negative { color: #c34b5b !important; }
-.drawer-scope { margin: 20px 0; color: #586b86; font-size: 12px; }
+.analysis-workspace-body { height: 100%; overflow: auto; overscroll-behavior: contain; background: #f7f9fc; }
+.workspace-nav { position: sticky; top: 0; z-index: 8; min-height: 58px; padding: 10px 24px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 1px solid #e8edf4; background: rgb(255 255 255 / 96%); backdrop-filter: blur(10px); }
+.workspace-back { flex: none; margin-left: -10px; color: #51647e; }
+.workspace-origin { flex: none; color: #7d8ca1; font-size: 12px; }
+.workspace-steps { display: flex; align-items: center; justify-content: flex-end; gap: 8px; overflow-x: auto; }
+.workspace-steps span { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; color: #98a4b5; font-size: 11px; white-space: nowrap; transition: .2s ease; }
+.workspace-steps i { width: 20px; height: 20px; display: inline-grid; place-items: center; border-radius: 50%; background: #edf1f6; color: #8997aa; font-size: 10px; font-style: normal; }
+.workspace-steps span.completed { color: #55739d; }
+.workspace-steps span.completed i { color: #fff; background: #8ca6c8; }
+.workspace-steps span.active { color: #2059a6; background: #edf5ff; font-weight: 600; }
+.workspace-steps span.active i { color: #fff; background: #397cf6; }
+.workspace-content { min-height: 100%; padding: 20px 24px 32px; }
+.workspace-alert { margin-bottom: 14px; border-radius: 10px; }
+.drawer-scope { margin: 0 0 16px; color: #586b86; font-size: 12px; }
 .detail-scope { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
 .detail-scope > div { min-width: 0; }
+.detail-scope > div > span, .daily-scope span { display: block; margin-bottom: 5px; color: #98a4b5; font-size: 10px; }
 .detail-scope label { flex: none; display: flex; align-items: center; gap: 8px; color: #64728a; font-size: 12px; }
 .detail-scope :deep(.ant-select) { width: 132px; }
+.daily-scope, .detail-scope { padding: 14px 16px; border: 1px solid #e3e9f1; border-radius: 11px; background: #fff; box-shadow: 0 5px 18px rgb(41 61 91 / 4%); }
+.daily-scope { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.daily-scope p, .detail-scope p { margin: 5px 0 0; color: #7a899f; line-height: 1.6; }
+.business-pill { --business-color: #397cf6; display: inline-flex; align-items: center; gap: 6px; color: #3e4f67; font-weight: 600; }
+.business-pill::before { width: 7px; height: 7px; border-radius: 50%; background: var(--business-color); content: ''; }
+.daily-detail-table, .wide-detail-table { overflow: hidden; border: 1px solid #e4e9f0; border-radius: 12px; background: #fff; }
+.daily-detail-table :deep(.ant-table-thead > tr > th), .wide-detail-table :deep(.ant-table-thead > tr > th) { color: #69778c; font-size: 11px; font-weight: 600; background: #f5f8fc; }
+.daily-detail-table :deep(.ant-table-tbody > tr > td), .wide-detail-table :deep(.ant-table-tbody > tr > td) { color: #435168; border-color: #edf1f5; }
+.daily-detail-table :deep(.ant-table-tbody > tr:hover > td), .wide-detail-table :deep(.ant-table-tbody > tr:hover > td) { background: #f7faff; }
+.wide-detail-table :deep(.ant-table-cell-fix-left) { background: #fbfcfe; }
+.wide-detail-table :deep(.ant-table-sticky-scroll) { z-index: 7; height: 12px !important; border-top: 1px solid #dfe6ef; border-radius: 0 0 10px 10px; background: rgb(246 249 253 / 98%); box-shadow: 0 -5px 14px rgb(31 51 78 / 8%); }
+.wide-detail-table :deep(.ant-table-sticky-scroll-bar) { height: 8px !important; border-radius: 999px; background: #8096b4; }
+.key-value { color: #244c83; font-weight: 600; font-variant-numeric: tabular-nums; }
 @media (max-width: 1200px) { .summary-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } .summary-total { grid-column: 1 / -1; } }
 @media (max-width: 900px) { .dimension-fields, .summary-grid, .diagnosis-summary-grid, .diagnosis-business-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .charts-grid { grid-template-columns: minmax(0, 1fr); } .section-heading, .scope-actions { flex-wrap: wrap; } }
-@media (max-width: 560px) { .scope-panel { padding: 15px 12px; } .date-fields :deep(.ant-picker) { width: 124px; } .business-card { padding-inline: 12px; } .analysis-panel :deep(.ant-card-body) { padding: 14px 12px; } .diagnosis-summary-grid, .diagnosis-business-grid { grid-template-columns: 1fr; } .detail-scope { align-items: flex-start; flex-direction: column; } }
+@media (max-width: 560px) { .scope-panel { padding: 15px 12px; } .date-fields :deep(.ant-picker) { width: 124px; } .business-card { padding-inline: 12px; } .analysis-panel :deep(.ant-card-body) { padding: 14px 12px; } .diagnosis-summary-grid, .diagnosis-business-grid { grid-template-columns: 1fr; } .workspace-nav { align-items: flex-start; padding: 10px 14px; flex-direction: column; } .workspace-steps { width: 100%; justify-content: flex-start; } .workspace-content { padding: 14px 12px 24px; } .daily-scope, .detail-scope { align-items: flex-start; flex-direction: column; } }
 </style>
