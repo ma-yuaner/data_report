@@ -4,6 +4,7 @@ import { ref } from 'vue'
 export const useAppStore = defineStore('app', () => {
   const collapsed = ref(false)
   const darkMode = ref(false)
+  const navigating = ref(false)
 
   function toggleCollapsed() {
     collapsed.value = !collapsed.value
@@ -13,6 +14,14 @@ export const useAppStore = defineStore('app', () => {
     darkMode.value = !darkMode.value
   }
 
-  return { collapsed, darkMode, toggleCollapsed, toggleTheme }
+  function startNavigation() {
+    navigating.value = true
+  }
+
+  function finishNavigation() {
+    navigating.value = false
+  }
+
+  return { collapsed, darkMode, navigating, toggleCollapsed, toggleTheme, startNavigation, finishNavigation }
 })
 

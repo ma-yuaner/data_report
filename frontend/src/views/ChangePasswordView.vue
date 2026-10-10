@@ -45,7 +45,7 @@ const submit = async () => {
   try {
     await authStore.changePassword(currentPassword.value, newPassword.value)
     message.success('密码修改成功')
-    await router.replace('/overview')
+    await router.replace('/home')
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '密码修改失败'
   } finally {

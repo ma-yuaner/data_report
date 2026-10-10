@@ -78,7 +78,7 @@ def auth_error(error: AuthError):
 def status():
     if not current_app.config["AUTH_ENABLED"]:
         return ok({"enabled": False, "configured": True})
-    return ok({"enabled": True, "configured": manager().store.user_count() > 0})
+    return ok({"enabled": True, "configured": bool(current_app.extensions.get("auth_configured"))})
 
 
 @auth_api.post("/auth/login")

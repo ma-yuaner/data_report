@@ -50,10 +50,20 @@ def change_initial_password(client, login_response, current="Admin1234", new="Ch
 
 
 def test_health_is_public_but_business_api_requires_login(auth_client):
-    assert auth_client.get("/api/health").status_code == 200
+    health = auth_client.get("/api/health")
+    assert health.status_code == 200
+    assert "total;dur=" in health.headers["Server-Timing"]
     response = auth_client.get("/api/v1/dashboard/overview")
     assert response.status_code == 401
     assert response.get_json()["code"] == "AUTH_REQUIRED"
+
+
+def test_auth_status_uses_startup_state_without_querying_users_again(auth_app):
+    app, store = auth_app
+    store.user_count = lambda: (_ for _ in ()).throw(AssertionError("unexpected query"))
+    response = app.test_client().get("/api/auth/status")
+    assert response.status_code == 200
+    assert response.get_json()["data"] == {"enabled": True, "configured": True}
 
 
 def test_passwords_are_bcrypt_hashes(auth_app):

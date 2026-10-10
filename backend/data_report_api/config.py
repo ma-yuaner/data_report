@@ -24,6 +24,8 @@ class Config:
     MYSQL_CONNECT_TIMEOUT = int(os.getenv("MYSQL_CONNECT_TIMEOUT", "10"))
     MYSQL_READ_TIMEOUT = int(os.getenv("MYSQL_READ_TIMEOUT", "60"))
     MYSQL_WRITE_TIMEOUT = int(os.getenv("MYSQL_WRITE_TIMEOUT", "60"))
+    MYSQL_POOL_SIZE = int(os.getenv("MYSQL_POOL_SIZE", "12"))
+    MYSQL_POOL_MIN_CACHED = int(os.getenv("MYSQL_POOL_MIN_CACHED", "2"))
     HIVE_HOST = os.getenv("HIVE_HOST", "")
     HIVE_PORT = int(os.getenv("HIVE_PORT", "10000"))
     HIVE_DATABASE = os.getenv("HIVE_DATABASE", "lywz")
@@ -72,6 +74,7 @@ class Config:
     AUTH_BOOTSTRAP_ADMIN_DISPLAY_NAME = os.getenv(
         "AUTH_BOOTSTRAP_ADMIN_DISPLAY_NAME", "系统管理员"
     )
+    PERFORMANCE_SLOW_REQUEST_MS = int(os.getenv("PERFORMANCE_SLOW_REQUEST_MS", "500"))
 
 
 class TestConfig(Config):

@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import re
+import threading
 from dataclasses import dataclass
 from typing import Any
 
 
 LIVE_DATA_MODES = frozenset({"mysql", "hive"})
 SUPPORTED_DATA_MODES = LIVE_DATA_MODES | {"mock"}
+
+
+_MYSQL_POOLS: dict[tuple[Any, ...], Any] = {}
+_MYSQL_POOLS_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -122,19 +127,43 @@ class DataSource:
             raise RuntimeError("MySQL连接配置不完整")
 
         import pymysql
+        from dbutils.pooled_db import PooledDB
 
-        return pymysql.connect(
-            host=host,
-            port=int(self.config.get("MYSQL_PORT", 3306)),
-            user=user,
-            password=str(self.config.get("MYSQL_PASSWORD", "")),
-            database=self.database,
-            charset=str(self.config.get("MYSQL_CHARSET", "utf8mb4")),
-            connect_timeout=int(self.config.get("MYSQL_CONNECT_TIMEOUT", 10)),
-            read_timeout=int(self.config.get("MYSQL_READ_TIMEOUT", 60)),
-            write_timeout=int(self.config.get("MYSQL_WRITE_TIMEOUT", 60)),
-            autocommit=True,
+        port = int(self.config.get("MYSQL_PORT", 3306))
+        password = str(self.config.get("MYSQL_PASSWORD", ""))
+        charset = str(self.config.get("MYSQL_CHARSET", "utf8mb4"))
+        connect_timeout = int(self.config.get("MYSQL_CONNECT_TIMEOUT", 10))
+        read_timeout = int(self.config.get("MYSQL_READ_TIMEOUT", 60))
+        write_timeout = int(self.config.get("MYSQL_WRITE_TIMEOUT", 60))
+        pool_size = max(1, int(self.config.get("MYSQL_POOL_SIZE", 12)))
+        min_cached = max(0, min(pool_size, int(self.config.get("MYSQL_POOL_MIN_CACHED", 2))))
+        pool_key = (
+            host, port, user, password, self.database, charset,
+            connect_timeout, read_timeout, write_timeout, pool_size, min_cached,
         )
+        with _MYSQL_POOLS_LOCK:
+            pool = _MYSQL_POOLS.get(pool_key)
+            if pool is None:
+                pool = PooledDB(
+                    creator=pymysql,
+                    mincached=min_cached,
+                    maxcached=pool_size,
+                    maxconnections=pool_size,
+                    blocking=True,
+                    ping=1,
+                    host=host,
+                    port=port,
+                    user=user,
+                    password=password,
+                    database=self.database,
+                    charset=charset,
+                    connect_timeout=connect_timeout,
+                    read_timeout=read_timeout,
+                    write_timeout=write_timeout,
+                    autocommit=True,
+                )
+                _MYSQL_POOLS[pool_key] = pool
+        return pool.connection()
 
     def _connect_hive(self):
         host = str(self.config.get("HIVE_HOST", "")).strip()

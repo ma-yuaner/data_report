@@ -1,5 +1,6 @@
 <template>
   <a-layout class="app-shell">
+    <div class="route-progress" :class="{ 'is-active': appStore.navigating }" />
     <a-layout-sider
       v-model:collapsed="appStore.collapsed"
       :trigger="null"
@@ -7,7 +8,7 @@
       class="app-sidebar"
       :width="224"
     >
-      <div class="app-brand" :class="{ 'is-collapsed': appStore.collapsed }">
+      <div class="app-brand" :class="{ 'is-collapsed': appStore.collapsed }" role="button" tabindex="0" @click="router.push('/home')" @keydown.enter="router.push('/home')">
         <div class="brand-mark"><BarChartOutlined /></div>
         <div v-if="!appStore.collapsed" class="brand-copy">
           <strong>企业数据中心</strong>
@@ -17,6 +18,7 @@
 
       <div class="sidebar-menu-scroll">
         <a-menu v-model:openKeys="openKeys" theme="dark" mode="inline" :selected-keys="selectedKeys" @click="handleMenuClick">
+          <a-menu-item key="/home"><template #icon><HomeOutlined /></template>工作台</a-menu-item>
           <a-menu-item key="/overview"><template #icon><DashboardOutlined /></template>经营总览</a-menu-item>
           <a-sub-menu key="analysis">
             <template #icon><LineChartOutlined /></template>
@@ -86,7 +88,7 @@
           </a-breadcrumb>
         </div>
         <div class="header-actions">
-          <a-tag color="blue">业务估算利润</a-tag>
+          <a-tag color="blue">{{ route.path === '/home' ? '数据工作台' : '业务估算利润' }}</a-tag>
           <a-dropdown placement="bottomRight">
             <div class="user-entry">
               <a-avatar size="small">{{ userInitial }}</a-avatar>
@@ -106,6 +108,7 @@
 
       <a-layout-content class="app-content"><router-view /></a-layout-content>
     </a-layout>
+    <div v-if="loggingOut" class="logout-mask"><a-spin size="large" tip="正在安全退出..." /></div>
   </a-layout>
 </template>
 
@@ -113,7 +116,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  BarChartOutlined, CustomerServiceOutlined, DashboardOutlined, DatabaseOutlined, LineChartOutlined,
+  BarChartOutlined, CustomerServiceOutlined, DashboardOutlined, DatabaseOutlined, HomeOutlined, LineChartOutlined,
   LockOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, MonitorOutlined, RobotOutlined,
   SafetyCertificateOutlined, TeamOutlined, WarningOutlined,
 } from '@ant-design/icons-vue'
@@ -125,6 +128,7 @@ const appStore = useAppStore()
 const authStore = useAuthStore()
 const route = useRoute()
 const router = useRouter()
+const loggingOut = ref(false)
 const selectedKeys = computed(() => [route.path === '/analysis/profit' ? '/analysis/issue' : route.path])
 const userInitial = computed(() => (authStore.user?.displayName || authStore.user?.username || '数').slice(0, 1))
 const openKeys = ref<string[]>([])
@@ -144,8 +148,13 @@ const handleUserMenu: MenuProps['onClick'] = async ({ key }) => {
   if (key === 'admin') await router.push('/admin/users')
   if (key === 'password') await router.push('/change-password')
   if (key === 'logout') {
-    await authStore.logout()
-    await router.replace('/login')
+    loggingOut.value = true
+    try {
+      await authStore.logout()
+      await router.replace('/login')
+    } finally {
+      loggingOut.value = false
+    }
   }
 }
 </script>

@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import AppLayout from '@/layouts/AppLayout.vue'
+import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 
 const router = createRouter({
@@ -10,8 +11,9 @@ const router = createRouter({
     {
       path: '/',
       component: AppLayout,
-      redirect: '/overview',
+      redirect: '/home',
       children: [
+        { path: 'home', name: 'home', component: () => import('@/views/HomeView.vue'), meta: { title: '工作台', section: '企业数据中心' } },
         { path: 'overview', name: 'overview', component: () => import('@/views/OverviewView.vue'), meta: { title: '经营总览', section: '经营总览' } },
         { path: 'analysis/comprehensive', name: 'comprehensive-analysis', component: () => import('@/views/ComprehensiveAnalysisLiveView.vue'), meta: { title: '综合分析', section: '业务分析' } },
         { path: 'analysis/issue', alias: '/analysis/profit', name: 'issue-profit', component: () => import('@/views/ProfitView.vue'), meta: { title: '出票分析', section: '业务分析' } },
@@ -39,6 +41,7 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to) => {
+  useAppStore().startNavigation()
   if (to.meta.public) return true
   const authStore = useAuthStore()
   if (!authStore.initialized) {
@@ -49,12 +52,15 @@ router.beforeEach(async (to) => {
   if (authStore.user.mustChangePassword && to.name !== 'change-password') {
     return { name: 'change-password', query: { first: '1' } }
   }
-  if (to.meta.requiresAdmin && !authStore.user.isAdmin) return '/overview'
+  if (to.meta.requiresAdmin && !authStore.user.isAdmin) return '/home'
   return true
 })
 
 router.afterEach((to) => {
+  useAppStore().finishNavigation()
   document.title = `${String(to.meta.title ?? '页面不存在')} · 企业数据中心`
 })
+
+router.onError(() => useAppStore().finishNavigation())
 
 export default router
