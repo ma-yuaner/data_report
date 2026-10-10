@@ -11,10 +11,25 @@ const SENSITIVE_ROUTES = new Set(['login', 'change-password'])
 const FLUSH_INTERVAL_MS = 5_000
 const HEARTBEAT_INTERVAL_MS = 60_000
 const MAX_QUEUE = 50
+const MODULE_CODES: Record<string, string> = {
+  '企业数据中心': 'data-center',
+  '经营总览': 'business-overview',
+  '业务分析': 'business-analysis',
+  '风控分析': 'risk-analysis',
+  '智能分析': 'smart-analysis',
+  '问题中心': 'problem-center',
+  '数据资产': 'data-assets',
+  '系统管理': 'system-admin',
+}
 
 function identifier() { return crypto.randomUUID().replaceAll('-', '').toLowerCase() }
 function pageCode(route: RouteLocationNormalizedLoaded) { return String(route.name || 'unknown-page') }
-function moduleCode(route: RouteLocationNormalizedLoaded) { return String(route.meta.section || 'system').toLowerCase().replaceAll(' ', '-') }
+function moduleCode(route: RouteLocationNormalizedLoaded) {
+  const section = String(route.meta.section || '').trim()
+  if (MODULE_CODES[section]) return MODULE_CODES[section]
+  const normalized = section.toLowerCase().replace(/[^a-z0-9._:/-]+/g, '-').replace(/^-+|-+$/g, '')
+  return normalized || 'system'
+}
 function pageTitle(route: RouteLocationNormalizedLoaded) { return String(route.meta.title || route.name || '未知页面') }
 function deviceType() { return window.innerWidth < 600 ? 'mobile' : window.innerWidth < 1024 ? 'tablet' : 'desktop' }
 function trackable(route: RouteLocationNormalizedLoaded, user: AuthUser | null) {
