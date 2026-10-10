@@ -15,6 +15,22 @@ PUBLIC_AUTH_ENDPOINTS = {"api.health", "auth.login", "auth.status"}
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
+def required_menu_code(path: str) -> str | None:
+    if path.startswith("/api/v1/dashboard/"):
+        return "overview"
+    if path.startswith("/api/v1/analysis/risk-") or path.startswith("/api/v1/risk-uploads"):
+        return "risk"
+    if path.startswith("/api/v1/analysis/"):
+        return "analysis"
+    if path.startswith("/api/v1/smart-placement"):
+        return "smart"
+    if path.startswith("/api/v1/problems/") or path == "/api/v1/issues":
+        return "problems"
+    if path.startswith("/api/v1/assets/"):
+        return "data_assets"
+    return None
+
+
 def create_app(config: type[Config] = Config, auth_store=None) -> Flask:
     app = Flask(__name__)
     app.config.from_object(config)
@@ -73,6 +89,12 @@ def create_app(config: type[Config] = Config, auth_store=None) -> Flask:
             return jsonify({
                 "success": False, "message": "首次登录必须修改密码",
                 "data": None, "code": "PASSWORD_CHANGE_REQUIRED",
+            }), 403
+        menu_code = required_menu_code(request.path)
+        if menu_code and not bool(user.get("is_admin")) and menu_code not in set(user.get("menu_codes") or []):
+            return jsonify({
+                "success": False, "message": "当前账号没有该模块的菜单权限",
+                "data": None, "code": "MENU_FORBIDDEN",
             }), 403
         return None
 

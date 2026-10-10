@@ -39,6 +39,11 @@ REVIEW_RESULTS = frozenset({"APPROVED", "RETURNED", "REJECTED"})
 POLICY_EXECUTABLE_LEVELS = frozenset({"EXECUTABLE", "CONDITIONAL", "NOT_EXECUTABLE"})
 ATTENTION_STATUSES = frozenset({"IN_PROGRESS", "COMPLETED", "NO_ACTION"})
 CODE_RE = re.compile(r"^[A-Za-z0-9._:/-]{1,128}$")
+PERMISSION_CREATE = "smart_placement.create"
+PERMISSION_REVIEW_DATA = "smart_placement.review_data"
+PERMISSION_REVIEW_POLICY = "smart_placement.review_policy"
+PERMISSION_CLAIM = "smart_placement.claim"
+PERMISSION_EXECUTE = "smart_placement.execute"
 
 
 class SmartPlacementUnavailable(RuntimeError):
@@ -231,13 +236,30 @@ def _actor(user: dict[str, Any]) -> tuple[int, str, str]:
     if not user_id:
         raise PermissionError("登录用户信息不完整")
     name = str(user.get("display_name") or user.get("displayName") or user.get("username") or user_id)
-    role = "ADMIN" if bool(user.get("is_admin") or user.get("isAdmin")) else "USER"
+    roles = user.get("business_roles") or user.get("businessRoles") or []
+    role_codes = [str(row.get("code")) for row in roles if isinstance(row, dict) and row.get("code")]
+    role = "ADMIN" if _is_admin(user) else ",".join(role_codes) or "USER"
     return user_id, name[:100], role
 
 
-def _require_manager(user: dict[str, Any]) -> None:
-    if not bool(user.get("is_admin") or user.get("isAdmin")):
-        raise PermissionError("当前首版仅管理员可执行经理审核")
+def _is_admin(user: dict[str, Any]) -> bool:
+    return bool(user.get("is_admin") or user.get("isAdmin"))
+
+
+def _permissions(user: dict[str, Any]) -> set[str]:
+    return {str(value) for value in (user.get("permissions") or [])}
+
+
+def _has_permission(user: dict[str, Any], permission: str) -> bool:
+    return _is_admin(user) or permission in _permissions(user)
+
+
+def _require_permission(user: dict[str, Any], permission: str, message: str) -> None:
+    if _has_permission(user, permission):
+        return
+    if user.get("rbac_configured") is False or user.get("rbacConfigured") is False:
+        raise PermissionError("智能投放角色尚未配置，请管理员先执行smart-placement-rbac.sql并分配岗位")
+    raise PermissionError(message)
 
 
 def _dict_rows(cursor, rows: list[Any]) -> list[dict[str, Any]]:
@@ -407,9 +429,36 @@ class SmartPlacementService:
             raise ValueError("投放任务不存在")
         return row
 
+    def _visibility_condition(self, user: dict[str, Any], alias: str = "t") -> tuple[str, list[Any]]:
+        if _is_admin(user):
+            return "1=1", []
+        actor_id = int(user.get("id") or 0)
+        if not actor_id:
+            raise PermissionError("登录用户信息不完整")
+        clauses: list[str] = []
+        params: list[Any] = []
+        permissions = _permissions(user)
+        if PERMISSION_CREATE in permissions:
+            clauses.append(f"{alias}.created_by_id=%s")
+            params.append(actor_id)
+        if PERMISSION_REVIEW_DATA in permissions:
+            clauses.append(
+                f"({alias}.status='PENDING_DATA_REVIEW' OR EXISTS (SELECT 1 FROM {self._table(REVIEW_TABLE)} rv WHERE rv.task_id={alias}.id AND rv.review_stage='DATA_MANAGER' AND rv.reviewer_id=%s))"
+            )
+            params.append(actor_id)
+        if PERMISSION_REVIEW_POLICY in permissions:
+            clauses.append(
+                f"({alias}.status='PENDING_POLICY_REVIEW' OR EXISTS (SELECT 1 FROM {self._table(REVIEW_TABLE)} rv WHERE rv.task_id={alias}.id AND rv.review_stage='POLICY_MANAGER' AND rv.reviewer_id=%s))"
+            )
+            params.append(actor_id)
+        if PERMISSION_CLAIM in permissions or PERMISSION_EXECUTE in permissions:
+            clauses.append(f"({alias}.status='CLAIMABLE' OR {alias}.current_assignee_id=%s)")
+            params.append(actor_id)
+        return ("(" + " OR ".join(clauses) + ")", params) if clauses else ("1=0", [])
+
     def list_tasks(
-        self, *, status: str = "", keyword: str = "", platform: str = "",
-        airline: str = "", owner: str = "", scope: str = "", actor_id: int = 0,
+        self, *, user: dict[str, Any], status: str = "", keyword: str = "", platform: str = "",
+        airline: str = "", owner: str = "", scope: str = "",
         page: int = 1, page_size: int = 30,
     ) -> dict[str, Any]:
         if status and status not in TASK_STATUSES:
@@ -418,37 +467,47 @@ class SmartPlacementService:
             raise ValueError("任务分组不支持")
         page = max(1, int(page))
         page_size = max(1, min(int(page_size), 100))
-        where = ["is_deleted=0"]
-        params: list[Any] = []
+        visibility, visibility_params = self._visibility_condition(user)
+        where = ["t.is_deleted=0", visibility]
+        params: list[Any] = list(visibility_params)
         if status:
-            where.append("status=%s"); params.append(status)
+            where.append("t.status=%s"); params.append(status)
         if keyword:
             token = f"%{_text(keyword, '搜索词', 100)}%"
-            where.append("(task_no LIKE %s OR opportunity_name LIKE %s OR route_text LIKE %s)")
+            where.append("(t.task_no LIKE %s OR t.opportunity_name LIKE %s OR t.route_text LIKE %s)")
             params.extend([token, token, token])
         if platform:
-            where.append("platform_name=%s"); params.append(_text(platform, "平台", 100))
+            where.append("t.platform_name=%s"); params.append(_text(platform, "平台", 100))
         if airline:
-            where.append("airline_code=%s"); params.append(_code(airline, "航司"))
+            where.append("t.airline_code=%s"); params.append(_code(airline, "航司"))
         if owner:
-            where.append("current_assignee_name=%s"); params.append(_text(owner, "负责人", 100))
+            where.append("t.current_assignee_name=%s"); params.append(_text(owner, "负责人", 100))
         if scope == "review":
-            where.append("status IN ('PENDING_DATA_REVIEW','PENDING_POLICY_REVIEW')")
+            review_statuses: list[str] = []
+            if _is_admin(user) or _has_permission(user, PERMISSION_REVIEW_DATA):
+                review_statuses.append("'PENDING_DATA_REVIEW'")
+            if _is_admin(user) or _has_permission(user, PERMISSION_REVIEW_POLICY):
+                review_statuses.append("'PENDING_POLICY_REVIEW'")
+            where.append(f"t.status IN ({','.join(review_statuses)})" if review_statuses else "1=0")
         elif scope == "claim":
-            where.append("status='CLAIMABLE'")
+            where.append("t.status='CLAIMABLE'" if _has_permission(user, PERMISSION_CLAIM) else "1=0")
         elif scope == "mine":
+            actor_id = int(user.get("id") or 0)
             if not actor_id:
                 raise ValueError("登录用户信息不完整")
-            where.append("(current_assignee_id=%s OR created_by_id=%s)")
+            where.append("(t.current_assignee_id=%s OR t.created_by_id=%s)")
             params.extend([actor_id, actor_id])
         condition = " AND ".join(where)
         connection = cursor = None
         try:
             connection = self.source.connect()
             cursor = connection.cursor()
-            cursor.execute(f"SELECT status, COUNT(1) AS amount FROM {self._table(TASK_TABLE)} WHERE is_deleted=0 GROUP BY status")
+            cursor.execute(
+                f"SELECT t.status, COUNT(1) AS amount FROM {self._table(TASK_TABLE)} t WHERE t.is_deleted=0 AND {visibility} GROUP BY t.status",
+                tuple(visibility_params),
+            )
             status_rows = _dict_rows(cursor, list(cursor.fetchall()))
-            cursor.execute(f"SELECT COUNT(1) FROM {self._table(TASK_TABLE)} WHERE {condition}", tuple(params))
+            cursor.execute(f"SELECT COUNT(1) FROM {self._table(TASK_TABLE)} t WHERE {condition}", tuple(params))
             total = int(cursor.fetchone()[0])
             cursor.execute(
                 f"""
@@ -460,7 +519,7 @@ class SmartPlacementService:
                        current_assignee_id, current_assignee_name, expected_complete_at,
                        created_by_id, created_by_name,
                        created_at, updated_at
-                FROM {self._table(TASK_TABLE)}
+                FROM {self._table(TASK_TABLE)} t
                 WHERE {condition}
                 ORDER BY FIELD(priority,'HIGH','MEDIUM','LOW'),
                          CASE WHEN expected_complete_at IS NULL THEN 1 ELSE 0 END,
@@ -482,12 +541,16 @@ class SmartPlacementService:
         finally:
             if cursor is not None: cursor.close()
             if connection is not None: connection.close()
-    def task_detail(self, task_id: int) -> dict[str, Any]:
+    def task_detail(self, user: dict[str, Any], task_id: int) -> dict[str, Any]:
         connection = cursor = None
         try:
             connection = self.source.connect()
             cursor = connection.cursor()
-            cursor.execute(f"SELECT * FROM {self._table(TASK_TABLE)} WHERE id=%s AND is_deleted=0", (task_id,))
+            visibility, visibility_params = self._visibility_condition(user)
+            cursor.execute(
+                f"SELECT t.* FROM {self._table(TASK_TABLE)} t WHERE t.id=%s AND t.is_deleted=0 AND {visibility}",
+                tuple([task_id, *visibility_params]),
+            )
             task = _dict_row(cursor, cursor.fetchone())
             if not task:
                 raise ValueError("投放任务不存在")
@@ -515,6 +578,7 @@ class SmartPlacementService:
             if connection is not None: connection.close()
 
     def create_task(self, user: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
+        _require_permission(user, PERMISSION_CREATE, "当前账号没有投放机会录入权限")
         actor = _actor(user)
         submit = _bool(values.get("submit"))
         fields = _task_fields(values, submit=submit)
@@ -549,10 +613,10 @@ class SmartPlacementService:
             if connection is not None: connection.close()
 
     def update_task(self, user: dict[str, Any], task_id: int, values: dict[str, Any]) -> dict[str, Any]:
+        _require_permission(user, PERMISSION_CREATE, "当前账号没有投放机会编辑权限")
         actor = _actor(user)
         submit = _bool(values.get("submit"))
         fields = _task_fields(values, submit=submit)
-        next_status = "PENDING_DATA_REVIEW" if submit else "DRAFT"
         now = _now()
         connection = cursor = None
         try:
@@ -562,17 +626,22 @@ class SmartPlacementService:
                 raise ValueError("只有草稿或退回修改的任务可以编辑")
             if int(task.get("created_by_id") or 0) != actor[0] and actor[2] != "ADMIN":
                 raise PermissionError("只能由创建人或管理员编辑该任务")
+            resume_stage = str(task.get("resume_review_stage") or "DATA_MANAGER")
+            next_status = (
+                "PENDING_POLICY_REVIEW" if submit and resume_stage == "POLICY_MANAGER"
+                else "PENDING_DATA_REVIEW" if submit else "DRAFT"
+            )
             assignments = ",".join(f"{name}=%s" for name in fields)
             cursor.execute(
                 f"""UPDATE {self._table(TASK_TABLE)} SET {assignments}, status=%s,
-                        submitted_at=%s, updated_by_id=%s, updated_by_name=%s,
+                        submitted_at=%s, resume_review_stage=%s, updated_by_id=%s, updated_by_name=%s,
                         version_no=version_no+1, updated_at=%s WHERE id=%s""",
-                tuple([*fields.values(), next_status, now if submit else task.get("submitted_at"), actor[0], actor[1], now, task_id]),
+                tuple([*fields.values(), next_status, now if submit else task.get("submitted_at"), None if submit else task.get("resume_review_stage"), actor[0], actor[1], now, task_id]),
             )
             self._log(
                 cursor, task_id=task_id, action="RESUBMIT" if submit else "UPDATE",
                 actor=actor, from_status="DRAFT", to_status=next_status,
-                note="修改后重新提交数据经理审核" if submit else "更新草稿",
+                note=("修改后重新提交政策经理审核" if resume_stage == "POLICY_MANAGER" else "修改后重新提交数据经理审核") if submit else "更新草稿",
             )
             connection.commit()
             return {"id": task_id, "taskNo": task["task_no"], "status": next_status}
@@ -590,6 +659,7 @@ class SmartPlacementService:
             if connection is not None: connection.close()
 
     def delete_task(self, user: dict[str, Any], task_id: int) -> dict[str, Any]:
+        _require_permission(user, PERMISSION_CREATE, "当前账号没有删除投放机会的权限")
         actor = _actor(user)
         now = _now()
         connection = cursor = None
@@ -626,11 +696,15 @@ class SmartPlacementService:
             if connection is not None: connection.close()
 
     def review_task(self, user: dict[str, Any], task_id: int, values: dict[str, Any]) -> dict[str, Any]:
-        _require_manager(user)
-        actor = _actor(user)
         stage = _text(values.get("stage"), "审核环节", 32, required=True).upper()
         if stage not in REVIEW_STAGES:
             raise ValueError("审核环节不支持")
+        _require_permission(
+            user,
+            PERMISSION_REVIEW_DATA if stage == "DATA_MANAGER" else PERMISSION_REVIEW_POLICY,
+            "当前账号没有数据审核权限" if stage == "DATA_MANAGER" else "当前账号没有政策审核权限",
+        )
+        actor = _actor(user)
         result = _text(values.get("result"), "审核结果", 16, required=True).upper()
         if result not in REVIEW_RESULTS:
             raise ValueError("审核结果不支持")
@@ -692,12 +766,13 @@ class SmartPlacementService:
                 f"""
                 UPDATE {self._table(TASK_TABLE)}
                 SET status=%s, {reviewed_column}=%s,
+                    resume_review_stage=%s,
                     priority=COALESCE(%s, priority), expected_complete_at=COALESCE(%s, expected_complete_at),
                     closed_at=%s, updated_by_id=%s, updated_by_name=%s,
                     version_no=version_no+1, updated_at=%s
                 WHERE id=%s
                 """,
-                (next_status, now, priority or None, _datetime_value(values.get("adjustedCompleteAt"), "调整完成时间"), now if next_status == "REJECTED" else None, actor[0], actor[1], now, task_id),
+                (next_status, now, stage if result == "RETURNED" else None, priority or None, _datetime_value(values.get("adjustedCompleteAt"), "调整完成时间"), now if next_status == "REJECTED" else None, actor[0], actor[1], now, task_id),
             )
             self._log(cursor, task_id=task_id, action="REVIEW", actor=actor, from_status=expected_status, to_status=next_status, note=comment or result, detail={"stage": stage, "result": result})
             connection.commit()
@@ -716,6 +791,7 @@ class SmartPlacementService:
             if connection is not None: connection.close()
 
     def claim_task(self, user: dict[str, Any], task_id: int, values: dict[str, Any]) -> dict[str, Any]:
+        _require_permission(user, PERMISSION_CLAIM, "当前账号没有投放任务认领权限")
         actor = _actor(user)
         planned_at = _datetime_value(values.get("plannedCompleteAt"), "计划完成时间", required=True)
         note = _text(values.get("note"), "认领备注", 1000)
@@ -751,6 +827,7 @@ class SmartPlacementService:
             if connection is not None: connection.close()
 
     def register_execution(self, user: dict[str, Any], task_id: int, values: dict[str, Any]) -> dict[str, Any]:
+        _require_permission(user, PERMISSION_EXECUTE, "当前账号没有投放结果登记权限")
         actor = _actor(user)
         result = _text(values.get("result"), "投放结果", 16, required=True).upper()
         if result not in {"SUCCESS", "FAILED"}:

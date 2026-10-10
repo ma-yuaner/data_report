@@ -110,7 +110,7 @@ V1 至少需要：
 - `auth_audit_log`：登录成功/失败、退出、改密、创建账号、重置密码、启用和禁用。
 
 建议将认证表建立在独立认证库或当前MySQL独立表前缀下，不写入Hive。数据库密码和应用Secret继续保存在部署环境变量中，不提交到Git。
-本版本复用原系统已有的 `sys_user` 作为唯一账号主表，兼容其bcrypt密码；`sys_user_menu` 暂不参与权限判断，因为本期不做菜单授权。
+本版本复用原系统已有的 `sys_user` 作为唯一账号主表，兼容其bcrypt密码；`sys_user_menu` 已用于一级菜单授权，智能投放业务岗位使用 `sys_role`、`sys_role_permission`、`sys_user_role`。
 
 ## 9. 数据权限与元数据边界
 

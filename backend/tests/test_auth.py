@@ -157,7 +157,36 @@ def test_admin_can_manage_users_and_ordinary_user_cannot(auth_client):
     created_user = created.get_json()["data"]
     user_id = created_user["id"]
     assert created_user["email"] == "analyst01@example.com"
+    assert created_user["businessRoles"] == []
     assert auth_client.get("/api/admin/users").status_code == 200
+
+    roles = auth_client.get("/api/admin/business-roles")
+    assert roles.status_code == 200
+    assert {row["code"] for row in roles.get_json()["data"]} == {
+        "DATA_ENTRY", "DATA_MANAGER", "POLICY_MANAGER", "POLICY_OPERATOR"
+    }
+    assigned = auth_client.put(
+        f"/api/admin/users/{user_id}/business-roles",
+        json={"roleCodes": ["DATA_ENTRY", "POLICY_OPERATOR"]},
+        headers={"X-CSRF-Token": admin_csrf},
+    )
+    assert assigned.status_code == 200
+    assert {row["code"] for row in assigned.get_json()["data"]["businessRoles"]} == {
+        "DATA_ENTRY", "POLICY_OPERATOR"
+    }
+    assert set(assigned.get_json()["data"]["permissions"]) == {
+        "smart_placement.create", "smart_placement.claim", "smart_placement.execute"
+    }
+    menu_catalog = auth_client.get("/api/admin/menu-catalog")
+    assert menu_catalog.status_code == 200
+    assert "smart" in {row["code"] for row in menu_catalog.get_json()["data"]}
+    menu_assigned = auth_client.put(
+        f"/api/admin/users/{user_id}/menus",
+        json={"menuCodes": ["smart"]},
+        headers={"X-CSRF-Token": admin_csrf},
+    )
+    assert menu_assigned.status_code == 200
+    assert menu_assigned.get_json()["data"]["menuCodes"] == ["smart"]
 
     duplicate_email = auth_client.post(
         "/api/admin/users",
@@ -181,6 +210,9 @@ def test_admin_can_manage_users_and_ordinary_user_cannot(auth_client):
         ordinary_client, ordinary_login, "Analyst123", "Analyst456"
     )
     assert ordinary_changed.status_code == 200
+    forbidden_module = ordinary_client.get("/api/v1/dashboard/overview")
+    assert forbidden_module.status_code == 403
+    assert forbidden_module.get_json()["code"] == "MENU_FORBIDDEN"
     assert ordinary_client.get("/api/admin/users").status_code == 403
     assert ordinary_client.get("/api/v1/admin/telemetry/dashboard").status_code == 403
 

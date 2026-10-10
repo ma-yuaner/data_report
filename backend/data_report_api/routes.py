@@ -203,16 +203,18 @@ def comprehensive_details():
 def smart_placement_tasks():
     try:
         return ok(SmartPlacementService(current_app.config).list_tasks(
+            user=g.current_user,
             status=request.args.get("status", ""),
             keyword=request.args.get("keyword", ""),
             platform=request.args.get("platform", ""),
             airline=request.args.get("airline", ""),
             owner=request.args.get("owner", ""),
             scope=request.args.get("scope", ""),
-            actor_id=int(g.current_user.get("id") or 0),
             page=int(request.args.get("page", "1")),
             page_size=int(request.args.get("pageSize", "30")),
         ))
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
     except ValueError as error:
         return jsonify({"success": False, "message": str(error), "data": None}), 400
     except SmartPlacementUnavailable as error:
@@ -242,7 +244,9 @@ def create_smart_placement_task():
 @api.get("/v1/smart-placement/tasks/<int:task_id>")
 def smart_placement_task_detail(task_id: int):
     try:
-        return ok(SmartPlacementService(current_app.config).task_detail(task_id))
+        return ok(SmartPlacementService(current_app.config).task_detail(g.current_user, task_id))
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
     except ValueError as error:
         return jsonify({"success": False, "message": str(error), "data": None}), 404
     except SmartPlacementUnavailable as error:

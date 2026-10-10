@@ -2,10 +2,11 @@
   <div class="page-wrap smart-placement-page">
     <PageHeader eyebrow="SMART PLACEMENT" title="投放政策" description="从机会分析、双重审核、政策认领和投放登记，到订单匹配与来单跟进的完整闭环" />
     <a-alert v-if="error" type="error" show-icon class="page-alert" :message="error" />
+    <a-alert v-else-if="roleWarning" type="warning" show-icon class="page-alert" message="当前账号尚未配置智能投放岗位" :description="roleWarning" />
 
     <section class="placement-hero">
       <div><h2>投放政策协作中心</h2><p>数据部发现值得投放的机会，完成两级审核后进入认领池；政策人员认领并登记投放结果，系统持续匹配订单并触发来单提醒。</p></div>
-      <a-button class="hero-action" data-telemetry-code="placement-task-create" data-telemetry-name="新建投放机会" @click="openCreate">＋ 新建分析机会</a-button>
+      <a-button v-if="canCreate" class="hero-action" data-telemetry-code="placement-task-create" data-telemetry-name="新建投放机会" @click="openCreate">＋ 新建分析机会</a-button>
     </section>
 
     <section class="summary-grid">
@@ -64,8 +65,8 @@
               <a-button type="link" size="small" @click="openDetail(record)">详情</a-button>
               <a-button v-if="canEdit(record)" type="link" size="small" @click="openEdit(record)">编辑/提交</a-button>
               <a-button v-if="isReviewable(record)" type="link" size="small" @click="openReview(record)">审核</a-button>
-              <a-button v-if="record.status === 'CLAIMABLE'" type="link" size="small" @click="openClaim(record)">认领</a-button>
-              <a-button v-if="record.status === 'IN_PROGRESS'" type="link" size="small" @click="openExecution(record)">登记投放</a-button>
+              <a-button v-if="canClaim(record)" type="link" size="small" @click="openClaim(record)">认领</a-button>
+              <a-button v-if="canExecute(record)" type="link" size="small" @click="openExecution(record)">登记投放</a-button>
               <a-button v-if="record.status === 'MONITORING'" type="link" size="small" @click="router.push('/smart-analysis/placement/orders')">查看收单</a-button>
               <a-button v-if="canDelete(record)" type="link" danger size="small" @click="confirmDelete(record)">删除</a-button>
             </a-space>
@@ -417,7 +418,25 @@ const executableOptions = [{ value: 'EXECUTABLE', label: '可执行' }, { value:
 const executionResultOptions = [{ value: 'SUCCESS', label: '投放成功' }, { value: 'FAILED', label: '投放失败' }]
 const failureTypeOptions = [{ value: 'NO_RESOURCE', label: '无可用资源' }, { value: 'PRICE_UNFEASIBLE', label: '价格不可行' }, { value: 'SYSTEM_ERROR', label: '系统故障' }, { value: 'EXTERNAL_REJECTED', label: '外部系统拒绝' }, { value: 'OTHER', label: '其他原因' }]
 const reviewCheckOptions = [{ value: 'dataMetricConfirmed', label: '数据口径确认' }, { value: 'sampleSufficient', label: '样本充分性确认' }, { value: 'estimatedValueConfirmed', label: '预估价值确认' }]
-const workScopeOptions = [{ value: 'all', label: '全部任务' }, { value: 'review', label: '待我审核' }, { value: 'claim', label: '可认领' }, { value: 'mine', label: '我的任务' }]
+const hasPermission = (code: string) => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.permissions?.includes(code))
+const canCreate = computed(() => hasPermission('smart_placement.create'))
+const canReviewData = computed(() => hasPermission('smart_placement.review_data'))
+const canReviewPolicy = computed(() => hasPermission('smart_placement.review_policy'))
+const canClaimTasks = computed(() => hasPermission('smart_placement.claim'))
+const canExecuteTasks = computed(() => hasPermission('smart_placement.execute'))
+const roleWarning = computed(() => {
+  if (authStore.user?.isAdmin) return ''
+  if (authStore.user?.rbacConfigured === false) return '请管理员先执行 smart-placement-rbac.sql，再在账号管理中分配岗位。'
+  if (!authStore.user?.businessRoles?.length) return '请管理员在“系统管理 → 账号管理”中分配数据录入员、数据运营经理、政策经理或智能政策员。'
+  return ''
+})
+const workScopeOptions = computed(() => {
+  const options = [{ value: 'all', label: authStore.user?.isAdmin ? '全部任务' : '与我相关' }]
+  if (canReviewData.value || canReviewPolicy.value) options.push({ value: 'review', label: '待我审核' })
+  if (canClaimTasks.value) options.push({ value: 'claim', label: '可认领' })
+  if (canCreate.value || canExecuteTasks.value) options.push({ value: 'mine', label: '我的任务' })
+  return options
+})
 const flowSteps = [{ title: '分析入池', description: '保存并提交' }, { title: '数据审核', description: '确认口径价值' }, { title: '政策审核', description: '确认可执行性' }, { title: '政策认领', description: '明确负责人' }, { title: '完成投放', description: '登记政策 ID' }, { title: '订单匹配', description: '命中新订单' }, { title: '来单关注', description: '跟进处理' }]
 const detailFlowSteps = flowSteps.slice(0, 6).map(step => ({ title: step.title }))
 const summaryCards: { key: PlacementTaskStatus; label: string; note: string; tone: string }[] = [
@@ -548,7 +567,13 @@ async function load(targetPage = page.value) {
   catch (failure) { data.value = undefined; error.value = failure instanceof Error ? failure.message : '投放任务查询失败' }
   finally { loading.value = false }
 }
-function resetFilters() { workScope.value = 'all'; filters.value = { keyword: '', status: '', platform: '', airline: '', owner: '', scope: '' }; void load(1) }
+function preferredScope() {
+  if (!authStore.user?.isAdmin && (canReviewData.value || canReviewPolicy.value)) return 'review'
+  if (!authStore.user?.isAdmin && canClaimTasks.value) return 'claim'
+  if (!authStore.user?.isAdmin && canCreate.value) return 'mine'
+  return 'all'
+}
+function resetFilters() { workScope.value = preferredScope(); filters.value = { keyword: '', status: '', platform: '', airline: '', owner: '', scope: workScope.value === 'all' ? '' : workScope.value }; void load(1) }
 function selectWorkScope(value: string) {
   workScope.value = value
   filters.value.scope = value === 'all' ? '' : value
@@ -618,8 +643,8 @@ async function saveTask(submit: boolean) {
   catch (failure) { message.error(failure instanceof Error ? failure.message : '保存失败') }
   finally { saving.value = false }
 }
-const canEdit = (row: PlacementTaskRow) => row.status === 'DRAFT' && (Boolean(authStore.user?.isAdmin) || row.createdById === authStore.user?.id)
-const canDelete = (row: PlacementTaskRow) => ['DRAFT', 'REJECTED'].includes(row.status) && (Boolean(authStore.user?.isAdmin) || row.createdById === authStore.user?.id)
+const canEdit = (row: PlacementTaskRow) => canCreate.value && row.status === 'DRAFT' && (Boolean(authStore.user?.isAdmin) || row.createdById === authStore.user?.id)
+const canDelete = (row: PlacementTaskRow) => canCreate.value && ['DRAFT', 'REJECTED'].includes(row.status) && (Boolean(authStore.user?.isAdmin) || row.createdById === authStore.user?.id)
 function confirmDelete(row: PlacementTaskRow) {
   Modal.confirm({
     title: '确认删除投放任务？',
@@ -635,7 +660,9 @@ function confirmDelete(row: PlacementTaskRow) {
     },
   })
 }
-const isReviewable = (row: PlacementTaskRow) => Boolean(authStore.user?.isAdmin) && ['PENDING_DATA_REVIEW', 'PENDING_POLICY_REVIEW'].includes(row.status)
+const isReviewable = (row: PlacementTaskRow) => row.status === 'PENDING_DATA_REVIEW' ? canReviewData.value : row.status === 'PENDING_POLICY_REVIEW' ? canReviewPolicy.value : false
+const canClaim = (row: PlacementTaskRow) => canClaimTasks.value && row.status === 'CLAIMABLE'
+const canExecute = (row: PlacementTaskRow) => canExecuteTasks.value && row.status === 'IN_PROGRESS' && (Boolean(authStore.user?.isAdmin) || row.currentAssigneeId === authStore.user?.id)
 function openReview(row: PlacementTaskRow) {
   activeTask.value = row
   reviewStage.value = row.status === 'PENDING_DATA_REVIEW' ? 'DATA_MANAGER' : 'POLICY_MANAGER'
@@ -692,7 +719,12 @@ async function submitExecution() {
   try { await executePlacementTask(activeTask.value.id, executionForm.value); message.success('投放结果已登记'); executionOpen.value = false; await load() } catch (failure) { message.error(failure instanceof Error ? failure.message : '登记失败') } finally { saving.value = false }
 }
 async function openDetail(row: PlacementTaskRow) { detailOpen.value = true; detailLoading.value = true; detailTab.value = 'overview'; detail.value = undefined; try { detail.value = await fetchPlacementTask(row.id) } catch (failure) { message.error(failure instanceof Error ? failure.message : '详情查询失败') } finally { detailLoading.value = false } }
-onMounted(() => { void load(1); void loadDimensions() })
+onMounted(() => {
+  workScope.value = preferredScope()
+  filters.value.scope = workScope.value === 'all' ? '' : workScope.value
+  void load(1)
+  if (canCreate.value || canExecuteTasks.value) void loadDimensions()
+})
 </script>
 
 <style scoped>

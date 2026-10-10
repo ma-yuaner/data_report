@@ -1,5 +1,17 @@
 import { http, type ApiEnvelope } from './http'
 
+export interface BusinessRole {
+  code: string
+  name: string
+  description: string
+}
+
+export interface MenuPermission {
+  code: string
+  name: string
+  description: string
+}
+
 export interface AuthUser {
   id: number
   username: string
@@ -12,6 +24,10 @@ export interface AuthUser {
   lockedUntil?: string | null
   passwordChangedAt?: string | null
   createdAt?: string | null
+  businessRoles: BusinessRole[]
+  permissions: string[]
+  rbacConfigured: boolean
+  menuCodes: string[]
 }
 
 export interface AuthAudit {
@@ -32,8 +48,12 @@ export const authApi = {
   logout: () => http.post<ApiEnvelope<null>>('/auth/logout').then(response => response.data.data),
   changePassword: (currentPassword: string, newPassword: string) => http.post<ApiEnvelope<{ csrfToken: string }>>('/auth/change-password', { currentPassword, newPassword }).then(response => response.data.data),
   users: () => http.get<ApiEnvelope<AuthUser[]>>('/admin/users').then(response => response.data.data),
+  businessRoles: () => http.get<ApiEnvelope<BusinessRole[]>>('/admin/business-roles').then(response => response.data.data),
+  menuCatalog: () => http.get<ApiEnvelope<MenuPermission[]>>('/admin/menu-catalog').then(response => response.data.data),
   createUser: (payload: { username: string; email: string; displayName: string; initialPassword: string; isAdmin: boolean }) => http.post<ApiEnvelope<AuthUser>>('/admin/users', payload).then(response => response.data.data),
   updateUser: (id: number, payload: { displayName?: string; email?: string; isAdmin?: boolean; isEnabled?: boolean }) => http.patch<ApiEnvelope<AuthUser>>(`/admin/users/${id}`, payload).then(response => response.data.data),
   resetPassword: (id: number, newPassword: string) => http.post<ApiEnvelope<null>>(`/admin/users/${id}/reset-password`, { newPassword }).then(response => response.data.data),
+  updateBusinessRoles: (id: number, roleCodes: string[]) => http.put<ApiEnvelope<AuthUser>>(`/admin/users/${id}/business-roles`, { roleCodes }).then(response => response.data.data),
+  updateMenus: (id: number, menuCodes: string[]) => http.put<ApiEnvelope<AuthUser>>(`/admin/users/${id}/menus`, { menuCodes }).then(response => response.data.data),
   audits: (limit = 200) => http.get<ApiEnvelope<AuthAudit[]>>('/admin/audits', { params: { limit } }).then(response => response.data.data),
 }

@@ -57,7 +57,7 @@ def test_create_task_persists_separate_scope_and_excluded_cabins():
     cursor.lastrowid = 17
 
     result = service.create_task(
-        {"id": 3, "display_name": "数据分析员", "is_admin": False},
+        {"id": 3, "display_name": "数据分析员", "is_admin": False, "permissions": ["smart_placement.create"]},
         task_payload(),
     )
 
@@ -78,17 +78,17 @@ def test_create_task_rejects_overlapping_cabin_rules_before_database_access():
 
     with pytest.raises(ValueError, match="不能重复"):
         service.create_task(
-            {"id": 3, "display_name": "数据分析员"},
+            {"id": 3, "display_name": "数据分析员", "permissions": ["smart_placement.create"]},
             task_payload(includeCabins="Y,B", excludeCabins="B,X"),
         )
 
     service.source.connect.assert_not_called()
 
 
-def test_review_requires_admin_before_database_access():
+def test_review_requires_matching_business_role_before_database_access():
     service, _connection, _cursor = service_with_cursor()
 
-    with pytest.raises(PermissionError, match="仅管理员"):
+    with pytest.raises(PermissionError, match="没有数据审核权限"):
         service.review_task(
             {"id": 3, "display_name": "政策员", "is_admin": False},
             17,
@@ -109,7 +109,7 @@ def test_update_draft_can_resubmit_by_creator():
     }
 
     result = service.update_task(
-        {"id": 3, "display_name": "数据分析员", "is_admin": False},
+        {"id": 3, "display_name": "数据分析员", "is_admin": False, "permissions": ["smart_placement.create"]},
         17,
         task_payload(),
     )
@@ -118,6 +118,30 @@ def test_update_draft_can_resubmit_by_creator():
     update_query, update_params = cursor.execute.call_args_list[1].args
     assert "status=%s" in update_query
     assert "PENDING_DATA_REVIEW" in update_params
+    connection.commit.assert_called_once()
+
+
+def test_policy_manager_return_resubmits_directly_to_policy_review():
+    service, connection, cursor = service_with_cursor()
+    cursor.fetchone.return_value = {
+        "id": 17,
+        "task_no": "SP202610100001",
+        "status": "DRAFT",
+        "created_by_id": 3,
+        "submitted_at": None,
+        "resume_review_stage": "POLICY_MANAGER",
+    }
+
+    result = service.update_task(
+        {"id": 3, "display_name": "数据分析员", "permissions": ["smart_placement.create"]},
+        17,
+        task_payload(),
+    )
+
+    assert result["status"] == "PENDING_POLICY_REVIEW"
+    update_query, update_params = cursor.execute.call_args_list[1].args
+    assert "resume_review_stage=%s" in update_query
+    assert "PENDING_POLICY_REVIEW" in update_params
     connection.commit.assert_called_once()
 
 
@@ -133,7 +157,7 @@ def test_update_draft_rejects_non_creator():
 
     with pytest.raises(PermissionError, match="创建人或管理员"):
         service.update_task(
-            {"id": 9, "display_name": "其他用户", "is_admin": False},
+            {"id": 9, "display_name": "其他用户", "is_admin": False, "permissions": ["smart_placement.create"]},
             17,
             task_payload(submit=False),
         )
@@ -150,7 +174,7 @@ def test_task_detail_serializes_date_fields_without_datetime_separator():
     }
     cursor.fetchall.side_effect = [[], [], []]
 
-    result = service.task_detail(17)
+    result = service.task_detail({"id": 1, "is_admin": True}, 17)
 
     assert result["task"]["analysisStartDate"] == "2026-09-01"
 
@@ -165,7 +189,7 @@ def test_delete_draft_soft_deletes_and_keeps_audit_log():
     }
 
     result = service.delete_task(
-        {"id": 3, "display_name": "数据分析员", "is_admin": False},
+        {"id": 3, "display_name": "数据分析员", "is_admin": False, "permissions": ["smart_placement.create"]},
         17,
     )
 
@@ -190,7 +214,7 @@ def test_delete_running_task_is_rejected():
 
     with pytest.raises(ValueError, match="只有草稿或已驳回"):
         service.delete_task(
-            {"id": 3, "display_name": "数据分析员", "is_admin": False},
+            {"id": 3, "display_name": "数据分析员", "is_admin": False, "permissions": ["smart_placement.create"]},
             17,
         )
 
@@ -233,7 +257,7 @@ def test_failed_execution_retry_requires_next_handle_time_before_database_access
 
     with pytest.raises(ValueError, match="下次处理时间不能为空"):
         service.register_execution(
-            {"id": 3, "display_name": "政策员", "is_admin": False},
+            {"id": 3, "display_name": "政策员", "is_admin": False, "permissions": ["smart_placement.execute"]},
             17,
             {
                 "result": "FAILED",
@@ -309,11 +333,11 @@ def test_list_tasks_work_scope_adds_real_server_side_conditions():
     cursor.fetchall.side_effect = [[], []]
     cursor.fetchone.return_value = (0,)
 
-    service.list_tasks(scope="mine", actor_id=8)
+    service.list_tasks(user={"id": 8, "permissions": ["smart_placement.create"]}, scope="mine")
 
     count_query, count_params = cursor.execute.call_args_list[1].args
-    assert "current_assignee_id=%s OR created_by_id=%s" in count_query
-    assert count_params == (8, 8)
+    assert "t.current_assignee_id=%s OR t.created_by_id=%s" in count_query
+    assert count_params == (8, 8, 8)
 
 
 def test_missing_tables_return_actionable_setup_message():
@@ -321,7 +345,7 @@ def test_missing_tables_return_actionable_setup_message():
     service.source.connect.side_effect = Exception(1146, "table missing")
 
     with pytest.raises(SmartPlacementUnavailable, match="smart-placement-schema.sql"):
-        service.list_tasks()
+        service.list_tasks(user={"id": 1, "is_admin": True})
 
 
 def test_order_period_cannot_exceed_one_year():

@@ -23,12 +23,23 @@
             <div class="account-identity"><strong>{{ record.displayName }}</strong><code>{{ record.username }} · {{ record.email }}</code></div>
           </template>
           <template v-else-if="column.key === 'role'"><a-tag :color="record.isAdmin ? 'blue' : 'default'">{{ record.isAdmin ? '管理员' : '普通用户' }}</a-tag></template>
+          <template v-else-if="column.key === 'businessRoles'">
+            <a-space v-if="record.businessRoles?.length" :size="[4, 4]" wrap><a-tag v-for="role in record.businessRoles" :key="role.code" color="geekblue">{{ role.name }}</a-tag></a-space>
+            <span v-else class="role-empty">未分配</span>
+          </template>
+          <template v-else-if="column.key === 'menus'">
+            <a-space v-if="record.isAdmin" :size="[4, 4]" wrap><a-tag color="purple">全部菜单</a-tag></a-space>
+            <a-space v-else-if="record.menuCodes?.length" :size="[4, 4]" wrap><a-tag v-for="code in record.menuCodes" :key="code">{{ menuName(code) }}</a-tag></a-space>
+            <span v-else class="role-empty">仅工作台</span>
+          </template>
           <template v-else-if="column.key === 'status'"><a-tag :color="record.isEnabled ? 'green' : 'red'">{{ record.isEnabled ? '已启用' : '已禁用' }}</a-tag></template>
           <template v-else-if="column.key === 'password'"><a-tag v-if="record.mustChangePassword" color="orange">待首次改密</a-tag><span v-else>正常</span></template>
           <template v-else-if="column.key === 'createdAt'">{{ formatTime(record.createdAt) }}</template>
           <template v-else-if="column.key === 'actions'">
             <a-space>
               <a-button size="small" @click="openEdit(record)">编辑</a-button>
+              <a-button size="small" @click="openRoles(record)">业务角色</a-button>
+              <a-button size="small" @click="openMenus(record)">菜单权限</a-button>
               <a-button size="small" @click="toggleEnabled(record)">{{ record.isEnabled ? '禁用' : '启用' }}</a-button>
               <a-button size="small" @click="toggleAdmin(record)">{{ record.isAdmin ? '设为普通用户' : '设为管理员' }}</a-button>
               <a-button size="small" type="link" @click="openReset(record)">重置密码</a-button>
@@ -59,6 +70,24 @@
         <label><span>邮箱</span><a-input v-model:value="editForm.email" /></label>
       </div>
     </a-modal>
+    <a-modal v-model:open="roleVisible" title="配置智能投放业务角色" ok-text="保存角色" cancel-text="取消" :confirm-loading="roleSaving" @ok="saveRoles">
+      <p class="account-modal-note">账号：{{ roleTarget?.displayName }}（{{ roleTarget?.username }}）。可同时承担多个岗位，系统管理员仍拥有全部操作权限。</p>
+      <a-checkbox-group v-model:value="selectedRoleCodes" class="business-role-picker">
+        <label v-for="role in businessRoles" :key="role.code" class="business-role-option">
+          <a-checkbox :value="role.code" />
+          <span><strong>{{ role.name }}</strong><small>{{ role.description }}</small></span>
+        </label>
+      </a-checkbox-group>
+    </a-modal>
+    <a-modal v-model:open="menuVisible" title="配置账号菜单权限" ok-text="保存菜单" cancel-text="取消" :confirm-loading="menuSaving" @ok="saveMenus">
+      <p class="account-modal-note">工作台始终可见。系统管理员自动拥有全部菜单；普通账号只显示下面勾选的模块。</p>
+      <a-checkbox-group v-model:value="selectedMenuCodes" class="business-role-picker">
+        <label v-for="item in menuCatalog" :key="item.code" class="business-role-option">
+          <a-checkbox :value="item.code" />
+          <span><strong>{{ item.name }}</strong><small>{{ item.description }}</small></span>
+        </label>
+      </a-checkbox-group>
+    </a-modal>
   </div>
 </template>
 
@@ -66,25 +95,37 @@
 import { onMounted, reactive, ref } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { ReloadOutlined } from '@ant-design/icons-vue'
-import { authApi, type AuthAudit, type AuthUser } from '@/api/auth'
+import { authApi, type AuthAudit, type AuthUser, type BusinessRole, type MenuPermission } from '@/api/auth'
 
 const users = ref<AuthUser[]>([])
 const audits = ref<AuthAudit[]>([])
+const businessRoles = ref<BusinessRole[]>([])
+const menuCatalog = ref<MenuPermission[]>([])
 const loading = ref(false)
 const creating = ref(false)
 const resetting = ref(false)
 const editing = ref(false)
 const resetVisible = ref(false)
 const editVisible = ref(false)
+const roleVisible = ref(false)
+const roleSaving = ref(false)
+const menuVisible = ref(false)
+const menuSaving = ref(false)
 const resetTarget = ref<AuthUser | null>(null)
 const editTarget = ref<AuthUser | null>(null)
+const roleTarget = ref<AuthUser | null>(null)
+const selectedRoleCodes = ref<string[]>([])
+const menuTarget = ref<AuthUser | null>(null)
+const selectedMenuCodes = ref<string[]>([])
 const resetPasswordValue = ref('')
 const createForm = reactive({ username: '', displayName: '', email: '', initialPassword: '', isAdmin: false })
 const editForm = reactive({ displayName: '', email: '' })
 const userColumns = [
-  { title: '账号', key: 'identity', width: 190 }, { title: '角色', key: 'role', width: 100 },
+  { title: '账号', key: 'identity', width: 190 }, { title: '系统身份', key: 'role', width: 100 },
+  { title: '智能投放岗位', key: 'businessRoles', width: 280 },
+  { title: '菜单权限', key: 'menus', width: 260 },
   { title: '状态', key: 'status', width: 100 }, { title: '密码状态', key: 'password', width: 120 },
-  { title: '创建时间', key: 'createdAt', width: 170 }, { title: '操作', key: 'actions', width: 390 },
+  { title: '创建时间', key: 'createdAt', width: 170 }, { title: '操作', key: 'actions', width: 550 },
 ]
 const auditColumns = [
   { title: '时间', key: 'createdAt', width: 170 }, { title: '账号', dataIndex: 'username', width: 120 },
@@ -94,7 +135,7 @@ const auditColumns = [
 
 const load = async () => {
   loading.value = true
-  try { [users.value, audits.value] = await Promise.all([authApi.users(), authApi.audits()]) }
+  try { [users.value, audits.value, businessRoles.value, menuCatalog.value] = await Promise.all([authApi.users(), authApi.audits(), authApi.businessRoles(), authApi.menuCatalog()]) }
   catch (error) { message.error(error instanceof Error ? error.message : '账号数据加载失败') }
   finally { loading.value = false }
 }
@@ -118,6 +159,23 @@ const toggleEnabled = (record: AuthUser) => Modal.confirm({ title: `${record.isE
 const toggleAdmin = (record: AuthUser) => Modal.confirm({ title: '调整管理员身份', content: `确认将该账号设为${record.isAdmin ? '普通用户' : '管理员'}？`, onOk: () => update(record, { isAdmin: !record.isAdmin }) })
 const openReset = (record: AuthUser) => { resetTarget.value = record; resetPasswordValue.value = ''; resetVisible.value = true }
 const openEdit = (record: AuthUser) => { editTarget.value = record; Object.assign(editForm, { displayName: record.displayName, email: record.email }); editVisible.value = true }
+const openRoles = (record: AuthUser) => { roleTarget.value = record; selectedRoleCodes.value = (record.businessRoles || []).map(role => role.code); roleVisible.value = true }
+const saveRoles = async () => {
+  if (!roleTarget.value) return
+  roleSaving.value = true
+  try { await authApi.updateBusinessRoles(roleTarget.value.id, selectedRoleCodes.value); message.success('业务角色已更新'); roleVisible.value = false; await load() }
+  catch (error) { message.error(error instanceof Error ? error.message : '角色更新失败') }
+  finally { roleSaving.value = false }
+}
+const menuName = (code: string) => menuCatalog.value.find(item => item.code === code)?.name || code
+const openMenus = (record: AuthUser) => { menuTarget.value = record; selectedMenuCodes.value = [...(record.menuCodes || [])]; menuVisible.value = true }
+const saveMenus = async () => {
+  if (!menuTarget.value) return
+  menuSaving.value = true
+  try { await authApi.updateMenus(menuTarget.value.id, selectedMenuCodes.value); message.success('菜单权限已更新'); menuVisible.value = false; await load() }
+  catch (error) { message.error(error instanceof Error ? error.message : '菜单更新失败') }
+  finally { menuSaving.value = false }
+}
 const saveEdit = async () => {
   if (!editTarget.value) return
   editing.value = true
@@ -136,3 +194,12 @@ const formatTime = (value?: string | null) => value ? value.replace('T', ' ') : 
 const detailText = (value: Record<string, unknown>) => Object.keys(value).length ? JSON.stringify(value) : '—'
 onMounted(load)
 </script>
+
+<style scoped>
+.role-empty { color: #98a2b3; }
+.business-role-picker { display: grid; gap: 10px; width: 100%; margin-top: 14px; }
+.business-role-option { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border: 1px solid #e1e7ef; border-radius: 10px; background: #f8fafc; cursor: pointer; }
+.business-role-option > span { display: grid; gap: 3px; }
+.business-role-option strong { color: #344054; }
+.business-role-option small { color: #7b8798; }
+</style>

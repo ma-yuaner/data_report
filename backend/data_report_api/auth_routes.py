@@ -102,7 +102,7 @@ def login():
 def me():
     if not current_app.config["AUTH_ENABLED"]:
         return ok({
-            "user": {"id": 0, "username": "development", "email": "development@local", "displayName": "开发模式", "isAdmin": True, "isEnabled": True, "mustChangePassword": False},
+            "user": {"id": 0, "username": "development", "email": "development@local", "displayName": "开发模式", "isAdmin": True, "isEnabled": True, "mustChangePassword": False, "businessRoles": [], "permissions": [], "rbacConfigured": True, "menuCodes": []},
             "csrfToken": "development",
         })
     return ok({"user": manager().public_user(g.current_user), "csrfToken": g.current_csrf_token})
@@ -138,6 +138,16 @@ def change_password():
 @auth_api.get("/admin/users")
 def list_users():
     return ok(manager().users(g.current_user))
+
+
+@auth_api.get("/admin/business-roles")
+def list_business_roles():
+    return ok(manager().business_roles(g.current_user))
+
+
+@auth_api.get("/admin/menu-catalog")
+def list_menu_catalog():
+    return ok(manager().menu_catalog(g.current_user))
 
 
 @auth_api.post("/admin/users")
@@ -185,6 +195,26 @@ def reset_password(user_id: int):
         ip_address, user_agent,
     )
     return ok(None, "密码已重置，用户下次登录必须修改密码")
+
+
+@auth_api.put("/admin/users/<int:user_id>/business-roles")
+def update_business_roles(user_id: int):
+    values = body()
+    ip_address, user_agent = request_context()
+    user = manager().update_business_roles(
+        g.current_user, user_id, values.get("roleCodes"), ip_address, user_agent
+    )
+    return ok(user, "业务角色已更新")
+
+
+@auth_api.put("/admin/users/<int:user_id>/menus")
+def update_user_menus(user_id: int):
+    values = body()
+    ip_address, user_agent = request_context()
+    user = manager().update_user_menus(
+        g.current_user, user_id, values.get("menuCodes"), ip_address, user_agent
+    )
+    return ok(user, "菜单权限已更新")
 
 
 @auth_api.get("/admin/audits")

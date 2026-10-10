@@ -19,8 +19,8 @@
       <div class="sidebar-menu-scroll">
         <a-menu v-model:openKeys="openKeys" theme="dark" mode="inline" :selected-keys="selectedKeys" @click="handleMenuClick">
           <a-menu-item key="/home"><template #icon><HomeOutlined /></template>工作台</a-menu-item>
-          <a-menu-item key="/overview"><template #icon><DashboardOutlined /></template>经营总览</a-menu-item>
-          <a-sub-menu key="analysis">
+          <a-menu-item v-if="canSeeMenu('overview')" key="/overview"><template #icon><DashboardOutlined /></template>经营总览</a-menu-item>
+          <a-sub-menu v-if="canSeeMenu('analysis')" key="analysis">
             <template #icon><LineChartOutlined /></template>
             <template #title>业务分析</template>
             <a-menu-item key="/analysis/comprehensive">综合分析</a-menu-item>
@@ -29,7 +29,7 @@
             <a-menu-item key="/analysis/change">改签分析</a-menu-item>
             <a-menu-item key="/analysis/ancillary">增值分析</a-menu-item>
           </a-sub-menu>
-          <a-sub-menu key="risk">
+          <a-sub-menu v-if="canSeeMenu('risk')" key="risk">
             <template #icon><SafetyCertificateOutlined /></template>
             <template #title>风控分析</template>
             <a-menu-item key="/risk-analysis">风控总览</a-menu-item>
@@ -40,14 +40,14 @@
             <a-menu-item key="/risk-analysis/orders">订单明细</a-menu-item>
             <a-menu-item key="/risk-analysis/upload">数据上传</a-menu-item>
           </a-sub-menu>
-          <a-sub-menu key="customer-service">
+          <a-sub-menu v-if="canSeeMenu('customer_service')" key="customer-service">
             <template #icon><CustomerServiceOutlined /></template>
             <template #title>客服分析</template>
             <a-menu-item key="customer-service-refund" disabled>退票分析</a-menu-item>
             <a-menu-item key="customer-service-change" disabled>改签分析</a-menu-item>
             <a-menu-item key="customer-service-flight-change" disabled>清Q/航变分析</a-menu-item>
           </a-sub-menu>
-          <a-sub-menu key="smart">
+          <a-sub-menu v-if="canSeeMenu('smart')" key="smart">
             <template #icon><RobotOutlined /></template>
             <template #title>智能分析</template>
             <a-menu-item key="/smart-analysis">智能分析首页</a-menu-item>
@@ -57,8 +57,8 @@
               <a-menu-item key="/smart-analysis/placement/orders">收单情况</a-menu-item>
             </a-sub-menu>
           </a-sub-menu>
-          <a-menu-item key="/problems"><template #icon><WarningOutlined /></template>问题中心</a-menu-item>
-          <a-menu-item key="/data-assets"><template #icon><DatabaseOutlined /></template>数据资产</a-menu-item>
+          <a-menu-item v-if="canSeeMenu('problems')" key="/problems"><template #icon><WarningOutlined /></template>问题中心</a-menu-item>
+          <a-menu-item v-if="canSeeMenu('data_assets')" key="/data-assets"><template #icon><DatabaseOutlined /></template>数据资产</a-menu-item>
           <a-sub-menu v-if="authStore.user?.isAdmin" key="system">
             <template #icon><MonitorOutlined /></template>
             <template #title>系统管理</template>
@@ -131,6 +131,7 @@ const router = useRouter()
 const loggingOut = ref(false)
 const selectedKeys = computed(() => [route.path === '/analysis/profit' ? '/analysis/issue' : route.path])
 const userInitial = computed(() => (authStore.user?.displayName || authStore.user?.username || '数').slice(0, 1))
+const canSeeMenu = (code: string) => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.menuCodes?.includes(code))
 const openKeys = ref<string[]>([])
 watch(() => route.path, path => {
   openKeys.value = path.startsWith('/analysis') ? ['analysis']

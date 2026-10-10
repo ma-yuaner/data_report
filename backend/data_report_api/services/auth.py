@@ -19,6 +19,28 @@ from .data_source import DataSource
 USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]{3,64}$")
 EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
+BUSINESS_ROLE_CATALOG = (
+    {"code": "DATA_ENTRY", "name": "数据录入员", "description": "录入、编辑并提交智能投放机会"},
+    {"code": "DATA_MANAGER", "name": "数据运营经理", "description": "审核数据口径、样本和预估价值"},
+    {"code": "POLICY_MANAGER", "name": "政策经理", "description": "审核政策可执行性与风险"},
+    {"code": "POLICY_OPERATOR", "name": "智能政策员", "description": "认领任务并登记投放结果"},
+)
+ROLE_PERMISSIONS = {
+    "DATA_ENTRY": ("smart_placement.create",),
+    "DATA_MANAGER": ("smart_placement.review_data",),
+    "POLICY_MANAGER": ("smart_placement.review_policy",),
+    "POLICY_OPERATOR": ("smart_placement.claim", "smart_placement.execute"),
+}
+MENU_CATALOG = (
+    {"code": "overview", "name": "经营总览", "description": "经营总览页面"},
+    {"code": "analysis", "name": "业务分析", "description": "综合分析及出退改增分析"},
+    {"code": "risk", "name": "风控分析", "description": "风控看板、明细和数据上传"},
+    {"code": "customer_service", "name": "客服分析", "description": "退票、改签与清Q/航变分析"},
+    {"code": "smart", "name": "智能分析", "description": "智能投放政策与收单情况"},
+    {"code": "problems", "name": "问题中心", "description": "经营问题跟踪"},
+    {"code": "data_assets", "name": "数据资产", "description": "数据资产目录"},
+)
+
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
@@ -118,6 +140,59 @@ class MySqlAuthStore:
         mysql_config["DATA_MODE"] = "mysql"
         self.source = DataSource(mysql_config)
 
+    @staticmethod
+    def _missing_rbac(error: Exception) -> bool:
+        return bool(getattr(error, "args", ())) and error.args[0] == 1146
+
+    def _with_access(self, user: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not user:
+            return None
+        connection = None
+        try:
+            import pymysql
+
+            connection = self.source.connect()
+            with connection.cursor(pymysql.cursors.DictCursor) as cursor:
+                cursor.execute(
+                    """
+                    SELECT r.role_code, r.role_name, r.description, rp.permission_code
+                    FROM sys_user_role ur
+                    JOIN sys_role r ON r.id = ur.role_id AND r.is_active = 1
+                    LEFT JOIN sys_role_permission rp ON rp.role_id = r.id
+                    WHERE ur.user_id = %s ORDER BY r.id, rp.permission_code
+                    """,
+                    (int(user["id"]),),
+                )
+                access_rows = [dict(row) for row in cursor.fetchall()]
+                cursor.execute(
+                    "SELECT menu_code FROM sys_user_menu WHERE user_id=%s ORDER BY id",
+                    (int(user["id"]),),
+                )
+                menus = [dict(row) for row in cursor.fetchall()]
+            roles_by_code: dict[str, dict[str, str]] = {}
+            permissions: set[str] = set()
+            for row in access_rows:
+                roles_by_code.setdefault(
+                    row["role_code"],
+                    {"code": row["role_code"], "name": row["role_name"], "description": row.get("description") or ""},
+                )
+                if row.get("permission_code"):
+                    permissions.add(row["permission_code"])
+            return {
+                **user,
+                "business_roles": list(roles_by_code.values()),
+                "permissions": sorted(permissions),
+                "menu_codes": [row["menu_code"] for row in menus],
+                "rbac_configured": True,
+            }
+        except Exception as error:
+            if not self._missing_rbac(error):
+                raise
+            return {**user, "business_roles": [], "permissions": [], "menu_codes": [], "rbac_configured": False}
+        finally:
+            if connection is not None:
+                connection.close()
+
     def _fetchone(self, sql: str, params: tuple[Any, ...] = ()) -> dict[str, Any] | None:
         import pymysql
 
@@ -170,13 +245,13 @@ class MySqlAuthStore:
         return int(row["total"] if row else 0)
 
     def get_user_by_username(self, username: str) -> dict[str, Any] | None:
-        return self._fetchone(f"{self.USER_SELECT} WHERE u.username = %s", (username,))
+        return self._with_access(self._fetchone(f"{self.USER_SELECT} WHERE u.username = %s", (username,)))
 
     def get_user_by_id(self, user_id: int) -> dict[str, Any] | None:
-        return self._fetchone(f"{self.USER_SELECT} WHERE u.id = %s", (user_id,))
+        return self._with_access(self._fetchone(f"{self.USER_SELECT} WHERE u.id = %s", (user_id,)))
 
     def get_user_by_email(self, email: str) -> dict[str, Any] | None:
-        return self._fetchone(f"{self.USER_SELECT} WHERE u.email = %s", (email,))
+        return self._with_access(self._fetchone(f"{self.USER_SELECT} WHERE u.email = %s", (email,)))
 
     def create_user(self, values: dict[str, Any]) -> dict[str, Any]:
         connection = self.source.connect()
@@ -300,7 +375,66 @@ class MySqlAuthStore:
         )
 
     def list_users(self) -> list[dict[str, Any]]:
-        return self._fetchall(f"{self.USER_SELECT} ORDER BY u.id")
+        return [self._with_access(row) or row for row in self._fetchall(f"{self.USER_SELECT} ORDER BY u.id")]
+
+    def list_business_roles(self) -> list[dict[str, Any]]:
+        try:
+            return [
+                {"code": row["role_code"], "name": row["role_name"], "description": row.get("description") or ""}
+                for row in self._fetchall(
+                    "SELECT role_code, role_name, description FROM sys_role WHERE is_active=1 ORDER BY id"
+                )
+            ]
+        except Exception as error:
+            if self._missing_rbac(error):
+                raise AuthError("智能投放角色表尚未创建，请先执行smart-placement-rbac.sql", 503, "RBAC_NOT_CONFIGURED") from error
+            raise
+
+    def set_user_roles(self, user_id: int, role_codes: list[str], actor_id: int) -> None:
+        connection = self.source.connect()
+        try:
+            connection.begin()
+            with connection.cursor() as cursor:
+                cursor.execute("DELETE FROM sys_user_role WHERE user_id=%s", (user_id,))
+                for code in role_codes:
+                    cursor.execute(
+                        """
+                        INSERT INTO sys_user_role (user_id, role_id, assigned_by, assigned_at)
+                        SELECT %s, id, %s, %s FROM sys_role
+                        WHERE role_code=%s AND is_active=1
+                        """,
+                        (user_id, actor_id, utc_now(), code),
+                    )
+                    if cursor.rowcount != 1:
+                        raise AuthError(f"业务角色不存在或未启用：{code}")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def list_menu_catalog(self) -> list[dict[str, Any]]:
+        return [dict(row) for row in MENU_CATALOG]
+
+    def set_user_menus(self, user_id: int, menu_codes: list[str]) -> None:
+        connection = self.source.connect()
+        try:
+            connection.begin()
+            with connection.cursor() as cursor:
+                cursor.execute("DELETE FROM sys_user_menu WHERE user_id=%s", (user_id,))
+                now = utc_now()
+                for code in menu_codes:
+                    cursor.execute(
+                        "INSERT INTO sys_user_menu (user_id, menu_code, created_at, updated_at) VALUES (%s,%s,%s,%s)",
+                        (user_id, code, now, now),
+                    )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
 
     def create_session(self, values: dict[str, Any]) -> None:
         self._execute(
@@ -319,7 +453,7 @@ class MySqlAuthStore:
         )
 
     def get_session(self, hashed_token: str) -> dict[str, Any] | None:
-        return self._fetchone(
+        return self._with_access(self._fetchone(
             """
             SELECT s.id AS session_id, s.user_id, s.token_hash, s.csrf_token_hash,
                    s.created_at AS session_created_at, s.last_seen_at,
@@ -339,7 +473,7 @@ class MySqlAuthStore:
             WHERE s.token_hash = %s
             """,
             (hashed_token,),
-        )
+        ))
 
     def touch_session(self, session_id: int, now: datetime) -> None:
         self._execute(
@@ -423,6 +557,7 @@ class MemoryAuthStore:
             self._user_id += 1
             row = {
                 "id": self._user_id, "failed_attempts": 0, "locked_until": None,
+                "business_roles": [], "permissions": [], "menu_codes": [], "rbac_configured": True,
                 **deepcopy(values),
             }
             self.users[self._user_id] = row
@@ -451,6 +586,25 @@ class MemoryAuthStore:
     def list_users(self) -> list[dict[str, Any]]:
         with self._lock:
             return [deepcopy(self.users[key]) for key in sorted(self.users)]
+
+    def list_business_roles(self) -> list[dict[str, Any]]:
+        return [dict(row) for row in BUSINESS_ROLE_CATALOG]
+
+    def set_user_roles(self, user_id: int, role_codes: list[str], actor_id: int) -> None:
+        del actor_id
+        with self._lock:
+            catalog = {row["code"]: row for row in BUSINESS_ROLE_CATALOG}
+            self.users[user_id]["business_roles"] = [dict(catalog[code]) for code in role_codes]
+            self.users[user_id]["permissions"] = sorted({
+                permission for code in role_codes for permission in ROLE_PERMISSIONS.get(code, ())
+            })
+
+    def list_menu_catalog(self) -> list[dict[str, Any]]:
+        return [dict(row) for row in MENU_CATALOG]
+
+    def set_user_menus(self, user_id: int, menu_codes: list[str]) -> None:
+        with self._lock:
+            self.users[user_id]["menu_codes"] = list(menu_codes)
 
     def create_session(self, values: dict[str, Any]) -> None:
         with self._lock:
@@ -556,6 +710,10 @@ class AuthManager:
             "lockedUntil": AuthManager.iso(user.get("locked_until")),
             "passwordChangedAt": AuthManager.iso(user.get("password_changed_at")),
             "createdAt": AuthManager.iso(user.get("created_at")),
+            "businessRoles": list(user.get("business_roles") or []),
+            "permissions": list(user.get("permissions") or []),
+            "rbacConfigured": bool(user.get("rbac_configured", True)),
+            "menuCodes": list(user.get("menu_codes") or []),
         }
 
     @staticmethod
@@ -759,6 +917,62 @@ class AuthManager:
     def users(self, actor: dict[str, Any]) -> list[dict[str, Any]]:
         self.require_admin(actor)
         return [self.public_user(row) for row in self.store.list_users()]
+
+    def business_roles(self, actor: dict[str, Any]) -> list[dict[str, Any]]:
+        self.require_admin(actor)
+        return self.store.list_business_roles()
+
+    def update_business_roles(
+        self, actor: dict[str, Any], target_id: int, role_codes: list[Any],
+        ip_address: str, user_agent: str,
+    ) -> dict[str, Any]:
+        self.require_admin(actor)
+        target = self.store.get_user_by_id(target_id)
+        if not target:
+            raise AuthError("账号不存在", 404, "USER_NOT_FOUND")
+        if not isinstance(role_codes, list):
+            raise AuthError("业务角色必须为数组")
+        normalized = list(dict.fromkeys(str(code).strip().upper() for code in role_codes if str(code).strip()))
+        supported = {row["code"] for row in BUSINESS_ROLE_CATALOG}
+        invalid = [code for code in normalized if code not in supported]
+        if invalid:
+            raise AuthError(f"不支持的业务角色：{','.join(invalid)}")
+        self.store.set_user_roles(target_id, normalized, int(actor["id"]))
+        updated = self.store.get_user_by_id(target_id) or target
+        self.audit(
+            "update_business_roles", True, user=actor, ip_address=ip_address,
+            user_agent=user_agent,
+            detail={"targetUserId": target_id, "roleCodes": normalized},
+        )
+        return self.public_user(updated)
+
+    def menu_catalog(self, actor: dict[str, Any]) -> list[dict[str, Any]]:
+        self.require_admin(actor)
+        return self.store.list_menu_catalog()
+
+    def update_user_menus(
+        self, actor: dict[str, Any], target_id: int, menu_codes: list[Any],
+        ip_address: str, user_agent: str,
+    ) -> dict[str, Any]:
+        self.require_admin(actor)
+        target = self.store.get_user_by_id(target_id)
+        if not target:
+            raise AuthError("账号不存在", 404, "USER_NOT_FOUND")
+        if not isinstance(menu_codes, list):
+            raise AuthError("菜单权限必须为数组")
+        normalized = list(dict.fromkeys(str(code).strip() for code in menu_codes if str(code).strip()))
+        supported = {row["code"] for row in MENU_CATALOG}
+        invalid = [code for code in normalized if code not in supported]
+        if invalid:
+            raise AuthError(f"不支持的菜单编码：{','.join(invalid)}")
+        self.store.set_user_menus(target_id, normalized)
+        updated = self.store.get_user_by_id(target_id) or target
+        self.audit(
+            "update_user_menus", True, user=actor, ip_address=ip_address,
+            user_agent=user_agent,
+            detail={"targetUserId": target_id, "menuCodes": normalized},
+        )
+        return self.public_user(updated)
 
     def audits(self, actor: dict[str, Any], limit: int) -> list[dict[str, Any]]:
         self.require_admin(actor)

@@ -61,7 +61,8 @@ docker compose up -d --build
 
 本地账号直接复用 MySQL `sibebid.sys_user`；角色 `admin` 对应系统管理员，
 `analyst`、`viewer` 当前均按普通用户处理。密码沿用该表的 bcrypt 哈希。
-`sys_user_menu` 暂不参与登录和菜单控制。失败锁定、会话和审计分别保存在
+`sys_user_menu` 已用于普通账号的一级菜单控制；工作台始终可见，管理员自动拥有全部菜单。智能投放岗位及权限使用
+`sys_role`、`sys_role_permission`、`sys_user_role`，由管理员在账号管理页面配置。失败锁定、会话和审计分别保存在
 `auth_user_security`、`auth_session`、`auth_audit_log`。应用默认自动建立这三张认证扩展表；若部署账号没有DDL权限，先手工执行
 [本地认证表DDL](docs/sql/local-auth-schema.sql)，再将 `AUTH_AUTO_CREATE_TABLES=false`。
 完整字段适配、接口、权限和验收标准见[本地账号登录技术方案](docs/product/local-account-auth-technical-design.md)。
