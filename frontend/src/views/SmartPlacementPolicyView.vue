@@ -1,12 +1,12 @@
 <template>
   <div class="page-wrap smart-placement-page">
-    <PageHeader eyebrow="SMART PLACEMENT" title="投放政策" description="从分析机会、两级审核、政策认领到投放登记的完整协作闭环">
-      <a-button type="primary" data-telemetry-code="placement-task-create" data-telemetry-name="新建投放机会" @click="openCreate">新建投放机会</a-button>
-    </PageHeader>
-
-    <a-alert type="info" show-icon class="page-alert" message="真实业务流程"
-      description="页面连接MySQL智能投放表；当前首版由管理员执行两级经理审核，普通账号可创建、认领和登记本人任务。" />
+    <PageHeader eyebrow="SMART PLACEMENT" title="投放政策" description="从机会分析、双重审核、政策认领和投放登记，到订单匹配与来单跟进的完整闭环" />
     <a-alert v-if="error" type="error" show-icon class="page-alert" :message="error" />
+
+    <section class="placement-hero">
+      <div><h2>投放政策协作中心</h2><p>数据部发现值得投放的机会，完成两级审核后进入认领池；政策人员认领并登记投放结果，系统持续匹配订单并触发来单提醒。</p></div>
+      <a-button class="hero-action" data-telemetry-code="placement-task-create" data-telemetry-name="新建投放机会" @click="openCreate">＋ 新建分析机会</a-button>
+    </section>
 
     <section class="summary-grid">
       <article v-for="item in summaryCards" :key="item.key" class="summary-card">
@@ -15,24 +15,28 @@
     </section>
 
     <a-card :bordered="false" class="panel-card flow-card">
-      <template #title><div class="panel-title"><span>业务流转</span><small>任务按状态依次推进，不同状态只显示当前允许的操作</small></div></template>
+      <template #title><div class="panel-title"><div><strong>业务流转</strong><small>每个节点均保留操作人、时间和意见，形成可追溯闭环</small></div><a-tag color="blue">流程示意</a-tag></div></template>
       <div class="workflow-chain">
-        <div v-for="(step, index) in flowSteps" :key="step.title" class="workflow-node">
+        <div v-for="(step, index) in flowSteps" :key="step.title" class="workflow-node" :class="{ done: index < 3, current: index === 3 }">
           <div class="workflow-index">{{ index + 1 }}</div>
           <div><strong>{{ step.title }}</strong><small>{{ step.description }}</small></div>
-          <span v-if="index < flowSteps.length - 1" class="workflow-arrow">→</span>
         </div>
       </div>
     </a-card>
 
     <a-card :bordered="false" class="panel-card">
-      <div class="filter-bar">
+      <div class="work-toolbar">
+        <div class="work-tabs">
+          <button v-for="item in workScopeOptions" :key="item.value" type="button" class="work-tab" :class="{ active: workScope === item.value }" @click="selectWorkScope(item.value)">{{ item.label }}</button>
+        </div>
+        <div class="filter-bar">
         <a-input v-model:value="filters.keyword" allow-clear placeholder="任务编号、机会名称或航程" @press-enter="load(1)" />
         <a-select v-model:value="filters.status" :options="statusFilterOptions" />
-        <a-input v-model:value="filters.platform" allow-clear placeholder="平台名称" />
-        <a-input v-model:value="filters.airline" allow-clear placeholder="航司编码" />
+        <a-select v-model:value="filters.platform" :options="platformSelectOptions" :loading="dimensionsLoading" show-search option-filter-prop="label" allow-clear placeholder="全部平台" />
+        <a-select v-model:value="filters.airline" :options="airlineSelectOptions" :loading="dimensionsLoading" show-search option-filter-prop="label" allow-clear placeholder="全部航司" />
         <a-button type="primary" :loading="loading" @click="load(1)"><SearchOutlined />查询</a-button>
         <a-button :disabled="loading" @click="resetFilters"><ReloadOutlined />重置</a-button>
+        </div>
       </div>
       <a-table :loading="loading" :columns="columns" :data-source="data?.rows || []" row-key="id" :pagination="pagination" :scroll="{ x: 1500 }" @change="changePage">
         <template #bodyCell="{ column, record }">
@@ -72,39 +76,42 @@
 
     <a-modal
       v-model:open="createOpen"
-      :title="editingTaskId ? '编辑投放机会' : '新建投放机会'"
-      width="min(1240px, 96vw)"
+      width="min(1180px, 96vw)"
       wrap-class-name="placement-create-modal"
       :footer="null"
       :mask-closable="false"
     >
+      <template #title>
+        <div class="opportunity-modal-title"><strong>{{ editingTaskId ? '编辑投放机会' : '新建投放机会' }}</strong><span>由数据分析人员录入业务条件和数据依据，提交后进入数据部经理审核。</span></div>
+      </template>
       <div class="form-intro">
         <div class="intro-mark">01</div>
-        <div class="intro-copy"><strong>填写机会的业务条件与分析依据</strong><span>基础字段保存草稿时校验；提交审核时会额外校验历史指标、预估指标和建议有效期。</span></div>
+        <div class="intro-copy"><strong>填写机会的业务条件与分析依据</strong><span>共 36 个业务字段，10 项必填；字段独立录入，选填项留空即表示不限。</span></div>
         <div class="field-legend"><span class="required-dot">必填字段</span><span>选填字段</span></div>
       </div>
+      <a-alert v-if="dimensionsError" class="dimension-alert" type="warning" show-icon message="业务维度下拉加载失败" :description="dimensionsError" />
 
       <a-form layout="vertical" class="task-form">
         <section class="form-section">
-          <header class="section-heading"><span>1</span><div><h3>分析来源</h3><p>记录机会从哪里发现，以及使用哪段历史数据完成判断。</p></div><em>5 个字段</em></header>
+          <header class="section-heading"><span>1</span><div><h3>分析来源</h3><p>说明机会从哪里发现，以及本次分析使用的历史周期。</p></div><em>5 个字段</em></header>
           <div class="form-grid three">
             <PlacementField class="span-2" label="机会名称" required hint="用于任务池与审核列表识别，例如：携程东南亚航线低价机会"><a-input v-model:value="taskForm.opportunityName" placeholder="请输入机会名称" /></PlacementField>
             <PlacementField label="机会来源" required hint="选择本次机会的发现渠道"><a-select v-model:value="taskForm.opportunitySource" :options="sourceOptions" /></PlacementField>
             <PlacementField label="分析规则编号" hint="由规则识别时填写；人工创建可以留空"><a-input v-model:value="taskForm.analysisRuleCode" placeholder="请输入规则编号" /></PlacementField>
-            <PlacementField label="分析开始日期" required hint="历史样本统计的起始日期"><a-date-picker v-model:value="taskForm.analysisStartDate" value-format="YYYY-MM-DD" /></PlacementField>
-            <PlacementField label="分析结束日期" required hint="历史样本统计的截止日期"><a-date-picker v-model:value="taskForm.analysisEndDate" value-format="YYYY-MM-DD" /></PlacementField>
+            <PlacementField label="分析开始日期" required hint="历史样本统计的起始日期"><a-date-picker v-model:value="taskForm.analysisStartDate" class="date-control" value-format="YYYY-MM-DD" placeholder="请选择分析开始日期" /></PlacementField>
+            <PlacementField label="分析结束日期" required hint="历史样本统计的截止日期"><a-date-picker v-model:value="taskForm.analysisEndDate" class="date-control" value-format="YYYY-MM-DD" placeholder="请选择分析结束日期" /></PlacementField>
           </div>
         </section>
 
         <section class="form-section">
-          <header class="section-heading"><span>2</span><div><h3>投放范围</h3><p>名称、编码、航程和舱位分别落库，后续订单匹配直接使用这些字段。</p></div><em>13 个字段</em></header>
+          <header class="section-heading"><span>2</span><div><h3>投放范围</h3><p>平台、站点、航程、航班和舱位全部独立填写。</p></div><em>13 个字段</em></header>
           <div class="form-grid three">
-            <PlacementField label="平台名称" required hint="例如：携程、同程、去哪儿"><a-input v-model:value="taskForm.platformName" placeholder="请输入平台名称" /></PlacementField>
-            <PlacementField label="平台编码" hint="平台在业务系统中的唯一编码"><a-input v-model:value="taskForm.platformCode" placeholder="例如：CTRIP" /></PlacementField>
-            <PlacementField label="产品类型" hint="例如：公布转私有、私有运价"><a-input v-model:value="taskForm.productType" placeholder="请输入产品类型" /></PlacementField>
-            <PlacementField label="站点名称" hint="例如：乐游携程一部"><a-input v-model:value="taskForm.siteName" placeholder="请输入站点名称" /></PlacementField>
-            <PlacementField label="站点编码" hint="站点在业务系统中的编码"><a-input v-model:value="taskForm.siteCode" placeholder="请输入站点编码" /></PlacementField>
-            <PlacementField label="航司" required hint="填写二字航司代码，例如：HO"><a-input v-model:value="taskForm.airlineCode" placeholder="请输入航司代码" /></PlacementField>
+            <PlacementField label="平台名称" required state="数据下拉" hint="来自综合分析ADS，单选后自动带出平台编码"><a-select v-model:value="taskForm.platformName" :options="platformSelectOptions" :loading="dimensionsLoading" show-search option-filter-prop="label" allow-clear placeholder="请选择平台" @change="selectPlatform" /></PlacementField>
+            <PlacementField label="平台编码" hint="选择平台后由系统自动带出"><a-input v-model:value="taskForm.platformCode" readonly placeholder="选择平台后自动带出" /></PlacementField>
+            <PlacementField label="产品类型" state="数据下拉" hint="已按所选平台过滤"><a-select v-model:value="taskForm.productType" :options="productSelectOptions" :loading="dimensionsLoading" show-search option-filter-prop="label" allow-clear placeholder="请选择产品类型" /></PlacementField>
+            <PlacementField label="站点名称" state="数据下拉" hint="已按所选平台过滤"><a-select v-model:value="taskForm.siteName" :options="siteSelectOptions" :loading="dimensionsLoading" show-search option-filter-prop="label" allow-clear placeholder="请选择站点" @change="selectSite" /></PlacementField>
+            <PlacementField label="站点编码" hint="选择站点后由系统自动带出"><a-input v-model:value="taskForm.siteCode" readonly placeholder="选择站点后自动带出" /></PlacementField>
+            <PlacementField label="航司" required state="数据下拉" hint="来自综合分析ADS的航司代码"><a-select v-model:value="taskForm.airlineCode" :options="airlineSelectOptions" :loading="dimensionsLoading" show-search option-filter-prop="label" allow-clear placeholder="请选择航司" /></PlacementField>
             <PlacementField label="航程类型" hint="单程、往返或多程"><a-select v-model:value="taskForm.journeyType" :options="journeyOptions" allow-clear placeholder="请选择航程类型" /></PlacementField>
             <PlacementField label="出发地" hint="填写城市或机场三字码"><a-input v-model:value="taskForm.departureCode" placeholder="例如：PVG" /></PlacementField>
             <PlacementField label="到达地" hint="填写城市或机场三字码"><a-input v-model:value="taskForm.arrivalCode" placeholder="例如：KUL" /></PlacementField>
@@ -113,30 +120,28 @@
             <PlacementField label="包含舱位" hint="允许匹配的舱位，例如：Y,B,M"><a-input v-model:value="taskForm.includeCabins" placeholder="请输入包含舱位" /></PlacementField>
             <PlacementField label="排除舱位" hint="明确禁止匹配的舱位，例如：X,N"><a-input v-model:value="taskForm.excludeCabins" placeholder="请输入排除舱位" /></PlacementField>
           </div>
-          <div class="field-tip"><strong>舱位规则：</strong>包含舱位与排除舱位不能出现相同值；不限制时保持为空。</div>
         </section>
 
         <section class="form-section">
-          <header class="section-heading"><span>3</span><div><h3>适用时间</h3><p>订单日期控制何时进单，起飞日期控制航班适用范围，政策有效期控制实际投放窗口。</p></div><em>7 个字段</em></header>
+          <header class="section-heading"><span>3</span><div><h3>适用时间</h3><p>区分订单范围、起飞范围和政策生效窗口。</p></div><em>7 个字段</em></header>
           <div class="form-grid three">
-            <PlacementField label="订单开始日期" hint="订单进入匹配范围的起始日期"><a-date-picker v-model:value="taskForm.orderStartDate" value-format="YYYY-MM-DD" /></PlacementField>
-            <PlacementField label="订单结束日期" hint="订单进入匹配范围的截止日期"><a-date-picker v-model:value="taskForm.orderEndDate" value-format="YYYY-MM-DD" /></PlacementField>
-            <PlacementField label="期望完成时间" required hint="投放人员应完成执行登记的时间"><a-date-picker v-model:value="taskForm.expectedCompleteAt" show-time value-format="YYYY-MM-DD HH:mm:ss" /></PlacementField>
-            <PlacementField label="起飞开始日期" hint="适用航班的最早起飞日期"><a-date-picker v-model:value="taskForm.travelStartDate" value-format="YYYY-MM-DD" /></PlacementField>
-            <PlacementField label="起飞结束日期" hint="适用航班的最晚起飞日期"><a-date-picker v-model:value="taskForm.travelEndDate" value-format="YYYY-MM-DD" /></PlacementField>
-            <PlacementField label="建议生效时间" state="提交必填" hint="建议政策开始生效的时间"><a-date-picker v-model:value="taskForm.suggestedEffectiveStart" show-time value-format="YYYY-MM-DD HH:mm:ss" /></PlacementField>
-            <PlacementField label="建议失效时间" state="提交必填" hint="建议政策停止匹配的时间"><a-date-picker v-model:value="taskForm.suggestedEffectiveEnd" show-time value-format="YYYY-MM-DD HH:mm:ss" /></PlacementField>
+            <PlacementField label="订单开始日期" hint="订单进入匹配范围的起始日期"><a-date-picker v-model:value="taskForm.orderStartDate" class="date-control" value-format="YYYY-MM-DD" placeholder="请选择订单开始日期" /></PlacementField>
+            <PlacementField label="订单结束日期" hint="订单进入匹配范围的截止日期"><a-date-picker v-model:value="taskForm.orderEndDate" class="date-control" value-format="YYYY-MM-DD" placeholder="请选择订单结束日期" /></PlacementField>
+            <PlacementField label="期望完成时间" required hint="投放人员应完成执行登记的时间"><a-date-picker v-model:value="taskForm.expectedCompleteAt" class="date-control" show-time value-format="YYYY-MM-DD HH:mm:ss" placeholder="请选择期望完成时间" /></PlacementField>
+            <PlacementField label="起飞开始日期" hint="适用航班的最早起飞日期"><a-date-picker v-model:value="taskForm.travelStartDate" class="date-control" value-format="YYYY-MM-DD" placeholder="请选择起飞开始日期" /></PlacementField>
+            <PlacementField label="起飞结束日期" hint="适用航班的最晚起飞日期"><a-date-picker v-model:value="taskForm.travelEndDate" class="date-control" value-format="YYYY-MM-DD" placeholder="请选择起飞结束日期" /></PlacementField>
+            <PlacementField label="建议生效时间" state="提交必填" hint="建议政策开始生效的时间"><a-date-picker v-model:value="taskForm.suggestedEffectiveStart" class="date-control" show-time value-format="YYYY-MM-DD HH:mm:ss" placeholder="请选择建议生效时间" /></PlacementField>
+            <PlacementField label="建议失效时间" state="提交必填" hint="建议政策停止匹配的时间"><a-date-picker v-model:value="taskForm.suggestedEffectiveEnd" class="date-control" show-time value-format="YYYY-MM-DD HH:mm:ss" placeholder="请选择建议失效时间" /></PlacementField>
           </div>
         </section>
 
         <section class="form-section">
-          <header class="section-heading"><span>4</span><div><h3>策略与收益测算</h3><p>明确准备如何投放、历史依据和预估价值，供两级审核判断是否值得执行。</p></div><em>9 个字段</em></header>
+          <header class="section-heading"><span>4</span><div><h3>策略与收益测算</h3><p>填写建议动作、历史依据和预估价值。</p></div><em>9 个字段</em></header>
           <div class="form-grid three">
             <PlacementField class="span-2" label="建议投放方式" required hint="写清执行动作、范围和测试周期"><a-input v-model:value="taskForm.placementMethod" placeholder="例如：价格下调20元，小流量测试3天" /></PlacementField>
             <PlacementField label="优先级" required hint="用于任务排序和处理时效"><a-select v-model:value="taskForm.priority" :options="priorityOptions" /></PlacementField>
             <PlacementField label="建议调整值" hint="填写具体价格、返点或比例调整数值"><a-input-number v-model:value="taskForm.adjustmentValue" :precision="4" placeholder="请输入数值" /></PlacementField>
             <PlacementField label="调整单位" hint="说明调整值是金额、比例或百分点"><a-select v-model:value="taskForm.adjustmentUnit" :options="adjustmentOptions" allow-clear placeholder="请选择单位" /></PlacementField>
-            <div class="metric-hint"><span>口径提示</span><strong>以下均为业务估算值</strong><small>不直接作为财务结算结果</small></div>
             <PlacementField label="历史票数（票）" state="提交必填" hint="所选历史样本内的出票票数"><a-input-number v-model:value="taskForm.historicalTicketCount" :min="0" placeholder="请输入票数" /></PlacementField>
             <PlacementField label="历史航段数（段）" hint="所选历史样本内的航段总数"><a-input-number v-model:value="taskForm.historicalSegmentCount" :min="0" placeholder="请输入航段数" /></PlacementField>
             <PlacementField label="历史利润（CNY）" state="提交必填" hint="历史样本的业务估算利润"><a-input-number v-model:value="taskForm.historicalProfitCny" :precision="4" placeholder="请输入金额" /></PlacementField>
@@ -154,13 +159,13 @@
         </section>
 
         <div class="modal-actions">
-          <span>保存草稿不会进入审核流程</span>
+          <span>保存草稿不会进入审核流程；提交后进入数据部经理审核</span>
           <div><a-button @click="createOpen=false">取消</a-button><a-button :loading="saving" @click="saveTask(false)">保存草稿</a-button><a-button type="primary" :loading="saving" @click="saveTask(true)">提交数据审核</a-button></div>
         </div>
       </a-form>
     </a-modal>
 
-    <a-modal v-model:open="reviewOpen" :title="reviewStage === 'DATA_MANAGER' ? '数据部经理审核' : '政策经理审核'" width="min(900px, 95vw)" :footer="null" :mask-closable="false">
+    <a-modal v-model:open="reviewOpen" :title="reviewStage === 'DATA_MANAGER' ? '数据部经理审核' : '政策经理审核'" width="min(900px, 95vw)" wrap-class-name="placement-action-modal" :footer="null" :mask-closable="false">
       <div class="action-context">
         <div><strong>{{ activeTask?.opportunityName }}</strong><span>{{ activeTask?.taskNo }}</span></div>
         <p>{{ activeTask?.platformName }} · {{ activeTask?.airlineCode }} · {{ activeTask?.routeText || routeName(activeTask) }}</p>
@@ -182,7 +187,7 @@
       <div class="dialog-actions"><a-button @click="reviewOpen=false">取消</a-button><a-button type="primary" :loading="saving" @click="submitReview">提交审核结果</a-button></div>
     </a-modal>
 
-    <a-modal v-model:open="claimOpen" title="认领投放任务" width="min(620px, 94vw)" :footer="null" :mask-closable="false">
+    <a-modal v-model:open="claimOpen" title="认领投放任务" width="min(620px, 94vw)" wrap-class-name="placement-action-modal" :footer="null" :mask-closable="false">
       <div class="action-context"><div><strong>{{ activeTask?.opportunityName }}</strong><span>{{ activeTask?.taskNo }}</span></div><p>认领后任务进入“执行中”，当前账号成为唯一负责人。</p></div>
       <div class="form-grid one">
         <PlacementField label="计划完成时间" required hint="负责人承诺完成投放登记的时间"><a-date-picker v-model:value="claimForm.plannedCompleteAt" show-time value-format="YYYY-MM-DD HH:mm:ss" /></PlacementField>
@@ -212,12 +217,12 @@
         <section v-if="executionForm.result === 'SUCCESS'" class="form-section">
           <header class="section-heading"><span>2</span><div><h3>实际投放条件</h3><p>默认带出审核任务条件；实际值有变化时在这里修改，后续匹配使用实际条件。</p></div></header>
           <div class="form-grid three">
-            <PlacementField label="平台名称" required><a-input v-model:value="executionForm.platformName" /></PlacementField>
-            <PlacementField label="平台编码"><a-input v-model:value="executionForm.platformCode" /></PlacementField>
-            <PlacementField label="产品类型"><a-input v-model:value="executionForm.productType" /></PlacementField>
-            <PlacementField label="站点名称"><a-input v-model:value="executionForm.siteName" /></PlacementField>
-            <PlacementField label="站点编码"><a-input v-model:value="executionForm.siteCode" /></PlacementField>
-            <PlacementField label="航司" required><a-input v-model:value="executionForm.airlineCode" /></PlacementField>
+            <PlacementField label="平台名称" required hint="选择后自动带出平台编码"><a-select v-model:value="executionForm.platformName" :options="executionPlatformOptions" :loading="dimensionsLoading" show-search option-filter-prop="label" allow-clear placeholder="请选择平台" @change="selectExecutionPlatform" /></PlacementField>
+            <PlacementField label="平台编码" hint="由平台名称自动带出"><a-input v-model:value="executionForm.platformCode" readonly /></PlacementField>
+            <PlacementField label="产品类型"><a-select v-model:value="executionForm.productType" :options="executionProductOptions" :loading="dimensionsLoading" show-search option-filter-prop="label" allow-clear placeholder="请选择产品类型" /></PlacementField>
+            <PlacementField label="站点名称"><a-select v-model:value="executionForm.siteName" :options="executionSiteOptions" :loading="dimensionsLoading" show-search option-filter-prop="label" allow-clear placeholder="请选择站点" @change="selectExecutionSite" /></PlacementField>
+            <PlacementField label="站点编码" hint="由站点名称自动带出"><a-input v-model:value="executionForm.siteCode" readonly /></PlacementField>
+            <PlacementField label="航司" required><a-select v-model:value="executionForm.airlineCode" :options="executionAirlineOptions" :loading="dimensionsLoading" show-search option-filter-prop="label" allow-clear placeholder="请选择航司" /></PlacementField>
             <PlacementField label="出发地"><a-input v-model:value="executionForm.departureCode" /></PlacementField>
             <PlacementField label="到达地"><a-input v-model:value="executionForm.arrivalCode" /></PlacementField>
             <PlacementField label="航班号"><a-input v-model:value="executionForm.flightNos" /></PlacementField>
@@ -342,7 +347,8 @@ import PlacementField from '@/components/PlacementField.vue'
 import { useAuthStore } from '@/stores/auth'
 import {
   claimPlacementTask, createPlacementTask, executePlacementTask, fetchPlacementTask,
-  fetchPlacementTasks, reviewPlacementTask, updatePlacementTask, type PlacementPriority,
+  fetchPlacementDimensions, fetchPlacementTasks, reviewPlacementTask, updatePlacementTask,
+  type PlacementDimensionOption, type PlacementDimensionOptions, type PlacementPriority,
   type PlacementTaskDetail, type PlacementTaskInput, type PlacementTaskList,
   type PlacementTaskRow, type PlacementTaskStatus,
 } from '@/api/smartPlacement'
@@ -353,7 +359,11 @@ const data = ref<PlacementTaskList>()
 const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
-const filters = ref({ keyword: '', status: '', platform: '', airline: '' })
+const dimensionsLoading = ref(false)
+const dimensionsError = ref('')
+const dimensions = ref<PlacementDimensionOptions>()
+const workScope = ref('all')
+const filters = ref({ keyword: '', status: '', platform: '', airline: '', owner: '', scope: '' })
 const page = ref(1)
 const pageSize = ref(30)
 const createOpen = ref(false)
@@ -392,6 +402,7 @@ const executableOptions = [{ value: 'EXECUTABLE', label: '可执行' }, { value:
 const executionResultOptions = [{ value: 'SUCCESS', label: '投放成功' }, { value: 'FAILED', label: '投放失败' }]
 const failureTypeOptions = [{ value: 'NO_RESOURCE', label: '无可用资源' }, { value: 'PRICE_UNFEASIBLE', label: '价格不可行' }, { value: 'SYSTEM_ERROR', label: '系统故障' }, { value: 'EXTERNAL_REJECTED', label: '外部系统拒绝' }, { value: 'OTHER', label: '其他原因' }]
 const reviewCheckOptions = [{ value: 'dataMetricConfirmed', label: '数据口径确认' }, { value: 'sampleSufficient', label: '样本充分性确认' }, { value: 'estimatedValueConfirmed', label: '预估价值确认' }]
+const workScopeOptions = [{ value: 'all', label: '全部任务' }, { value: 'review', label: '待我审核' }, { value: 'claim', label: '可认领' }, { value: 'mine', label: '我的任务' }]
 const flowSteps = [{ title: '分析入池', description: '保存并提交' }, { title: '数据审核', description: '确认口径价值' }, { title: '政策审核', description: '确认可执行性' }, { title: '政策认领', description: '明确负责人' }, { title: '完成投放', description: '登记政策 ID' }, { title: '订单匹配', description: '命中新订单' }, { title: '来单关注', description: '跟进处理' }]
 const detailFlowSteps = flowSteps.slice(0, 6).map(step => ({ title: step.title }))
 const summaryCards: { key: PlacementTaskStatus; label: string; note: string; tone: string }[] = [
@@ -441,6 +452,65 @@ function blankTask(): PlacementTaskInput {
 }
 const taskForm = ref<PlacementTaskInput>(blankTask())
 
+type SelectOption = { value: string; label: string }
+function selectOptions(items: PlacementDimensionOption[] | undefined, selected?: string): SelectOption[] {
+  const values = new Map<string, string>()
+  for (const item of items || []) if (item.value) values.set(item.value, item.label || item.value)
+  if (selected && !values.has(selected)) values.set(selected, selected)
+  return Array.from(values, ([value, label]) => ({ value, label }))
+}
+const platformSelectOptions = computed(() => selectOptions(dimensions.value?.platforms, taskForm.value.platformName))
+const siteSelectOptions = computed(() => selectOptions(
+  dimensions.value?.sites.filter(item => !taskForm.value.platformName || item.platformName === taskForm.value.platformName),
+  taskForm.value.siteName,
+))
+const productSelectOptions = computed(() => selectOptions(
+  dimensions.value?.products.filter(item => !taskForm.value.platformName || item.platformName === taskForm.value.platformName),
+  taskForm.value.productType,
+))
+const airlineSelectOptions = computed(() => selectOptions(dimensions.value?.airlines, taskForm.value.airlineCode))
+const executionPlatformOptions = computed(() => selectOptions(dimensions.value?.platforms, String(executionForm.value.platformName || '')))
+const executionSiteOptions = computed(() => selectOptions(
+  dimensions.value?.sites.filter(item => !executionForm.value.platformName || item.platformName === executionForm.value.platformName),
+  String(executionForm.value.siteName || ''),
+))
+const executionProductOptions = computed(() => selectOptions(
+  dimensions.value?.products.filter(item => !executionForm.value.platformName || item.platformName === executionForm.value.platformName),
+  String(executionForm.value.productType || ''),
+))
+const executionAirlineOptions = computed(() => selectOptions(dimensions.value?.airlines, String(executionForm.value.airlineCode || '')))
+
+async function loadDimensions() {
+  if (dimensions.value || dimensionsLoading.value) return
+  dimensionsLoading.value = true
+  dimensionsError.value = ''
+  try { dimensions.value = await fetchPlacementDimensions() }
+  catch (failure) { dimensionsError.value = failure instanceof Error ? failure.message : '业务维度加载失败' }
+  finally { dimensionsLoading.value = false }
+}
+function selectPlatform(value?: string) {
+  const platform = dimensions.value?.platforms.find(item => item.value === value)
+  taskForm.value.platformCode = platform?.code || ''
+  if (!value) { taskForm.value.siteName = ''; taskForm.value.siteCode = ''; taskForm.value.productType = ''; return }
+  if (!dimensions.value?.sites.some(item => item.value === taskForm.value.siteName && item.platformName === value)) { taskForm.value.siteName = ''; taskForm.value.siteCode = '' }
+  if (!dimensions.value?.products.some(item => item.value === taskForm.value.productType && item.platformName === value)) taskForm.value.productType = ''
+}
+function selectSite(value?: string) {
+  const site = dimensions.value?.sites.find(item => item.value === value && (!taskForm.value.platformName || item.platformName === taskForm.value.platformName))
+  taskForm.value.siteCode = site?.code || ''
+}
+function selectExecutionPlatform(value?: string) {
+  const platform = dimensions.value?.platforms.find(item => item.value === value)
+  executionForm.value.platformCode = platform?.code || ''
+  if (!value) { executionForm.value.siteName = ''; executionForm.value.siteCode = ''; executionForm.value.productType = ''; return }
+  if (!dimensions.value?.sites.some(item => item.value === executionForm.value.siteName && item.platformName === value)) { executionForm.value.siteName = ''; executionForm.value.siteCode = '' }
+  if (!dimensions.value?.products.some(item => item.value === executionForm.value.productType && item.platformName === value)) executionForm.value.productType = ''
+}
+function selectExecutionSite(value?: string) {
+  const site = dimensions.value?.sites.find(item => item.value === value && (!executionForm.value.platformName || item.platformName === executionForm.value.platformName))
+  executionForm.value.siteCode = site?.code || ''
+}
+
 function optionalNumber(value: unknown) {
   return value === null || value === undefined || value === '' ? undefined : Number(value)
 }
@@ -463,9 +533,15 @@ async function load(targetPage = page.value) {
   catch (failure) { data.value = undefined; error.value = failure instanceof Error ? failure.message : '投放任务查询失败' }
   finally { loading.value = false }
 }
-function resetFilters() { filters.value = { keyword: '', status: '', platform: '', airline: '' }; void load(1) }
+function resetFilters() { workScope.value = 'all'; filters.value = { keyword: '', status: '', platform: '', airline: '', owner: '', scope: '' }; void load(1) }
+function selectWorkScope(value: string) {
+  workScope.value = value
+  filters.value.scope = value === 'all' ? '' : value
+  filters.value.owner = ''
+  void load(1)
+}
 function changePage(value: { current?: number; pageSize?: number }) { const size = value.pageSize || pageSize.value; page.value = size === pageSize.value ? value.current || 1 : 1; pageSize.value = size; void load(page.value) }
-function openCreate() { editingTaskId.value = undefined; taskForm.value = blankTask(); createOpen.value = true }
+function openCreate() { editingTaskId.value = undefined; taskForm.value = blankTask(); createOpen.value = true; void loadDimensions() }
 async function openEdit(row: PlacementTaskRow) {
   saving.value = true
   try {
@@ -473,6 +549,7 @@ async function openEdit(row: PlacementTaskRow) {
     editingTaskId.value = row.id
     taskForm.value = taskToForm(result.task)
     createOpen.value = true
+    void loadDimensions()
   } catch (failure) { message.error(failure instanceof Error ? failure.message : '任务加载失败') }
   finally { saving.value = false }
 }
@@ -552,7 +629,7 @@ async function submitClaim() {
   try { await claimPlacementTask(activeTask.value.id, claimForm.value); message.success('任务认领成功'); claimOpen.value = false; await load() } catch (failure) { message.error(failure instanceof Error ? failure.message : '认领失败') } finally { saving.value = false }
 }
 async function openExecution(row: PlacementTaskRow) {
-  activeTask.value = row; saving.value = true
+  activeTask.value = row; saving.value = true; void loadDimensions()
   try {
     const result = await fetchPlacementTask(row.id)
     const task = result.task
@@ -584,38 +661,37 @@ async function submitExecution() {
   try { await executePlacementTask(activeTask.value.id, executionForm.value); message.success('投放结果已登记'); executionOpen.value = false; await load() } catch (failure) { message.error(failure instanceof Error ? failure.message : '登记失败') } finally { saving.value = false }
 }
 async function openDetail(row: PlacementTaskRow) { detailOpen.value = true; detailLoading.value = true; detailTab.value = 'overview'; detail.value = undefined; try { detail.value = await fetchPlacementTask(row.id) } catch (failure) { message.error(failure instanceof Error ? failure.message : '详情查询失败') } finally { detailLoading.value = false } }
-onMounted(() => { void load(1) })
+onMounted(() => { void load(1); void loadDimensions() })
 </script>
 
 <style scoped>
 :global(.placement-create-modal .ant-modal-content) { overflow: hidden; border: 1px solid #dfe6ef; border-radius: 14px; box-shadow: 0 24px 70px rgba(29,44,68,.22); }
-:global(.placement-create-modal .ant-modal-header) { margin-bottom: 0; padding: 20px 24px 15px; border-bottom: 1px solid #edf0f5; }
+:global(.placement-create-modal .ant-modal-header) { margin-bottom: 0; padding: 21px 24px 17px; border-bottom: 1px solid #e8edf4; }
 :global(.placement-create-modal .ant-modal-title) { color: #20324d; font-size: 18px; font-weight: 700; }
-:global(.placement-create-modal .ant-modal-body) { max-height: calc(100vh - 130px); overflow-y: auto; padding: 18px 24px 22px; background: #f7f9fc; }
+:global(.placement-create-modal .ant-modal-body) { max-height: calc(90vh - 136px); overflow-y: auto; padding: 18px 24px 0; background: #f6f8fc; }
+:global(.placement-action-modal .ant-modal-content) { overflow: hidden; border: 1px solid #dfe6ef; border-radius: 14px; box-shadow: 0 20px 55px rgba(29,44,68,.2); }
+:global(.placement-action-modal .ant-modal-header) { margin-bottom: 0; padding: 20px 22px 16px; border-bottom: 1px solid #e8edf4; }
+:global(.placement-action-modal .ant-modal-body) { padding: 18px 22px 22px; }
+.opportunity-modal-title strong,.opportunity-modal-title span { display: block; }.opportunity-modal-title strong { color: #172033; font-size: 18px; }.opportunity-modal-title span { margin-top: 5px; color: #697386; font-size: 12px; font-weight: 400; }
 .smart-placement-page { padding-bottom: 34px; }
 .page-alert { margin-bottom: 14px; border-radius: 10px; }
+.placement-hero { position: relative; display: flex; min-height: 124px; align-items: center; justify-content: space-between; gap: 24px; overflow: hidden; margin-bottom: 16px; padding: 24px 28px; border-radius: 16px; color: #fff; background: linear-gradient(110deg,#2049a6 0%,#1768bd 55%,#0f8d9c 100%); box-shadow: 0 10px 30px rgba(27,41,70,.08); }
+.placement-hero::after { position: absolute; top: -115px; right: -70px; width: 320px; height: 320px; border: 40px solid rgba(255,255,255,.08); border-radius: 50%; content: ''; }.placement-hero h2 { position: relative; z-index: 1; margin: 0 0 6px; color: #fff; font-size: 20px; }.placement-hero p { position: relative; z-index: 1; max-width: 760px; margin: 0; color: #d8e9ff; }.hero-action { position: relative; z-index: 1; flex: none; border: 0; color: #1a55a4; font-weight: 700; }
 .summary-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
-.summary-card { padding: 16px 17px; border: 1px solid #e6ebf2; border-radius: 11px; background: #fff; box-shadow: 0 5px 18px rgba(28,45,72,.035); }
-.summary-card span, .summary-card small { display: block; color: #7b8798; font-size: 11px; }
-.summary-card strong { display: block; margin: 5px 0 2px; color: #26344b; font-size: 24px; }.summary-card strong.orange { color: #d97706; }.summary-card strong.blue { color: #2563eb; }.summary-card strong.green { color: #059669; }.summary-card strong.red { color: #dc2626; }
-.panel-card { margin-bottom: 14px; border: 1px solid #e6ebf2 !important; border-radius: 12px; }
-.flow-card :deep(.ant-card-body) { padding: 22px 26px; }
-.panel-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; }.panel-title small { color: #8a96a9; font-size: 11px; }
-.workflow-chain { display: grid; grid-template-columns: repeat(7,minmax(0,1fr)); gap: 0; }.workflow-node { position: relative; display: flex; min-width: 0; align-items: center; gap: 9px; padding-right: 22px; }.workflow-index { display: grid; flex: 0 0 28px; height: 28px; place-items: center; border: 1px solid #bfd2ef; border-radius: 50%; color: #2867b7; background: #eef5ff; font-size: 11px; font-weight: 700; }.workflow-node strong,.workflow-node small { display: block; }.workflow-node strong { overflow: hidden; color: #31445f; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }.workflow-node small { margin-top: 2px; color: #8b97a8; font-size: 9px; }.workflow-arrow { position: absolute; top: 5px; right: 7px; color: #b3c0d2; }
-.filter-bar { display: grid; grid-template-columns: minmax(220px, 1fr) 170px 150px 120px auto auto; gap: 10px; margin-bottom: 16px; }
+.summary-card { padding: 17px 18px; border: 1px solid #e8edf4; border-radius: 12px; background: #fff; box-shadow: 0 4px 15px rgba(30,52,89,.04); }.summary-card span,.summary-card small { display: block; color: #697386; font-size: 11px; }.summary-card span { font-size: 12px; }.summary-card strong { display: block; margin: 7px 0 3px; color: #26344b; font-size: 25px; letter-spacing: -.5px; }.summary-card strong.orange { color: #ea580c; }.summary-card strong.blue { color: #2563eb; }.summary-card strong.green { color: #059669; }.summary-card strong.red { color: #dc2626; }
+.panel-card { margin-bottom: 16px; border: 1px solid #e8edf4 !important; border-radius: 13px; box-shadow: 0 5px 20px rgba(25,43,74,.045); }.flow-card :deep(.ant-card-head) { min-height: 62px; padding: 0 20px; border-bottom-color: #e8edf4; }.flow-card :deep(.ant-card-body) { padding: 24px 16px 20px; }
+.panel-card:not(.flow-card) :deep(.ant-card-body) { padding: 14px 18px 0; }.panel-card :deep(.ant-table-thead > tr > th) { color: #667085; background: #f8fafc; font-size: 12px; }.panel-card :deep(.ant-table-tbody > tr > td) { padding-top: 12px; padding-bottom: 12px; }
+.panel-title { display: flex; align-items: center; justify-content: space-between; gap: 16px; }.panel-title > div strong,.panel-title > div small { display: block; }.panel-title > div strong { color: #172033; font-size: 16px; }.panel-title small { margin-top: 3px; color: #697386; font-size: 11px; font-weight: 400; }
+.workflow-chain { display: grid; grid-template-columns: repeat(7,minmax(0,1fr)); }.workflow-node { position: relative; min-width: 0; text-align: center; color: #667085; }.workflow-node:not(:last-child)::after { position: absolute; top: 16px; right: calc(-50% + 17px); left: calc(50% + 17px); height: 2px; background: #d9e4f2; content: ''; }.workflow-node.done:not(:last-child)::after { background: #80a8fb; }.workflow-index { position: relative; z-index: 1; display: grid; width: 33px; height: 33px; margin: 0 auto 9px; place-items: center; border: 2px solid #cfd9e8; border-radius: 50%; color: #8090a8; background: #fff; font-size: 12px; font-weight: 700; }.workflow-node.done .workflow-index { border-color: #2563eb; color: #fff; background: #2563eb; }.workflow-node.current .workflow-index { border-color: #f59e0b; color: #9a5700; background: #fff5d9; box-shadow: 0 0 0 5px #fff8e7; }.workflow-node strong,.workflow-node small { display: block; }.workflow-node strong { overflow: hidden; color: #475467; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }.workflow-node small { margin-top: 2px; color: #98a2b3; font-size: 10px; }
+.work-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 16px; }.work-tabs { display: flex; gap: 6px; margin-right: auto; }.work-tab { padding: 7px 12px; border: 0; border-radius: 7px; color: #667085; background: #f5f7fa; cursor: pointer; }.work-tab.active { color: #2563eb; background: #eaf1ff; font-weight: 600; }.filter-bar { display: grid; grid-template-columns: minmax(220px,1fr) 160px 135px 105px auto auto; gap: 10px; }
 .task-link { padding: 0; border: 0; text-align: left; background: transparent; cursor: pointer; }.task-link strong, .task-link small, .scope-cell strong, .scope-cell span { display: block; }.task-link strong { color: #275fae; }.task-link small, .scope-cell span { margin-top: 3px; color: #8290a4; font-size: 11px; }.scope-cell .exclude { color: #c15b69; }
-.form-intro { display: flex; align-items: center; gap: 14px; margin: 0 0 18px; padding: 14px 16px; border: 1px solid #cfe0fb; border-radius: 12px; background: linear-gradient(135deg,#f5f9ff,#fbfdff); }
-.intro-mark { display: grid; flex: 0 0 42px; height: 42px; place-items: center; border-radius: 11px; color: #fff; font-weight: 700; background: #2867b7; box-shadow: 0 6px 14px rgba(40,103,183,.2); }.form-intro strong,.form-intro span { display: block; }.form-intro strong { color: #24354f; font-size: 14px; }.form-intro span { margin-top: 3px; color: #718096; font-size: 12px; line-height: 1.6; }
-.intro-copy { min-width: 0; }.field-legend { display: flex; flex: none; gap: 8px; margin-left: auto; }.form-intro .field-legend span { position: relative; margin: 0; padding: 4px 9px 4px 18px; border: 1px solid #dfe6ef; border-radius: 999px; color: #758296; background: #fff; font-size: 10px; }.form-intro .field-legend span::before { position: absolute; top: 50%; left: 8px; width: 5px; height: 5px; border-radius: 50%; background: #a5afbd; transform: translateY(-50%); content: ''; }.form-intro .field-legend .required-dot { border-color: #f0c8cc; color: #b5424f; background: #fff8f8; }.form-intro .field-legend .required-dot::before { background: #d85866; }
-.task-form { display: grid; gap: 14px; }.form-section { padding: 18px 20px 20px; border: 1px solid #e4eaf2; border-radius: 12px; background: #fff; }.form-section:nth-of-type(even) { background: #fbfcfe; }
-.section-heading { display: flex; align-items: flex-start; gap: 11px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #edf1f6; }.section-heading > span { display: grid; flex: 0 0 27px; height: 27px; place-items: center; border-radius: 8px; color: #2867b7; font-size: 12px; font-weight: 700; background: #eaf2ff; }.section-heading > div { min-width: 0; }.section-heading h3 { margin: 1px 0 0; color: #253752; font-size: 15px; line-height: 1.3; }.section-heading p { margin: 4px 0 0; color: #8793a5; font-size: 11px; line-height: 1.5; }.section-heading em { flex: none; margin-left: auto; padding: 4px 8px; border-radius: 999px; color: #6e7f96; background: #f0f4f9; font-size: 10px; font-style: normal; }
-.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }.form-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }.form-grid.one { grid-template-columns: 1fr; }.span-2 { grid-column: span 2; }.span-3 { grid-column: span 3; }
+.form-intro { display: flex; align-items: center; gap: 13px; margin: 0 0 15px; padding: 13px 15px; border: 1px solid #cfe0fb; border-radius: 11px; background: linear-gradient(135deg,#f4f8ff,#fff); }.intro-mark { display: grid; flex: 0 0 38px; height: 38px; place-items: center; border-radius: 9px; color: #fff; font-weight: 700; background: #2867b7; }.form-intro strong,.form-intro span { display: block; }.form-intro strong { color: #253651; font-size: 14px; }.form-intro span { margin-top: 2px; color: #768399; font-size: 12px; }.intro-copy { min-width: 0; }.field-legend { display: flex; flex: none; gap: 6px; margin-left: auto; }.form-intro .field-legend span { margin: 0; padding: 2px 7px; border: 1px solid #dfe5ed; border-radius: 999px; color: #8994a5; background: #fff; font-size: 10px; }.form-intro .field-legend .required-dot { border-color: #f1c8cd; color: #bf4351; background: #fff6f7; }.dimension-alert { margin-bottom: 14px; }
+.task-form { display: grid; gap: 0; }.form-section { margin-bottom: 14px; padding: 17px; border: 1px solid #e2e8f1; border-radius: 12px; background: #fff; }.section-heading { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 13px; padding-bottom: 11px; border-bottom: 1px solid #edf1f5; }.section-heading > span { display: grid; flex: 0 0 26px; height: 26px; place-items: center; border-radius: 7px; color: #2867b7; font-size: 12px; font-weight: 700; background: #eaf2ff; }.section-heading > div { min-width: 0; }.section-heading h3 { margin: 1px 0 2px; color: #263750; font-size: 14px; }.section-heading p { margin: 0; color: #697386; font-size: 11px; }.section-heading em { flex: none; margin-left: auto; padding: 3px 8px; border-radius: 999px; color: #768499; background: #f0f4f8; font-size: 10px; font-style: normal; }.form-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 11px; }.form-grid.three { grid-template-columns: repeat(3,minmax(0,1fr)); }.form-grid.one { grid-template-columns: 1fr; }.span-2 { grid-column: span 2; }.span-3 { grid-column: span 3; }
 .task-form :deep(.ant-form-item) { margin-bottom: 16px; }.task-form :deep(.ant-form-item-label) { min-height: 29px; padding-bottom: 6px; }.task-form :deep(.ant-form-item-label > label) { height: auto; color: #46546a; font-size: 12px; font-weight: 600; }.task-form :deep(.ant-input),.task-form :deep(.ant-input-number),.task-form :deep(.ant-picker),.task-form :deep(.ant-select) { width: 100%; }.task-form :deep(.ant-input),.task-form :deep(.ant-picker),.task-form :deep(.ant-input-number),.task-form :deep(.ant-select-selector) { min-height: 38px; border-radius: 7px !important; }.task-form :deep(.ant-input-number-input) { height: 36px; }.task-form :deep(textarea.ant-input) { min-height: auto; padding-top: 9px; line-height: 1.65; }
-.field-tip { margin: 12px 0 0; padding: 9px 12px; border-left: 3px solid #d79d30; border-radius: 4px 8px 8px 4px; color: #7d6840; font-size: 11px; background: #fff9ed; }.metric-hint { align-self: stretch; min-height: 100px; padding: 13px; border: 1px dashed #c8d8ee; border-radius: 10px; background: #f4f8fe; }.metric-hint span,.metric-hint strong,.metric-hint small { display: block; }.metric-hint span { color: #6f86a8; font-size: 10px; }.metric-hint strong { margin: 7px 0 3px; color: #355a8e; font-size: 13px; }.metric-hint small { color: #8b98aa; font-size: 10px; }.conclusion-section { padding-bottom: 20px; }
-.modal-actions { position: sticky; bottom: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 2px -2px -2px; padding: 14px 2px 2px; border-top: 1px solid #e7ecf3; background: rgba(255,255,255,.96); }.modal-actions > span { color: #8a96a8; font-size: 11px; }.modal-actions > div { display: flex; gap: 8px; }.modal-alert { margin-bottom: 16px; }.review-checks { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
+.conclusion-section { padding-bottom: 17px; }.modal-actions { position: sticky; bottom: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 -24px; padding: 14px 24px; border-top: 1px solid #e5eaf1; background: rgba(255,255,255,.97); }.modal-actions > span { color: #8994a5; font-size: 11px; }.modal-actions > div { display: flex; gap: 8px; }.modal-alert { margin-bottom: 16px; }.review-checks { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin-bottom: 16px; }
 .action-context { margin-bottom: 16px; padding: 13px 15px; border: 1px solid #d7e3f4; border-radius: 10px; background: #f5f8fd; }.action-context > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; }.action-context strong { color: #263a58; font-size: 14px; }.action-context span,.action-context p { color: #7c899c; font-size: 11px; }.action-context p { margin: 5px 0 0; }.review-section { margin-bottom: 14px; padding: 13px; border: 1px solid #e3e8ef; border-radius: 10px; }.review-section header { display: flex; justify-content: space-between; margin-bottom: 10px; }.review-section header strong { color: #34465f; }.review-section header span { color: #8b97a8; font-size: 11px; }.review-checks :deep(.ant-checkbox-wrapper) { margin: 0; padding: 9px 10px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; }.review-form-grid { margin-bottom: 4px; }.dialog-actions { position: sticky; bottom: -24px; z-index: 3; display: flex; justify-content: flex-end; gap: 8px; margin: 18px -24px -24px; padding: 14px 24px; border-top: 1px solid #e5eaf1; background: rgba(255,255,255,.97); }
 .detail-hero { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin: -8px 0 18px; padding: 18px 20px; border: 1px solid #d7e3f4; border-radius: 13px; background: linear-gradient(135deg,#f3f7fe,#fff); }.detail-hero span,.detail-hero p { color: #76859a; font-size: 11px; }.detail-hero h2 { margin: 4px 0; color: #253a58; font-size: 19px; }.detail-hero p { margin: 0; }.detail-hero-meta { display: grid; flex: none; justify-items: end; gap: 5px; }.detail-hero-meta strong { color: #3a4c66; font-size: 12px; }.detail-hero-meta small { color: #8995a6; }.detail-steps { margin: 0 8px 18px; }.detail-tabs :deep(.ant-tabs-nav) { position: sticky; top: 0; z-index: 4; background: #fff; }.detail-section-card { margin-bottom: 14px; padding: 16px; border: 1px solid #e4e9f0; border-radius: 11px; background: #fff; }.detail-section-card h3 { margin: 0 0 12px; color: #31445f; font-size: 14px; }.record-list { display: grid; gap: 12px; }.record-card { padding: 15px 16px; border: 1px solid #e2e8f0; border-radius: 11px; background: #fff; }.record-card header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 11px; padding-bottom: 10px; border-bottom: 1px solid #edf1f5; }.record-card header strong,.record-card header span { display: block; }.record-card header strong { color: #2f435f; }.record-card header span { margin-top: 3px; color: #8793a4; font-size: 10px; }.record-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 7px 12px; color: #5f6e82; font-size: 11px; }.record-card p { margin: 9px 0 0; color: #5f6e82; font-size: 11px; line-height: 1.7; }.record-card b { color: #3e516c; }
-@media (max-width: 1180px) { .summary-grid { grid-template-columns: repeat(3, 1fr); } .filter-bar { grid-template-columns: repeat(3, 1fr); } .workflow-chain { grid-template-columns: repeat(4,1fr); gap: 18px 0; }.workflow-node:nth-child(4) .workflow-arrow { display: none; } }
+@media (max-width: 1180px) { .summary-grid { grid-template-columns: repeat(3,1fr); }.filter-bar { grid-template-columns: repeat(3,1fr); }.workflow-chain { grid-template-columns: repeat(4,1fr); gap: 24px 0; }.workflow-node::after { display: none; } }
 @media (max-width: 820px) { .form-grid,.form-grid.three { grid-template-columns: repeat(2,minmax(0,1fr)); }.span-3 { grid-column: span 2; }.grid-placeholder { display: none; } }
-@media (max-width: 600px) { .summary-grid, .form-grid, .form-grid.three, .review-checks, .record-grid { grid-template-columns: 1fr; }.span-2,.span-3 { grid-column: auto; }.filter-bar { grid-template-columns: 1fr 1fr; }.flow-card { overflow-x: auto; }.workflow-chain { min-width: 760px; grid-template-columns: repeat(7,1fr); }.workflow-node:nth-child(4) .workflow-arrow { display: block; }.form-section { padding: 15px 14px; }.form-intro { align-items: flex-start; }.field-legend { display: none; }.modal-actions { align-items: stretch; flex-direction: column; }.modal-actions > div { display: grid; grid-template-columns: repeat(3,1fr); }.detail-hero { flex-direction: column; }.detail-hero-meta { justify-items: start; } }
+@media (max-width: 600px) { .summary-grid,.form-grid,.form-grid.three,.review-checks,.record-grid { grid-template-columns: 1fr; }.span-2,.span-3 { grid-column: auto; }.filter-bar { grid-template-columns: 1fr 1fr; }.placement-hero { align-items: flex-start; flex-direction: column; }.flow-card { overflow-x: auto; }.workflow-chain { min-width: 760px; grid-template-columns: repeat(7,1fr); }.form-section { padding: 15px 14px; }.form-intro { align-items: flex-start; }.field-legend { display: none; }.modal-actions { align-items: stretch; flex-direction: column; margin-right: -14px; margin-left: -14px; padding-right: 14px; padding-left: 14px; }.modal-actions > div { display: grid; grid-template-columns: repeat(3,1fr); }.detail-hero { flex-direction: column; }.detail-hero-meta { justify-items: start; } }
 </style>

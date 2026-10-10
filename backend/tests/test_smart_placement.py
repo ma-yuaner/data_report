@@ -2,6 +2,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from data_report_api.services import smart_placement as smart_placement_module
 from data_report_api.services.smart_placement import (
     SmartPlacementService,
     SmartPlacementUnavailable,
@@ -221,6 +222,41 @@ def test_list_orders_returns_real_summary_and_rows():
     assert result["period"] == {"startDate": "2026-10-01", "endDate": "2026-10-09"}
     cursor.close.assert_called_once()
     connection.close.assert_called_once()
+
+
+def test_dimension_options_returns_canonical_ads_values():
+    smart_placement_module._DIMENSION_CACHE.clear()
+    service, connection, cursor = service_with_cursor()
+    service.source.cache_key = "dimension-test"
+    service.source.config = {"PROFIT_CACHE_TTL": 300}
+    cursor.fetchall.side_effect = [
+        [("CTRIP", "携程")],
+        [("CTRIP", "携程", "SITE01", "乐游携程一部")],
+        [("ho",)],
+        [("CTRIP", "携程", "公布转私有")],
+    ]
+
+    result = service.dimension_options()
+
+    assert result["source"] == "MySQL · sibebid.bi_business_profit_dimension_day"
+    assert result["platforms"] == [{"value": "携程", "label": "携程", "code": "CTRIP"}]
+    assert result["sites"][0]["platformName"] == "携程"
+    assert result["airlines"][0]["value"] == "HO"
+    assert result["products"][0]["value"] == "公布转私有"
+    assert cursor.execute.call_count == 4
+    connection.close.assert_called_once()
+
+
+def test_list_tasks_work_scope_adds_real_server_side_conditions():
+    service, _connection, cursor = service_with_cursor()
+    cursor.fetchall.side_effect = [[], []]
+    cursor.fetchone.return_value = (0,)
+
+    service.list_tasks(scope="mine", actor_id=8)
+
+    count_query, count_params = cursor.execute.call_args_list[1].args
+    assert "current_assignee_id=%s OR created_by_id=%s" in count_query
+    assert count_params == (8, 8)
 
 
 def test_missing_tables_return_actionable_setup_message():

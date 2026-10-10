@@ -27,9 +27,9 @@ withDefaults(defineProps<{
 <style scoped>
 .placement-field {
   min-width: 0;
-  padding: 12px;
-  border: 1px solid #e1e7f0;
-  border-radius: 10px;
+  padding: 11px;
+  border: 1px solid #e0e6ef;
+  border-radius: 9px;
   background: #f8fafc;
   transition: border-color .16s ease, box-shadow .16s ease, background .16s ease;
 }
@@ -47,8 +47,8 @@ withDefaults(defineProps<{
   min-height: 22px;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 8px;
+  gap: 8px;
+  margin-bottom: 7px;
 }
 .placement-field__label {
   overflow: hidden;
@@ -61,7 +61,7 @@ withDefaults(defineProps<{
 }
 .placement-field__state {
   flex: none;
-  padding: 2px 6px;
+  padding: 2px 7px;
   border: 1px solid #dfe5ee;
   border-radius: 999px;
   color: #8995a7;
@@ -89,22 +89,22 @@ withDefaults(defineProps<{
 .placement-field__control :deep(.ant-picker),
 .placement-field__control :deep(.ant-input-number),
 .placement-field__control :deep(.ant-select-selector) {
-  min-height: 38px;
+  min-height: 35px;
   border-color: #d8e0eb !important;
   border-radius: 7px !important;
   background: #fff !important;
   box-shadow: none !important;
 }
-.placement-field__control :deep(.ant-input-number-input) { height: 36px; }
+.placement-field__control :deep(.ant-input-number-input) { height: 33px; }
 .placement-field__control :deep(textarea.ant-input) {
   min-height: auto;
   padding-top: 9px;
   line-height: 1.65;
 }
 .placement-field__hint {
-  min-height: 17px;
-  margin: 7px 1px 0;
-  color: #8a96a8;
+  min-height: 16px;
+  margin: 6px 0 0;
+  color: #8b96a8;
   font-size: 10px;
   line-height: 1.55;
 }

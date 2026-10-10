@@ -53,6 +53,16 @@ export interface PlacementTaskDetail {
   logs: PlacementLog[]
 }
 
+export interface PlacementDimensionOption { value: string; label: string; code?: string; platformName?: string; platformCode?: string }
+export interface PlacementDimensionOptions {
+  source: string
+  platforms: PlacementDimensionOption[]
+  sites: PlacementDimensionOption[]
+  airlines: PlacementDimensionOption[]
+  products: PlacementDimensionOption[]
+  truncated: Record<string, boolean>
+}
+
 export interface PlacementTaskInput {
   opportunityName: string
   opportunitySource: string
@@ -133,6 +143,11 @@ export interface PlacementOrderList {
 
 export async function fetchPlacementTasks(params: Record<string, string | number>) {
   const response = await http.get<ApiEnvelope<PlacementTaskList>>('/v1/smart-placement/tasks', { params })
+  if (!response.data.success) throw new Error(response.data.message)
+  return response.data.data
+}
+export async function fetchPlacementDimensions() {
+  const response = await http.get<ApiEnvelope<PlacementDimensionOptions>>('/v1/smart-placement/dimensions')
   if (!response.data.success) throw new Error(response.data.message)
   return response.data.data
 }

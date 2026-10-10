@@ -5,6 +5,9 @@ import json
 import logging
 import re
 import secrets
+import threading
+import time as monotonic_time
+from copy import deepcopy
 from datetime import date, datetime, time, timezone, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -18,6 +21,10 @@ REVIEW_TABLE = "smart_placement_review"
 EXECUTION_TABLE = "smart_placement_execution"
 MATCH_TABLE = "smart_placement_order_match"
 LOG_TABLE = "smart_placement_operation_log"
+DIMENSION_TABLE = "bi_business_profit_dimension_day"
+
+_DIMENSION_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_DIMENSION_CACHE_LOCK = threading.Lock()
 
 TASK_STATUSES = frozenset({
     "DRAFT", "PENDING_DATA_REVIEW", "PENDING_POLICY_REVIEW", "CLAIMABLE",
@@ -268,6 +275,97 @@ class SmartPlacementService:
     def _table(self, name: str) -> str:
         return f"{self.source.database}.{name}"
 
+    def dimension_options(self) -> dict[str, Any]:
+        """Return canonical single-select values from the MySQL ADS mirror."""
+        cache_key = self.source.cache_key
+        ttl = max(int(self.source.config.get("PROFIT_CACHE_TTL", 300)), 0)
+        with _DIMENSION_CACHE_LOCK:
+            cached = _DIMENSION_CACHE.get(cache_key)
+            if cached and monotonic_time.monotonic() - cached[0] < ttl:
+                return deepcopy(cached[1])
+
+        qualified = self._table(DIMENSION_TABLE)
+        queries = {
+            "platforms": (
+                f"SELECT DISTINCT ota_code, ota_cname FROM {qualified} "
+                "WHERE row_type='data' AND NULLIF(TRIM(ota_cname),'') IS NOT NULL "
+                "ORDER BY ota_cname, ota_code LIMIT 501",
+                500,
+            ),
+            "sites": (
+                f"SELECT DISTINCT ota_code, ota_cname, ota_site_code, ota_site_cname FROM {qualified} "
+                "WHERE row_type='data' AND NULLIF(TRIM(ota_site_cname),'') IS NOT NULL "
+                "ORDER BY ota_cname, ota_site_cname, ota_site_code LIMIT 2001",
+                2000,
+            ),
+            "airlines": (
+                f"SELECT DISTINCT airline_code FROM {qualified} "
+                "WHERE row_type='data' AND NULLIF(TRIM(airline_code),'') IS NOT NULL "
+                "ORDER BY airline_code LIMIT 501",
+                500,
+            ),
+            "products": (
+                f"SELECT DISTINCT ota_code, ota_cname, ticket_product_raw FROM {qualified} "
+                "WHERE row_type='data' AND NULLIF(TRIM(ticket_product_raw),'') IS NOT NULL "
+                "ORDER BY ota_cname, ticket_product_raw LIMIT 1001",
+                1000,
+            ),
+        }
+        connection = cursor = None
+        try:
+            connection = self.source.connect()
+            cursor = connection.cursor()
+            rows: dict[str, list[Any]] = {}
+            truncated: dict[str, bool] = {}
+            for key, (query, limit) in queries.items():
+                cursor.execute(query)
+                fetched = list(cursor.fetchall())
+                truncated[key] = len(fetched) > limit
+                rows[key] = fetched[:limit]
+            result = {
+                "source": f"MySQL · {qualified}",
+                "platforms": [
+                    {"value": str(name).strip(), "label": str(name).strip(), "code": str(code or "").strip()}
+                    for code, name in rows["platforms"]
+                ],
+                "sites": [
+                    {
+                        "value": str(site_name).strip(), "label": str(site_name).strip(),
+                        "code": str(site_code or "").strip(),
+                        "platformName": str(platform_name or "").strip(),
+                        "platformCode": str(platform_code or "").strip(),
+                    }
+                    for platform_code, platform_name, site_code, site_name in rows["sites"]
+                ],
+                "airlines": [
+                    {"value": str(row[0]).strip().upper(), "label": str(row[0]).strip().upper()}
+                    for row in rows["airlines"]
+                ],
+                "products": [
+                    {
+                        "value": str(product).strip(), "label": str(product).strip(),
+                        "platformName": str(platform_name or "").strip(),
+                        "platformCode": str(platform_code or "").strip(),
+                    }
+                    for platform_code, platform_name, product in rows["products"]
+                ],
+                "truncated": truncated,
+            }
+            if ttl > 0:
+                with _DIMENSION_CACHE_LOCK:
+                    _DIMENSION_CACHE[cache_key] = (monotonic_time.monotonic(), deepcopy(result))
+            return result
+        except Exception as error:
+            LOGGER.exception("Smart placement dimension options failed")
+            if _is_missing_table(error):
+                raise SmartPlacementUnavailable("综合分析ADS表尚未同步，暂时无法加载投放维度下拉选项") from error
+            raise SmartPlacementUnavailable("投放维度选项查询失败") from error
+        finally:
+            if cursor is not None:
+                cursor.close()
+            if connection is not None:
+                connection.close()
+
     @staticmethod
     def _task_no() -> str:
         return f"SP{_business_now():%Y%m%d%H%M%S}{secrets.token_hex(3).upper()}"
@@ -309,10 +407,13 @@ class SmartPlacementService:
 
     def list_tasks(
         self, *, status: str = "", keyword: str = "", platform: str = "",
-        airline: str = "", owner: str = "", page: int = 1, page_size: int = 30,
+        airline: str = "", owner: str = "", scope: str = "", actor_id: int = 0,
+        page: int = 1, page_size: int = 30,
     ) -> dict[str, Any]:
         if status and status not in TASK_STATUSES:
             raise ValueError("任务状态不支持")
+        if scope not in {"", "review", "claim", "mine"}:
+            raise ValueError("任务分组不支持")
         page = max(1, int(page))
         page_size = max(1, min(int(page_size), 100))
         where = ["is_deleted=0"]
@@ -329,6 +430,15 @@ class SmartPlacementService:
             where.append("airline_code=%s"); params.append(_code(airline, "航司"))
         if owner:
             where.append("current_assignee_name=%s"); params.append(_text(owner, "负责人", 100))
+        if scope == "review":
+            where.append("status IN ('PENDING_DATA_REVIEW','PENDING_POLICY_REVIEW')")
+        elif scope == "claim":
+            where.append("status='CLAIMABLE'")
+        elif scope == "mine":
+            if not actor_id:
+                raise ValueError("登录用户信息不完整")
+            where.append("(current_assignee_id=%s OR created_by_id=%s)")
+            params.extend([actor_id, actor_id])
         condition = " AND ".join(where)
         connection = cursor = None
         try:

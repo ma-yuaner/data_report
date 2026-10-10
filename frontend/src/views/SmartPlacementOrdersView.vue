@@ -4,9 +4,7 @@
       eyebrow="SMART PLACEMENT"
       title="收单情况"
       description="查看投放政策命中的订单、消息触达和业务关注进度"
-    >
-      <a-button :loading="loading" @click="load(1)"><ReloadOutlined />刷新</a-button>
-    </PageHeader>
+    />
 
     <a-alert
       v-if="error"
@@ -16,6 +14,11 @@
       :message="error"
     />
 
+    <section class="orders-hero">
+      <div><h2>收单监控与跟进</h2><p>汇总已投放政策命中的真实订单，识别需要立即关注的来单，并展示平台、航司、政策、人员和处理状态。</p></div>
+      <a-button class="hero-action" :loading="loading" @click="load(1)"><ReloadOutlined /> 刷新当前结果</a-button>
+    </section>
+
     <div class="summary-grid">
       <article v-for="card in summaryCards" :key="card.key" class="summary-card">
         <span>{{ card.label }}</span>
@@ -24,7 +27,7 @@
       </article>
     </div>
 
-    <a-card class="panel-card" :bordered="false">
+    <a-card class="panel-card orders-panel" :bordered="false">
       <div class="filter-bar">
         <a-range-picker
           v-model:value="dateRange"
@@ -95,28 +98,21 @@
       </a-table>
     </a-card>
 
-    <a-drawer v-model:open="detailOpen" title="命中订单详情" :width="'min(760px, 100vw)'">
-      <a-descriptions v-if="activeOrder" bordered size="small" :column="2">
-        <a-descriptions-item label="OTA订单号">{{ activeOrder.otaOrderNo }}</a-descriptions-item>
-        <a-descriptions-item label="出票票号">{{ activeOrder.ticketNo || '—' }}</a-descriptions-item>
-        <a-descriptions-item label="乘客姓名">{{ activeOrder.passengerName || '—' }}</a-descriptions-item>
-        <a-descriptions-item label="外部政策ID">{{ activeOrder.externalPolicyId }}</a-descriptions-item>
-        <a-descriptions-item label="平台">{{ activeOrder.platformName || '—' }}</a-descriptions-item>
-        <a-descriptions-item label="站点">{{ activeOrder.siteName || '全部站点' }}</a-descriptions-item>
-        <a-descriptions-item label="航司">{{ activeOrder.airlineCode || '—' }}</a-descriptions-item>
-        <a-descriptions-item label="航程">{{ activeOrder.routeText || routeName(activeOrder) }}</a-descriptions-item>
-        <a-descriptions-item label="实际舱位">{{ activeOrder.cabinCodes || '—' }}</a-descriptions-item>
-        <a-descriptions-item label="产品类型">{{ activeOrder.productType || '—' }}</a-descriptions-item>
-        <a-descriptions-item label="票数 / 航段">{{ number(activeOrder.ticketCount) }} 票 / {{ number(activeOrder.segmentCount) }} 航段</a-descriptions-item>
-        <a-descriptions-item label="预估利润">{{ money(activeOrder.estimatedProfitCny) }} 元</a-descriptions-item>
-        <a-descriptions-item label="命中时间">{{ displayTime(activeOrder.matchedAt) }}</a-descriptions-item>
-        <a-descriptions-item label="关注状态">{{ attentionMeta[activeOrder.attentionStatus]?.label || activeOrder.attentionStatus }}</a-descriptions-item>
-        <a-descriptions-item label="命中说明" :span="2">{{ activeOrder.matchDetail || '—' }}</a-descriptions-item>
-        <a-descriptions-item label="处理说明" :span="2">{{ activeOrder.resolutionNote || '—' }}</a-descriptions-item>
-      </a-descriptions>
+    <a-drawer v-model:open="detailOpen" title="命中订单详情" :width="'min(760px, 100vw)'" class="placement-order-drawer">
+      <template v-if="activeOrder">
+        <div class="order-detail-hero"><span>OTA订单号</span><h2>{{ activeOrder.otaOrderNo }}</h2><p>{{ activeOrder.platformName || '—' }} · {{ activeOrder.airlineCode || '—' }} · {{ activeOrder.routeText || routeName(activeOrder) }}</p></div>
+        <section class="order-detail-section"><h3>订单与命中信息</h3><div class="order-detail-grid">
+          <div><label>出票票号</label><span>{{ activeOrder.ticketNo || '—' }}</span></div><div><label>乘客姓名</label><span>{{ activeOrder.passengerName || '—' }}</span></div>
+          <div><label>外部政策 ID</label><span>{{ activeOrder.externalPolicyId }}</span></div><div><label>平台 / 站点</label><span>{{ activeOrder.platformName || '—' }} / {{ activeOrder.siteName || '全部站点' }}</span></div>
+          <div><label>航司 / 航程</label><span>{{ activeOrder.airlineCode || '—' }} / {{ activeOrder.routeText || routeName(activeOrder) }}</span></div><div><label>实际舱位</label><span>{{ activeOrder.cabinCodes || '—' }}</span></div>
+          <div><label>产品类型</label><span>{{ activeOrder.productType || '—' }}</span></div><div><label>票数 / 航段</label><span>{{ number(activeOrder.ticketCount) }} 票 / {{ number(activeOrder.segmentCount) }} 航段</span></div>
+          <div><label>预估利润</label><span>{{ money(activeOrder.estimatedProfitCny) }} 元</span></div><div><label>命中时间</label><span>{{ displayTime(activeOrder.matchedAt) }}</span></div>
+        </div></section>
+        <section class="order-detail-section"><h3>提醒与关注记录</h3><div class="order-timeline"><article><strong>订单命中投放规则</strong><p>{{ activeOrder.matchDetail || '平台、航司、航程及有效期满足匹配条件' }}</p><time>{{ displayTime(activeOrder.matchedAt) }}</time></article><article><strong>{{ messageMeta[activeOrder.messageStatus]?.label || activeOrder.messageStatus }}</strong><p>系统记录当前群提醒发送状态</p></article><article><strong>{{ attentionMeta[activeOrder.attentionStatus]?.label || activeOrder.attentionStatus }}</strong><p>{{ activeOrder.resolutionNote || '等待业务人员补充处理结果' }}</p></article></div></section>
+      </template>
     </a-drawer>
 
-    <a-modal v-model:open="attentionOpen" title="更新订单关注状态" :confirm-loading="saving" @ok="saveAttention">
+    <a-modal v-model:open="attentionOpen" title="更新订单关注状态" width="min(620px, 94vw)" wrap-class-name="placement-order-action-modal" :footer="null" :mask-closable="false">
       <a-alert v-if="activeOrder" type="info" show-icon class="modal-alert" :message="`${activeOrder.otaOrderNo} · ${activeOrder.externalPolicyId}`" />
       <a-form layout="vertical">
         <a-form-item label="关注状态" required>
@@ -129,6 +125,7 @@
           <a-textarea v-model:value="attentionForm.resolutionNote" :rows="4" placeholder="记录业务关注结果，便于复盘" />
         </a-form-item>
       </a-form>
+      <div class="dialog-actions"><a-button @click="attentionOpen=false">取消</a-button><a-button type="primary" :loading="saving" @click="saveAttention">保存关注状态</a-button></div>
     </a-modal>
   </div>
 </template>
@@ -253,14 +250,19 @@ onMounted(() => { void load(1) })
 </script>
 
 <style scoped>
+:global(.placement-order-action-modal .ant-modal-content) { overflow: hidden; border: 1px solid #dfe6ef; border-radius: 14px; box-shadow: 0 20px 55px rgba(29,44,68,.2); }
+:global(.placement-order-action-modal .ant-modal-header) { margin-bottom: 0; padding: 20px 22px 16px; border-bottom: 1px solid #e8edf4; }
+:global(.placement-order-action-modal .ant-modal-body) { padding: 18px 22px 22px; }
 .placement-orders-page { padding-bottom: 34px; }
 .page-alert { margin-bottom: 14px; border-radius: 10px; }
+.orders-hero { position: relative; display: flex; min-height: 124px; align-items: center; justify-content: space-between; gap: 24px; overflow: hidden; margin-bottom: 16px; padding: 24px 28px; border-radius: 16px; color: #fff; background: linear-gradient(110deg,#2049a6 0%,#1768bd 55%,#0f8d9c 100%); box-shadow: 0 10px 30px rgba(27,41,70,.08); }.orders-hero::after { position: absolute; top: -115px; right: -70px; width: 320px; height: 320px; border: 40px solid rgba(255,255,255,.08); border-radius: 50%; content: ''; }.orders-hero h2 { position: relative; z-index: 1; margin: 0 0 6px; color: #fff; font-size: 20px; }.orders-hero p { position: relative; z-index: 1; max-width: 760px; margin: 0; color: #d8e9ff; }.hero-action { position: relative; z-index: 1; flex: none; border: 0; color: #1a55a4; font-weight: 700; }
 .summary-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
-.summary-card { padding: 16px 17px; border: 1px solid #e6ebf2; border-radius: 11px; background: #fff; box-shadow: 0 5px 18px rgba(28,45,72,.035); }
-.summary-card span,.summary-card small { display: block; color: #7b8798; font-size: 11px; }.summary-card strong { display: block; margin: 5px 0 2px; color: #26344b; font-size: 22px; white-space: nowrap; }.summary-card .blue { color: #2563eb; }.summary-card .green { color: #059669; }.summary-card .orange { color: #d97706; }.summary-card .violet { color: #7c3aed; }
-.panel-card { border: 1px solid #e6ebf2 !important; border-radius: 12px; }
+.summary-card { padding: 17px 18px; border: 1px solid #e8edf4; border-radius: 12px; background: #fff; box-shadow: 0 4px 15px rgba(30,52,89,.04); }.summary-card span,.summary-card small { display: block; color: #697386; font-size: 11px; }.summary-card span { font-size: 12px; }.summary-card strong { display: block; margin: 7px 0 3px; color: #26344b; font-size: 23px; white-space: nowrap; }.summary-card .blue { color: #2563eb; }.summary-card .green { color: #059669; }.summary-card .orange { color: #ea580c; }.summary-card .violet { color: #7c3aed; }
+.panel-card { border: 1px solid #e8edf4 !important; border-radius: 13px; box-shadow: 0 5px 20px rgba(25,43,74,.045); }.orders-panel :deep(.ant-card-body) { padding: 18px; }
 .filter-bar { display: grid; grid-template-columns: 240px minmax(210px,1fr) 150px 120px 90px 120px auto auto; gap: 10px; margin-bottom: 16px; }
 .order-link { padding: 0; border: 0; text-align: left; background: transparent; cursor: pointer; }.order-link strong,.order-link small,.two-line strong,.two-line span { display: block; }.order-link strong { color: #275fae; }.order-link small,.two-line span { margin-top: 3px; color: #8290a4; font-size: 11px; }.positive { color: #059669; }.negative { color: #dc2626; }.modal-alert { margin-bottom: 16px; }
+.order-detail-hero { margin: -8px 0 18px; padding: 18px 20px; border: 1px solid #d7e3f4; border-radius: 13px; background: linear-gradient(135deg,#f3f7fe,#fff); }.order-detail-hero span,.order-detail-hero p { color: #76859a; font-size: 11px; }.order-detail-hero h2 { margin: 4px 0; color: #253a58; font-size: 20px; }.order-detail-hero p { margin: 0; }.order-detail-section { margin-bottom: 16px; padding: 16px; border: 1px solid #e4e9f0; border-radius: 11px; background: #fff; }.order-detail-section h3 { margin: 0 0 12px; color: #31445f; font-size: 14px; }.order-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }.order-detail-grid > div { padding: 10px 12px; border-radius: 8px; background: #f7f9fc; }.order-detail-grid label,.order-detail-grid span { display: block; }.order-detail-grid label { color: #8a95a8; font-size: 11px; }.order-detail-grid span { margin-top: 3px; color: #344054; }.order-timeline { margin-left: 7px; padding-left: 18px; border-left: 2px solid #dfe7f2; }.order-timeline article { position: relative; padding: 0 0 18px; }.order-timeline article::before { position: absolute; top: 5px; left: -24px; width: 9px; height: 9px; border: 2px solid #fff; border-radius: 50%; background: #2563eb; box-shadow: 0 0 0 2px #a9c4ff; content: ''; }.order-timeline p { margin: 3px 0; color: #667085; }.order-timeline time { color: #8a95a8; font-size: 11px; }.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin: 18px -22px -22px; padding: 14px 22px; border-top: 1px solid #e5eaf1; background: #fff; }
 @media (max-width: 1280px) { .summary-grid { grid-template-columns: repeat(3, 1fr); }.filter-bar { grid-template-columns: repeat(4, 1fr); } }
-@media (max-width: 760px) { .summary-grid,.filter-bar { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 760px) { .summary-grid,.filter-bar,.order-detail-grid { grid-template-columns: 1fr 1fr; }.orders-hero { align-items: flex-start; flex-direction: column; } }
+@media (max-width: 520px) { .summary-grid,.filter-bar,.order-detail-grid { grid-template-columns: 1fr; } }
 </style>

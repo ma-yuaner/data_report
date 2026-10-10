@@ -208,11 +208,21 @@ def smart_placement_tasks():
             platform=request.args.get("platform", ""),
             airline=request.args.get("airline", ""),
             owner=request.args.get("owner", ""),
+            scope=request.args.get("scope", ""),
+            actor_id=int(g.current_user.get("id") or 0),
             page=int(request.args.get("page", "1")),
             page_size=int(request.args.get("pageSize", "30")),
         ))
     except ValueError as error:
         return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except SmartPlacementUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.get("/v1/smart-placement/dimensions")
+def smart_placement_dimensions():
+    try:
+        return ok(SmartPlacementService(current_app.config).dimension_options())
     except SmartPlacementUnavailable as error:
         return jsonify({"success": False, "message": str(error), "data": None}), 503
 
