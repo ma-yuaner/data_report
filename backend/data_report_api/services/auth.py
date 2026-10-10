@@ -14,6 +14,7 @@ import bcrypt
 from werkzeug.security import check_password_hash
 
 from .data_source import DataSource
+from ..time_utils import business_now_naive
 
 
 USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]{3,64}$")
@@ -403,7 +404,7 @@ class MySqlAuthStore:
                         SELECT %s, id, %s, %s FROM sys_role
                         WHERE role_code=%s AND is_active=1
                         """,
-                        (user_id, actor_id, utc_now(), code),
+                        (user_id, actor_id, business_now_naive(), code),
                     )
                     if cursor.rowcount != 1:
                         raise AuthError(f"业务角色不存在或未启用：{code}")
@@ -423,7 +424,7 @@ class MySqlAuthStore:
             connection.begin()
             with connection.cursor() as cursor:
                 cursor.execute("DELETE FROM sys_user_menu WHERE user_id=%s", (user_id,))
-                now = utc_now()
+                now = business_now_naive()
                 for code in menu_codes:
                     cursor.execute(
                         "INSERT INTO sys_user_menu (user_id, menu_code, created_at, updated_at) VALUES (%s,%s,%s,%s)",
@@ -730,7 +731,7 @@ class AuthManager:
             "username": user.get("username") if user else username,
             "action": action, "success": success, "ip_address": ip_address,
             "user_agent": (user_agent or "")[:500] or None,
-            "detail": detail or {}, "created_at": self.now_fn(),
+            "detail": detail or {}, "created_at": business_now_naive(),
         })
 
     def login(self, username_value: str, password: str, ip_address: str, user_agent: str) -> dict[str, Any]:
@@ -838,7 +839,7 @@ class AuthManager:
             raise AuthError("用户名已存在", 409, "USERNAME_EXISTS")
         if self.store.get_user_by_email(normalized_email):
             raise AuthError("邮箱已存在", 409, "EMAIL_EXISTS")
-        now = self.now_fn()
+        now = business_now_naive()
         return self.store.create_user({
             "username": username, "email": normalized_email, "display_name": name,
             "password_hash": password_hash(password),
@@ -893,7 +894,7 @@ class AuthManager:
                 if not isinstance(values[key], bool):
                     raise AuthError("账号状态参数不合法")
                 cleaned[key] = values[key]
-        self.store.update_user(target_id, cleaned, self.now_fn())
+        self.store.update_user(target_id, cleaned, business_now_naive())
         if cleaned.get("is_enabled") is False:
             self.store.revoke_user_sessions(target_id, self.now_fn())
         updated = self.store.get_user_by_id(target_id) or target

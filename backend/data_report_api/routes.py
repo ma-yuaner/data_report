@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime
-
 from flask import Blueprint, current_app, g, jsonify, request
+
+from .time_utils import business_now
 
 from .services.dashboard import DashboardService
 from .services.asset_catalog import AssetCatalogService
@@ -42,7 +42,7 @@ def health():
             "status": "UP",
             "service": "data-report-api",
             "dataMode": mode,
-            "time": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "time": business_now().isoformat(timespec="seconds"),
         }
     )
 

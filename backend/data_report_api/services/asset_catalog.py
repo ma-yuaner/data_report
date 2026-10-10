@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from .data_source import DataSource, TABLE_SPECS, data_mode, is_live_mode
+from ..time_utils import business_now, business_now_naive
 
 
 LOGGER = logging.getLogger(__name__)
@@ -95,7 +96,7 @@ class AssetCatalogService:
         for metric in metrics:
             if metric["name"] == "出票预估利润":
                 metric["timeField"] = TABLE_SPECS[source_mode]["issue"].time_field
-        return {"mode": mode, "source": source.label if source else "配置清单", "generatedAt": datetime.now().astimezone().isoformat(timespec="seconds"), "cacheHit": False, "assets": assets, "metrics": metrics, "analyses": deepcopy(ANALYSIS_DOMAINS), "analysisTaskCount": sum(item["taskCount"] for item in ANALYSIS_DOMAINS)}
+        return {"mode": mode, "source": source.label if source else "配置清单", "generatedAt": business_now().isoformat(timespec="seconds"), "cacheHit": False, "assets": assets, "metrics": metrics, "analyses": deepcopy(ANALYSIS_DOMAINS), "analysisTaskCount": sum(item["taskCount"] for item in ANALYSIS_DOMAINS)}
 
     def _live_catalog(self, source: DataSource) -> dict[str, Any]:
         result = self._base_catalog("live", source)
@@ -127,7 +128,7 @@ class AssetCatalogService:
                         except ValueError:
                             item.update({"state": "warning", "error": "最新业务时间格式异常"})
                         else:
-                            if latest > datetime.now() + timedelta(days=1):
+                            if latest > business_now_naive() + timedelta(days=1):
                                 item.update({"state": "warning", "error": f"{item['timeField']}存在未来日期，请检查源数据"})
                             else:
                                 item["state"] = "ready"

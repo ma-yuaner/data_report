@@ -5,13 +5,14 @@ import hmac
 import shutil
 import sqlite3
 import uuid
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 from werkzeug.datastructures import FileStorage
 
 from .risk_upload_definitions import RISK_UPLOAD_DEFINITIONS
+from ..time_utils import business_now
 
 
 ACTIVE_STATUSES = ("queued", "running")
@@ -19,7 +20,7 @@ FINAL_STATUSES = ("success", "failed")
 
 
 def now_text() -> str:
-    return datetime.now().astimezone().isoformat(timespec="seconds")
+    return business_now().isoformat(timespec="seconds")
 
 
 class RiskUploadStore:

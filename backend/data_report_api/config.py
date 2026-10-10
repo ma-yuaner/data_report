@@ -12,6 +12,7 @@ def env_bool(name: str, default: bool = False) -> bool:
 
 class Config:
     APP_ENV = os.getenv("APP_ENV", "development")
+    APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Asia/Shanghai")
     DEBUG = APP_ENV == "development"
     SECRET_KEY = os.getenv("SECRET_KEY", "development-only")
     DATA_MODE = os.getenv("DATA_MODE", "mysql")
@@ -26,6 +27,7 @@ class Config:
     MYSQL_WRITE_TIMEOUT = int(os.getenv("MYSQL_WRITE_TIMEOUT", "60"))
     MYSQL_POOL_SIZE = int(os.getenv("MYSQL_POOL_SIZE", "12"))
     MYSQL_POOL_MIN_CACHED = int(os.getenv("MYSQL_POOL_MIN_CACHED", "2"))
+    MYSQL_TIME_ZONE = os.getenv("MYSQL_TIME_ZONE", "+08:00")
     HIVE_HOST = os.getenv("HIVE_HOST", "")
     HIVE_PORT = int(os.getenv("HIVE_PORT", "10000"))
     HIVE_DATABASE = os.getenv("HIVE_DATABASE", "lywz")

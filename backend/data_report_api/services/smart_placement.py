@@ -8,11 +8,12 @@ import secrets
 import threading
 import time as monotonic_time
 from copy import deepcopy
-from datetime import date, datetime, time, timezone, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from .data_source import DataSource
+from ..time_utils import as_business_naive, business_now_naive
 
 
 LOGGER = logging.getLogger(__name__)
@@ -51,11 +52,11 @@ class SmartPlacementUnavailable(RuntimeError):
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return business_now_naive()
 
 
 def _business_now() -> datetime:
-    return datetime.now(timezone(timedelta(hours=8))).replace(tzinfo=None)
+    return business_now_naive()
 
 
 def _text(value: Any, name: str, maximum: int, *, required: bool = False) -> str:
@@ -92,9 +93,7 @@ def _datetime_value(value: Any, name: str, *, required: bool = False) -> datetim
         return None
     try:
         parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-        if parsed.tzinfo is not None:
-            parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
-        return parsed
+        return as_business_naive(parsed)
     except ValueError as error:
         raise ValueError(f"{name}必须为有效日期时间") from error
 

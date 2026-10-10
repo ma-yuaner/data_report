@@ -135,11 +135,15 @@ class DataSource:
         connect_timeout = int(self.config.get("MYSQL_CONNECT_TIMEOUT", 10))
         read_timeout = int(self.config.get("MYSQL_READ_TIMEOUT", 60))
         write_timeout = int(self.config.get("MYSQL_WRITE_TIMEOUT", 60))
+        mysql_time_zone = str(self.config.get("MYSQL_TIME_ZONE", "+08:00")).strip()
+        if not re.fullmatch(r"[+-](?:0\d|1[0-4]):[0-5]\d", mysql_time_zone):
+            raise RuntimeError("MYSQL_TIME_ZONE必须为+08:00这类时区偏移")
         pool_size = max(1, int(self.config.get("MYSQL_POOL_SIZE", 12)))
         min_cached = max(0, min(pool_size, int(self.config.get("MYSQL_POOL_MIN_CACHED", 2))))
         pool_key = (
             host, port, user, password, self.database, charset,
-            connect_timeout, read_timeout, write_timeout, pool_size, min_cached,
+            connect_timeout, read_timeout, write_timeout, mysql_time_zone,
+            pool_size, min_cached,
         )
         with _MYSQL_POOLS_LOCK:
             pool = _MYSQL_POOLS.get(pool_key)
@@ -160,6 +164,7 @@ class DataSource:
                     connect_timeout=connect_timeout,
                     read_timeout=read_timeout,
                     write_timeout=write_timeout,
+                    init_command=f"SET time_zone = '{mysql_time_zone}'",
                     autocommit=True,
                 )
                 _MYSQL_POOLS[pool_key] = pool
