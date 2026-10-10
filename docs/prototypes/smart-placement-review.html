@@ -139,6 +139,36 @@
     .timeline-time { color: #8a95a8; font-size: 11px; }
     .modal { position: absolute; left: 50%; top: 50%; width: min(480px, 92vw); max-height: 90vh; overflow: auto; padding: 22px; border-radius: 14px; background: #fff; transform: translate(-50%, -50%); box-shadow: var(--shadow); }
     .modal-wide { width: min(820px, 94vw); }
+    .opportunity-modal { width: min(1180px, 96vw); padding: 0; overflow: hidden; }
+    .opportunity-modal .opportunity-head { padding: 21px 24px 17px; border-bottom: 1px solid var(--line); }
+    .opportunity-modal .opportunity-head p { margin-bottom: 0; }
+    .opportunity-modal .opportunity-body { max-height: calc(90vh - 136px); overflow: auto; padding: 18px 24px 0; background: #f6f8fc; }
+    .opportunity-summary { display: flex; align-items: center; gap: 13px; margin-bottom: 15px; padding: 13px 15px; border: 1px solid #cfe0fb; border-radius: 11px; background: linear-gradient(135deg, #f4f8ff, #fff); }
+    .opportunity-summary b { display: grid; flex: 0 0 38px; height: 38px; place-items: center; border-radius: 9px; color: #fff; background: #2867b7; }
+    .opportunity-summary strong, .opportunity-summary small { display: block; }
+    .opportunity-summary strong { color: #253651; }
+    .opportunity-summary small { margin-top: 2px; color: #768399; }
+    .field-legend { display: flex; gap: 6px; margin-left: auto; }
+    .field-legend span, .field-state { padding: 2px 7px; border: 1px solid #dfe5ed; border-radius: 999px; color: #8994a5; background: #fff; font-size: 10px; font-weight: 400; }
+    .field-legend .required-state, .field-card.required-field .field-state { border-color: #f1c8cd; color: #bf4351; background: #fff6f7; }
+    .opportunity-section { margin-bottom: 14px; padding: 17px; border: 1px solid #e2e8f1; border-radius: 12px; background: #fff; }
+    .opportunity-section-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 13px; padding-bottom: 11px; border-bottom: 1px solid #edf1f5; }
+    .opportunity-section-head > b { display: grid; flex: 0 0 26px; height: 26px; place-items: center; border-radius: 7px; color: #2867b7; background: #eaf2ff; font-size: 12px; }
+    .opportunity-section-head h4 { margin: 1px 0 2px; color: #263750; }
+    .opportunity-section-head p { margin: 0; font-size: 11px; }
+    .opportunity-section-head em { margin-left: auto; padding: 3px 8px; border-radius: 999px; color: #768499; background: #f0f4f8; font-size: 10px; font-style: normal; }
+    .opportunity-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 11px; }
+    .field-card { min-width: 0; padding: 11px; border: 1px solid #e0e6ef; border-radius: 9px; background: #f8fafc; }
+    .field-card:hover { border-color: #bfd0e8; background: #fbfdff; }
+    .field-card:focus-within { border-color: #78a2dc; background: #fff; box-shadow: 0 0 0 3px rgba(40,103,183,.08); }
+    .field-card.full { grid-column: 1 / -1; }
+    .field-card.double { grid-column: span 2; }
+    .field-card-head { display: flex; min-height: 22px; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 7px; }
+    .field-card-head label { overflow: hidden; color: #263750; font-size: 13px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+    .field-card .field, .field-card textarea { width: 100%; background: #fff; }
+    .field-card small { display: block; min-height: 16px; margin-top: 6px; color: #8b96a8; font-size: 10px; }
+    .opportunity-modal .modal-actions { position: sticky; bottom: 0; z-index: 2; align-items: center; margin: 0 -24px; padding: 14px 24px; border-top: 1px solid #e5eaf1; background: rgba(255,255,255,.97); }
+    .opportunity-modal .modal-actions .action-note { margin-right: auto; color: #8994a5; font-size: 11px; }
     .modal h3 { margin: 0 0 4px; }
     .modal p { margin: 0 0 18px; color: var(--muted); }
     .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
@@ -157,7 +187,8 @@
     .toast.show { display: block; animation: fade .25s ease-out; }
     @keyframes fade { from { transform: translateY(10px); opacity: 0; } }
     @media (max-width: 1180px) { .stats { grid-template-columns: repeat(3, 1fr); } .workflow { grid-template-columns: repeat(4, 1fr); row-gap: 24px; } .step:after { display: none; } }
-    @media (max-width: 820px) { .app { grid-template-columns: 1fr; } .sidebar { display: none; } .content { padding: 18px 14px 36px; } .stats { grid-template-columns: repeat(2, 1fr); } .split-grid, .form-grid { grid-template-columns: 1fr; } .form-row.full { grid-column: auto; } .check-list { grid-template-columns: 1fr; } .page-heading, .hero { align-items: flex-start; flex-direction: column; } }
+    @media (max-width: 820px) { .app { grid-template-columns: 1fr; } .sidebar { display: none; } .content { padding: 18px 14px 36px; } .stats { grid-template-columns: repeat(2, 1fr); } .split-grid, .form-grid { grid-template-columns: 1fr; } .opportunity-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .form-row.full { grid-column: auto; } .field-card.full { grid-column: 1 / -1; } .field-card.double { grid-column: span 2; } .check-list { grid-template-columns: 1fr; } .page-heading, .hero { align-items: flex-start; flex-direction: column; } .field-legend { display: none; } }
+    @media (max-width: 600px) { .opportunity-grid { grid-template-columns: 1fr; } .field-card.full, .field-card.double { grid-column: auto; } .opportunity-modal .opportunity-body { padding-right: 14px; padding-left: 14px; } .opportunity-modal .modal-actions { margin-right: -14px; margin-left: -14px; padding-right: 14px; padding-left: 14px; } .opportunity-modal .modal-actions .action-note { display: none; } }
   </style>
 </head>
 <body>
@@ -335,30 +366,82 @@
   </div>
 
   <div id="opportunityModal" class="modal-mask">
-    <div class="modal modal-wide">
-      <h3>新建投放分析机会</h3>
-      <p>由数据分析人员录入建议条件和数据依据，提交后进入数据部经理审核。</p>
-      <div class="demo-note">演示数据仅用于确认字段与操作流程，不会真正保存。</div>
-      <div class="form-grid">
-        <div class="form-row full"><label>机会名称 <span class="required">*</span></label><input class="field" value="华东—东南亚公布转私有机会"></div>
-        <div class="form-row"><label>机会来源 <span class="required">*</span></label><select class="field"><option>数据分析规则识别</option><option>人工发现</option><option>会议要求</option></select></div>
-        <div class="form-row"><label>优先级 <span class="required">*</span></label><select class="field"><option>高</option><option>中</option><option>低</option></select></div>
-        <div class="form-row"><label>分析开始日期 <span class="required">*</span></label><input class="field" type="date" value="2026-09-01"></div>
-        <div class="form-row"><label>分析结束日期 <span class="required">*</span></label><input class="field" type="date" value="2026-10-08"></div>
-        <div class="form-row"><label>平台 / 站点 <span class="required">*</span></label><input class="field" value="携程 / 乐游携程一部"></div>
-        <div class="form-row"><label>航司 / 航线 <span class="required">*</span></label><input class="field" value="HO / PVG-KUL"></div>
-        <div class="form-row"><label>产品 / 舱位</label><input class="field" value="公布转私有 / Z、T"></div>
-        <div class="form-row"><label>建议有效期 <span class="required">*</span></label><input class="field" value="投放后 7 天"></div>
-        <div class="form-row"><label>建议投放方式 <span class="required">*</span></label><input class="field" value="价格下浮 25 元，优先级 1"></div>
-        <div class="form-row"><label>期望完成时间 <span class="required">*</span></label><input class="field" type="datetime-local" value="2026-10-10T18:00"></div>
-        <div class="form-row"><label>历史票数</label><input class="field" value="1,246 票" readonly></div>
-        <div class="form-row"><label>历史利润</label><input class="field" value="156,820 元" readonly></div>
-        <div class="form-row"><label>预估月票数 <span class="required">*</span></label><input class="field" value="128"></div>
-        <div class="form-row"><label>预估月利润 <span class="required">*</span></label><input class="field" value="18,600"></div>
-        <div class="form-row full"><label>分析结论 <span class="required">*</span></label><textarea>目标航线近期有量且利润空间稳定，现有可售政策覆盖不足，建议补充投放。</textarea></div>
-        <div class="form-row full"><label>风险提示</label><textarea>需关注航司库存、外部政策有效期以及价格变化。</textarea></div>
+    <div class="modal opportunity-modal">
+      <div class="opportunity-head">
+        <h3>新建投放机会</h3>
+        <p>由数据分析人员录入业务条件和数据依据，提交后进入数据部经理审核。</p>
       </div>
-      <div class="modal-actions"><button class="btn modal-close">取消</button><button class="btn btn-ghost" id="saveDraft">保存草稿</button><button class="btn btn-primary" id="submitOpportunity">提交数据审核</button></div>
+      <div class="opportunity-body">
+        <div class="opportunity-summary"><b>01</b><div><strong>填写机会的业务条件与分析依据</strong><small>共 36 个业务字段，10 项必填；字段独立录入，选填项留空即表示不限。</small></div><div class="field-legend"><span class="required-state">必填字段</span><span>选填字段</span></div></div>
+
+        <section class="opportunity-section">
+          <div class="opportunity-section-head"><b>1</b><div><h4>分析来源</h4><p>说明机会从哪里发现，以及本次分析使用的历史周期。</p></div><em>5 个字段</em></div>
+          <div class="opportunity-grid">
+            <div class="field-card required-field double"><div class="field-card-head"><label>机会名称</label><span class="field-state">必填</span></div><input class="field" value="华东—东南亚公布转私有机会"><small>用于任务池和审核列表识别</small></div>
+            <div class="field-card required-field"><div class="field-card-head"><label>机会来源</label><span class="field-state">必填</span></div><select class="field"><option>数据分析规则识别</option><option>人工发现</option><option>会议要求</option></select><small>选择本次机会的发现渠道</small></div>
+            <div class="field-card"><div class="field-card-head"><label>分析规则编号</label><span class="field-state">选填</span></div><input class="field" placeholder="例如：RULE-202610-01"><small>人工创建时可以留空</small></div>
+            <div class="field-card required-field"><div class="field-card-head"><label>分析开始日期</label><span class="field-state">必填</span></div><input class="field" type="date" value="2026-09-01"><small>历史样本统计起始日期</small></div>
+            <div class="field-card required-field"><div class="field-card-head"><label>分析结束日期</label><span class="field-state">必填</span></div><input class="field" type="date" value="2026-10-08"><small>历史样本统计截止日期</small></div>
+          </div>
+        </section>
+
+        <section class="opportunity-section">
+          <div class="opportunity-section-head"><b>2</b><div><h4>投放范围</h4><p>平台、站点、航程、航班和舱位全部独立填写。</p></div><em>13 个字段</em></div>
+          <div class="opportunity-grid">
+            <div class="field-card required-field"><div class="field-card-head"><label>平台名称</label><span class="field-state">必填</span></div><input class="field" value="携程"><small>例如：携程、同程、去哪儿</small></div>
+            <div class="field-card"><div class="field-card-head"><label>平台编码</label><span class="field-state">选填</span></div><input class="field" value="CTRIP"><small>平台在业务系统中的编码</small></div>
+            <div class="field-card"><div class="field-card-head"><label>产品类型</label><span class="field-state">选填</span></div><input class="field" value="公布转私有"><small>填写实际投放产品类型</small></div>
+            <div class="field-card"><div class="field-card-head"><label>站点名称</label><span class="field-state">选填</span></div><input class="field" value="乐游携程一部"><small>填写业务站点中文名称</small></div>
+            <div class="field-card"><div class="field-card-head"><label>站点编码</label><span class="field-state">选填</span></div><input class="field" placeholder="请输入站点编码"><small>站点在业务系统中的编码</small></div>
+            <div class="field-card required-field"><div class="field-card-head"><label>航司</label><span class="field-state">必填</span></div><input class="field" value="HO"><small>填写二字航司代码</small></div>
+            <div class="field-card"><div class="field-card-head"><label>航程类型</label><span class="field-state">选填</span></div><select class="field"><option>往返</option><option>单程</option><option>多程</option></select><small>选择单程、往返或多程</small></div>
+            <div class="field-card"><div class="field-card-head"><label>出发地</label><span class="field-state">选填</span></div><input class="field" value="PVG"><small>城市或机场三字码</small></div>
+            <div class="field-card"><div class="field-card-head"><label>到达地</label><span class="field-state">选填</span></div><input class="field" value="KUL"><small>城市或机场三字码</small></div>
+            <div class="field-card full"><div class="field-card-head"><label>完整航程</label><span class="field-state">选填</span></div><input class="field" value="PVG-KUL,KUL-PVG"><small>多段航程按实际顺序填写</small></div>
+            <div class="field-card"><div class="field-card-head"><label>航班号</label><span class="field-state">选填</span></div><input class="field" value="HO1366,HO1365"><small>多个航班号用英文逗号分隔</small></div>
+            <div class="field-card"><div class="field-card-head"><label>包含舱位</label><span class="field-state">选填</span></div><input class="field" value="Z,T"><small>允许匹配的舱位</small></div>
+            <div class="field-card"><div class="field-card-head"><label>排除舱位</label><span class="field-state">选填</span></div><input class="field" value="X,N"><small>明确禁止匹配的舱位</small></div>
+          </div>
+        </section>
+
+        <section class="opportunity-section">
+          <div class="opportunity-section-head"><b>3</b><div><h4>适用时间</h4><p>区分订单范围、起飞范围和政策生效窗口。</p></div><em>7 个字段</em></div>
+          <div class="opportunity-grid">
+            <div class="field-card"><div class="field-card-head"><label>订单开始日期</label><span class="field-state">选填</span></div><input class="field" type="date" value="2026-10-10"><small>订单进入匹配的起始日期</small></div>
+            <div class="field-card"><div class="field-card-head"><label>订单结束日期</label><span class="field-state">选填</span></div><input class="field" type="date" value="2026-10-16"><small>订单进入匹配的截止日期</small></div>
+            <div class="field-card required-field"><div class="field-card-head"><label>期望完成时间</label><span class="field-state">必填</span></div><input class="field" type="datetime-local" value="2026-10-10T18:00"><small>政策人员应完成投放的时间</small></div>
+            <div class="field-card"><div class="field-card-head"><label>起飞开始日期</label><span class="field-state">选填</span></div><input class="field" type="date" value="2026-10-15"><small>适用航班最早起飞日期</small></div>
+            <div class="field-card"><div class="field-card-head"><label>起飞结束日期</label><span class="field-state">选填</span></div><input class="field" type="date" value="2026-12-31"><small>适用航班最晚起飞日期</small></div>
+            <div class="field-card"><div class="field-card-head"><label>建议生效时间</label><span class="field-state">选填</span></div><input class="field" type="datetime-local" value="2026-10-10T18:00"><small>建议政策开始生效时间</small></div>
+            <div class="field-card"><div class="field-card-head"><label>建议失效时间</label><span class="field-state">选填</span></div><input class="field" type="datetime-local" value="2026-10-17T23:59"><small>建议政策停止匹配时间</small></div>
+          </div>
+        </section>
+
+        <section class="opportunity-section">
+          <div class="opportunity-section-head"><b>4</b><div><h4>策略与收益测算</h4><p>填写建议动作、历史依据和预估价值。</p></div><em>9 个字段</em></div>
+          <div class="opportunity-grid">
+            <div class="field-card required-field double"><div class="field-card-head"><label>建议投放方式</label><span class="field-state">必填</span></div><input class="field" value="价格下调25元，小流量测试7天"><small>写清执行动作、范围和测试周期</small></div>
+            <div class="field-card required-field"><div class="field-card-head"><label>优先级</label><span class="field-state">必填</span></div><select class="field"><option>高</option><option>中</option><option>低</option></select><small>用于任务排序和处理时效</small></div>
+            <div class="field-card"><div class="field-card-head"><label>建议调整值</label><span class="field-state">选填</span></div><input class="field" value="25"><small>填写具体调整数值</small></div>
+            <div class="field-card"><div class="field-card-head"><label>调整单位</label><span class="field-state">选填</span></div><select class="field"><option>元</option><option>百分比</option><option>百分点</option></select><small>说明调整值的单位</small></div>
+            <div class="field-card"><div class="field-card-head"><label>历史票数（票）</label><span class="field-state">选填</span></div><input class="field" value="1246"><small>历史样本内的出票票数</small></div>
+            <div class="field-card"><div class="field-card-head"><label>历史航段数（段）</label><span class="field-state">选填</span></div><input class="field" value="1684"><small>历史样本内的航段总数</small></div>
+            <div class="field-card"><div class="field-card-head"><label>历史利润（CNY）</label><span class="field-state">选填</span></div><input class="field" value="156820"><small>历史样本业务估算利润</small></div>
+            <div class="field-card"><div class="field-card-head"><label>预估月票数（票）</label><span class="field-state">选填</span></div><input class="field" value="128"><small>预计每月可匹配票数</small></div>
+            <div class="field-card"><div class="field-card-head"><label>预估月利润（CNY）</label><span class="field-state">选填</span></div><input class="field" value="18600"><small>预计每月业务利润</small></div>
+          </div>
+        </section>
+
+        <section class="opportunity-section">
+          <div class="opportunity-section-head"><b>5</b><div><h4>结论与风险</h4><p>说明为什么值得投放，以及执行过程中需要防范什么。</p></div><em>2 个字段</em></div>
+          <div class="opportunity-grid">
+            <div class="field-card required-field full"><div class="field-card-head"><label>分析结论</label><span class="field-state">必填</span></div><textarea>目标航线近期有量且利润空间稳定，现有可售政策覆盖不足，建议补充投放。</textarea><small>说明数据依据、主要发现和预期结果</small></div>
+            <div class="field-card full"><div class="field-card-head"><label>风险提示</label><span class="field-state">选填</span></div><textarea>需关注航司库存、外部政策有效期以及价格变化。</textarea><small>说明航司、舱位、价格、库存或履约风险</small></div>
+          </div>
+        </section>
+
+        <div class="modal-actions"><span class="action-note">演示数据不会真正保存；保存草稿不会进入审核流程</span><button class="btn modal-close">取消</button><button class="btn btn-ghost" id="saveDraft">保存草稿</button><button class="btn btn-primary" id="submitOpportunity">提交数据审核</button></div>
+      </div>
     </div>
   </div>
 
