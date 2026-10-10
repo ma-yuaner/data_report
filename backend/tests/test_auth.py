@@ -177,6 +177,7 @@ def test_admin_can_manage_users_and_ordinary_user_cannot(auth_client):
     assert set(assigned.get_json()["data"]["permissions"]) == {
         "smart_placement.create", "smart_placement.claim", "smart_placement.execute"
     }
+    assert assigned.get_json()["data"]["menuCodes"] == ["smart"]
     menu_catalog = auth_client.get("/api/admin/menu-catalog")
     assert menu_catalog.status_code == 200
     assert "smart" in {row["code"] for row in menu_catalog.get_json()["data"]}
@@ -223,6 +224,70 @@ def test_admin_can_manage_users_and_ordinary_user_cannot(auth_client):
     )
     assert disabled.status_code == 200
     assert ordinary_client.get("/api/auth/me").status_code == 401
+
+
+def test_admin_configures_role_menus_permissions_and_assigns_role_on_create(auth_client):
+    admin_login = login(auth_client)
+    changed = change_initial_password(auth_client, admin_login)
+    admin_csrf = csrf(changed)
+
+    existing = auth_client.get("/api/admin/roles")
+    assert existing.status_code == 200
+    assert all(row["dataScope"] == "ALL" for row in existing.get_json()["data"])
+    assert all(row["menuCodes"] == ["smart"] for row in existing.get_json()["data"])
+
+    invalid = auth_client.post(
+        "/api/admin/roles",
+        json={
+            "roleCode": "SMART_CREATOR", "name": "智能录入测试",
+            "description": "缺少智能分析菜单", "isActive": True,
+            "menuCodes": [], "permissions": ["smart_placement.create"],
+        },
+        headers={"X-CSRF-Token": admin_csrf},
+    )
+    assert invalid.status_code == 400
+
+    created_role = auth_client.post(
+        "/api/admin/roles",
+        json={
+            "roleCode": "RISK_VIEWER", "name": "风控查看员",
+            "description": "查看风控分析", "isActive": True,
+            "menuCodes": ["risk"], "permissions": [],
+        },
+        headers={"X-CSRF-Token": admin_csrf},
+    )
+    assert created_role.status_code == 201
+    assert created_role.get_json()["data"]["menuCodes"] == ["risk"]
+
+    created_user = auth_client.post(
+        "/api/admin/users",
+        json={
+            "username": "riskviewer", "displayName": "风控查看员",
+            "email": "riskviewer@example.com", "initialPassword": "Riskview123",
+            "isAdmin": False, "roleCodes": ["RISK_VIEWER"],
+        },
+        headers={"X-CSRF-Token": admin_csrf},
+    )
+    assert created_user.status_code == 201
+    user = created_user.get_json()["data"]
+    assert [row["code"] for row in user["businessRoles"]] == ["RISK_VIEWER"]
+    assert user["menuCodes"] == ["risk"]
+    assert user["permissions"] == []
+
+    updated_role = auth_client.put(
+        "/api/admin/roles/RISK_VIEWER",
+        json={
+            "name": "风控与智能查看员", "description": "查看风控并录入投放机会",
+            "isActive": True, "menuCodes": ["risk", "smart"],
+            "permissions": ["smart_placement.create"],
+        },
+        headers={"X-CSRF-Token": admin_csrf},
+    )
+    assert updated_role.status_code == 200
+    refreshed_users = auth_client.get("/api/admin/users").get_json()["data"]
+    refreshed = next(row for row in refreshed_users if row["id"] == user["id"])
+    assert refreshed["menuCodes"] == ["risk", "smart"]
+    assert refreshed["permissions"] == ["smart_placement.create"]
 
 
 def test_password_reset_revokes_sessions_and_audits_are_available(auth_client):

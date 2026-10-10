@@ -33,6 +33,14 @@ CREATE TABLE IF NOT EXISTS `sys_user_role` (
   KEY `idx_sur_role_user` (`role_id`, `user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户业务角色';
 
+CREATE TABLE IF NOT EXISTS `sys_role_menu` (
+  `role_id` BIGINT UNSIGNED NOT NULL COMMENT 'sys_role.id',
+  `menu_code` VARCHAR(64) NOT NULL COMMENT '菜单编码',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`role_id`, `menu_code`),
+  KEY `idx_sys_role_menu_code` (`menu_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='角色菜单权限';
+
 INSERT INTO `sys_role` (`role_code`, `role_name`, `description`, `is_active`)
 VALUES
   ('DATA_ENTRY', '数据录入员', '录入、编辑并提交智能投放机会', 1),
@@ -54,6 +62,10 @@ INSERT IGNORE INTO `sys_role_permission` (`role_id`, `permission_code`)
 SELECT `id`, 'smart_placement.claim' FROM `sys_role` WHERE `role_code` = 'POLICY_OPERATOR';
 INSERT IGNORE INTO `sys_role_permission` (`role_id`, `permission_code`)
 SELECT `id`, 'smart_placement.execute' FROM `sys_role` WHERE `role_code` = 'POLICY_OPERATOR';
+
+INSERT IGNORE INTO `sys_role_menu` (`role_id`, `menu_code`)
+SELECT `id`, 'smart' FROM `sys_role`
+WHERE `role_code` IN ('DATA_ENTRY', 'DATA_MANAGER', 'POLICY_MANAGER', 'POLICY_OPERATOR');
 
 SET @resume_stage_ddl = IF(
   EXISTS(

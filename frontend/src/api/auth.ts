@@ -4,12 +4,33 @@ export interface BusinessRole {
   code: string
   name: string
   description: string
+  isActive?: boolean
+  userCount?: number
+  menuCodes?: string[]
+  permissions?: string[]
+  dataScope?: 'ALL'
 }
 
 export interface MenuPermission {
   code: string
   name: string
   description: string
+}
+
+export interface FunctionPermission {
+  code: string
+  name: string
+  description: string
+  menuCode: string
+}
+
+export interface RolePayload {
+  roleCode?: string
+  name: string
+  description: string
+  isActive: boolean
+  menuCodes: string[]
+  permissions: string[]
 }
 
 export interface AuthUser {
@@ -28,6 +49,7 @@ export interface AuthUser {
   permissions: string[]
   rbacConfigured: boolean
   menuCodes: string[]
+  legacyMenuCodes?: string[]
 }
 
 export interface AuthAudit {
@@ -49,8 +71,12 @@ export const authApi = {
   changePassword: (currentPassword: string, newPassword: string) => http.post<ApiEnvelope<{ csrfToken: string }>>('/auth/change-password', { currentPassword, newPassword }).then(response => response.data.data),
   users: () => http.get<ApiEnvelope<AuthUser[]>>('/admin/users').then(response => response.data.data),
   businessRoles: () => http.get<ApiEnvelope<BusinessRole[]>>('/admin/business-roles').then(response => response.data.data),
+  roles: () => http.get<ApiEnvelope<BusinessRole[]>>('/admin/roles').then(response => response.data.data),
+  permissionCatalog: () => http.get<ApiEnvelope<FunctionPermission[]>>('/admin/permission-catalog').then(response => response.data.data),
   menuCatalog: () => http.get<ApiEnvelope<MenuPermission[]>>('/admin/menu-catalog').then(response => response.data.data),
-  createUser: (payload: { username: string; email: string; displayName: string; initialPassword: string; isAdmin: boolean }) => http.post<ApiEnvelope<AuthUser>>('/admin/users', payload).then(response => response.data.data),
+  createUser: (payload: { username: string; email: string; displayName: string; initialPassword: string; isAdmin: boolean; roleCodes: string[] }) => http.post<ApiEnvelope<AuthUser>>('/admin/users', payload).then(response => response.data.data),
+  createRole: (payload: RolePayload) => http.post<ApiEnvelope<BusinessRole>>('/admin/roles', payload).then(response => response.data.data),
+  updateRole: (code: string, payload: RolePayload) => http.put<ApiEnvelope<BusinessRole>>(`/admin/roles/${code}`, payload).then(response => response.data.data),
   updateUser: (id: number, payload: { displayName?: string; email?: string; isAdmin?: boolean; isEnabled?: boolean }) => http.patch<ApiEnvelope<AuthUser>>(`/admin/users/${id}`, payload).then(response => response.data.data),
   resetPassword: (id: number, newPassword: string) => http.post<ApiEnvelope<null>>(`/admin/users/${id}/reset-password`, { newPassword }).then(response => response.data.data),
   updateBusinessRoles: (id: number, roleCodes: string[]) => http.put<ApiEnvelope<AuthUser>>(`/admin/users/${id}/business-roles`, { roleCodes }).then(response => response.data.data),

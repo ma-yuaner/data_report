@@ -102,7 +102,7 @@ def login():
 def me():
     if not current_app.config["AUTH_ENABLED"]:
         return ok({
-            "user": {"id": 0, "username": "development", "email": "development@local", "displayName": "开发模式", "isAdmin": True, "isEnabled": True, "mustChangePassword": False, "businessRoles": [], "permissions": [], "rbacConfigured": True, "menuCodes": []},
+            "user": {"id": 0, "username": "development", "email": "development@local", "displayName": "开发模式", "isAdmin": True, "isEnabled": True, "mustChangePassword": False, "businessRoles": [], "permissions": [], "rbacConfigured": True, "menuCodes": [], "legacyMenuCodes": []},
             "csrfToken": "development",
         })
     return ok({"user": manager().public_user(g.current_user), "csrfToken": g.current_csrf_token})
@@ -145,6 +145,16 @@ def list_business_roles():
     return ok(manager().business_roles(g.current_user))
 
 
+@auth_api.get("/admin/roles")
+def list_roles():
+    return ok(manager().roles(g.current_user))
+
+
+@auth_api.get("/admin/permission-catalog")
+def list_permission_catalog():
+    return ok(manager().permission_catalog(g.current_user))
+
+
 @auth_api.get("/admin/menu-catalog")
 def list_menu_catalog():
     return ok(manager().menu_catalog(g.current_user))
@@ -161,10 +171,29 @@ def create_user():
         email=str(values.get("email", "")) or None,
         password=str(values.get("initialPassword", "")),
         is_admin=values.get("isAdmin") is True,
+        role_codes=values.get("roleCodes", []),
         ip_address=ip_address,
         user_agent=user_agent,
     )
     return ok(user, "账号创建成功"), 201
+
+
+@auth_api.post("/admin/roles")
+def create_role():
+    ip_address, user_agent = request_context()
+    role = manager().create_role(
+        g.current_user, body(), ip_address, user_agent
+    )
+    return ok(role, "角色创建成功"), 201
+
+
+@auth_api.put("/admin/roles/<string:role_code>")
+def update_role(role_code: str):
+    ip_address, user_agent = request_context()
+    role = manager().update_role(
+        g.current_user, role_code, body(), ip_address, user_agent
+    )
+    return ok(role, "角色权限已更新")
 
 
 @auth_api.patch("/admin/users/<int:user_id>")
