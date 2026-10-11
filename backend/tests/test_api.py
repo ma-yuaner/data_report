@@ -9,6 +9,7 @@ from data_report_api.services.data_source import DataSource, TABLE_SPECS, data_m
 from data_report_api.services.profit_overview import METRICS
 from data_report_api.services.profit_problem_center import PROBLEM_DEFINITIONS, ProfitProblemCenterService
 from data_report_api.services.risk_profit_summary import RISK_PROFIT_DEFINITIONS, RiskProfitSummaryService
+from data_report_api.time_utils import business_now
 
 
 def test_health(client):
@@ -29,7 +30,7 @@ def test_overview_returns_four_profit_components(client):
     assert {item["key"] for item in payload["metrics"]} == {"issue", "refund", "change", "ancillary"}
     assert payload["totalProfit"]["value"] == sum(item["profit"] for item in payload["metrics"])
     assert payload["status"]["metricState"] == "业务估算口径"
-    today = datetime.now().astimezone().date().isoformat()
+    today = business_now().date().isoformat()
     assert payload["period"] == {"startDate": today, "endDate": today}
 
 
@@ -116,7 +117,7 @@ def test_risk_profit_summary_follows_manual_source_switch_without_changing_confi
 
 def test_risk_profit_summary_defaults_to_today(client):
     result = client.get("/api/v1/dashboard/risk-profit-summary").get_json()["data"]
-    today = datetime.now().astimezone().date().isoformat()
+    today = business_now().date().isoformat()
     assert result["period"]["startDate"] == today
     assert result["period"]["endDate"] == today
 
