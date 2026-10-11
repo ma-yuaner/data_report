@@ -17,6 +17,7 @@ frontend-build:
     - cd frontend
     - npm ci
     - npm run type-check
+    - npm run check:components
     - npm run build
   artifacts:
     paths:

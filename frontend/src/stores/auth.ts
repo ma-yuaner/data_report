@@ -6,10 +6,12 @@ export const useAuthStore = defineStore('auth', {
   state: () => ({
     user: null as AuthUser | null,
     initialized: false,
+    lastFetchedAt: 0,
   }),
   actions: {
     apply(user: AuthUser | null, csrfToken = '') {
       this.user = user
+      this.lastFetchedAt = user ? Date.now() : 0
       setCsrfToken(csrfToken)
     },
     clear() {
@@ -28,6 +30,10 @@ export const useAuthStore = defineStore('auth', {
       } finally {
         this.initialized = true
       }
+    },
+    async refreshAccessIfStale(maxAgeMs = 60_000) {
+      if (!this.user || Date.now() - this.lastFetchedAt < maxAgeMs) return this.user
+      return this.fetchMe(true)
     },
     async login(username: string, password: string) {
       const result = await authApi.login(username, password)

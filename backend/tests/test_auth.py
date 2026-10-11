@@ -303,6 +303,65 @@ def test_admin_configures_role_menus_permissions_and_assigns_role_on_create(auth
     assert refreshed["permissions"] == ["smart_placement.create"]
 
 
+def test_builtin_role_update_reaches_active_users_and_is_not_reset_on_initialize(auth_client):
+    admin_login = login(auth_client)
+    changed = change_initial_password(auth_client, admin_login)
+    admin_csrf = csrf(changed)
+    created = auth_client.post(
+        "/api/admin/users",
+        json={
+            "username": "operator01", "displayName": "智能业务执行员",
+            "email": "operator01@example.com", "initialPassword": "Operator123",
+            "isAdmin": False, "roleCodes": ["POLICY_OPERATOR"],
+        },
+        headers={"X-CSRF-Token": admin_csrf},
+    )
+    assert created.status_code == 201
+
+    operator_client = auth_client.application.test_client()
+    operator_login = login(operator_client, "operator01", "Operator123")
+    operator_changed = change_initial_password(
+        operator_client, operator_login, "Operator123", "Operator456"
+    )
+    assert operator_changed.status_code == 200
+    before = operator_client.get("/api/auth/me").get_json()["data"]["user"]
+    assert "smart_placement.claim" in before["permissions"]
+
+    updated = auth_client.put(
+        "/api/admin/roles/POLICY_OPERATOR",
+        json={
+            "name": "智能业务执行员", "description": "登记投放并处理收单",
+            "isActive": True,
+            "menuCodes": ["smart.placement.policies", "smart.placement.orders"],
+            "permissions": [
+                "smart_placement.execute", "smart_placement.orders.attention",
+            ],
+        },
+        headers={"X-CSRF-Token": admin_csrf},
+    )
+    assert updated.status_code == 200
+
+    after = operator_client.get("/api/auth/me").get_json()["data"]["user"]
+    assert "smart_placement.claim" not in after["permissions"]
+    denied = operator_client.post(
+        "/api/v1/smart-placement/tasks/999/claim",
+        json={"plannedCompleteAt": "2026-10-12 12:00:00"},
+        headers={"X-CSRF-Token": csrf(operator_changed)},
+    )
+    assert denied.status_code == 403
+
+    auth_client.application.extensions["auth_manager"].initialize()
+    roles = auth_client.get("/api/admin/roles").get_json()["data"]
+    operator_role = next(row for row in roles if row["code"] == "POLICY_OPERATOR")
+    assert "smart_placement.claim" not in operator_role["permissions"]
+
+    audits = auth_client.get("/api/admin/audits").get_json()["data"]
+    audit = next(row for row in audits if row["action"] == "update_role")
+    assert audit["detail"]["roleCode"] == "POLICY_OPERATOR"
+    assert "smart_placement.claim" in audit["detail"]["before"]["permissions"]
+    assert "smart_placement.claim" not in audit["detail"]["after"]["permissions"]
+
+
 def test_admin_can_apply_personal_permission_overrides(auth_client):
     admin_login = login(auth_client)
     changed = change_initial_password(auth_client, admin_login)

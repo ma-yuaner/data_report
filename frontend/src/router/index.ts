@@ -47,6 +47,9 @@ router.beforeEach(async (to) => {
   if (!authStore.initialized) {
     try { await authStore.fetchMe() }
     catch { return { name: 'login', query: { redirect: to.fullPath } } }
+  } else if (authStore.user) {
+    try { await authStore.refreshAccessIfStale() }
+    catch { return { name: 'login', query: { redirect: to.fullPath } } }
   }
   if (!authStore.user) return { name: 'login', query: { redirect: to.fullPath } }
   if (authStore.user.mustChangePassword && to.name !== 'change-password') {

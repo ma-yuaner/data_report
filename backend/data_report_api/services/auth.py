@@ -375,69 +375,6 @@ class MySqlAuthStore:
             with connection.cursor() as cursor:
                 for statement in self.TABLE_STATEMENTS:
                     cursor.execute(statement)
-                try:
-                    cursor.execute(
-                        """
-                        INSERT IGNORE INTO sys_role_menu (role_id, menu_code)
-                        SELECT id, 'smart.placement.policies' FROM sys_role
-                        WHERE role_code IN ('DATA_ENTRY','DATA_MANAGER','POLICY_MANAGER','POLICY_OPERATOR')
-                        """
-                    )
-                    cursor.execute(
-                        """
-                        INSERT IGNORE INTO sys_role_menu (role_id, menu_code)
-                        SELECT id, 'smart.placement.orders' FROM sys_role
-                        WHERE role_code='POLICY_OPERATOR'
-                        """
-                    )
-                    cursor.execute(
-                        """
-                        DELETE rm FROM sys_role_menu rm
-                        JOIN sys_role r ON r.id=rm.role_id
-                        WHERE r.role_code IN ('DATA_ENTRY','DATA_MANAGER','POLICY_MANAGER','POLICY_OPERATOR')
-                          AND rm.menu_code='smart'
-                        """
-                    )
-                    cursor.execute(
-                        """
-                        INSERT IGNORE INTO sys_role_permission (role_id, permission_code)
-                        SELECT id, 'smart_placement.edit' FROM sys_role
-                        WHERE role_code='DATA_ENTRY'
-                        """
-                    )
-                    cursor.execute(
-                        """
-                        INSERT IGNORE INTO sys_role_permission (role_id, permission_code)
-                        SELECT id, 'smart_placement.delete' FROM sys_role
-                        WHERE role_code='DATA_ENTRY'
-                        """
-                    )
-                    cursor.execute(
-                        """
-                        INSERT IGNORE INTO sys_role_permission (role_id, permission_code)
-                        SELECT id, 'smart_placement.orders.attention' FROM sys_role
-                        WHERE role_code='POLICY_OPERATOR'
-                        """
-                    )
-                    cursor.execute(
-                        """
-                        UPDATE sys_role
-                        SET role_name='业务经理',
-                            description='数据运营审核通过后，任一业务经理可审核政策可执行性与风险'
-                        WHERE role_code='POLICY_MANAGER' AND role_name='政策经理'
-                        """
-                    )
-                    cursor.execute(
-                        """
-                        UPDATE sys_role
-                        SET role_name='智能业务执行员',
-                            description='认领已审核任务并登记投放结果'
-                        WHERE role_code='POLICY_OPERATOR' AND role_name='智能政策员'
-                        """
-                    )
-                except Exception as error:
-                    if not self._missing_rbac(error):
-                        raise
         finally:
             connection.close()
 
@@ -1465,7 +1402,12 @@ class AuthManager:
         self.store.create_role(cleaned)
         self.audit(
             "create_role", True, user=actor, ip_address=ip_address,
-            user_agent=user_agent, detail={"roleCode": cleaned["code"]},
+            user_agent=user_agent, detail={
+                "roleCode": cleaned["code"],
+                "menuCodes": cleaned["menu_codes"],
+                "permissions": cleaned["permissions"],
+                "isActive": cleaned["is_active"],
+            },
         )
         return next(row for row in self.roles(actor) if row["code"] == cleaned["code"])
 
@@ -1476,15 +1418,31 @@ class AuthManager:
         self.require_admin(actor)
         normalized_code = role_code.strip().upper()
         cleaned = self._role_values(values, require_code=False)
+        existing = next(
+            (row for row in self.store.list_roles() if row["code"] == normalized_code),
+            None,
+        )
+        if not existing:
+            raise AuthError("角色不存在", 404, "ROLE_NOT_FOUND")
         self.store.update_role(normalized_code, cleaned)
         self.audit(
             "update_role", True, user=actor, ip_address=ip_address,
             user_agent=user_agent,
             detail={
                 "roleCode": normalized_code,
-                "menuCodes": cleaned["menu_codes"],
-                "permissions": cleaned["permissions"],
-                "isActive": cleaned["is_active"],
+                "affectedUserCount": int(existing.get("userCount") or 0),
+                "before": {
+                    "name": existing["name"],
+                    "menuCodes": existing.get("menuCodes") or [],
+                    "permissions": existing.get("permissions") or [],
+                    "isActive": bool(existing.get("isActive")),
+                },
+                "after": {
+                    "name": cleaned["name"],
+                    "menuCodes": cleaned["menu_codes"],
+                    "permissions": cleaned["permissions"],
+                    "isActive": cleaned["is_active"],
+                },
             },
         )
         return next(row for row in self.roles(actor) if row["code"] == normalized_code)
