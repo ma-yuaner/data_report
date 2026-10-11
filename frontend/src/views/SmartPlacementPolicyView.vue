@@ -64,11 +64,13 @@
             <a-space>
               <a-button type="link" size="small" @click="openDetail(record)">详情</a-button>
               <a-button v-if="canEdit(record)" type="link" size="small" @click="openEdit(record)">编辑/提交</a-button>
+              <a-button v-if="canWithdraw(record)" type="link" size="small" @click="confirmWithdraw(record)">撤回修改</a-button>
               <a-button v-if="isReviewable(record)" type="link" size="small" @click="openReview(record)">审核</a-button>
               <a-button v-if="canClaim(record)" type="link" size="small" @click="openClaim(record)">认领</a-button>
               <a-button v-if="canExecute(record)" type="link" size="small" @click="openExecution(record)">登记投放</a-button>
               <a-button v-if="record.status === 'MONITORING'" type="link" size="small" @click="router.push('/smart-analysis/placement/orders')">查看收单</a-button>
-              <a-button v-if="canDelete(record)" type="link" danger size="small" @click="confirmDelete(record)">删除</a-button>
+              <a-button v-if="canCancel(record)" type="link" danger size="small" @click="openCancel(record)">作废</a-button>
+              <a-button v-if="canDelete(record)" type="link" danger size="small" @click="confirmDelete(record)">{{ record.status === 'DRAFT' ? '删除草稿' : '删除归档' }}</a-button>
             </a-space>
           </template>
         </template>
@@ -187,6 +189,13 @@
         <PlacementField class="span-2" label="审核意见" :required="reviewForm.result !== 'APPROVED'" hint="退回或驳回时必须说明原因和修改要求"><a-textarea v-model:value="reviewForm.comment" :rows="3" /></PlacementField>
       </div>
       <div class="dialog-actions"><a-button @click="reviewOpen=false">取消</a-button><a-button type="primary" :loading="saving" @click="submitReview">提交审核结果</a-button></div>
+    </a-modal>
+
+    <a-modal v-model:open="cancelOpen" title="作废投放任务" width="min(620px, 94vw)" wrap-class-name="placement-action-modal" :footer="null" :mask-closable="false">
+      <div class="action-context"><div><strong>{{ activeTask?.opportunityName }}</strong><span>{{ activeTask?.taskNo }}</span></div><p>作废后任务进入“已关闭”，不再参与审核、认领或投放，但原始内容和操作记录会继续保留。</p></div>
+      <a-alert class="modal-alert" type="warning" show-icon message="该操作不会物理删除业务记录" description="仅允许作废待审核或待认领任务；已认领和已投放任务需要走停止或关闭流程。" />
+      <PlacementField label="作废原因" required hint="说明重复录入、业务取消或数据失效等原因，便于后续审计"><a-textarea v-model:value="cancelReason" :rows="4" :maxlength="1000" show-count placeholder="请输入作废原因" /></PlacementField>
+      <div class="dialog-actions"><a-button @click="cancelOpen=false">取消</a-button><a-button danger type="primary" :loading="saving" @click="submitCancel">确认作废</a-button></div>
     </a-modal>
 
     <a-modal v-model:open="claimOpen" title="认领投放任务" width="min(620px, 94vw)" wrap-class-name="placement-action-modal" :footer="null" :mask-closable="false">
@@ -362,8 +371,9 @@ import PageHeader from '@/components/PageHeader.vue'
 import PlacementField from '@/components/PlacementField.vue'
 import { useAuthStore } from '@/stores/auth'
 import {
-  claimPlacementTask, createPlacementTask, deletePlacementTask, executePlacementTask, fetchPlacementTask,
+  cancelPlacementTask, claimPlacementTask, createPlacementTask, deletePlacementTask, executePlacementTask, fetchPlacementTask,
   fetchPlacementDimensions, fetchPlacementTasks, reviewPlacementTask, updatePlacementTask,
+  withdrawPlacementTask,
   type PlacementDimensionOption, type PlacementDimensionOptions, type PlacementPriority,
   type PlacementTaskDetail, type PlacementTaskInput, type PlacementTaskList,
   type PlacementTaskRow, type PlacementTaskStatus,
@@ -386,6 +396,7 @@ const createOpen = ref(false)
 const reviewOpen = ref(false)
 const claimOpen = ref(false)
 const executionOpen = ref(false)
+const cancelOpen = ref(false)
 const detailOpen = ref(false)
 const detailLoading = ref(false)
 const detailTab = ref('overview')
@@ -397,6 +408,7 @@ const reviewChecks = ref<string[]>(['dataMetricConfirmed', 'sampleSufficient', '
 const reviewForm = ref({ result: 'APPROVED', comment: '', policyExecutableLevel: 'EXECUTABLE', riskLevel: 'MEDIUM', riskControlRequirement: '', claimScope: '', adjustedPriority: '', adjustedCompleteAt: '' })
 const claimForm = ref({ plannedCompleteAt: '', note: '' })
 const executionForm = ref<Record<string, any>>({ result: 'SUCCESS', retryRequired: false })
+const cancelReason = ref('')
 
 const statusMeta: Record<PlacementTaskStatus, { label: string; color: string }> = {
   DRAFT: { label: '草稿', color: 'default' }, PENDING_DATA_REVIEW: { label: '待数据审核', color: 'orange' },
@@ -422,6 +434,8 @@ const hasPermission = (code: string) => Boolean(authStore.user?.isAdmin) || Bool
 const canCreate = computed(() => hasPermission('smart_placement.create'))
 const canEditTasks = computed(() => hasPermission('smart_placement.edit'))
 const canDeleteTasks = computed(() => hasPermission('smart_placement.delete'))
+const canWithdrawTasks = computed(() => hasPermission('smart_placement.withdraw'))
+const canCancelTasks = computed(() => hasPermission('smart_placement.cancel'))
 const canReviewData = computed(() => hasPermission('smart_placement.review_data'))
 const canReviewPolicy = computed(() => hasPermission('smart_placement.review_policy'))
 const canClaimTasks = computed(() => hasPermission('smart_placement.claim'))
@@ -436,7 +450,7 @@ const workScopeOptions = computed(() => {
   const options = [{ value: 'all', label: authStore.user?.isAdmin ? '全部任务' : '与我相关' }]
   if (canReviewData.value || canReviewPolicy.value) options.push({ value: 'review', label: '待我审核' })
   if (canClaimTasks.value) options.push({ value: 'claim', label: '可认领' })
-  if (canCreate.value || canEditTasks.value || canDeleteTasks.value || canExecuteTasks.value) options.push({ value: 'mine', label: '我的任务' })
+  if (canCreate.value || canEditTasks.value || canDeleteTasks.value || canWithdrawTasks.value || canExecuteTasks.value) options.push({ value: 'mine', label: '我的任务' })
   return options
 })
 const flowSteps = [{ title: '分析入池', description: '保存并提交' }, { title: '数据审核', description: '确认口径价值' }, { title: '政策审核', description: '确认可执行性' }, { title: '政策认领', description: '明确负责人' }, { title: '完成投放', description: '登记政策 ID' }, { title: '订单匹配', description: '命中新订单' }, { title: '来单关注', description: '跟进处理' }]
@@ -453,7 +467,7 @@ const columns = [
   { title: '投放机会', key: 'opportunity', width: 240, fixed: 'left' as const }, { title: '平台 / 站点', key: 'scope', width: 180 },
   { title: '航司 / 航程', key: 'route', width: 180 }, { title: '舱位条件', key: 'cabins', width: 180 }, { title: '产品', dataIndex: 'productType', width: 130 },
   { title: '预估价值', key: 'estimate', width: 150 }, { title: '优先级', key: 'priority', width: 90 }, { title: '状态', key: 'status', width: 120 },
-  { title: '负责人', key: 'owner', width: 110 }, { title: '截止时间', key: 'due', width: 155 }, { title: '操作', key: 'action', width: 235, fixed: 'right' as const },
+  { title: '负责人', key: 'owner', width: 110 }, { title: '截止时间', key: 'due', width: 155 }, { title: '操作', key: 'action', width: 310, fixed: 'right' as const },
 ]
 const pagination = computed(() => ({ current: page.value, pageSize: pageSize.value, total: data.value?.total || 0, showSizeChanger: true, showTotal: (total: number) => `共 ${number(total)} 项` }))
 const formatter = new Intl.NumberFormat('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -474,7 +488,7 @@ const reviewResultMap: Record<string, { label: string; color: string }> = {
   APPROVED: { label: '通过', color: 'green' }, RETURNED: { label: '退回修改', color: 'orange' }, REJECTED: { label: '驳回终止', color: 'red' },
 }
 const actionLabelMap: Record<string, string> = {
-  CREATE: '保存草稿', UPDATE: '更新草稿', DELETE: '删除任务', SUBMIT: '提交审核', RESUBMIT: '重新提交', REVIEW: '审核', CLAIM: '认领', EXECUTE: '登记投放', ATTENTION: '订单关注',
+  CREATE: '保存草稿', UPDATE: '更新草稿', DELETE: '删除任务', WITHDRAW: '撤回修改', CANCEL: '作废任务', SUBMIT: '提交审核', RESUBMIT: '重新提交', REVIEW: '审核', CLAIM: '认领', EXECUTE: '登记投放', ATTENTION: '订单关注',
 }
 const reviewResultMeta = (value: unknown) => reviewResultMap[String(value)] || { label: valueOrDash(value), color: 'default' }
 const actionLabel = (value: unknown) => actionLabelMap[String(value)] || valueOrDash(value)
@@ -647,6 +661,20 @@ async function saveTask(submit: boolean) {
 }
 const canEdit = (row: PlacementTaskRow) => canEditTasks.value && row.status === 'DRAFT' && (Boolean(authStore.user?.isAdmin) || row.createdById === authStore.user?.id)
 const canDelete = (row: PlacementTaskRow) => canDeleteTasks.value && ['DRAFT', 'REJECTED'].includes(row.status) && (Boolean(authStore.user?.isAdmin) || row.createdById === authStore.user?.id)
+const canWithdraw = (row: PlacementTaskRow) => canWithdrawTasks.value && row.status === 'PENDING_DATA_REVIEW' && (Boolean(authStore.user?.isAdmin) || row.createdById === authStore.user?.id)
+const canCancel = (row: PlacementTaskRow) => canCancelTasks.value && ['PENDING_DATA_REVIEW', 'PENDING_POLICY_REVIEW', 'CLAIMABLE'].includes(row.status)
+function confirmWithdraw(row: PlacementTaskRow) {
+  Modal.confirm({
+    title: '撤回后继续修改？',
+    content: `任务“${row.opportunityName}”（${row.taskNo}）将回到草稿；修改完成后需要重新提交数据审核。`,
+    okText: '确认撤回',
+    cancelText: '暂不撤回',
+    async onOk() {
+      try { await withdrawPlacementTask(row.id); message.success('任务已撤回，可以继续编辑'); await load(page.value) }
+      catch (failure) { message.error(failure instanceof Error ? failure.message : '撤回失败'); throw failure }
+    },
+  })
+}
 function confirmDelete(row: PlacementTaskRow) {
   Modal.confirm({
     title: '确认删除投放任务？',
@@ -661,6 +689,15 @@ function confirmDelete(row: PlacementTaskRow) {
       await load(nextPage)
     },
   })
+}
+function openCancel(row: PlacementTaskRow) { activeTask.value = row; cancelReason.value = ''; cancelOpen.value = true }
+async function submitCancel() {
+  if (!activeTask.value) return
+  if (!cancelReason.value.trim()) { message.warning('请填写作废原因'); return }
+  saving.value = true
+  try { await cancelPlacementTask(activeTask.value.id, cancelReason.value.trim()); message.success('投放任务已作废，原记录与操作日志已保留'); cancelOpen.value = false; await load(page.value) }
+  catch (failure) { message.error(failure instanceof Error ? failure.message : '作废失败') }
+  finally { saving.value = false }
 }
 const isReviewable = (row: PlacementTaskRow) => row.status === 'PENDING_DATA_REVIEW' ? canReviewData.value : row.status === 'PENDING_POLICY_REVIEW' ? canReviewPolicy.value : false
 const canClaim = (row: PlacementTaskRow) => canClaimTasks.value && row.status === 'CLAIMABLE'

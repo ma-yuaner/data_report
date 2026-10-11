@@ -175,6 +175,18 @@ export async function deletePlacementTask(id: number) {
   return response.data.data
 }
 
+export async function withdrawPlacementTask(id: number) {
+  const response = await http.post<ApiEnvelope<{ id: number; taskNo: string; status: PlacementTaskStatus }>>(`/v1/smart-placement/tasks/${id}/withdraw`)
+  if (!response.data.success) throw new Error(response.data.message)
+  return response.data.data
+}
+
+export async function cancelPlacementTask(id: number, reason: string) {
+  const response = await http.post<ApiEnvelope<{ id: number; taskNo: string; status: PlacementTaskStatus }>>(`/v1/smart-placement/tasks/${id}/cancel`, { reason })
+  if (!response.data.success) throw new Error(response.data.message)
+  return response.data.data
+}
+
 export async function reviewPlacementTask(id: number, values: Record<string, unknown>) {
   const response = await http.post<ApiEnvelope<{ id: number; status: PlacementTaskStatus }>>(`/v1/smart-placement/tasks/${id}/reviews`, values)
   if (!response.data.success) throw new Error(response.data.message)

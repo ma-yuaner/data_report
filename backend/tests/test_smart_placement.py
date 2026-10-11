@@ -221,6 +221,105 @@ def test_delete_running_task_is_rejected():
     connection.rollback.assert_called_once()
 
 
+def test_creator_can_withdraw_pending_data_review_back_to_draft():
+    service, connection, cursor = service_with_cursor()
+    cursor.fetchone.return_value = {
+        "id": 17,
+        "task_no": "SP202610100001",
+        "status": "PENDING_DATA_REVIEW",
+        "created_by_id": 3,
+    }
+
+    result = service.withdraw_task(
+        {"id": 3, "display_name": "数据分析员", "permissions": ["smart_placement.withdraw"]},
+        17,
+    )
+
+    assert result == {"id": 17, "taskNo": "SP202610100001", "status": "DRAFT"}
+    update_query, update_params = cursor.execute.call_args_list[1].args
+    assert "status='DRAFT'" in update_query
+    assert "resume_review_stage='DATA_MANAGER'" in update_query
+    assert update_params[-1] == 17
+    _log_query, log_params = cursor.execute.call_args_list[2].args
+    assert "WITHDRAW" in log_params
+    connection.commit.assert_called_once()
+
+
+def test_creator_cannot_withdraw_after_data_review_started_next_stage():
+    service, connection, cursor = service_with_cursor()
+    cursor.fetchone.return_value = {
+        "id": 17,
+        "task_no": "SP202610100001",
+        "status": "PENDING_POLICY_REVIEW",
+        "created_by_id": 3,
+    }
+
+    with pytest.raises(ValueError, match="待数据审核任务"):
+        service.withdraw_task(
+            {"id": 3, "display_name": "数据分析员", "permissions": ["smart_placement.withdraw"]},
+            17,
+        )
+
+    connection.rollback.assert_called_once()
+
+
+def test_data_manager_can_cancel_unclaimed_task_with_required_reason():
+    service, connection, cursor = service_with_cursor()
+    cursor.fetchone.return_value = {
+        "id": 17,
+        "task_no": "SP202610100001",
+        "status": "CLAIMABLE",
+        "created_by_id": 3,
+    }
+
+    result = service.cancel_task(
+        {"id": 6, "display_name": "数据运营经理", "permissions": ["smart_placement.cancel"]},
+        17,
+        {"reason": "业务已取消，不再需要投放"},
+    )
+
+    assert result == {"id": 17, "taskNo": "SP202610100001", "status": "CLOSED"}
+    update_query, update_params = cursor.execute.call_args_list[1].args
+    assert "status='CLOSED'" in update_query
+    assert update_params[-1] == 17
+    _log_query, log_params = cursor.execute.call_args_list[2].args
+    assert "CANCEL" in log_params
+    assert "业务已取消，不再需要投放" in log_params
+    connection.commit.assert_called_once()
+
+
+def test_cancel_rejects_claimed_or_monitoring_task():
+    service, connection, cursor = service_with_cursor()
+    cursor.fetchone.return_value = {
+        "id": 17,
+        "task_no": "SP202610100001",
+        "status": "IN_PROGRESS",
+        "created_by_id": 3,
+    }
+
+    with pytest.raises(ValueError, match="待审核或待认领"):
+        service.cancel_task(
+            {"id": 6, "display_name": "数据运营经理", "permissions": ["smart_placement.cancel"]},
+            17,
+            {"reason": "业务取消"},
+        )
+
+    connection.rollback.assert_called_once()
+
+
+def test_cancel_requires_reason_before_database_access():
+    service, _connection, _cursor = service_with_cursor()
+
+    with pytest.raises(ValueError, match="作废原因不能为空"):
+        service.cancel_task(
+            {"id": 6, "display_name": "数据运营经理", "permissions": ["smart_placement.cancel"]},
+            17,
+            {"reason": ""},
+        )
+
+    service.source.connect.assert_not_called()
+
+
 def test_data_review_approval_requires_all_confirmations_before_database_access():
     service, _connection, _cursor = service_with_cursor()
 
@@ -338,6 +437,20 @@ def test_list_tasks_work_scope_adds_real_server_side_conditions():
     count_query, count_params = cursor.execute.call_args_list[1].args
     assert "t.current_assignee_id=%s OR t.created_by_id=%s" in count_query
     assert count_params == (8, 8, 8)
+
+
+def test_cancel_permission_can_see_all_active_pre_claim_tasks():
+    service, _connection, cursor = service_with_cursor()
+    cursor.fetchall.side_effect = [[], []]
+    cursor.fetchone.return_value = (0,)
+
+    service.list_tasks(user={"id": 6, "permissions": ["smart_placement.cancel"]})
+
+    summary_query, summary_params = cursor.execute.call_args_list[0].args
+    assert "PENDING_DATA_REVIEW" in summary_query
+    assert "PENDING_POLICY_REVIEW" in summary_query
+    assert "CLAIMABLE" in summary_query
+    assert summary_params == ()
 
 
 def test_missing_tables_return_actionable_setup_message():

@@ -43,6 +43,8 @@ CODE_RE = re.compile(r"^[A-Za-z0-9._:/-]{1,128}$")
 PERMISSION_CREATE = "smart_placement.create"
 PERMISSION_EDIT = "smart_placement.edit"
 PERMISSION_DELETE = "smart_placement.delete"
+PERMISSION_WITHDRAW = "smart_placement.withdraw"
+PERMISSION_CANCEL = "smart_placement.cancel"
 PERMISSION_REVIEW_DATA = "smart_placement.review_data"
 PERMISSION_REVIEW_POLICY = "smart_placement.review_policy"
 PERMISSION_CLAIM = "smart_placement.claim"
@@ -440,9 +442,11 @@ class SmartPlacementService:
         clauses: list[str] = []
         params: list[Any] = []
         permissions = _permissions(user)
-        if permissions.intersection({PERMISSION_CREATE, PERMISSION_EDIT, PERMISSION_DELETE}):
+        if permissions.intersection({PERMISSION_CREATE, PERMISSION_EDIT, PERMISSION_DELETE, PERMISSION_WITHDRAW}):
             clauses.append(f"{alias}.created_by_id=%s")
             params.append(actor_id)
+        if PERMISSION_CANCEL in permissions:
+            clauses.append(f"{alias}.status IN ('PENDING_DATA_REVIEW','PENDING_POLICY_REVIEW','CLAIMABLE')")
         if PERMISSION_REVIEW_DATA in permissions:
             clauses.append(
                 f"({alias}.status='PENDING_DATA_REVIEW' OR EXISTS (SELECT 1 FROM {self._table(REVIEW_TABLE)} rv WHERE rv.task_id={alias}.id AND rv.review_stage='DATA_MANAGER' AND rv.reviewer_id=%s))"
@@ -693,6 +697,80 @@ class SmartPlacementService:
             if _is_missing_table(error):
                 raise SmartPlacementUnavailable("智能投放表尚未创建，请先执行smart-placement-schema.sql") from error
             raise SmartPlacementUnavailable("智能投放任务删除失败") from error
+        finally:
+            if cursor is not None: cursor.close()
+            if connection is not None: connection.close()
+
+    def withdraw_task(self, user: dict[str, Any], task_id: int) -> dict[str, Any]:
+        _require_permission(user, PERMISSION_WITHDRAW, "当前账号没有撤回投放任务的权限")
+        actor = _actor(user)
+        now = _now()
+        connection = cursor = None
+        try:
+            connection = self.source.connect(); connection.begin(); cursor = connection.cursor()
+            task = self._task_for_update(cursor, task_id)
+            if task["status"] != "PENDING_DATA_REVIEW":
+                raise ValueError("只有尚未处理的待数据审核任务可以撤回")
+            if int(task.get("created_by_id") or 0) != actor[0] and actor[2] != "ADMIN":
+                raise PermissionError("只能由创建人或管理员撤回该任务")
+            cursor.execute(
+                f"""UPDATE {self._table(TASK_TABLE)} SET status='DRAFT', submitted_at=NULL,
+                        resume_review_stage='DATA_MANAGER', updated_by_id=%s, updated_by_name=%s,
+                        version_no=version_no+1, updated_at=%s WHERE id=%s""",
+                (actor[0], actor[1], now, task_id),
+            )
+            self._log(
+                cursor, task_id=task_id, action="WITHDRAW", actor=actor,
+                from_status="PENDING_DATA_REVIEW", to_status="DRAFT",
+                note="创建人撤回并继续修改",
+            )
+            connection.commit()
+            return {"id": task_id, "taskNo": task["task_no"], "status": "DRAFT"}
+        except (ValueError, PermissionError):
+            if connection is not None: connection.rollback()
+            raise
+        except Exception as error:
+            if connection is not None: connection.rollback()
+            LOGGER.exception("Smart placement task withdraw failed")
+            if _is_missing_table(error):
+                raise SmartPlacementUnavailable("智能投放表尚未创建，请先执行smart-placement-schema.sql") from error
+            raise SmartPlacementUnavailable("智能投放任务撤回失败") from error
+        finally:
+            if cursor is not None: cursor.close()
+            if connection is not None: connection.close()
+
+    def cancel_task(self, user: dict[str, Any], task_id: int, values: dict[str, Any]) -> dict[str, Any]:
+        _require_permission(user, PERMISSION_CANCEL, "当前账号没有作废投放任务的权限")
+        actor = _actor(user)
+        reason = _text(values.get("reason"), "作废原因", 1000, required=True)
+        now = _now()
+        connection = cursor = None
+        try:
+            connection = self.source.connect(); connection.begin(); cursor = connection.cursor()
+            task = self._task_for_update(cursor, task_id)
+            if task["status"] not in {"PENDING_DATA_REVIEW", "PENDING_POLICY_REVIEW", "CLAIMABLE"}:
+                raise ValueError("只有待审核或待认领任务可以作废")
+            cursor.execute(
+                f"""UPDATE {self._table(TASK_TABLE)} SET status='CLOSED', closed_at=%s,
+                        resume_review_stage=NULL, updated_by_id=%s, updated_by_name=%s,
+                        version_no=version_no+1, updated_at=%s WHERE id=%s""",
+                (now, actor[0], actor[1], now, task_id),
+            )
+            self._log(
+                cursor, task_id=task_id, action="CANCEL", actor=actor,
+                from_status=task["status"], to_status="CLOSED", note=reason,
+            )
+            connection.commit()
+            return {"id": task_id, "taskNo": task["task_no"], "status": "CLOSED"}
+        except (ValueError, PermissionError):
+            if connection is not None: connection.rollback()
+            raise
+        except Exception as error:
+            if connection is not None: connection.rollback()
+            LOGGER.exception("Smart placement task cancel failed")
+            if _is_missing_table(error):
+                raise SmartPlacementUnavailable("智能投放表尚未创建，请先执行smart-placement-schema.sql") from error
+            raise SmartPlacementUnavailable("智能投放任务作废失败") from error
         finally:
             if cursor is not None: cursor.close()
             if connection is not None: connection.close()

@@ -277,6 +277,30 @@ def delete_smart_placement_task(task_id: int):
         return jsonify({"success": False, "message": str(error), "data": None}), 503
 
 
+@api.post("/v1/smart-placement/tasks/<int:task_id>/withdraw")
+def withdraw_smart_placement_task(task_id: int):
+    try:
+        return ok(SmartPlacementService(current_app.config).withdraw_task(g.current_user, task_id), "投放任务已撤回")
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except SmartPlacementUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.post("/v1/smart-placement/tasks/<int:task_id>/cancel")
+def cancel_smart_placement_task(task_id: int):
+    try:
+        return ok(SmartPlacementService(current_app.config).cancel_task(g.current_user, task_id, json_body()), "投放任务已作废")
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except SmartPlacementUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
 @api.post("/v1/smart-placement/tasks/<int:task_id>/reviews")
 def review_smart_placement_task(task_id: int):
     try:

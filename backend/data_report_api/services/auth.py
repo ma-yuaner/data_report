@@ -26,8 +26,12 @@ ROLE_PERMISSIONS = {
         "smart_placement.create",
         "smart_placement.edit",
         "smart_placement.delete",
+        "smart_placement.withdraw",
     ),
-    "DATA_MANAGER": ("smart_placement.review_data",),
+    "DATA_MANAGER": (
+        "smart_placement.review_data",
+        "smart_placement.cancel",
+    ),
     "POLICY_MANAGER": ("smart_placement.review_policy",),
     "POLICY_OPERATOR": (
         "smart_placement.claim",
@@ -50,7 +54,9 @@ BUSINESS_ROLE_CATALOG = (
 PERMISSION_CATALOG = (
     {"code": "smart_placement.create", "name": "新建投放机会", "description": "创建投放机会并保存或提交", "menuCode": "smart.placement.policies"},
     {"code": "smart_placement.edit", "name": "编辑投放机会", "description": "编辑并重新提交本人创建的草稿或退回任务", "menuCode": "smart.placement.policies"},
-    {"code": "smart_placement.delete", "name": "删除投放机会", "description": "删除本人创建的草稿或已驳回任务", "menuCode": "smart.placement.policies"},
+    {"code": "smart_placement.delete", "name": "删除草稿或驳回任务", "description": "逻辑删除本人创建的草稿或已驳回任务并保留操作日志", "menuCode": "smart.placement.policies"},
+    {"code": "smart_placement.withdraw", "name": "撤回待审核任务", "description": "在数据经理处理前撤回本人提交的任务并继续修改", "menuCode": "smart.placement.policies"},
+    {"code": "smart_placement.cancel", "name": "作废投放任务", "description": "管理者作废尚未认领的已提交任务，必须填写原因", "menuCode": "smart.placement.policies"},
     {"code": "smart_placement.review_data", "name": "数据运营审核", "description": "审核数据口径、样本和预估价值", "menuCode": "smart.placement.policies"},
     {"code": "smart_placement.review_policy", "name": "业务经理审核", "description": "审核政策可执行性、风险与投放要求", "menuCode": "smart.placement.policies"},
     {"code": "smart_placement.claim", "name": "认领投放任务", "description": "认领已通过两级审核的投放任务", "menuCode": "smart.placement.policies"},

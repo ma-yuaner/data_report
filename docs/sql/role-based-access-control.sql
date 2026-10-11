@@ -51,6 +51,10 @@ SELECT `id`, 'smart_placement.edit' FROM `sys_role` WHERE `role_code` = 'DATA_EN
 INSERT IGNORE INTO `sys_role_permission` (`role_id`, `permission_code`)
 SELECT `id`, 'smart_placement.delete' FROM `sys_role` WHERE `role_code` = 'DATA_ENTRY';
 INSERT IGNORE INTO `sys_role_permission` (`role_id`, `permission_code`)
+SELECT `id`, 'smart_placement.withdraw' FROM `sys_role` WHERE `role_code` = 'DATA_ENTRY';
+INSERT IGNORE INTO `sys_role_permission` (`role_id`, `permission_code`)
+SELECT `id`, 'smart_placement.cancel' FROM `sys_role` WHERE `role_code` = 'DATA_MANAGER';
+INSERT IGNORE INTO `sys_role_permission` (`role_id`, `permission_code`)
 SELECT `id`, 'smart_placement.orders.attention' FROM `sys_role` WHERE `role_code` = 'POLICY_OPERATOR';
 
 UPDATE `sys_role`

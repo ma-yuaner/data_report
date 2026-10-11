@@ -140,8 +140,8 @@ import { useAuthStore } from '@/stores/auth'
 type OverrideState = 'INHERIT' | 'ALLOW' | 'DENY'
 type RoleTemplate = { key: string; name: string; summary: string; code: string; description: string; menuCodes: string[]; permissions: string[] }
 const roleTemplates: RoleTemplate[] = [
-  { key: 'entry', name: '投放录入类', summary: '创建、编辑并提交投放机会', code: 'DATA_ENTRY_CUSTOM', description: '负责录入、编辑并提交智能投放机会，不参与审核与认领。', menuCodes: ['smart.placement.policies'], permissions: ['smart_placement.create', 'smart_placement.edit', 'smart_placement.delete'] },
-  { key: 'data', name: '数据运营类', summary: '数据审核与业务数据管理', code: 'DATA_MANAGER_CUSTOM', description: '负责审核数据口径、样本和预估价值。', menuCodes: ['smart.placement.policies'], permissions: ['smart_placement.review_data'] },
+  { key: 'entry', name: '投放录入类', summary: '创建、编辑并提交投放机会', code: 'DATA_ENTRY_CUSTOM', description: '负责录入、编辑并提交智能投放机会，不参与审核与认领。', menuCodes: ['smart.placement.policies'], permissions: ['smart_placement.create', 'smart_placement.edit', 'smart_placement.delete', 'smart_placement.withdraw'] },
+  { key: 'data', name: '数据运营类', summary: '数据审核与业务数据管理', code: 'DATA_MANAGER_CUSTOM', description: '负责审核数据口径、样本和预估价值，并作废尚未认领的无效任务。', menuCodes: ['smart.placement.policies'], permissions: ['smart_placement.review_data', 'smart_placement.cancel'] },
   { key: 'business', name: '业务审核类', summary: '任一业务经理完成政策审核', code: 'BUSINESS_MANAGER', description: '数据运营审核通过后，任一业务经理可审核政策可执行性与风险。', menuCodes: ['smart.placement.policies'], permissions: ['smart_placement.review_policy'] },
   { key: 'operator', name: '任务执行类', summary: '认领、登记投放并处理收单', code: 'SMART_BUSINESS_OPERATOR', description: '只处理已完成审核的任务，负责认领、登记政策ID并跟进命中订单。', menuCodes: ['smart.placement.policies', 'smart.placement.orders'], permissions: ['smart_placement.claim', 'smart_placement.execute', 'smart_placement.orders.attention'] },
 ]

@@ -176,6 +176,7 @@ def test_admin_can_manage_users_and_ordinary_user_cannot(auth_client):
     }
     assert set(assigned.get_json()["data"]["permissions"]) == {
         "smart_placement.create", "smart_placement.edit", "smart_placement.delete",
+        "smart_placement.withdraw",
         "smart_placement.claim", "smart_placement.execute",
         "smart_placement.orders.attention",
     }
