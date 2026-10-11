@@ -18,6 +18,7 @@ from .services.risk_upload import RiskUploadService
 from .services.data_source import DataSource, data_mode, is_live_mode
 from .services.telemetry import TelemetryService, TelemetryUnavailable
 from .services.smart_placement import SmartPlacementService, SmartPlacementUnavailable
+from .services.monitoring import MonitoringService, MonitoringUnavailable
 
 
 api = Blueprint("api", __name__)
@@ -337,6 +338,16 @@ def register_smart_placement_execution(task_id: int):
         return jsonify({"success": False, "message": str(error), "data": None}), 503
 
 
+@api.get("/v1/smart-placement/tasks/<int:task_id>/monitoring")
+def smart_placement_task_monitoring(task_id: int):
+    try:
+        return ok(MonitoringService(current_app.config).task_monitoring(g.current_user, task_id))
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except MonitoringUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
 @api.get("/v1/smart-placement/orders")
 def smart_placement_orders():
     try:
@@ -366,6 +377,131 @@ def update_smart_placement_attention(match_id: int):
     except ValueError as error:
         return jsonify({"success": False, "message": str(error), "data": None}), 400
     except SmartPlacementUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.get("/v1/monitoring/overview")
+def monitoring_overview():
+    try:
+        return ok(MonitoringService(current_app.config).overview(g.current_user))
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except MonitoringUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.get("/v1/monitoring/templates")
+def monitoring_templates():
+    try:
+        return ok(MonitoringService(current_app.config).templates(g.current_user))
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except MonitoringUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.get("/v1/monitoring/rules")
+def monitoring_rules():
+    try:
+        return ok(MonitoringService(current_app.config).list_rules(
+            g.current_user,
+            status=request.args.get("status", ""),
+            template=request.args.get("template", ""),
+            keyword=request.args.get("keyword", ""),
+            page=int(request.args.get("page", "1")),
+            page_size=int(request.args.get("pageSize", "30")),
+        ))
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except MonitoringUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.post("/v1/monitoring/rules")
+def create_monitoring_rule():
+    try:
+        return ok(MonitoringService(current_app.config).create_rule(g.current_user, json_body()), "监控规则已创建")
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except MonitoringUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.get("/v1/monitoring/rules/<int:rule_id>")
+def monitoring_rule_detail(rule_id: int):
+    try:
+        return ok(MonitoringService(current_app.config).rule_detail(g.current_user, rule_id))
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 404
+    except MonitoringUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.patch("/v1/monitoring/rules/<int:rule_id>/status")
+def update_monitoring_rule_status(rule_id: int):
+    try:
+        return ok(MonitoringService(current_app.config).update_rule_status(g.current_user, rule_id, json_body()), "监控规则状态已更新")
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except MonitoringUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.get("/v1/monitoring/events")
+def monitoring_events():
+    try:
+        return ok(MonitoringService(current_app.config).list_events(
+            g.current_user,
+            status=request.args.get("status", ""),
+            template=request.args.get("template", ""),
+            start_date=request.args.get("startDate", ""),
+            end_date=request.args.get("endDate", ""),
+            keyword=request.args.get("keyword", ""),
+            page=int(request.args.get("page", "1")),
+            page_size=int(request.args.get("pageSize", "30")),
+        ))
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except MonitoringUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.get("/v1/monitoring/runs")
+def monitoring_runs():
+    try:
+        return ok(MonitoringService(current_app.config).list_runs(
+            g.current_user,
+            job_type=request.args.get("jobType", ""),
+            status=request.args.get("status", ""),
+            limit=int(request.args.get("limit", "100")),
+        ))
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except MonitoringUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.patch("/v1/monitoring/events/<int:event_id>/status")
+def update_monitoring_event_status(event_id: int):
+    try:
+        return ok(MonitoringService(current_app.config).update_event_status(g.current_user, event_id, json_body()), "监控事件已更新")
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except MonitoringUnavailable as error:
         return jsonify({"success": False, "message": str(error), "data": None}), 503
 
 

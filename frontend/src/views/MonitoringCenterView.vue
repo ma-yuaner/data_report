@@ -1,0 +1,245 @@
+<template>
+  <div class="page-wrap monitoring-page">
+    <PageHeader
+      eyebrow="MONITORING CONTROL PLANE"
+      title="监控中心"
+      description="统一查看规则生效、事件命中、增量采集与通知链路运行情况"
+    />
+
+    <a-alert v-if="error" type="error" show-icon class="page-alert" :message="error" />
+
+    <section class="monitor-hero">
+      <div>
+        <span class="hero-kicker">通用监控底座</span>
+        <h2>规则、数据、命中、通知，全链路可追踪</h2>
+        <p>智能投放是首个接入模板；后续订单航段、利润异常、状态超时等规则复用同一套运行底座。</p>
+      </div>
+      <div class="hero-state">
+        <span class="state-dot" :class="{ online: overview?.available }" />
+        <div><strong>{{ overview?.available ? '服务正常' : '等待数据' }}</strong><small>{{ overview?.source || 'MySQL · sibebid' }}</small></div>
+        <a-button :loading="loading" @click="reloadAll"><ReloadOutlined />刷新</a-button>
+      </div>
+    </section>
+
+    <div class="summary-grid">
+      <article v-for="card in summaryCards" :key="card.key" class="summary-card">
+        <span>{{ card.label }}</span>
+        <strong :class="card.tone">{{ number(summaryValue(card.key)) }}</strong>
+        <small>{{ card.note }}</small>
+      </article>
+    </div>
+
+    <a-card class="monitor-panel" :bordered="false">
+      <a-tabs v-model:activeKey="activeTab" @change="changeTab">
+        <a-tab-pane key="rules" tab="监控规则">
+          <div class="filter-grid rule-filters">
+            <a-input v-model:value="ruleFilters.keyword" allow-clear placeholder="规则编号 / 名称 / 负责人" @press-enter="loadRules(1)">
+              <template #prefix><SearchOutlined /></template>
+            </a-input>
+            <a-select v-model:value="ruleFilters.status" :options="ruleStatusOptions" />
+            <a-select v-model:value="ruleFilters.template" :options="templateOptions" />
+            <a-button type="primary" @click="loadRules(1)">查询</a-button>
+            <a-button @click="resetRuleFilters">重置</a-button>
+            <a-button v-if="canManageRules" type="primary" ghost @click="openCreateRule">新建规则</a-button>
+          </div>
+          <a-table row-key="id" :columns="ruleColumns" :data-source="rules?.rows || []" :loading="ruleLoading" :pagination="rulePagination" :scroll="{ x: 1280 }" @change="changeRulePage">
+            <template #emptyText><a-empty description="暂无监控规则；投放成功后会自动生成" /></template>
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'rule'">
+                <button class="link-cell" type="button" @click="openRule(record)"><strong>{{ record.ruleName }}</strong><small>{{ record.ruleCode }}</small></button>
+              </template>
+              <template v-else-if="column.key === 'template'"><div class="two-line"><strong>{{ record.templateName || templateName(record.templateCode) }}</strong><span>{{ record.businessType }}</span></div></template>
+              <template v-else-if="column.key === 'status'"><a-tag :color="ruleStatusMeta[record.status]?.color || 'default'">{{ ruleStatusMeta[record.status]?.label || record.status }}</a-tag></template>
+              <template v-else-if="column.key === 'period'"><div class="two-line"><strong>{{ displayTime(record.effectiveStartAt) }}</strong><span>至 {{ displayTime(record.effectiveEndAt) }}</span></div></template>
+              <template v-else-if="column.key === 'hit'"><div class="two-line numeric"><strong>{{ number(record.hitCount) }}</strong><span>{{ record.lastHitAt ? `最近 ${displayTime(record.lastHitAt)}` : '尚未命中' }}</span></div></template>
+              <template v-else-if="column.key === 'owner'">{{ record.ownerUserName || '系统' }}</template>
+              <template v-else-if="column.key === 'updatedAt'">{{ displayTime(record.updatedAt) }}</template>
+              <template v-else-if="column.key === 'action'">
+                <a-space><a-button size="small" @click="openRule(record)">详情</a-button><a-button v-if="canManageRules" size="small" @click="openStatus(record)">状态</a-button></a-space>
+              </template>
+            </template>
+          </a-table>
+        </a-tab-pane>
+
+        <a-tab-pane key="events" tab="命中事件">
+          <div class="filter-grid event-filters">
+            <a-range-picker v-model:value="eventRange" :locale="dateLocale" value-format="YYYY-MM-DD" :allow-clear="false" />
+            <a-input v-model:value="eventFilters.keyword" allow-clear placeholder="事件 / 规则 / 订单" @press-enter="loadEvents(1)" />
+            <a-select v-model:value="eventFilters.status" :options="eventStatusOptions" />
+            <a-button type="primary" @click="loadEvents(1)">查询</a-button>
+            <a-button @click="resetEventFilters">重置</a-button>
+          </div>
+          <a-table row-key="id" :columns="eventColumns" :data-source="events?.rows || []" :loading="eventLoading" :pagination="eventPagination" :scroll="{ x: 1180 }" @change="changeEventPage">
+            <template #emptyText><a-empty description="所选期间暂无命中事件" /></template>
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'event'"><div class="two-line"><strong>{{ record.eventTitle }}</strong><span>{{ record.eventNo }}</span></div></template>
+              <template v-else-if="column.key === 'entity'"><div class="two-line"><strong>{{ record.entityKey }}</strong><span>{{ record.entityType }}</span></div></template>
+              <template v-else-if="column.key === 'rule'"><button class="inline-link" type="button" @click="openRuleById(record.ruleId)">{{ record.ruleCode }}</button></template>
+              <template v-else-if="column.key === 'severity'"><a-tag :color="severityMeta[record.severity] || 'default'">{{ record.severity }}</a-tag></template>
+              <template v-else-if="column.key === 'status'"><a-tag :color="eventStatusMeta[record.eventStatus]?.color || 'default'">{{ eventStatusMeta[record.eventStatus]?.label || record.eventStatus }}</a-tag></template>
+              <template v-else-if="column.key === 'occurredAt'">{{ displayTime(record.occurredAt) }}</template>
+              <template v-else-if="column.key === 'action'"><a-button v-if="canManageEvents" size="small" @click="openEventStatus(record)">处理</a-button></template>
+            </template>
+          </a-table>
+        </a-tab-pane>
+
+        <a-tab-pane key="runs" tab="运行日志">
+          <div class="run-toolbar"><p>检查分钟采集、规则匹配和通知发送是否连续成功。</p><a-button :loading="runLoading" @click="loadRuns"><ReloadOutlined />刷新日志</a-button></div>
+          <a-table row-key="id" :columns="runColumns" :data-source="runs" :loading="runLoading" :pagination="false" :scroll="{ x: 1100 }">
+            <template #emptyText><a-empty description="暂无运行日志；ETL接入并调度后会在这里展示" /></template>
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'run'"><div class="two-line"><strong>{{ jobTypeName(record.jobType) }}</strong><span>{{ record.runNo }}</span></div></template>
+              <template v-else-if="column.key === 'status'"><a-tag :color="runStatusMeta[record.status]?.color || 'default'">{{ runStatusMeta[record.status]?.label || record.status }}</a-tag></template>
+              <template v-else-if="column.key === 'volume'"><div class="run-volume"><span>读 {{ number(record.rowsRead) }}</span><span>写 {{ number(record.rowsWritten) }}</span><span>命中 {{ number(record.eventsCreated) }}</span></div></template>
+              <template v-else-if="column.key === 'duration'">{{ duration(record.durationMs) }}</template>
+              <template v-else-if="column.key === 'startedAt'">{{ displayTime(record.startedAt) }}</template>
+              <template v-else-if="column.key === 'error'"><span class="error-text">{{ record.errorMessage || '—' }}</span></template>
+            </template>
+          </a-table>
+        </a-tab-pane>
+      </a-tabs>
+    </a-card>
+
+    <a-drawer v-model:open="ruleDetailOpen" title="监控规则详情" :width="'min(780px, 100vw)'">
+      <template v-if="ruleDetail">
+        <div class="detail-hero"><span>{{ ruleDetail.rule.ruleCode }}</span><h2>{{ ruleDetail.rule.ruleName }}</h2><div><a-tag :color="ruleStatusMeta[ruleDetail.rule.status]?.color || 'default'">{{ ruleStatusMeta[ruleDetail.rule.status]?.label || ruleDetail.rule.status }}</a-tag><a-tag>{{ ruleDetail.rule.templateCode }}</a-tag><a-tag>版本 {{ ruleDetail.rule.currentVersionNo }}</a-tag></div></div>
+        <section class="detail-section"><h3>运行信息</h3><div class="detail-grid"><div><label>负责人</label><span>{{ ruleDetail.rule.ownerUserName || '系统' }}</span></div><div><label>累计命中</label><span>{{ number(ruleDetail.rule.hitCount) }}</span></div><div><label>生效时间</label><span>{{ displayTime(ruleDetail.rule.effectiveStartAt) }}</span></div><div><label>失效时间</label><span>{{ displayTime(ruleDetail.rule.effectiveEndAt) }}</span></div></div></section>
+        <section v-for="version in ruleDetail.versions" :key="version.id" class="detail-section"><h3>版本 {{ version.versionNo }} 条件</h3><div class="condition-list"><article v-for="condition in version.conditions" :key="condition.id"><span>{{ fieldName(condition.fieldCode) }}</span><strong>{{ operatorName(condition.operatorCode) }}</strong><code>{{ formatConditionValue(condition.valueJson) }}</code><a-tag v-if="condition.conditionRole === 'EXCLUDE'" color="red">排除</a-tag></article></div></section>
+      </template>
+    </a-drawer>
+
+    <a-modal v-model:open="statusOpen" title="调整规则状态" :footer="null" :mask-closable="false" width="min(560px, 94vw)">
+      <a-alert v-if="statusRule" type="info" show-icon :message="statusRule.ruleName" :description="statusRule.ruleCode" />
+      <a-form layout="vertical" class="status-form"><a-form-item label="目标状态" required><a-select v-model:value="statusForm.status" :options="statusActionOptions" /></a-form-item><a-form-item label="调整原因" :required="statusForm.status !== 'ACTIVE'"><a-textarea v-model:value="statusForm.note" :rows="4" placeholder="暂停或停用时必须填写，记录将进入审计日志" /></a-form-item></a-form>
+      <div class="dialog-actions"><a-button @click="statusOpen=false">取消</a-button><a-button type="primary" :loading="saving" @click="saveStatus">确认调整</a-button></div>
+    </a-modal>
+
+    <a-modal v-model:open="createRuleOpen" title="新建订单航段监控" :footer="null" :mask-closable="false" width="min(760px, 94vw)">
+      <a-alert type="info" show-icon message="分钟级增量规则" description="只检查新进或发生变化的订单，不扫描全部历史数据。" />
+      <a-form layout="vertical" class="rule-form">
+        <div class="rule-form-grid">
+          <a-form-item label="规则名称" required class="span-2"><a-input v-model:value="ruleForm.ruleName" placeholder="例如：当日订单航段数不少于6段" /></a-form-item>
+          <a-form-item label="告警等级" required><a-select v-model:value="ruleForm.severity" :options="severityOptions" /></a-form-item>
+          <a-form-item label="航段判断" required><div class="compact-fields"><a-select v-model:value="ruleForm.segmentOperator" :options="segmentOperatorOptions" /><a-input-number v-model:value="ruleForm.segmentCount" :min="1" /></div></a-form-item>
+          <a-form-item label="平台名称"><a-input v-model:value="ruleForm.platformName" placeholder="留空表示全部平台" /></a-form-item>
+          <a-form-item label="站点名称"><a-input v-model:value="ruleForm.siteName" placeholder="留空表示全部站点" /></a-form-item>
+          <a-form-item label="航司"><a-input v-model:value="ruleForm.airlineCode" placeholder="多个用逗号分隔" /></a-form-item>
+          <a-form-item label="产品类型"><a-input v-model:value="ruleForm.productType" placeholder="多个用逗号分隔" /></a-form-item>
+          <a-form-item label="生效时间"><a-date-picker v-model:value="ruleForm.effectiveStartAt" :locale="dateLocale" show-time value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" /></a-form-item>
+          <a-form-item label="失效时间"><a-date-picker v-model:value="ruleForm.effectiveEndAt" :locale="dateLocale" show-time value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" /></a-form-item>
+          <a-form-item label="负责人姓名"><a-input v-model:value="ruleForm.ownerUserName" placeholder="默认当前用户" /></a-form-item>
+          <a-form-item label="创建原因"><a-input v-model:value="ruleForm.changeReason" placeholder="说明为什么需要该监控" /></a-form-item>
+        </div>
+      </a-form>
+      <div class="dialog-actions"><a-button @click="createRuleOpen=false">取消</a-button><a-button type="primary" :loading="saving" @click="saveNewRule">创建并生效</a-button></div>
+    </a-modal>
+
+    <a-modal v-model:open="eventStatusOpen" title="处理监控事件" :footer="null" :mask-closable="false" width="min(560px, 94vw)">
+      <a-alert v-if="activeEvent" type="info" show-icon :message="activeEvent.eventTitle" :description="activeEvent.entityKey" />
+      <a-form layout="vertical" class="status-form"><a-form-item label="处理结果" required><a-select v-model:value="eventStatusForm.status" :options="eventActionOptions" /></a-form-item><a-form-item label="处理说明" :required="eventStatusForm.status !== 'ACKNOWLEDGED'"><a-textarea v-model:value="eventStatusForm.note" :rows="4" placeholder="解决、忽略或关闭时必须填写" /></a-form-item></a-form>
+      <div class="dialog-actions"><a-button @click="eventStatusOpen=false">取消</a-button><a-button type="primary" :loading="saving" @click="saveEventStatus">确认处理</a-button></div>
+    </a-modal>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue'
+import { Drawer as ADrawer, Empty as AEmpty, Form as AForm, FormItem as AFormItem, RangePicker as ARangePicker, message } from 'ant-design-vue'
+import dateLocale from 'ant-design-vue/es/date-picker/locale/zh_CN'
+import { ReloadOutlined, SearchOutlined } from '@ant-design/icons-vue'
+import PageHeader from '@/components/PageHeader.vue'
+import { useAuthStore } from '@/stores/auth'
+import { monitoringApi, type MonitorEvent, type MonitorOverview, type MonitorRule, type MonitorRuleDetail, type MonitorRuleInput, type MonitorRun, type PagedResult } from '@/api/monitoring'
+
+const authStore = useAuthStore()
+const loading = ref(false); const error = ref(''); const activeTab = ref('rules')
+const overview = ref<MonitorOverview>(); const rules = ref<PagedResult<MonitorRule>>(); const events = ref<PagedResult<MonitorEvent>>(); const runs = ref<MonitorRun[]>([])
+const ruleLoading = ref(false); const eventLoading = ref(false); const runLoading = ref(false)
+const rulePage = ref(1); const rulePageSize = ref(30); const eventPage = ref(1); const eventPageSize = ref(30)
+const ruleFilters = ref({ keyword: '', status: '', template: '' })
+const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
+const monthStart = `${today.slice(0, 7)}-01`
+const eventRange = ref<[string, string]>([monthStart, today]); const eventFilters = ref({ keyword: '', status: '' })
+const ruleDetailOpen = ref(false); const ruleDetail = ref<MonitorRuleDetail>(); const statusOpen = ref(false); const statusRule = ref<MonitorRule>(); const saving = ref(false)
+const statusForm = ref({ status: 'PAUSED', note: '' })
+const canManageRules = computed(() => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.permissions?.includes('monitor.rule.manage')))
+const canManageEvents = computed(() => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.permissions?.includes('monitor.event.manage')))
+const createRuleOpen = ref(false)
+const eventStatusOpen = ref(false); const activeEvent = ref<MonitorEvent>(); const eventStatusForm = ref({ status: 'ACKNOWLEDGED', note: '' })
+const defaultRuleForm = () => ({ ruleName: '', severity: 'P2', segmentOperator: 'GTE', segmentCount: 6, platformName: '', siteName: '', airlineCode: '', productType: '', effectiveStartAt: '', effectiveEndAt: '', ownerUserName: authStore.user?.displayName || '', changeReason: '' })
+const ruleForm = ref(defaultRuleForm())
+
+const ruleStatusMeta: Record<string, { label: string; color: string }> = { ACTIVE: { label: '运行中', color: 'green' }, SCHEDULED: { label: '待生效', color: 'blue' }, PAUSED: { label: '已暂停', color: 'orange' }, EXPIRED: { label: '已过期', color: 'default' }, DISABLED: { label: '已停用', color: 'red' } }
+const eventStatusMeta: Record<string, { label: string; color: string }> = { OPEN: { label: '待处理', color: 'red' }, ACKNOWLEDGED: { label: '已关注', color: 'blue' }, RESOLVED: { label: '已解决', color: 'green' }, IGNORED: { label: '已忽略', color: 'default' }, CLOSED: { label: '已关闭', color: 'default' } }
+const runStatusMeta: Record<string, { label: string; color: string }> = { RUNNING: { label: '运行中', color: 'processing' }, SUCCESS: { label: '成功', color: 'green' }, FAILED: { label: '失败', color: 'red' }, SKIPPED: { label: '跳过', color: 'default' } }
+const severityMeta: Record<string, string> = { P0: 'red', P1: 'orange', P2: 'blue', P3: 'default' }
+const templates = [{ value: 'SMART_PLACEMENT_ORDER', label: '智能投放收单匹配' }, { value: 'ORDER_SEGMENT_THRESHOLD', label: '订单航段阈值监控' }, { value: 'METRIC_THRESHOLD', label: '经营指标阈值监控' }, { value: 'STATE_TIMEOUT', label: '业务状态超时监控' }]
+const templateOptions = [{ value: '', label: '全部模板' }, ...templates]
+const ruleStatusOptions = [{ value: '', label: '全部状态' }, ...Object.entries(ruleStatusMeta).map(([value, meta]) => ({ value, label: meta.label }))]
+const eventStatusOptions = [{ value: '', label: '全部事件状态' }, ...Object.entries(eventStatusMeta).map(([value, meta]) => ({ value, label: meta.label }))]
+const statusActionOptions = [{ value: 'ACTIVE', label: '启用' }, { value: 'PAUSED', label: '暂停' }, { value: 'DISABLED', label: '停用' }]
+const severityOptions = ['P0', 'P1', 'P2', 'P3'].map(value => ({ value, label: value }))
+const segmentOperatorOptions = [{ value: 'GTE', label: '大于等于' }, { value: 'GT', label: '大于' }, { value: 'EQ', label: '等于' }, { value: 'LTE', label: '小于等于' }, { value: 'LT', label: '小于' }]
+const eventActionOptions = [{ value: 'ACKNOWLEDGED', label: '已关注' }, { value: 'RESOLVED', label: '已解决' }, { value: 'IGNORED', label: '已忽略' }, { value: 'CLOSED', label: '已关闭' }]
+const summaryCards = [{ key: 'activeRules', label: '运行规则', note: '当前生效规则', tone: 'green' }, { key: 'scheduledRules', label: '待生效', note: '等待有效期开始', tone: 'blue' }, { key: 'openEvents', label: '今日待处理', note: '尚未完成的命中事件', tone: 'orange' }, { key: 'totalEvents', label: '今日命中', note: '今日全部事件', tone: 'violet' }, { key: 'pendingNotifications', label: '待发通知', note: '待发送及待重试', tone: 'red' }] as const
+const ruleColumns = [{ title: '规则', key: 'rule', width: 260, fixed: 'left' as const }, { title: '模板 / 业务', key: 'template', width: 210 }, { title: '状态', key: 'status', width: 100 }, { title: '生效区间', key: 'period', width: 175 }, { title: '命中', key: 'hit', width: 150 }, { title: '负责人', key: 'owner', width: 110 }, { title: '更新时间', key: 'updatedAt', width: 150 }, { title: '操作', key: 'action', width: 130, fixed: 'right' as const }]
+const eventColumns = [{ title: '事件', key: 'event', width: 280 }, { title: '业务对象', key: 'entity', width: 190 }, { title: '规则', key: 'rule', width: 150 }, { title: '等级', key: 'severity', width: 80 }, { title: '状态', key: 'status', width: 100 }, { title: '命中次数', dataIndex: 'hitCount', width: 90 }, { title: '发生时间', key: 'occurredAt', width: 160 }, { title: '操作', key: 'action', width: 90, fixed: 'right' as const }]
+const runColumns = [{ title: '任务 / 运行号', key: 'run', width: 250 }, { title: '状态', key: 'status', width: 100 }, { title: '数据量', key: 'volume', width: 270 }, { title: '耗时', key: 'duration', width: 100 }, { title: '开始时间', key: 'startedAt', width: 160 }, { title: '错误信息', key: 'error', width: 280 }]
+const rulePagination = computed(() => ({ current: rulePage.value, pageSize: rulePageSize.value, total: rules.value?.total || 0, showSizeChanger: true, showTotal: (total: number) => `共 ${number(total)} 条` }))
+const eventPagination = computed(() => ({ current: eventPage.value, pageSize: eventPageSize.value, total: events.value?.total || 0, showSizeChanger: true, showTotal: (total: number) => `共 ${number(total)} 条` }))
+
+const number = (value: unknown) => new Intl.NumberFormat('zh-CN').format(Number(value || 0))
+const displayTime = (value: unknown) => value ? String(value).replace('T', ' ').slice(0, 16) : '—'
+const duration = (value?: number) => value == null ? '—' : value < 1000 ? `${value} ms` : `${(value / 1000).toFixed(1)} s`
+const templateName = (code: string) => templates.find(item => item.value === code)?.label || code
+const jobTypeName = (value: string) => ({ FEATURE_ETL: '订单特征采集', RULE_MATCH: '规则匹配', NOTIFY: '通知发送' }[value] || value)
+const summaryValue = (key: typeof summaryCards[number]['key']) => key === 'pendingNotifications' ? overview.value?.pendingNotifications : key in (overview.value?.ruleSummary || {}) ? overview.value?.ruleSummary[key as keyof MonitorOverview['ruleSummary']] : overview.value?.eventSummary[key as keyof MonitorOverview['eventSummary']]
+const fieldName = (code: string) => ({ platform_code: '平台编码', platform_name: '平台名称', site_code: '站点编码', site_name: '站点名称', airline_code: '航司', departure_location_codes: '出发地', arrival_location_codes: '到达地', route_text: '航程', flight_nos: '航班号', cabin_codes: '舱位', product_type: '产品类型', journey_type: '航程类型', order_time: '订单时间', first_departure_time: '起飞时间', segment_count: '航段数' }[code] || code)
+const operatorName = (code: string) => ({ EQ: '等于', IN: '属于', BETWEEN: '介于', OVERLAP: '存在交集', SUBSET_OF: '全部包含于', DISJOINT: '不得包含', GTE: '大于等于', GT: '大于', LTE: '小于等于', LT: '小于' }[code] || code)
+function formatConditionValue(raw: string) { try { const value = JSON.parse(raw); return Array.isArray(value) ? value.join(' ～ ') : String(value) } catch { return raw } }
+
+async function loadOverview() { overview.value = await monitoringApi.overview() }
+async function loadRules(target = rulePage.value) { ruleLoading.value = true; rulePage.value = target; try { rules.value = await monitoringApi.rules({ ...ruleFilters.value, page: target, pageSize: rulePageSize.value }) } finally { ruleLoading.value = false } }
+async function loadEvents(target = eventPage.value) { eventLoading.value = true; eventPage.value = target; try { events.value = await monitoringApi.events({ ...eventFilters.value, startDate: eventRange.value[0], endDate: eventRange.value[1], page: target, pageSize: eventPageSize.value }) } finally { eventLoading.value = false } }
+async function loadRuns() { runLoading.value = true; try { runs.value = await monitoringApi.runs({ limit: 100 }) } finally { runLoading.value = false } }
+async function reloadAll() { loading.value = true; error.value = ''; try { await Promise.all([loadOverview(), loadRules(), loadEvents(), loadRuns()]) } catch (failure) { error.value = failure instanceof Error ? failure.message : '监控中心加载失败' } finally { loading.value = false } }
+function changeTab(key: string) { if (key === 'runs' && !runs.value.length) void loadRuns() }
+function resetRuleFilters() { ruleFilters.value = { keyword: '', status: '', template: '' }; void loadRules(1) }
+function resetEventFilters() { eventRange.value = [monthStart, today]; eventFilters.value = { keyword: '', status: '' }; void loadEvents(1) }
+function changeRulePage(value: { current?: number; pageSize?: number }) { const size = value.pageSize || rulePageSize.value; rulePage.value = size === rulePageSize.value ? value.current || 1 : 1; rulePageSize.value = size; void loadRules(rulePage.value) }
+function changeEventPage(value: { current?: number; pageSize?: number }) { const size = value.pageSize || eventPageSize.value; eventPage.value = size === eventPageSize.value ? value.current || 1 : 1; eventPageSize.value = size; void loadEvents(eventPage.value) }
+async function openRule(record: MonitorRule) { ruleDetailOpen.value = true; ruleDetail.value = undefined; try { ruleDetail.value = await monitoringApi.ruleDetail(record.id) } catch (failure) { message.error(failure instanceof Error ? failure.message : '规则详情查询失败') } }
+async function openRuleById(id: number) { const record = rules.value?.rows.find(item => item.id === id) || { id } as MonitorRule; await openRule(record) }
+function openStatus(record: MonitorRule) { statusRule.value = record; statusForm.value = { status: record.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE', note: '' }; statusOpen.value = true }
+async function saveStatus() { if (!statusRule.value) return; saving.value = true; try { await monitoringApi.updateRuleStatus(statusRule.value.id, statusForm.value); message.success('规则状态已更新'); statusOpen.value = false; await Promise.all([loadOverview(), loadRules()]) } catch (failure) { message.error(failure instanceof Error ? failure.message : '规则状态更新失败') } finally { saving.value = false } }
+const splitValues = (value: string) => value.replace(/，/g, ',').split(',').map(item => item.trim().toUpperCase()).filter(Boolean)
+function openCreateRule() { ruleForm.value = defaultRuleForm(); createRuleOpen.value = true }
+async function saveNewRule() {
+  if (!ruleForm.value.ruleName.trim()) { message.warning('请填写规则名称'); return }
+  if (!ruleForm.value.segmentCount || ruleForm.value.segmentCount < 1) { message.warning('请填写有效航段阈值'); return }
+  if (ruleForm.value.effectiveStartAt && ruleForm.value.effectiveEndAt && ruleForm.value.effectiveEndAt <= ruleForm.value.effectiveStartAt) { message.warning('失效时间必须晚于生效时间'); return }
+  const conditions: MonitorRuleInput['conditions'] = [{ fieldCode: 'segment_count', operatorCode: ruleForm.value.segmentOperator, value: ruleForm.value.segmentCount }]
+  if (ruleForm.value.platformName.trim()) conditions.push({ fieldCode: 'platform_name', operatorCode: 'EQ', value: ruleForm.value.platformName.trim() })
+  if (ruleForm.value.siteName.trim()) conditions.push({ fieldCode: 'site_name', operatorCode: 'EQ', value: ruleForm.value.siteName.trim() })
+  if (splitValues(ruleForm.value.airlineCode).length) conditions.push({ fieldCode: 'airline_code', operatorCode: 'IN', value: splitValues(ruleForm.value.airlineCode) })
+  if (splitValues(ruleForm.value.productType).length) conditions.push({ fieldCode: 'product_type', operatorCode: 'IN', value: splitValues(ruleForm.value.productType) })
+  const payload: MonitorRuleInput = { templateCode: 'ORDER_SEGMENT_THRESHOLD', ruleName: ruleForm.value.ruleName.trim(), severity: ruleForm.value.severity, effectiveStartAt: ruleForm.value.effectiveStartAt || undefined, effectiveEndAt: ruleForm.value.effectiveEndAt || undefined, ownerUserName: ruleForm.value.ownerUserName.trim() || undefined, scheduleSeconds: 60, changeReason: ruleForm.value.changeReason.trim() || undefined, conditions }
+  saving.value = true
+  try { const result = await monitoringApi.createRule(payload); message.success(`规则 ${result.ruleCode} 已创建`); createRuleOpen.value = false; await Promise.all([loadOverview(), loadRules(1)]) } catch (failure) { message.error(failure instanceof Error ? failure.message : '规则创建失败') } finally { saving.value = false }
+}
+function openEventStatus(record: MonitorEvent) { activeEvent.value = record; eventStatusForm.value = { status: record.eventStatus === 'OPEN' ? 'ACKNOWLEDGED' : 'RESOLVED', note: '' }; eventStatusOpen.value = true }
+async function saveEventStatus() { if (!activeEvent.value) return; saving.value = true; try { await monitoringApi.updateEventStatus(activeEvent.value.id, eventStatusForm.value); message.success('事件状态已更新'); eventStatusOpen.value = false; await Promise.all([loadOverview(), loadEvents()]) } catch (failure) { message.error(failure instanceof Error ? failure.message : '事件处理失败') } finally { saving.value = false } }
+
+onMounted(() => { void reloadAll() })
+</script>
+
+<style scoped>
+.monitoring-page { padding-bottom: 34px; }.page-alert { margin-bottom: 14px; border-radius: 10px; }
+.monitor-hero { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 138px; margin-bottom: 16px; padding: 26px 30px; overflow: hidden; border-radius: 16px; color: #fff; background: radial-gradient(circle at 88% 10%,rgba(56,189,248,.3),transparent 30%),linear-gradient(115deg,#182a4d,#174f77 58%,#087d83); box-shadow: 0 14px 34px rgba(23,47,84,.16); }.hero-kicker { color: #8fd9f4; font-size: 11px; font-weight: 800; letter-spacing: .14em; }.monitor-hero h2 { margin: 5px 0 7px; color: #fff; font-size: 22px; }.monitor-hero p { max-width: 760px; margin: 0; color: #d5e9f4; }.hero-state { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; min-width: 320px; padding: 14px 16px; border: 1px solid rgba(255,255,255,.2); border-radius: 12px; background: rgba(255,255,255,.09); backdrop-filter: blur(8px); }.hero-state strong,.hero-state small { display: block; }.hero-state small { margin-top: 2px; color: #c8dce8; font-size: 11px; }.state-dot { width: 10px; height: 10px; border-radius: 50%; background: #f59e0b; box-shadow: 0 0 0 5px rgba(245,158,11,.15); }.state-dot.online { background: #34d399; box-shadow: 0 0 0 5px rgba(52,211,153,.15); }
+.summary-grid { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 12px; margin-bottom: 14px; }.summary-card { padding: 17px 18px; border: 1px solid #e6ecf3; border-radius: 12px; background: #fff; box-shadow: 0 5px 18px rgba(28,48,78,.045); }.summary-card span,.summary-card small { display: block; color: #7b8798; font-size: 11px; }.summary-card strong { display: block; margin: 7px 0 3px; color: #25334a; font-size: 24px; }.summary-card .green { color: #059669; }.summary-card .blue { color: #2563eb; }.summary-card .orange { color: #ea580c; }.summary-card .violet { color: #7c3aed; }.summary-card .red { color: #dc2626; }
+.monitor-panel { border: 1px solid #e5ebf2 !important; border-radius: 14px; box-shadow: 0 7px 24px rgba(25,43,71,.05); }.monitor-panel :deep(.ant-card-body) { padding: 0 20px 20px; }.monitor-panel :deep(.ant-tabs-nav) { margin-bottom: 18px; }.filter-grid { display: grid; gap: 10px; margin-bottom: 16px; }.rule-filters { grid-template-columns: minmax(240px,1fr) 140px 205px auto auto auto; }.event-filters { grid-template-columns: 250px minmax(220px,1fr) 150px auto auto; }.link-cell,.inline-link { padding: 0; border: 0; text-align: left; background: transparent; cursor: pointer; }.link-cell strong,.link-cell small,.two-line strong,.two-line span { display: block; }.link-cell strong,.inline-link { color: #2462ad; }.link-cell small,.two-line span { margin-top: 3px; color: #8591a3; font-size: 11px; }.numeric strong { font-size: 16px; }.run-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }.run-toolbar p { margin: 0; color: #667085; }.run-volume { display: flex; gap: 14px; }.error-text { color: #b42318; }
+.detail-hero { margin: -8px 0 18px; padding: 20px; border: 1px solid #d9e4f2; border-radius: 13px; background: linear-gradient(135deg,#f3f7fd,#fff); }.detail-hero > span { color: #718198; font-size: 11px; }.detail-hero h2 { margin: 4px 0 10px; color: #253a58; font-size: 20px; }.detail-section { margin-bottom: 15px; padding: 16px; border: 1px solid #e4e9f0; border-radius: 11px; }.detail-section h3 { margin: 0 0 12px; color: #31445f; font-size: 14px; }.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }.detail-grid > div { padding: 10px 12px; border-radius: 8px; background: #f7f9fc; }.detail-grid label,.detail-grid span { display: block; }.detail-grid label { color: #8a95a8; font-size: 11px; }.detail-grid span { margin-top: 3px; color: #344054; }.condition-list { display: grid; gap: 8px; }.condition-list article { display: grid; grid-template-columns: 120px 90px minmax(0,1fr) auto; align-items: center; gap: 9px; padding: 10px 12px; border-radius: 8px; background: #f7f9fc; }.condition-list code { overflow: hidden; color: #344054; text-overflow: ellipsis; white-space: nowrap; }.status-form { margin-top: 18px; }.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin: 18px -24px -24px; padding: 14px 24px; border-top: 1px solid #e5eaf1; }
+.rule-form { margin-top: 18px; }.rule-form-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0 14px; }.rule-form-grid .span-2 { grid-column: span 2; }.compact-fields { display: grid; grid-template-columns: 48% 52%; }.compact-fields > :first-child { border-radius: 6px 0 0 6px; }.compact-fields > :last-child { width: 100%; margin-left: -1px; border-radius: 0 6px 6px 0; }
+@media (max-width: 1180px) { .summary-grid { grid-template-columns: repeat(3,1fr); }.rule-filters,.event-filters { grid-template-columns: repeat(3,1fr); }.monitor-hero { align-items: flex-start; flex-direction: column; }.hero-state { width: 100%; } }
+@media (max-width: 700px) { .summary-grid,.rule-filters,.event-filters,.detail-grid,.rule-form-grid { grid-template-columns: 1fr; }.rule-form-grid .span-2 { grid-column: auto; }.hero-state { grid-template-columns: auto 1fr; min-width: 0; }.hero-state .ant-btn { grid-column: 1 / -1; }.condition-list article { grid-template-columns: 1fr; } }
+</style>

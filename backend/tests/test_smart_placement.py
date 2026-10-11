@@ -369,6 +369,53 @@ def test_failed_execution_retry_requires_next_handle_time_before_database_access
     service.source.connect.assert_not_called()
 
 
+def test_successful_execution_compiles_monitor_rule_in_same_transaction():
+    source = MagicMock()
+    source.database = "sibebid"
+    connection = source.connect.return_value
+    cursor = connection.cursor.return_value
+    cursor.fetchone.side_effect = [
+        {
+            "id": 17,
+            "task_no": "SP202610100001",
+            "opportunity_name": "东南亚机会",
+            "status": "IN_PROGRESS",
+            "current_assignee_id": 3,
+            "current_assignee_name": "政策员",
+            "platform_code": "CTRIP",
+            "platform_name": "携程",
+            "airline_code": "HO",
+        },
+        (1,),
+    ]
+    cursor.lastrowid = 31
+    compiler = MagicMock()
+    compiler.sync_smart_placement.return_value = {
+        "ruleId": 71,
+        "ruleCode": "SPM-17-31",
+        "ruleVersionId": 72,
+        "ruleStatus": "ACTIVE",
+    }
+    service = SmartPlacementService({}, source=source, monitor_rule_compiler=compiler)
+
+    result = service.register_execution(
+        {"id": 3, "display_name": "政策员", "is_admin": False, "permissions": ["smart_placement.execute"]},
+        17,
+        {
+            "result": "SUCCESS",
+            "externalPolicyId": "POLICY-001",
+            "actualPlacementAt": "2026-10-11 10:00:00",
+            "effectiveStartAt": "2026-10-11 10:00:00",
+            "effectiveEndAt": "2026-10-31 23:59:59",
+        },
+    )
+
+    assert result["status"] == "MONITORING"
+    assert result["monitorRule"]["ruleCode"] == "SPM-17-31"
+    compiler.sync_smart_placement.assert_called_once()
+    connection.commit.assert_called_once()
+
+
 def test_list_orders_returns_real_summary_and_rows():
     service, connection, cursor = service_with_cursor()
     cursor.fetchone.side_effect = [

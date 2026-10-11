@@ -30,6 +30,7 @@ const router = createRouter({
         { path: 'smart-analysis', name: 'smart-analysis', component: () => import('@/views/SmartAnalysisView.vue'), meta: { title: '智能分析', section: '智能分析', menuCode: 'smart.home' } },
         { path: 'smart-analysis/placement/policies', name: 'smart-placement-policies', component: () => import('@/views/SmartPlacementPolicyView.vue'), meta: { title: '投放政策', section: '智能分析', menuCode: 'smart.placement.policies' } },
         { path: 'smart-analysis/placement/orders', name: 'smart-placement-orders', component: () => import('@/views/SmartPlacementOrdersView.vue'), meta: { title: '收单情况', section: '智能分析', menuCode: 'smart.placement.orders' } },
+        { path: 'monitoring', name: 'monitoring-center', component: () => import('@/views/MonitoringCenterView.vue'), meta: { title: '监控中心', section: '监控中心', menuCode: 'monitor.center' } },
         { path: 'problems', name: 'problems', component: () => import('@/views/ProblemsView.vue'), meta: { title: '问题中心', section: '问题中心', menuCode: 'problems' } },
         { path: 'data-assets', name: 'assets', component: () => import('@/views/AssetsView.vue'), meta: { title: '数据资产', section: '数据资产', menuCode: 'data_assets' } },
         { path: 'admin/behavior', name: 'admin-behavior', component: () => import('@/views/UserBehaviorMonitorView.vue'), meta: { title: '用户行为监控', section: '系统管理', requiresAdmin: true } },

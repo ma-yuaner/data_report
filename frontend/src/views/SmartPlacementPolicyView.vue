@@ -337,6 +337,21 @@
                 </article>
               </div>
             </a-tab-pane>
+            <a-tab-pane key="monitoring" tab="收单监控">
+              <section v-if="monitoring?.available && monitoring.rule" class="detail-section-card monitoring-card">
+                <div class="monitoring-heading"><div><span>通用监控规则</span><h3>{{ monitoring.rule.ruleName }}</h3><code>{{ monitoring.rule.ruleCode }}</code></div><a-tag :color="monitorStatusMeta[monitoring.rule.status]?.color || 'default'">{{ monitorStatusMeta[monitoring.rule.status]?.label || monitoring.rule.status }}</a-tag></div>
+                <div class="monitoring-grid">
+                  <div><label>当前版本</label><strong>V{{ monitoring.rule.currentVersionNo }}</strong></div>
+                  <div><label>累计命中</label><strong>{{ numberValue(monitoring.rule.hitCount, '单') }}</strong></div>
+                  <div><label>待处理事件</label><strong>{{ numberValue(monitoring.rule.openEventCount, '单') }}</strong></div>
+                  <div><label>最后运行</label><strong>{{ displayTime(monitoring.rule.lastRunAt) }}</strong></div>
+                  <div><label>最后命中</label><strong>{{ displayTime(monitoring.rule.lastHitAt) }}</strong></div>
+                  <div><label>有效期</label><strong>{{ displayTime(monitoring.rule.effectiveStartAt) }} 至 {{ displayTime(monitoring.rule.effectiveEndAt) }}</strong></div>
+                </div>
+                <div v-if="canOpenMonitoringCenter" class="monitoring-actions"><a-button type="primary" @click="router.push('/monitoring')">进入监控中心</a-button></div>
+              </section>
+              <a-empty v-else description="投放成功后自动生成收单监控规则；当前任务尚未进入监控" />
+            </a-tab-pane>
             <a-tab-pane key="logs" :tab="`流转日志（${detail.logs.length}）`">
               <a-timeline :items="detail.logs.map(log => ({ color: log.toStatus === 'REJECTED' || log.toStatus === 'FAILED' ? 'red' : 'blue', children: `${displayTime(log.createdAt)} · ${log.operatorName} · ${log.operationNote || actionLabel(log.actionCode)}` }))" />
             </a-tab-pane>
@@ -371,11 +386,11 @@ import PageHeader from '@/components/PageHeader.vue'
 import PlacementField from '@/components/PlacementField.vue'
 import { useAuthStore } from '@/stores/auth'
 import {
-  cancelPlacementTask, claimPlacementTask, createPlacementTask, deletePlacementTask, executePlacementTask, fetchPlacementTask,
+  cancelPlacementTask, claimPlacementTask, createPlacementTask, deletePlacementTask, executePlacementTask, fetchPlacementTask, fetchPlacementTaskMonitoring,
   fetchPlacementDimensions, fetchPlacementTasks, reviewPlacementTask, updatePlacementTask,
   withdrawPlacementTask,
   type PlacementDimensionOption, type PlacementDimensionOptions, type PlacementPriority,
-  type PlacementTaskDetail, type PlacementTaskInput, type PlacementTaskList,
+  type PlacementTaskDetail, type PlacementTaskInput, type PlacementTaskList, type PlacementTaskMonitoring,
   type PlacementTaskRow, type PlacementTaskStatus,
 } from '@/api/smartPlacement'
 
@@ -402,6 +417,7 @@ const detailLoading = ref(false)
 const detailTab = ref('overview')
 const editingTaskId = ref<number>()
 const detail = ref<PlacementTaskDetail>()
+const monitoring = ref<PlacementTaskMonitoring>()
 const activeTask = ref<PlacementTaskRow>()
 const reviewStage = ref<'DATA_MANAGER' | 'POLICY_MANAGER'>('DATA_MANAGER')
 const reviewChecks = ref<string[]>(['dataMetricConfirmed', 'sampleSufficient', 'estimatedValueConfirmed'])
@@ -417,6 +433,8 @@ const statusMeta: Record<PlacementTaskStatus, { label: string; color: string }> 
   FAILED: { label: '投放失败', color: 'red' }, REJECTED: { label: '已驳回', color: 'red' },
   CLOSED: { label: '已关闭', color: 'default' }, ENDED: { label: '已结束', color: 'default' },
 }
+const monitorStatusMeta: Record<string, { label: string; color: string }> = { ACTIVE: { label: '运行中', color: 'green' }, SCHEDULED: { label: '待生效', color: 'blue' }, PAUSED: { label: '已暂停', color: 'orange' }, EXPIRED: { label: '已过期', color: 'default' }, DISABLED: { label: '已停用', color: 'red' } }
+const canOpenMonitoringCenter = computed(() => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.menuCodes?.includes('monitor.center')))
 const priorityMeta: Record<PlacementPriority, { label: string; color: string }> = { HIGH: { label: '高', color: 'red' }, MEDIUM: { label: '中', color: 'orange' }, LOW: { label: '低', color: 'blue' } }
 const priorityDisplay = (value: unknown) => priorityMeta[String(value) as PlacementPriority] || { label: String(value || '—'), color: 'default' }
 const statusDisplay = (value: unknown) => statusMeta[String(value) as PlacementTaskStatus] || { label: String(value || '—'), color: 'default' }
@@ -755,9 +773,16 @@ async function submitExecution() {
   const validationError = validateExecution(); if (validationError) { message.warning(validationError); return }
   executionForm.value.includeCabins = normalizeList(executionForm.value.includeCabins).toUpperCase(); executionForm.value.excludeCabins = normalizeList(executionForm.value.excludeCabins).toUpperCase()
   saving.value = true
-  try { await executePlacementTask(activeTask.value.id, executionForm.value); message.success('投放结果已登记'); executionOpen.value = false; await load() } catch (failure) { message.error(failure instanceof Error ? failure.message : '登记失败') } finally { saving.value = false }
+  try { const result = await executePlacementTask(activeTask.value.id, executionForm.value); message.success(result.monitorRule ? `投放已登记，监控规则 ${result.monitorRule.ruleCode} 已生效` : '投放结果已登记'); executionOpen.value = false; await load() } catch (failure) { message.error(failure instanceof Error ? failure.message : '登记失败') } finally { saving.value = false }
 }
-async function openDetail(row: PlacementTaskRow) { detailOpen.value = true; detailLoading.value = true; detailTab.value = 'overview'; detail.value = undefined; try { detail.value = await fetchPlacementTask(row.id) } catch (failure) { message.error(failure instanceof Error ? failure.message : '详情查询失败') } finally { detailLoading.value = false } }
+async function openDetail(row: PlacementTaskRow) {
+  detailOpen.value = true; detailLoading.value = true; detailTab.value = 'overview'; detail.value = undefined; monitoring.value = undefined
+  try {
+    detail.value = await fetchPlacementTask(row.id)
+    try { monitoring.value = await fetchPlacementTaskMonitoring(row.id) } catch { monitoring.value = { available: false, rule: null } }
+  } catch (failure) { message.error(failure instanceof Error ? failure.message : '详情查询失败') }
+  finally { detailLoading.value = false }
+}
 onMounted(() => {
   workScope.value = preferredScope()
   filters.value.scope = workScope.value === 'all' ? '' : workScope.value
@@ -793,6 +818,7 @@ onMounted(() => {
 .conclusion-section { padding-bottom: 17px; }.modal-actions { position: sticky; bottom: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 -24px; padding: 14px 24px; border-top: 1px solid #e5eaf1; background: rgba(255,255,255,.97); }.modal-actions > span { color: #8994a5; font-size: 11px; }.modal-actions > div { display: flex; gap: 8px; }.modal-alert { margin-bottom: 16px; }.review-checks { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin-bottom: 16px; }
 .action-context { margin-bottom: 16px; padding: 13px 15px; border: 1px solid #d7e3f4; border-radius: 10px; background: #f5f8fd; }.action-context > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; }.action-context strong { color: #263a58; font-size: 14px; }.action-context span,.action-context p { color: #7c899c; font-size: 11px; }.action-context p { margin: 5px 0 0; }.review-section { margin-bottom: 14px; padding: 13px; border: 1px solid #e3e8ef; border-radius: 10px; }.review-section header { display: flex; justify-content: space-between; margin-bottom: 10px; }.review-section header strong { color: #34465f; }.review-section header span { color: #8b97a8; font-size: 11px; }.review-checks :deep(.ant-checkbox-wrapper) { margin: 0; padding: 9px 10px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; }.review-form-grid { margin-bottom: 4px; }.dialog-actions { position: sticky; bottom: -24px; z-index: 3; display: flex; justify-content: flex-end; gap: 8px; margin: 18px -24px -24px; padding: 14px 24px; border-top: 1px solid #e5eaf1; background: rgba(255,255,255,.97); }
 .detail-hero { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin: -8px 0 18px; padding: 18px 20px; border: 1px solid #d7e3f4; border-radius: 13px; background: linear-gradient(135deg,#f3f7fe,#fff); }.detail-hero span,.detail-hero p { color: #76859a; font-size: 11px; }.detail-hero h2 { margin: 4px 0; color: #253a58; font-size: 19px; }.detail-hero p { margin: 0; }.detail-hero-meta { display: grid; flex: none; justify-items: end; gap: 5px; }.detail-hero-meta strong { color: #3a4c66; font-size: 12px; }.detail-hero-meta small { color: #8995a6; }.detail-steps { margin: 0 8px 18px; }.detail-tabs :deep(.ant-tabs-nav) { position: sticky; top: 0; z-index: 4; background: #fff; }.detail-section-card { margin-bottom: 14px; padding: 16px; border: 1px solid #e4e9f0; border-radius: 11px; background: #fff; }.detail-section-card h3 { margin: 0 0 12px; color: #31445f; font-size: 14px; }.record-list { display: grid; gap: 12px; }.record-card { padding: 15px 16px; border: 1px solid #e2e8f0; border-radius: 11px; background: #fff; }.record-card header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 11px; padding-bottom: 10px; border-bottom: 1px solid #edf1f5; }.record-card header strong,.record-card header span { display: block; }.record-card header strong { color: #2f435f; }.record-card header span { margin-top: 3px; color: #8793a4; font-size: 10px; }.record-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 7px 12px; color: #5f6e82; font-size: 11px; }.record-card p { margin: 9px 0 0; color: #5f6e82; font-size: 11px; line-height: 1.7; }.record-card b { color: #3e516c; }
+.monitoring-card { border-color: #cde6df; background: linear-gradient(145deg,#f5fcf9,#fff); }.monitoring-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 15px; }.monitoring-heading span,.monitoring-heading code { display: block; color: #718198; font-size: 11px; }.monitoring-heading h3 { margin: 3px 0; font-size: 17px; }.monitoring-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; }.monitoring-grid > div { min-height: 68px; padding: 11px 13px; border: 1px solid #e1eee9; border-radius: 9px; background: rgba(255,255,255,.78); }.monitoring-grid label,.monitoring-grid strong { display: block; }.monitoring-grid label { color: #8995a6; font-size: 11px; }.monitoring-grid strong { margin-top: 5px; color: #2f435f; font-size: 12px; }.monitoring-actions { display: flex; justify-content: flex-end; margin-top: 14px; }
 @media (max-width: 1180px) { .summary-grid { grid-template-columns: repeat(3,1fr); }.filter-bar { grid-template-columns: repeat(3,1fr); }.workflow-chain { grid-template-columns: repeat(4,1fr); gap: 24px 0; }.workflow-node::after { display: none; } }
 @media (max-width: 820px) { .form-grid,.form-grid.three { grid-template-columns: repeat(2,minmax(0,1fr)); }.span-3 { grid-column: span 2; }.grid-placeholder { display: none; } }
 @media (max-width: 600px) { .summary-grid,.form-grid,.form-grid.three,.review-checks,.record-grid { grid-template-columns: 1fr; }.span-2,.span-3 { grid-column: auto; }.filter-bar { grid-template-columns: 1fr 1fr; }.placement-hero { align-items: flex-start; flex-direction: column; }.flow-card { overflow-x: auto; }.workflow-chain { min-width: 760px; grid-template-columns: repeat(7,1fr); }.form-section { padding: 15px 14px; }.form-intro { align-items: flex-start; }.field-legend { display: none; }.modal-actions { align-items: stretch; flex-direction: column; margin-right: -14px; margin-left: -14px; padding-right: 14px; padding-left: 14px; }.modal-actions > div { display: grid; grid-template-columns: repeat(3,1fr); }.detail-hero { flex-direction: column; }.detail-hero-meta { justify-items: start; } }

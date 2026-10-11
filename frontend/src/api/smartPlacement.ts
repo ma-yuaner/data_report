@@ -53,6 +53,25 @@ export interface PlacementTaskDetail {
   logs: PlacementLog[]
 }
 
+export interface PlacementTaskMonitorRule extends Record<string, string | number | boolean | null> {
+  id: number
+  ruleCode: string
+  ruleName: string
+  status: string
+  currentVersionNo: number
+  effectiveStartAt: string | null
+  effectiveEndAt: string | null
+  lastRunAt: string | null
+  lastHitAt: string | null
+  hitCount: number
+  openEventCount: number
+}
+
+export interface PlacementTaskMonitoring {
+  available: boolean
+  rule: PlacementTaskMonitorRule | null
+}
+
 export interface PlacementDimensionOption { value: string; label: string; code?: string; platformName?: string; platformCode?: string }
 export interface PlacementDimensionOptions {
   source: string
@@ -157,6 +176,12 @@ export async function fetchPlacementTask(id: number) {
   return response.data.data
 }
 
+export async function fetchPlacementTaskMonitoring(id: number) {
+  const response = await http.get<ApiEnvelope<PlacementTaskMonitoring>>(`/v1/smart-placement/tasks/${id}/monitoring`)
+  if (!response.data.success) throw new Error(response.data.message)
+  return response.data.data
+}
+
 export async function createPlacementTask(values: PlacementTaskInput) {
   const response = await http.post<ApiEnvelope<{ id: number; taskNo: string; status: PlacementTaskStatus }>>('/v1/smart-placement/tasks', values)
   if (!response.data.success) throw new Error(response.data.message)
@@ -200,7 +225,7 @@ export async function claimPlacementTask(id: number, values: { plannedCompleteAt
 }
 
 export async function executePlacementTask(id: number, values: Record<string, unknown>) {
-  const response = await http.post<ApiEnvelope<{ id: number; taskId: number; status: PlacementTaskStatus }>>(`/v1/smart-placement/tasks/${id}/executions`, values)
+  const response = await http.post<ApiEnvelope<{ id: number; taskId: number; status: PlacementTaskStatus; monitorRule?: { ruleId: number; ruleCode: string; ruleVersionId: number; ruleVersionNo: number; ruleStatus: string; conditionCount: number } | null }>>(`/v1/smart-placement/tasks/${id}/executions`, values)
   if (!response.data.success) throw new Error(response.data.message)
   return response.data.data
 }

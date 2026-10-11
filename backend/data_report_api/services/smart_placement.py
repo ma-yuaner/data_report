@@ -13,6 +13,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from .data_source import DataSource
+from .monitoring import MonitorRuleCompiler, MonitoringUnavailable
 from ..time_utils import as_business_naive, business_now_naive
 
 
@@ -297,8 +298,14 @@ def _public_row(row: dict[str, Any]) -> dict[str, Any]:
 
 
 class SmartPlacementService:
-    def __init__(self, config: dict[str, Any], source: DataSource | None = None):
+    def __init__(
+        self,
+        config: dict[str, Any],
+        source: DataSource | None = None,
+        monitor_rule_compiler: MonitorRuleCompiler | None = None,
+    ):
         self.source = source or DataSource({**config, "DATA_MODE": "mysql"})
+        self.monitor_rule_compiler = monitor_rule_compiler or MonitorRuleCompiler()
 
     def _table(self, name: str) -> str:
         return f"{self.source.database}.{name}"
@@ -939,6 +946,30 @@ class SmartPlacementService:
         overlap = sorted(set(included_list) & set(excluded_list))
         if overlap:
             raise ValueError(f"实际包含舱位和排除舱位不能重复：{','.join(overlap)}")
+        execution = {
+            "external_policy_id": policy_id or None,
+            "external_policy_name": _text(values.get("externalPolicyName"), "外部政策名称", 200) or None,
+            "actual_placement_at": actual_at,
+            "effective_start_at": effective_start,
+            "effective_end_at": effective_end,
+            "platform_code": _code(values.get("platformCode"), "平台编码") or None,
+            "platform_name": _text(values.get("platformName"), "平台名称", 100) or None,
+            "site_code": _code(values.get("siteCode"), "站点编码") or None,
+            "site_name": _text(values.get("siteName"), "站点名称", 150) or None,
+            "airline_code": _code(values.get("airlineCode"), "航司").upper() or None,
+            "departure_code": _code(values.get("departureCode"), "出发地").upper() or None,
+            "arrival_code": _code(values.get("arrivalCode"), "到达地").upper() or None,
+            "route_text": _text(values.get("routeText"), "航程", 300) or None,
+            "flight_nos": _text(values.get("flightNos"), "航班号", 500) or None,
+            "include_cabins": ",".join(included_list) or None,
+            "exclude_cabins": ",".join(excluded_list) or None,
+            "product_type": _text(values.get("productType"), "产品类型", 150) or None,
+            "adjustment_value": _decimal(values.get("adjustmentValue"), "实际调整值"),
+            "adjustment_unit": _text(values.get("adjustmentUnit"), "调整单位", 32) or None,
+            "placement_channel": _text(values.get("placementChannel"), "投放渠道", 100) or None,
+            "proof_url": _text(values.get("proofUrl"), "投放凭证", 500) or None,
+            "execution_note": _text(values.get("executionNote"), "执行说明", 10_000) or None,
+        }
         next_status = "MONITORING" if result == "SUCCESS" else "IN_PROGRESS" if retry_required else "FAILED"
         now = _now()
         connection = cursor = None
@@ -966,25 +997,25 @@ class SmartPlacementService:
                 """,
                 (
                     task_id, attempt, result, policy_id or None,
-                    _text(values.get("externalPolicyName"), "外部政策名称", 200) or None,
+                    execution["external_policy_name"],
                     actual_at, effective_start, effective_end,
-                    _code(values.get("platformCode"), "平台编码") or task.get("platform_code"),
-                    _text(values.get("platformName"), "平台名称", 100) or task.get("platform_name"),
-                    _code(values.get("siteCode"), "站点编码") or task.get("site_code"),
-                    _text(values.get("siteName"), "站点名称", 150) or task.get("site_name"),
-                    _code(values.get("airlineCode"), "航司").upper() or task.get("airline_code"),
-                    _code(values.get("departureCode"), "出发地").upper() or task.get("departure_code"),
-                    _code(values.get("arrivalCode"), "到达地").upper() or task.get("arrival_code"),
-                    _text(values.get("routeText"), "航程", 300) or task.get("route_text"),
-                    _text(values.get("flightNos"), "航班号", 500) or task.get("flight_nos"),
-                    ",".join(included_list) or task.get("include_cabins"),
-                    ",".join(excluded_list) or task.get("exclude_cabins"),
-                    _text(values.get("productType"), "产品类型", 150) or task.get("product_type"),
-                    _decimal(values.get("adjustmentValue"), "实际调整值"),
-                    _text(values.get("adjustmentUnit"), "调整单位", 32) or task.get("adjustment_unit"),
-                    _text(values.get("placementChannel"), "投放渠道", 100) or None,
-                    _text(values.get("proofUrl"), "投放凭证", 500) or None,
-                    _text(values.get("executionNote"), "执行说明", 10_000) or None,
+                    execution["platform_code"] or task.get("platform_code"),
+                    execution["platform_name"] or task.get("platform_name"),
+                    execution["site_code"] or task.get("site_code"),
+                    execution["site_name"] or task.get("site_name"),
+                    execution["airline_code"] or task.get("airline_code"),
+                    execution["departure_code"] or task.get("departure_code"),
+                    execution["arrival_code"] or task.get("arrival_code"),
+                    execution["route_text"] or task.get("route_text"),
+                    execution["flight_nos"] or task.get("flight_nos"),
+                    execution["include_cabins"] or task.get("include_cabins"),
+                    execution["exclude_cabins"] or task.get("exclude_cabins"),
+                    execution["product_type"] or task.get("product_type"),
+                    execution["adjustment_value"],
+                    execution["adjustment_unit"] or task.get("adjustment_unit"),
+                    execution["placement_channel"],
+                    execution["proof_url"],
+                    execution["execution_note"],
                     failure_type or None,
                     failure_reason or None, retry_required,
                     next_handle_at,
@@ -992,6 +1023,33 @@ class SmartPlacementService:
                 ),
             )
             execution_id = int(cursor.lastrowid)
+            monitor_rule = None
+            if result == "SUCCESS":
+                resolved_execution = {
+                    **execution,
+                    "platform_code": execution["platform_code"] or task.get("platform_code"),
+                    "platform_name": execution["platform_name"] or task.get("platform_name"),
+                    "site_code": execution["site_code"] or task.get("site_code"),
+                    "site_name": execution["site_name"] or task.get("site_name"),
+                    "airline_code": execution["airline_code"] or task.get("airline_code"),
+                    "departure_code": execution["departure_code"] or task.get("departure_code"),
+                    "arrival_code": execution["arrival_code"] or task.get("arrival_code"),
+                    "route_text": execution["route_text"] or task.get("route_text"),
+                    "flight_nos": execution["flight_nos"] or task.get("flight_nos"),
+                    "include_cabins": execution["include_cabins"] or task.get("include_cabins"),
+                    "exclude_cabins": execution["exclude_cabins"] or task.get("exclude_cabins"),
+                    "product_type": execution["product_type"] or task.get("product_type"),
+                }
+                monitor_rule = self.monitor_rule_compiler.sync_smart_placement(
+                    cursor=cursor,
+                    database=self.source.database,
+                    task=task,
+                    execution_id=execution_id,
+                    attempt_no=attempt,
+                    execution=resolved_execution,
+                    actor=actor,
+                    now=now,
+                )
             cursor.execute(
                 f"""UPDATE {self._table(TASK_TABLE)}
                     SET status=%s, monitoring_started_at=%s, closed_at=%s,
@@ -999,12 +1057,15 @@ class SmartPlacementService:
                         version_no=version_no+1, updated_at=%s WHERE id=%s""",
                 (next_status, now if next_status == "MONITORING" else None, now if next_status == "FAILED" else None, actor[0], actor[1], now, task_id),
             )
-            self._log(cursor, task_id=task_id, action="EXECUTE", actor=actor, from_status="IN_PROGRESS", to_status=next_status, note=_text(values.get("executionNote"), "执行说明", 1000) or failure_reason or result, detail={"executionId": execution_id, "result": result, "externalPolicyId": policy_id})
+            self._log(cursor, task_id=task_id, action="EXECUTE", actor=actor, from_status="IN_PROGRESS", to_status=next_status, note=_text(values.get("executionNote"), "执行说明", 1000) or failure_reason or result, detail={"executionId": execution_id, "result": result, "externalPolicyId": policy_id, "monitorRule": monitor_rule})
             connection.commit()
-            return {"id": execution_id, "taskId": task_id, "status": next_status}
+            return {"id": execution_id, "taskId": task_id, "status": next_status, "monitorRule": monitor_rule}
         except (ValueError, PermissionError):
             if connection is not None: connection.rollback()
             raise
+        except MonitoringUnavailable as error:
+            if connection is not None: connection.rollback()
+            raise SmartPlacementUnavailable(str(error)) from error
         except Exception as error:
             if connection is not None: connection.rollback()
             LOGGER.exception("Smart placement execution register failed")

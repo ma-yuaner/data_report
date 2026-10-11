@@ -38,6 +38,8 @@ def required_menu_code(path: str) -> str | None:
         return "smart.placement.orders"
     if path.startswith("/api/v1/smart-placement"):
         return "smart.placement.policies"
+    if path.startswith("/api/v1/monitoring"):
+        return "monitor.center"
     if path.startswith("/api/v1/problems/") or path == "/api/v1/issues":
         return "problems"
     if path.startswith("/api/v1/assets/"):

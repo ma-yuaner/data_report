@@ -57,6 +57,7 @@
               <a-menu-item v-if="canSeeMenu('smart.placement.orders')" key="/smart-analysis/placement/orders">收单情况</a-menu-item>
             </a-sub-menu>
           </a-sub-menu>
+          <a-menu-item v-if="canSeeMenu('monitor.center')" key="/monitoring"><template #icon><RadarChartOutlined /></template>监控中心</a-menu-item>
           <a-menu-item v-if="canSeeMenu('problems')" key="/problems"><template #icon><WarningOutlined /></template>问题中心</a-menu-item>
           <a-menu-item v-if="canSeeMenu('data_assets')" key="/data-assets"><template #icon><DatabaseOutlined /></template>数据资产</a-menu-item>
           <a-sub-menu v-if="authStore.user?.isAdmin" key="system">
@@ -118,7 +119,7 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   BarChartOutlined, CustomerServiceOutlined, DashboardOutlined, DatabaseOutlined, HomeOutlined, LineChartOutlined,
   LockOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, MonitorOutlined, RobotOutlined,
-  SafetyCertificateOutlined, TeamOutlined, WarningOutlined,
+  RadarChartOutlined, SafetyCertificateOutlined, TeamOutlined, WarningOutlined,
 } from '@ant-design/icons-vue'
 import type { MenuProps } from 'ant-design-vue'
 import { useAppStore } from '@/stores/app'
@@ -139,6 +140,7 @@ watch(() => route.path, path => {
     : path.startsWith('/risk-analysis') ? ['risk']
       : path.startsWith('/smart-analysis/placement/') ? ['smart', 'smart-placement']
         : path.startsWith('/smart-analysis') ? ['smart']
+        : path.startsWith('/monitoring') ? []
         : path.startsWith('/admin/') ? ['system'] : []
 }, { immediate: true })
 
