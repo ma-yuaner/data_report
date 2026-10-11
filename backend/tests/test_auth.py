@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from data_report_api import create_app
+from data_report_api import create_app, required_menu_code
 from data_report_api.config import TestConfig
 from data_report_api.services.auth import MemoryAuthStore
 
@@ -175,19 +175,26 @@ def test_admin_can_manage_users_and_ordinary_user_cannot(auth_client):
         "DATA_ENTRY", "POLICY_OPERATOR"
     }
     assert set(assigned.get_json()["data"]["permissions"]) == {
-        "smart_placement.create", "smart_placement.claim", "smart_placement.execute"
+        "smart_placement.create", "smart_placement.edit", "smart_placement.delete",
+        "smart_placement.claim", "smart_placement.execute",
+        "smart_placement.orders.attention",
     }
-    assert assigned.get_json()["data"]["menuCodes"] == ["smart"]
+    assert assigned.get_json()["data"]["menuCodes"] == [
+        "smart", "smart.placement.orders", "smart.placement.policies",
+    ]
     menu_catalog = auth_client.get("/api/admin/menu-catalog")
     assert menu_catalog.status_code == 200
-    assert "smart" in {row["code"] for row in menu_catalog.get_json()["data"]}
+    assert "smart.placement.policies" in {row["code"] for row in menu_catalog.get_json()["data"]}
+    assert all("groupCode" in row for row in menu_catalog.get_json()["data"])
     menu_assigned = auth_client.put(
         f"/api/admin/users/{user_id}/menus",
         json={"menuCodes": ["smart"]},
         headers={"X-CSRF-Token": admin_csrf},
     )
     assert menu_assigned.status_code == 200
-    assert menu_assigned.get_json()["data"]["menuCodes"] == ["smart"]
+    assert menu_assigned.get_json()["data"]["menuCodes"] == [
+        "smart", "smart.home", "smart.placement.orders", "smart.placement.policies",
+    ]
 
     duplicate_email = auth_client.post(
         "/api/admin/users",
@@ -234,7 +241,11 @@ def test_admin_configures_role_menus_permissions_and_assigns_role_on_create(auth
     existing = auth_client.get("/api/admin/roles")
     assert existing.status_code == 200
     assert all(row["dataScope"] == "ALL" for row in existing.get_json()["data"])
-    assert all(row["menuCodes"] == ["smart"] for row in existing.get_json()["data"])
+    role_menus = {row["code"]: row["menuCodes"] for row in existing.get_json()["data"]}
+    assert role_menus["DATA_ENTRY"] == ["smart.placement.policies"]
+    assert role_menus["DATA_MANAGER"] == ["smart.placement.policies"]
+    assert role_menus["POLICY_MANAGER"] == ["smart.placement.policies"]
+    assert role_menus["POLICY_OPERATOR"] == ["smart.placement.policies", "smart.placement.orders"]
 
     invalid = auth_client.post(
         "/api/admin/roles",
@@ -252,12 +263,12 @@ def test_admin_configures_role_menus_permissions_and_assigns_role_on_create(auth
         json={
             "roleCode": "RISK_VIEWER", "name": "风控查看员",
             "description": "查看风控分析", "isActive": True,
-            "menuCodes": ["risk"], "permissions": [],
+            "menuCodes": ["risk.overview"], "permissions": [],
         },
         headers={"X-CSRF-Token": admin_csrf},
     )
     assert created_role.status_code == 201
-    assert created_role.get_json()["data"]["menuCodes"] == ["risk"]
+    assert created_role.get_json()["data"]["menuCodes"] == ["risk.overview"]
 
     created_user = auth_client.post(
         "/api/admin/users",
@@ -271,14 +282,14 @@ def test_admin_configures_role_menus_permissions_and_assigns_role_on_create(auth
     assert created_user.status_code == 201
     user = created_user.get_json()["data"]
     assert [row["code"] for row in user["businessRoles"]] == ["RISK_VIEWER"]
-    assert user["menuCodes"] == ["risk"]
+    assert user["menuCodes"] == ["risk", "risk.overview"]
     assert user["permissions"] == []
 
     updated_role = auth_client.put(
         "/api/admin/roles/RISK_VIEWER",
         json={
             "name": "风控与智能查看员", "description": "查看风控并录入投放机会",
-            "isActive": True, "menuCodes": ["risk", "smart"],
+            "isActive": True, "menuCodes": ["risk.overview", "smart.placement.policies"],
             "permissions": ["smart_placement.create"],
         },
         headers={"X-CSRF-Token": admin_csrf},
@@ -286,7 +297,9 @@ def test_admin_configures_role_menus_permissions_and_assigns_role_on_create(auth
     assert updated_role.status_code == 200
     refreshed_users = auth_client.get("/api/admin/users").get_json()["data"]
     refreshed = next(row for row in refreshed_users if row["id"] == user["id"])
-    assert refreshed["menuCodes"] == ["risk", "smart"]
+    assert refreshed["menuCodes"] == [
+        "risk", "risk.overview", "smart", "smart.placement.policies",
+    ]
     assert refreshed["permissions"] == ["smart_placement.create"]
 
 
@@ -326,7 +339,7 @@ def test_admin_can_apply_personal_permission_overrides(auth_client):
         "smart_placement.claim": "ALLOW",
     }
     assert body["permissions"] == ["smart_placement.claim"]
-    assert body["menuCodes"] == ["smart"]
+    assert body["menuCodes"] == ["smart", "smart.placement.policies"]
 
     invalid = auth_client.put(
         f"/api/admin/users/{user['id']}/permissions",
@@ -334,6 +347,13 @@ def test_admin_can_apply_personal_permission_overrides(auth_client):
         headers={"X-CSRF-Token": admin_csrf},
     )
     assert invalid.status_code == 400
+
+
+def test_page_level_menu_mapping_protects_smart_policy_and_order_pages_separately():
+    assert required_menu_code("/api/v1/smart-placement/tasks") == "smart.placement.policies"
+    assert required_menu_code("/api/v1/smart-placement/orders") == "smart.placement.orders"
+    assert required_menu_code("/api/v1/analysis/comprehensive/details") == "analysis.comprehensive"
+    assert required_menu_code("/api/v1/risk-uploads") == "risk.upload"
 
 
 def test_password_reset_revokes_sessions_and_audits_are_available(auth_client):

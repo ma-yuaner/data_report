@@ -18,12 +18,26 @@ SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 def required_menu_code(path: str) -> str | None:
     if path.startswith("/api/v1/dashboard/"):
         return "overview"
-    if path.startswith("/api/v1/analysis/risk-") or path.startswith("/api/v1/risk-uploads"):
+    if path.startswith("/api/v1/analysis/comprehensive"):
+        return "analysis.comprehensive"
+    if path.startswith("/api/v1/analysis/issue-profit"):
+        return "analysis.issue"
+    if path.startswith("/api/v1/analysis/business-profit/refund"):
+        return "analysis.refund"
+    if path.startswith("/api/v1/analysis/business-profit/change"):
+        return "analysis.change"
+    if path.startswith("/api/v1/analysis/business-profit/ancillary"):
+        return "analysis.ancillary"
+    if path.startswith("/api/v1/analysis/risk-monthly") or path.startswith("/api/v1/analysis/risk-daily"):
+        return "risk.overview"
+    if path.startswith("/api/v1/analysis/risk-business/"):
         return "risk"
-    if path.startswith("/api/v1/analysis/"):
-        return "analysis"
+    if path.startswith("/api/v1/risk-uploads"):
+        return "risk.upload"
+    if path.startswith("/api/v1/smart-placement/orders"):
+        return "smart.placement.orders"
     if path.startswith("/api/v1/smart-placement"):
-        return "smart"
+        return "smart.placement.policies"
     if path.startswith("/api/v1/problems/") or path == "/api/v1/issues":
         return "problems"
     if path.startswith("/api/v1/assets/"):

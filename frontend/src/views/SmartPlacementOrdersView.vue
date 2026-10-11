@@ -90,7 +90,7 @@
           <template v-else-if="column.key === 'action'">
             <a-space>
               <a-button size="small" @click="openDetail(record)">详情</a-button>
-              <a-button v-if="!['COMPLETED', 'NO_ACTION'].includes(record.attentionStatus)" size="small" type="primary" @click="openAttention(record)">
+              <a-button v-if="canManageAttention && !['COMPLETED', 'NO_ACTION'].includes(record.attentionStatus)" size="small" type="primary" @click="openAttention(record)">
                 {{ record.attentionStatus === 'IN_PROGRESS' ? '处理结果' : '开始关注' }}
               </a-button>
             </a-space>
@@ -144,6 +144,7 @@ import {
 import dateLocale from 'ant-design-vue/es/date-picker/locale/zh_CN'
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
+import { useAuthStore } from '@/stores/auth'
 import {
   fetchPlacementOrders,
   updatePlacementAttention,
@@ -152,6 +153,8 @@ import {
 } from '@/api/smartPlacement'
 
 const loading = ref(false)
+const authStore = useAuthStore()
+const canManageAttention = computed(() => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.permissions?.includes('smart_placement.orders.attention')))
 const saving = ref(false)
 const error = ref('')
 const data = ref<PlacementOrderList>()

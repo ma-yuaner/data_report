@@ -63,13 +63,45 @@
       <a-divider /><div class="admin-switch"><a-switch v-model:checked="createForm.isAdmin" /><span><strong>系统管理员</strong><small>拥有全部菜单、功能和账号管理权限，请谨慎授予。</small></span></div>
     </a-modal>
 
-    <a-modal v-model:open="roleEditorVisible" :title="editingRoleCode ? '配置角色' : '新增角色'" width="960px" ok-text="保存角色" cancel-text="取消" :confirm-loading="roleEditorSaving" @ok="saveRoleDefinition">
+    <a-modal v-model:open="roleEditorVisible" :title="editingRoleCode ? '配置角色' : '新增角色'" width="1040px" ok-text="保存角色" cancel-text="取消" :confirm-loading="roleEditorSaving" @ok="confirmRoleSave">
       <p class="modal-lead">角色定义岗位的固定菜单与功能；账号只需选择角色，少量例外再做个人微调。</p>
       <template v-if="!editingRoleCode"><div class="section-heading"><strong>1. 选择职责模板</strong><span>自动带出推荐字段、菜单和功能</span></div><div class="template-grid"><button v-for="item in roleTemplates" :key="item.key" class="template-button" :class="{ selected: selectedTemplate === item.key }" @click="applyRoleTemplate(item)"><strong>{{ item.name }}</strong><span>{{ item.summary }}</span></button></div><a-divider /></template>
       <div class="section-heading"><strong>{{ editingRoleCode ? '角色信息' : '2. 角色信息' }}</strong><span>角色名称面向业务人员，编码用于系统识别</span></div>
       <a-form layout="vertical" class="two-column-form"><a-form-item label="角色名称" required><a-input v-model:value="roleForm.name" placeholder="如：业务经理" /></a-form-item><a-form-item label="角色编码" required><a-input v-model:value="roleForm.roleCode" :disabled="Boolean(editingRoleCode)" placeholder="大写字母、数字和下划线" /></a-form-item><a-form-item label="岗位职责" required class="span-2"><a-textarea v-model:value="roleForm.description" :rows="2" placeholder="说明适用人员、负责环节和不能执行的操作" /></a-form-item></a-form>
-      <a-divider /><div class="section-heading"><strong>{{ editingRoleCode ? '固定菜单与功能' : '3. 固定菜单与功能' }}</strong><span>修改后会同步影响所有已分配该角色的账号</span></div>
-      <div class="permission-layout"><div><h4>菜单权限</h4><a-checkbox-group v-model:value="roleForm.menuCodes" class="permission-grid"><a-checkbox v-for="item in menuCatalog" :key="item.code" :value="item.code" class="permission-option"><span class="option-copy"><strong>{{ item.name }}</strong><small>{{ item.description }}</small></span></a-checkbox></a-checkbox-group></div><div><h4>功能权限</h4><a-checkbox-group v-model:value="roleForm.permissions" class="permission-grid" @change="syncPermissionMenus"><a-checkbox v-for="item in permissionCatalog" :key="item.code" :value="item.code" class="permission-option"><span class="option-copy"><strong>{{ item.name }}</strong><small>{{ item.description }}</small></span></a-checkbox></a-checkbox-group></div></div>
+      <a-divider /><div class="section-heading"><strong>{{ editingRoleCode ? '固定菜单与功能' : '3. 固定菜单与功能' }}</strong><span>先选可见页面，再选页面内可执行功能；修改后同步影响全部已分配人员</span></div>
+      <div class="permission-tree">
+        <section v-for="group in menuGroups" :key="group.code" class="permission-group">
+          <header>
+            <a-checkbox :checked="isGroupFullySelected(group)" :indeterminate="isGroupPartlySelected(group)" @change="toggleMenuGroup(group, $event)">
+              <span class="group-title">{{ group.name }}</span>
+            </a-checkbox>
+            <small>{{ selectedGroupCount(group) }}/{{ group.items.length }} 个页面</small>
+          </header>
+          <div class="permission-page-list">
+            <article v-for="item in group.items" :key="item.code" class="permission-page" :class="{ selected: roleForm.menuCodes.includes(item.code) }">
+              <div class="permission-page-main">
+                <a-checkbox :checked="roleForm.menuCodes.includes(item.code)" @change="toggleRoleMenu(item.code, $event)">
+                  <span class="page-title">{{ item.name }}</span>
+                </a-checkbox>
+                <small>{{ item.description }}</small>
+              </div>
+              <div v-if="permissionsForMenu(item.code).length" class="page-functions">
+                <span class="function-label">页面功能</span>
+                <a-checkbox
+                  v-for="permission in permissionsForMenu(item.code)"
+                  :key="permission.code"
+                  :checked="roleForm.permissions.includes(permission.code)"
+                  class="function-check"
+                  @change="toggleRolePermission(permission, $event)"
+                >
+                  <span><strong>{{ permission.name }}</strong><small>{{ permission.description }}</small></span>
+                </a-checkbox>
+              </div>
+              <div v-else class="page-functions empty-functions"><span>该页面当前仅控制查看权限</span></div>
+            </article>
+          </div>
+        </section>
+      </div>
       <div class="admin-switch role-status"><a-switch v-model:checked="roleForm.isActive" /><span><strong>启用角色</strong><small>{{ roleForm.isActive ? '启用后可以分配给账号' : '停用后已分配账号将失去该角色权限' }}</small></span></div>
     </a-modal>
 
@@ -94,10 +126,10 @@ import { authApi, type AuthAudit, type AuthUser, type BusinessRole, type Functio
 type OverrideState = 'INHERIT' | 'ALLOW' | 'DENY'
 type RoleTemplate = { key: string; name: string; summary: string; code: string; description: string; menuCodes: string[]; permissions: string[] }
 const roleTemplates: RoleTemplate[] = [
-  { key: 'entry', name: '投放录入类', summary: '创建、编辑并提交投放机会', code: 'DATA_ENTRY_CUSTOM', description: '负责录入、编辑并提交智能投放机会，不参与审核与认领。', menuCodes: ['smart'], permissions: ['smart_placement.create'] },
-  { key: 'data', name: '数据运营类', summary: '数据审核与业务数据管理', code: 'DATA_MANAGER_CUSTOM', description: '负责审核数据口径、样本和预估价值。', menuCodes: ['smart'], permissions: ['smart_placement.review_data'] },
-  { key: 'business', name: '业务审核类', summary: '任一业务经理完成政策审核', code: 'BUSINESS_MANAGER', description: '数据运营审核通过后，任一业务经理可审核政策可执行性与风险。', menuCodes: ['smart'], permissions: ['smart_placement.review_policy'] },
-  { key: 'operator', name: '任务执行类', summary: '认领并登记投放结果', code: 'SMART_BUSINESS_OPERATOR', description: '只处理已完成审核的任务，负责认领并登记政策ID与投放结果。', menuCodes: ['smart'], permissions: ['smart_placement.claim', 'smart_placement.execute'] },
+  { key: 'entry', name: '投放录入类', summary: '创建、编辑并提交投放机会', code: 'DATA_ENTRY_CUSTOM', description: '负责录入、编辑并提交智能投放机会，不参与审核与认领。', menuCodes: ['smart.placement.policies'], permissions: ['smart_placement.create', 'smart_placement.edit', 'smart_placement.delete'] },
+  { key: 'data', name: '数据运营类', summary: '数据审核与业务数据管理', code: 'DATA_MANAGER_CUSTOM', description: '负责审核数据口径、样本和预估价值。', menuCodes: ['smart.placement.policies'], permissions: ['smart_placement.review_data'] },
+  { key: 'business', name: '业务审核类', summary: '任一业务经理完成政策审核', code: 'BUSINESS_MANAGER', description: '数据运营审核通过后，任一业务经理可审核政策可执行性与风险。', menuCodes: ['smart.placement.policies'], permissions: ['smart_placement.review_policy'] },
+  { key: 'operator', name: '任务执行类', summary: '认领、登记投放并处理收单', code: 'SMART_BUSINESS_OPERATOR', description: '只处理已完成审核的任务，负责认领、登记政策ID并跟进命中订单。', menuCodes: ['smart.placement.policies', 'smart.placement.orders'], permissions: ['smart_placement.claim', 'smart_placement.execute', 'smart_placement.orders.attention'] },
 ]
 
 const activeTab = ref('accounts')
@@ -110,12 +142,23 @@ const filters = reactive({ keyword: '', role: undefined as string | undefined, s
 const createForm = reactive({ username: '', displayName: '', email: '', initialPassword: '', isAdmin: false, roleCodes: [] as string[] })
 const editForm = reactive({ displayName: '', email: '' })
 const roleForm = reactive<RolePayload>({ roleCode: '', name: '', description: '', isActive: true, menuCodes: [], permissions: [] })
+const originalRole = ref<RolePayload>({ roleCode: '', name: '', description: '', isActive: true, menuCodes: [], permissions: [] })
 const personalOverrides = reactive<Record<string, OverrideState>>({})
 const activeRoles = computed(() => roles.value.filter(role => role.isActive)); const adminCount = computed(() => users.value.filter(user => user.isAdmin).length)
 const roleFilterOptions = computed(() => activeRoles.value.map(role => ({ value: role.code, label: role.name }))); const statusOptions = [{ value: 'enabled', label: '已启用' }, { value: 'disabled', label: '已禁用' }]
 const filteredUsers = computed(() => users.value.filter(user => { const keyword = filters.keyword.trim().toLowerCase(); return (!keyword || [user.displayName, user.username, user.email].some(value => value.toLowerCase().includes(keyword))) && (!filters.role || user.businessRoles?.some(role => role.code === filters.role)) && (!filters.status || (filters.status === 'enabled' ? user.isEnabled : !user.isEnabled)) }))
 const userColumns = [{ title: '账号', key: 'identity', width: 245 }, { title: '岗位角色', key: 'roles', width: 240 }, { title: '有效权限', key: 'access', width: 240 }, { title: '状态', key: 'status', width: 95 }, { title: '密码状态', key: 'password', width: 110 }, { title: '操作', key: 'actions', width: 270 }]
 const auditColumns = [{ title: '时间', key: 'createdAt', width: 170 }, { title: '账号', dataIndex: 'username', width: 120 }, { title: '动作', dataIndex: 'action', width: 180 }, { title: '结果', key: 'success', width: 80 }, { title: 'IP', dataIndex: 'ipAddress', width: 140 }, { title: '详情', key: 'detail', width: 360 }]
+type MenuGroup = { code: string; name: string; items: MenuPermission[] }
+const menuGroups = computed<MenuGroup[]>(() => {
+  const groups = new Map<string, MenuGroup>()
+  for (const item of menuCatalog.value) {
+    const current = groups.get(item.groupCode) || { code: item.groupCode, name: item.groupName, items: [] }
+    current.items.push(item)
+    groups.set(item.groupCode, current)
+  }
+  return [...groups.values()]
+})
 
 const load = async () => { loading.value = true; try { ;[users.value, audits.value, roles.value, menuCatalog.value, permissionCatalog.value] = await Promise.all([authApi.users(), authApi.audits(), authApi.roles(), authApi.menuCatalog(), authApi.permissionCatalog()]) } catch (error) { message.error(error instanceof Error ? error.message : '账号与权限数据加载失败') } finally { loading.value = false } }
 const openCreateAccount = () => { Object.assign(createForm, { username: '', displayName: '', email: '', initialPassword: '', isAdmin: false, roleCodes: [] }); createVisible.value = true }
@@ -133,10 +176,52 @@ const saveEdit = async () => { if (!editTarget.value) return; editing.value = tr
 const resetPassword = async () => { if (!resetTarget.value) return; resetting.value = true; try { await authApi.resetPassword(resetTarget.value.id, resetPasswordValue.value); message.success('密码已重置'); resetVisible.value = false; await load() } catch (error) { message.error(error instanceof Error ? error.message : '重置失败') } finally { resetting.value = false } }
 const resetRoleForm = () => Object.assign(roleForm, { roleCode: '', name: '', description: '', isActive: true, menuCodes: [], permissions: [] })
 const applyRoleTemplate = (template: RoleTemplate) => { selectedTemplate.value = template.key; Object.assign(roleForm, { roleCode: template.code, name: template.name.replace('类', ''), description: template.description, isActive: true, menuCodes: [...template.menuCodes], permissions: [...template.permissions] }) }
-const openCreateRole = () => { editingRoleCode.value = ''; resetRoleForm(); applyRoleTemplate(roleTemplates[2]); roleEditorVisible.value = true }
-const openEditRole = (role: BusinessRole) => { editingRoleCode.value = role.code; Object.assign(roleForm, { roleCode: role.code, name: role.name, description: role.description, isActive: Boolean(role.isActive), menuCodes: [...(role.menuCodes || [])], permissions: [...(role.permissions || [])] }); roleEditorVisible.value = true }
-const syncPermissionMenus = () => { const required = permissionCatalog.value.filter(item => roleForm.permissions.includes(item.code)).map(item => item.menuCode); roleForm.menuCodes = [...new Set([...roleForm.menuCodes, ...required])] }
-const saveRoleDefinition = async () => { roleEditorSaving.value = true; try { const payload: RolePayload = { ...roleForm, menuCodes: [...roleForm.menuCodes], permissions: [...roleForm.permissions] }; if (editingRoleCode.value) await authApi.updateRole(editingRoleCode.value, payload); else await authApi.createRole(payload); message.success(editingRoleCode.value ? '角色配置已更新' : '角色已创建'); roleEditorVisible.value = false; await load() } catch (error) { message.error(error instanceof Error ? error.message : '角色保存失败') } finally { roleEditorSaving.value = false } }
+const rolePayload = (): RolePayload => ({ ...roleForm, menuCodes: [...roleForm.menuCodes], permissions: [...roleForm.permissions] })
+const rememberRole = () => { originalRole.value = rolePayload() }
+const openCreateRole = () => { editingRoleCode.value = ''; resetRoleForm(); applyRoleTemplate(roleTemplates[2]); rememberRole(); roleEditorVisible.value = true }
+const openEditRole = (role: BusinessRole) => { editingRoleCode.value = role.code; Object.assign(roleForm, { roleCode: role.code, name: role.name, description: role.description, isActive: Boolean(role.isActive), menuCodes: [...(role.menuCodes || [])], permissions: [...(role.permissions || [])] }); rememberRole(); roleEditorVisible.value = true }
+const permissionsForMenu = (menuCode: string) => permissionCatalog.value.filter(item => item.menuCode === menuCode)
+const eventChecked = (event: { target?: { checked?: boolean } }) => Boolean(event?.target?.checked)
+const selectedGroupCount = (group: MenuGroup) => group.items.filter(item => roleForm.menuCodes.includes(item.code)).length
+const isGroupFullySelected = (group: MenuGroup) => selectedGroupCount(group) === group.items.length
+const isGroupPartlySelected = (group: MenuGroup) => selectedGroupCount(group) > 0 && !isGroupFullySelected(group)
+const removeMenusAndFunctions = (menuCodes: string[]) => {
+  const removed = new Set(menuCodes)
+  roleForm.menuCodes = roleForm.menuCodes.filter(code => !removed.has(code))
+  roleForm.permissions = roleForm.permissions.filter(code => {
+    const permission = permissionCatalog.value.find(item => item.code === code)
+    return !permission || !removed.has(permission.menuCode)
+  })
+}
+const confirmMenuRemoval = (menuCodes: string[], onConfirm: () => void) => {
+  const functions = permissionCatalog.value.filter(item => menuCodes.includes(item.menuCode) && roleForm.permissions.includes(item.code))
+  if (!functions.length) { onConfirm(); return }
+  Modal.confirm({ title: '确认取消菜单权限', content: `取消后将同时移除 ${functions.length} 项页面功能：${functions.map(item => item.name).join('、')}`, okText: '确认取消', cancelText: '保留权限', okType: 'danger', onOk: onConfirm })
+}
+const toggleRoleMenu = (menuCode: string, event: { target?: { checked?: boolean } }) => {
+  if (eventChecked(event)) { roleForm.menuCodes = [...new Set([...roleForm.menuCodes, menuCode])]; return }
+  confirmMenuRemoval([menuCode], () => removeMenusAndFunctions([menuCode]))
+}
+const toggleMenuGroup = (group: MenuGroup, event: { target?: { checked?: boolean } }) => {
+  const codes = group.items.map(item => item.code)
+  if (eventChecked(event)) { roleForm.menuCodes = [...new Set([...roleForm.menuCodes, ...codes])]; return }
+  confirmMenuRemoval(codes, () => removeMenusAndFunctions(codes))
+}
+const toggleRolePermission = (permission: FunctionPermission, event: { target?: { checked?: boolean } }) => {
+  if (eventChecked(event)) {
+    roleForm.permissions = [...new Set([...roleForm.permissions, permission.code])]
+    roleForm.menuCodes = [...new Set([...roleForm.menuCodes, permission.menuCode])]
+  } else roleForm.permissions = roleForm.permissions.filter(code => code !== permission.code)
+}
+const changedNames = (before: string[], after: string[], resolver: (code: string) => string) => ({ added: after.filter(code => !before.includes(code)).map(resolver), removed: before.filter(code => !after.includes(code)).map(resolver) })
+const persistRoleDefinition = async () => { roleEditorSaving.value = true; try { const payload = rolePayload(); if (editingRoleCode.value) await authApi.updateRole(editingRoleCode.value, payload); else await authApi.createRole(payload); message.success(editingRoleCode.value ? '角色配置已更新并对关联账号生效' : '角色已创建'); roleEditorVisible.value = false; await load() } catch (error) { message.error(error instanceof Error ? error.message : '角色保存失败') } finally { roleEditorSaving.value = false } }
+const confirmRoleSave = () => {
+  const menuChanges = changedNames(originalRole.value.menuCodes, roleForm.menuCodes, menuName)
+  const permissionChanges = changedNames(originalRole.value.permissions, roleForm.permissions, permissionName)
+  const role = roles.value.find(item => item.code === editingRoleCode.value)
+  const lines = [menuChanges.added.length ? `新增菜单：${menuChanges.added.join('、')}` : '', menuChanges.removed.length ? `移除菜单：${menuChanges.removed.join('、')}` : '', permissionChanges.added.length ? `新增功能：${permissionChanges.added.join('、')}` : '', permissionChanges.removed.length ? `移除功能：${permissionChanges.removed.join('、')}` : ''].filter(Boolean)
+  Modal.confirm({ title: editingRoleCode.value ? `确认保存“${roleForm.name}”角色权限` : `确认创建“${roleForm.name}”角色`, content: `${lines.join('；') || '角色基础信息发生调整'}。${editingRoleCode.value ? `保存后将立即影响已分配的 ${role?.userCount || 0} 个账号。` : '创建后可在账号管理中进行分配。'}`, okText: '确认保存', cancelText: '继续检查', onOk: persistRoleDefinition })
+}
 const overrideCount = (record: AuthUser, effect: 'ALLOW' | 'DENY') => Object.values(record.permissionOverrides || {}).filter(item => item === effect).length
 const menuName = (code: string) => menuCatalog.value.find(item => item.code === code)?.name || code; const permissionName = (code: string) => permissionCatalog.value.find(item => item.code === code)?.name || code
 const formatTime = (value?: string | null) => value ? value.replace('T', ' ') : '—'; const detailText = (value: Record<string, unknown>) => Object.keys(value).length ? JSON.stringify(value) : '—'
@@ -145,4 +230,6 @@ onMounted(load)
 
 <style scoped>
 .account-page{max-width:1680px}.access-header{align-items:flex-start}.model-row{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(390px,.8fr);gap:14px;margin:18px 0 8px}.model-card,.summary-strip{border:1px solid #e3e8ef;border-radius:13px;background:#fff}.model-card{display:flex;align-items:center;gap:14px;min-height:80px;padding:15px 18px}.model-icon{flex:0 0 auto;padding:10px;border-radius:11px;color:#2e6dd6;background:#eaf2ff;font-size:20px}.model-card strong,.model-card p{display:block;margin:0}.model-card p{margin-top:5px;color:#748196;font-size:12px}.model-flow{display:flex;align-items:center;gap:7px;margin-left:auto;white-space:nowrap}.model-flow span{padding:6px 9px;border-radius:7px;color:#3a6da9;background:#f0f5fc;font-size:11px;font-weight:600}.model-flow i{color:#aab4c2;font-style:normal}.summary-strip{display:grid;grid-template-columns:repeat(3,1fr);align-items:center;padding:12px 0}.summary-strip div{text-align:center;border-right:1px solid #e7ebf0}.summary-strip div:last-child{border:0}.summary-strip strong,.summary-strip span{display:block}.summary-strip strong{font-size:23px}.summary-strip span{margin-top:5px;color:#78859a;font-size:11px}.access-tabs{margin-top:8px}.toolbar-card :deep(.ant-card-body){padding:13px 15px}.account-toolbar{display:flex;align-items:center;gap:10px}.search-input{width:280px}.filter-select{width:150px}.toolbar-count{margin-left:auto;color:#8894a6;font-size:12px}.account-list-card{overflow:hidden}.account-identity{display:flex;align-items:center;gap:10px}.account-identity>span:last-child{display:grid;gap:3px}.account-identity code{color:#8490a1;background:transparent;font-size:11px}.account-avatar,.role-mark{width:36px;height:36px;flex:0 0 auto;display:grid;place-items:center;border-radius:10px;color:#2b66c7;background:#eaf2ff;font-weight:700}.role-empty{color:#98a2b3;font-size:12px}.access-summary{display:flex;align-items:center;gap:5px;flex-wrap:wrap;color:#59677a;font-size:12px}.status-dot{display:inline-flex;align-items:center;gap:7px;font-size:12px}.status-dot:before{width:7px;height:7px;border-radius:50%;background:#20a16b;content:''}.status-dot.off:before{background:#a9b2bf}.role-toolbar{display:flex;align-items:center;justify-content:space-between}.role-toolbar p{margin:5px 0 0;color:#7c899c;font-size:12px}.role-card-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.role-card.disabled{opacity:.68}.role-card-head{display:flex;align-items:center;gap:10px}.role-card-head>div{display:grid;gap:3px}.role-card-head code{color:#8a95a6;background:transparent;font-size:11px}.role-card-head>.ant-tag{margin-left:auto}.role-description{min-height:38px;margin:14px 0;color:#6e7b90;font-size:12px;line-height:1.6}.role-block{margin-top:12px}.role-block label{display:block;margin-bottom:7px;color:#8b97a8;font-size:11px}.tag-list{display:flex;flex-wrap:wrap;gap:4px;min-height:24px}.role-card-foot{display:flex;align-items:center;justify-content:space-between;margin-top:15px;padding-top:13px;border-top:1px solid #edf0f4;color:#7e8a9c;font-size:11px}.modal-lead{margin:0 0 18px;color:#69778c;line-height:1.6}.section-heading{display:flex;align-items:baseline;gap:9px;margin:4px 0 13px}.section-heading span{color:#8a96a8;font-size:11px}.two-column-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 16px}.two-column-form .span-2{grid-column:1/-1}.role-picker{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;width:100%}.role-option,.permission-option{display:flex;align-items:flex-start;gap:9px;margin:0;padding:12px 13px;border:1px solid #e0e6ee;border-radius:10px;background:#fafbfd;cursor:pointer;transition:border-color .18s,background .18s,box-shadow .18s}.role-option:hover,.permission-option:hover{border-color:#9bbaf0;background:#f6f9ff}.role-option.ant-checkbox-wrapper-checked,.permission-option.ant-checkbox-wrapper-checked{border-color:#5b8fe5;background:#edf4ff;box-shadow:inset 0 0 0 1px rgba(46,109,214,.12)}.role-option :deep(.ant-checkbox),.permission-option :deep(.ant-checkbox){margin-top:2px}.option-copy,.admin-switch>span{display:grid;gap:3px;min-width:0}.role-option small,.permission-option small,.admin-switch small{color:#7e8b9f;line-height:1.45}.role-option em{color:#2e6be6;font-size:11px;font-style:normal}.admin-switch{display:flex;align-items:flex-start;gap:10px}.template-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.template-button{padding:13px;border:1px solid #dfe4ec;border-radius:10px;color:#35445a;background:#fff;text-align:left;cursor:pointer}.template-button.selected{border-color:#6f9fe9;background:#f0f5ff;box-shadow:inset 0 0 0 1px rgba(43,109,229,.1)}.template-button strong,.template-button span{display:block}.template-button span{margin-top:5px;color:#8290a3;font-size:10px;line-height:1.45}.permission-layout{display:grid;grid-template-columns:1fr 1fr;gap:16px}.permission-layout h4{margin:0 0 10px;color:#4a586e;font-size:12px}.permission-grid{display:grid;gap:8px;width:100%}.role-status{margin-top:18px;padding:13px;border-radius:10px;background:#f7f9fc}.personal-role-summary{display:flex;justify-content:space-between;padding:13px 14px;border-radius:10px;background:#f2f6fc}.personal-role-summary>span{display:grid;gap:4px}.personal-role-summary small{color:#728097}.permission-table{margin-top:15px;border:1px solid #e1e6ed;border-radius:10px;overflow:hidden}.permission-row{display:grid;grid-template-columns:minmax(0,1fr) 130px 230px;align-items:center;min-height:55px;padding:9px 13px;border-top:1px solid #eef1f5}.permission-row:first-child{border-top:0}.permission-row>span:first-child{display:grid;gap:3px}.permission-row small{color:#8995a7;font-size:10px}.permission-head{min-height:40px;color:#748196;background:#f8fafc;font-size:11px;font-weight:600}@media(max-width:1180px){.model-row,.role-card-grid{grid-template-columns:1fr}.model-flow{display:none}}@media(max-width:760px){.two-column-form,.role-picker,.template-grid,.permission-layout{grid-template-columns:1fr}}
+.permission-tree{display:grid;gap:12px;max-height:530px;padding-right:5px;overflow:auto}.permission-group{overflow:hidden;border:1px solid #dfe5ed;border-radius:12px;background:#fff}.permission-group>header{display:flex;align-items:center;justify-content:space-between;padding:12px 15px;border-bottom:1px solid #e8edf3;background:#f6f8fb}.permission-group>header small{color:#7e8a9d}.group-title{font-weight:700;color:#35445b}.permission-page-list{display:grid}.permission-page{display:grid;grid-template-columns:minmax(230px,.8fr) minmax(0,1.35fr);gap:18px;padding:13px 15px;border-top:1px solid #edf1f5}.permission-page:first-child{border-top:0}.permission-page.selected{background:#fbfdff}.permission-page-main{display:flex;flex-direction:column;align-items:flex-start;gap:5px}.permission-page-main small{padding-left:24px;color:#8793a5;line-height:1.45}.page-title{font-weight:600;color:#3b4a61}.page-functions{display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap}.function-label{padding-top:5px;color:#8994a6;font-size:10px}.function-check{margin:0!important;padding:5px 8px;border:1px solid #e2e7ee;border-radius:7px;background:#fff}.function-check>span:last-child{display:grid}.function-check strong{font-size:11px}.function-check small{color:#8b96a7;font-size:9px}.function-check.ant-checkbox-wrapper-checked{border-color:#8eb0eb;background:#eef4ff}.empty-functions{align-items:center;color:#9aa4b3;font-size:11px}
+@media(max-width:760px){.permission-page{grid-template-columns:1fr}}
 </style>

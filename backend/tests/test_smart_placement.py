@@ -109,7 +109,7 @@ def test_update_draft_can_resubmit_by_creator():
     }
 
     result = service.update_task(
-        {"id": 3, "display_name": "数据分析员", "is_admin": False, "permissions": ["smart_placement.create"]},
+        {"id": 3, "display_name": "数据分析员", "is_admin": False, "permissions": ["smart_placement.edit"]},
         17,
         task_payload(),
     )
@@ -133,7 +133,7 @@ def test_policy_manager_return_resubmits_directly_to_policy_review():
     }
 
     result = service.update_task(
-        {"id": 3, "display_name": "数据分析员", "permissions": ["smart_placement.create"]},
+        {"id": 3, "display_name": "数据分析员", "permissions": ["smart_placement.edit"]},
         17,
         task_payload(),
     )
@@ -157,7 +157,7 @@ def test_update_draft_rejects_non_creator():
 
     with pytest.raises(PermissionError, match="创建人或管理员"):
         service.update_task(
-            {"id": 9, "display_name": "其他用户", "is_admin": False, "permissions": ["smart_placement.create"]},
+            {"id": 9, "display_name": "其他用户", "is_admin": False, "permissions": ["smart_placement.edit"]},
             17,
             task_payload(submit=False),
         )
@@ -189,7 +189,7 @@ def test_delete_draft_soft_deletes_and_keeps_audit_log():
     }
 
     result = service.delete_task(
-        {"id": 3, "display_name": "数据分析员", "is_admin": False, "permissions": ["smart_placement.create"]},
+        {"id": 3, "display_name": "数据分析员", "is_admin": False, "permissions": ["smart_placement.delete"]},
         17,
     )
 
@@ -214,7 +214,7 @@ def test_delete_running_task_is_rejected():
 
     with pytest.raises(ValueError, match="只有草稿或已驳回"):
         service.delete_task(
-            {"id": 3, "display_name": "数据分析员", "is_admin": False, "permissions": ["smart_placement.create"]},
+            {"id": 3, "display_name": "数据分析员", "is_admin": False, "permissions": ["smart_placement.delete"]},
             17,
         )
 
@@ -333,7 +333,7 @@ def test_list_tasks_work_scope_adds_real_server_side_conditions():
     cursor.fetchall.side_effect = [[], []]
     cursor.fetchone.return_value = (0,)
 
-    service.list_tasks(user={"id": 8, "permissions": ["smart_placement.create"]}, scope="mine")
+    service.list_tasks(user={"id": 8, "permissions": ["smart_placement.edit"]}, scope="mine")
 
     count_query, count_params = cursor.execute.call_args_list[1].args
     assert "t.current_assignee_id=%s OR t.created_by_id=%s" in count_query
@@ -353,5 +353,18 @@ def test_order_period_cannot_exceed_one_year():
 
     with pytest.raises(ValueError, match="超过366天"):
         service.list_orders(start_date="2025-01-01", end_date="2026-10-09")
+
+    service.source.connect.assert_not_called()
+
+
+def test_attention_update_requires_explicit_function_permission_before_database_access():
+    service, _connection, _cursor = service_with_cursor()
+
+    with pytest.raises(PermissionError, match="没有收单关注处理权限"):
+        service.update_attention(
+            {"id": 8, "display_name": "只读人员", "is_admin": False, "permissions": []},
+            11,
+            {"status": "IN_PROGRESS"},
+        )
 
     service.source.connect.assert_not_called()

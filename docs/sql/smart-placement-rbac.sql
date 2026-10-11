@@ -66,6 +66,10 @@ ON DUPLICATE KEY UPDATE
 INSERT IGNORE INTO `sys_role_permission` (`role_id`, `permission_code`)
 SELECT `id`, 'smart_placement.create' FROM `sys_role` WHERE `role_code` = 'DATA_ENTRY';
 INSERT IGNORE INTO `sys_role_permission` (`role_id`, `permission_code`)
+SELECT `id`, 'smart_placement.edit' FROM `sys_role` WHERE `role_code` = 'DATA_ENTRY';
+INSERT IGNORE INTO `sys_role_permission` (`role_id`, `permission_code`)
+SELECT `id`, 'smart_placement.delete' FROM `sys_role` WHERE `role_code` = 'DATA_ENTRY';
+INSERT IGNORE INTO `sys_role_permission` (`role_id`, `permission_code`)
 SELECT `id`, 'smart_placement.review_data' FROM `sys_role` WHERE `role_code` = 'DATA_MANAGER';
 INSERT IGNORE INTO `sys_role_permission` (`role_id`, `permission_code`)
 SELECT `id`, 'smart_placement.review_policy' FROM `sys_role` WHERE `role_code` = 'POLICY_MANAGER';
@@ -73,10 +77,21 @@ INSERT IGNORE INTO `sys_role_permission` (`role_id`, `permission_code`)
 SELECT `id`, 'smart_placement.claim' FROM `sys_role` WHERE `role_code` = 'POLICY_OPERATOR';
 INSERT IGNORE INTO `sys_role_permission` (`role_id`, `permission_code`)
 SELECT `id`, 'smart_placement.execute' FROM `sys_role` WHERE `role_code` = 'POLICY_OPERATOR';
+INSERT IGNORE INTO `sys_role_permission` (`role_id`, `permission_code`)
+SELECT `id`, 'smart_placement.orders.attention' FROM `sys_role` WHERE `role_code` = 'POLICY_OPERATOR';
 
 INSERT IGNORE INTO `sys_role_menu` (`role_id`, `menu_code`)
-SELECT `id`, 'smart' FROM `sys_role`
+SELECT `id`, 'smart.placement.policies' FROM `sys_role`
 WHERE `role_code` IN ('DATA_ENTRY', 'DATA_MANAGER', 'POLICY_MANAGER', 'POLICY_OPERATOR');
+
+INSERT IGNORE INTO `sys_role_menu` (`role_id`, `menu_code`)
+SELECT `id`, 'smart.placement.orders' FROM `sys_role`
+WHERE `role_code` = 'POLICY_OPERATOR';
+
+DELETE rm FROM `sys_role_menu` rm
+JOIN `sys_role` r ON r.`id` = rm.`role_id`
+WHERE r.`role_code` IN ('DATA_ENTRY', 'DATA_MANAGER', 'POLICY_MANAGER', 'POLICY_OPERATOR')
+  AND rm.`menu_code` = 'smart';
 
 SET @resume_stage_ddl = IF(
   EXISTS(

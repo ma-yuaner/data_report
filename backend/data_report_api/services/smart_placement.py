@@ -41,10 +41,13 @@ POLICY_EXECUTABLE_LEVELS = frozenset({"EXECUTABLE", "CONDITIONAL", "NOT_EXECUTAB
 ATTENTION_STATUSES = frozenset({"IN_PROGRESS", "COMPLETED", "NO_ACTION"})
 CODE_RE = re.compile(r"^[A-Za-z0-9._:/-]{1,128}$")
 PERMISSION_CREATE = "smart_placement.create"
+PERMISSION_EDIT = "smart_placement.edit"
+PERMISSION_DELETE = "smart_placement.delete"
 PERMISSION_REVIEW_DATA = "smart_placement.review_data"
 PERMISSION_REVIEW_POLICY = "smart_placement.review_policy"
 PERMISSION_CLAIM = "smart_placement.claim"
 PERMISSION_EXECUTE = "smart_placement.execute"
+PERMISSION_ORDER_ATTENTION = "smart_placement.orders.attention"
 
 
 class SmartPlacementUnavailable(RuntimeError):
@@ -437,7 +440,7 @@ class SmartPlacementService:
         clauses: list[str] = []
         params: list[Any] = []
         permissions = _permissions(user)
-        if PERMISSION_CREATE in permissions:
+        if permissions.intersection({PERMISSION_CREATE, PERMISSION_EDIT, PERMISSION_DELETE}):
             clauses.append(f"{alias}.created_by_id=%s")
             params.append(actor_id)
         if PERMISSION_REVIEW_DATA in permissions:
@@ -612,7 +615,7 @@ class SmartPlacementService:
             if connection is not None: connection.close()
 
     def update_task(self, user: dict[str, Any], task_id: int, values: dict[str, Any]) -> dict[str, Any]:
-        _require_permission(user, PERMISSION_CREATE, "当前账号没有投放机会编辑权限")
+        _require_permission(user, PERMISSION_EDIT, "当前账号没有投放机会编辑权限")
         actor = _actor(user)
         submit = _bool(values.get("submit"))
         fields = _task_fields(values, submit=submit)
@@ -658,7 +661,7 @@ class SmartPlacementService:
             if connection is not None: connection.close()
 
     def delete_task(self, user: dict[str, Any], task_id: int) -> dict[str, Any]:
-        _require_permission(user, PERMISSION_CREATE, "当前账号没有删除投放机会的权限")
+        _require_permission(user, PERMISSION_DELETE, "当前账号没有删除投放机会的权限")
         actor = _actor(user)
         now = _now()
         connection = cursor = None
@@ -993,6 +996,7 @@ class SmartPlacementService:
             if connection is not None: connection.close()
 
     def update_attention(self, user: dict[str, Any], match_id: int, values: dict[str, Any]) -> dict[str, Any]:
+        _require_permission(user, PERMISSION_ORDER_ATTENTION, "当前账号没有收单关注处理权限")
         actor = _actor(user)
         status = _text(values.get("status"), "关注状态", 20, required=True).upper()
         if status not in ATTENTION_STATUSES:

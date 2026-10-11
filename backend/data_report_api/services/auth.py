@@ -22,16 +22,24 @@ EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 ROLE_CODE_RE = re.compile(r"^[A-Z][A-Z0-9_]{2,63}$")
 
 ROLE_PERMISSIONS = {
-    "DATA_ENTRY": ("smart_placement.create",),
+    "DATA_ENTRY": (
+        "smart_placement.create",
+        "smart_placement.edit",
+        "smart_placement.delete",
+    ),
     "DATA_MANAGER": ("smart_placement.review_data",),
     "POLICY_MANAGER": ("smart_placement.review_policy",),
-    "POLICY_OPERATOR": ("smart_placement.claim", "smart_placement.execute"),
+    "POLICY_OPERATOR": (
+        "smart_placement.claim",
+        "smart_placement.execute",
+        "smart_placement.orders.attention",
+    ),
 }
 ROLE_MENUS = {
-    "DATA_ENTRY": ("smart",),
-    "DATA_MANAGER": ("smart",),
-    "POLICY_MANAGER": ("smart",),
-    "POLICY_OPERATOR": ("smart",),
+    "DATA_ENTRY": ("smart.placement.policies",),
+    "DATA_MANAGER": ("smart.placement.policies",),
+    "POLICY_MANAGER": ("smart.placement.policies",),
+    "POLICY_OPERATOR": ("smart.placement.policies", "smart.placement.orders"),
 }
 BUSINESS_ROLE_CATALOG = (
     {"code": "DATA_ENTRY", "name": "数据录入员", "description": "录入、编辑并提交智能投放机会"},
@@ -40,21 +48,65 @@ BUSINESS_ROLE_CATALOG = (
     {"code": "POLICY_OPERATOR", "name": "智能业务执行员", "description": "认领已审核任务并登记投放结果"},
 )
 PERMISSION_CATALOG = (
-    {"code": "smart_placement.create", "name": "新建投放机会", "description": "新建、编辑并提交本人创建的投放机会", "menuCode": "smart"},
-    {"code": "smart_placement.review_data", "name": "数据运营审核", "description": "审核数据口径、样本和预估价值", "menuCode": "smart"},
-    {"code": "smart_placement.review_policy", "name": "政策经理审核", "description": "审核政策可执行性、风险与投放要求", "menuCode": "smart"},
-    {"code": "smart_placement.claim", "name": "认领投放任务", "description": "认领已通过双重审核的投放任务", "menuCode": "smart"},
-    {"code": "smart_placement.execute", "name": "登记投放结果", "description": "登记政策ID、投放时间并进入监控", "menuCode": "smart"},
+    {"code": "smart_placement.create", "name": "新建投放机会", "description": "创建投放机会并保存或提交", "menuCode": "smart.placement.policies"},
+    {"code": "smart_placement.edit", "name": "编辑投放机会", "description": "编辑并重新提交本人创建的草稿或退回任务", "menuCode": "smart.placement.policies"},
+    {"code": "smart_placement.delete", "name": "删除投放机会", "description": "删除本人创建的草稿或已驳回任务", "menuCode": "smart.placement.policies"},
+    {"code": "smart_placement.review_data", "name": "数据运营审核", "description": "审核数据口径、样本和预估价值", "menuCode": "smart.placement.policies"},
+    {"code": "smart_placement.review_policy", "name": "业务经理审核", "description": "审核政策可执行性、风险与投放要求", "menuCode": "smart.placement.policies"},
+    {"code": "smart_placement.claim", "name": "认领投放任务", "description": "认领已通过两级审核的投放任务", "menuCode": "smart.placement.policies"},
+    {"code": "smart_placement.execute", "name": "登记投放结果", "description": "登记政策ID、投放时间并进入监控", "menuCode": "smart.placement.policies"},
+    {"code": "smart_placement.orders.attention", "name": "处理收单关注", "description": "更新命中订单的关注状态和处理结果", "menuCode": "smart.placement.orders"},
 )
 MENU_CATALOG = (
-    {"code": "overview", "name": "经营总览", "description": "经营总览页面"},
-    {"code": "analysis", "name": "业务分析", "description": "综合分析及出退改增分析"},
-    {"code": "risk", "name": "风控分析", "description": "风控看板、明细和数据上传"},
-    {"code": "customer_service", "name": "客服分析", "description": "退票、改签与清Q/航变分析"},
-    {"code": "smart", "name": "智能分析", "description": "智能投放政策与收单情况"},
-    {"code": "problems", "name": "问题中心", "description": "经营问题跟踪"},
-    {"code": "data_assets", "name": "数据资产", "description": "数据资产目录"},
+    {"code": "overview", "name": "经营总览", "description": "经营总览页面", "groupCode": "overview", "groupName": "经营总览"},
+    {"code": "analysis.comprehensive", "name": "综合分析", "description": "出退改增综合经营分析", "groupCode": "analysis", "groupName": "业务分析"},
+    {"code": "analysis.issue", "name": "出票分析", "description": "出票利润分析", "groupCode": "analysis", "groupName": "业务分析"},
+    {"code": "analysis.refund", "name": "退票分析", "description": "退票利润分析", "groupCode": "analysis", "groupName": "业务分析"},
+    {"code": "analysis.change", "name": "改签分析", "description": "改签利润分析", "groupCode": "analysis", "groupName": "业务分析"},
+    {"code": "analysis.ancillary", "name": "增值分析", "description": "增值利润分析", "groupCode": "analysis", "groupName": "业务分析"},
+    {"code": "risk.overview", "name": "风控总览", "description": "风控月度与趋势分析", "groupCode": "risk", "groupName": "风控分析"},
+    {"code": "risk.issue", "name": "出票利润分析", "description": "风控出票利润分析", "groupCode": "risk", "groupName": "风控分析"},
+    {"code": "risk.refund", "name": "退票利润分析", "description": "风控退票利润分析", "groupCode": "risk", "groupName": "风控分析"},
+    {"code": "risk.change", "name": "改签利润分析", "description": "风控改签利润分析", "groupCode": "risk", "groupName": "风控分析"},
+    {"code": "risk.errors", "name": "差错分析", "description": "差错原因与责任分析", "groupCode": "risk", "groupName": "风控分析"},
+    {"code": "risk.orders", "name": "订单明细", "description": "风控订单明细", "groupCode": "risk", "groupName": "风控分析"},
+    {"code": "risk.upload", "name": "数据上传", "description": "出退改风控数据上传", "groupCode": "risk", "groupName": "风控分析"},
+    {"code": "customer_service.refund", "name": "退票分析", "description": "客服退票分析", "groupCode": "customer_service", "groupName": "客服分析"},
+    {"code": "customer_service.change", "name": "改签分析", "description": "客服改签分析", "groupCode": "customer_service", "groupName": "客服分析"},
+    {"code": "customer_service.flight_change", "name": "清Q/航变分析", "description": "客服清Q与航变分析", "groupCode": "customer_service", "groupName": "客服分析"},
+    {"code": "smart.home", "name": "智能分析首页", "description": "智能分析工作台", "groupCode": "smart", "groupName": "智能分析"},
+    {"code": "smart.placement.policies", "name": "投放政策", "description": "投放机会、审核、认领与登记", "groupCode": "smart", "groupName": "智能分析"},
+    {"code": "smart.placement.orders", "name": "收单情况", "description": "政策命中订单与关注处理", "groupCode": "smart", "groupName": "智能分析"},
+    {"code": "problems", "name": "问题中心", "description": "经营问题跟踪", "groupCode": "problems", "groupName": "问题中心"},
+    {"code": "data_assets", "name": "数据资产", "description": "数据资产目录", "groupCode": "data_assets", "groupName": "数据资产"},
 )
+
+LEGACY_MENU_EXPANSIONS = {
+    group_code: tuple(item["code"] for item in MENU_CATALOG if item["groupCode"] == group_code)
+    for group_code in {item["groupCode"] for item in MENU_CATALOG}
+}
+MENU_CODES = {item["code"] for item in MENU_CATALOG}
+MENU_GROUP_BY_CODE = {item["code"]: item["groupCode"] for item in MENU_CATALOG}
+
+
+def configurable_menu_codes(menu_codes: Any) -> list[str]:
+    """Return leaf page codes, expanding legacy first-level module codes."""
+    normalized: set[str] = set()
+    for raw_code in menu_codes or ():
+        code = str(raw_code).strip()
+        if not code:
+            continue
+        if code in LEGACY_MENU_EXPANSIONS:
+            normalized.update(LEGACY_MENU_EXPANSIONS[code])
+        elif code in MENU_CODES:
+            normalized.add(code)
+    return sorted(normalized)
+
+
+def effective_menu_codes(menu_codes: Any) -> list[str]:
+    """Return page codes plus their first-level group codes for navigation."""
+    leaves = configurable_menu_codes(menu_codes)
+    return sorted(set(leaves) | {MENU_GROUP_BY_CODE[code] for code in leaves})
 
 
 def utc_now() -> datetime:
@@ -267,7 +319,9 @@ class MySqlAuthStore:
                 "permissions": sorted(permissions),
                 "role_permissions": sorted(role_permissions),
                 "permission_overrides": permission_overrides,
-                "menu_codes": sorted(role_menus | direct_menus | permission_menus),
+                "menu_codes": effective_menu_codes(
+                    role_menus | direct_menus | permission_menus
+                ),
                 "direct_menu_codes": sorted(direct_menus),
                 "rbac_configured": role_menu_configured,
             }
@@ -325,8 +379,44 @@ class MySqlAuthStore:
                     cursor.execute(
                         """
                         INSERT IGNORE INTO sys_role_menu (role_id, menu_code)
-                        SELECT id, 'smart' FROM sys_role
+                        SELECT id, 'smart.placement.policies' FROM sys_role
                         WHERE role_code IN ('DATA_ENTRY','DATA_MANAGER','POLICY_MANAGER','POLICY_OPERATOR')
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        INSERT IGNORE INTO sys_role_menu (role_id, menu_code)
+                        SELECT id, 'smart.placement.orders' FROM sys_role
+                        WHERE role_code='POLICY_OPERATOR'
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        DELETE rm FROM sys_role_menu rm
+                        JOIN sys_role r ON r.id=rm.role_id
+                        WHERE r.role_code IN ('DATA_ENTRY','DATA_MANAGER','POLICY_MANAGER','POLICY_OPERATOR')
+                          AND rm.menu_code='smart'
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        INSERT IGNORE INTO sys_role_permission (role_id, permission_code)
+                        SELECT id, 'smart_placement.edit' FROM sys_role
+                        WHERE role_code='DATA_ENTRY'
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        INSERT IGNORE INTO sys_role_permission (role_id, permission_code)
+                        SELECT id, 'smart_placement.delete' FROM sys_role
+                        WHERE role_code='DATA_ENTRY'
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        INSERT IGNORE INTO sys_role_permission (role_id, permission_code)
+                        SELECT id, 'smart_placement.orders.attention' FROM sys_role
+                        WHERE role_code='POLICY_OPERATOR'
                         """
                     )
                     cursor.execute(
@@ -570,7 +660,9 @@ class MySqlAuthStore:
                 "description": str(row.get("description") or ""),
                 "isActive": bool(row["is_active"]),
                 "userCount": int(row.get("user_count") or 0),
-                "menuCodes": menus_by_role.get(str(row["role_code"]), []),
+                "menuCodes": configurable_menu_codes(
+                    menus_by_role.get(str(row["role_code"]), [])
+                ),
                 "permissions": permissions_by_role.get(str(row["role_code"]), []),
             }
             for row in roles
@@ -838,7 +930,7 @@ class MemoryAuthStore:
             item["menuCode"] for item in PERMISSION_CATALOG
             if item["code"] in row["permissions"]
         }
-        row["menu_codes"] = sorted(
+        row["menu_codes"] = effective_menu_codes(
             {menu for role in active_roles for menu in role["menuCodes"]}
             | set(row.get("direct_menu_codes", []))
             | permission_menus
@@ -1333,11 +1425,12 @@ class AuthManager:
         permissions = values.get("permissions")
         if not isinstance(menu_codes, list) or not isinstance(permissions, list):
             raise AuthError("菜单权限和功能权限必须为数组")
-        normalized_menus = list(dict.fromkeys(str(item).strip() for item in menu_codes if str(item).strip()))
+        raw_menus = list(dict.fromkeys(str(item).strip() for item in menu_codes if str(item).strip()))
+        normalized_menus = configurable_menu_codes(raw_menus)
         normalized_permissions = list(dict.fromkeys(str(item).strip() for item in permissions if str(item).strip()))
-        supported_menus = {row["code"] for row in MENU_CATALOG}
+        supported_menus = MENU_CODES | set(LEGACY_MENU_EXPANSIONS)
         supported_permissions = {row["code"] for row in PERMISSION_CATALOG}
-        invalid_menus = [item for item in normalized_menus if item not in supported_menus]
+        invalid_menus = [item for item in raw_menus if item not in supported_menus]
         invalid_permissions = [item for item in normalized_permissions if item not in supported_permissions]
         if invalid_menus:
             raise AuthError(f"不支持的菜单权限：{','.join(invalid_menus)}")
@@ -1459,11 +1552,12 @@ class AuthManager:
             raise AuthError("账号不存在", 404, "USER_NOT_FOUND")
         if not isinstance(menu_codes, list):
             raise AuthError("菜单权限必须为数组")
-        normalized = list(dict.fromkeys(str(code).strip() for code in menu_codes if str(code).strip()))
-        supported = {row["code"] for row in MENU_CATALOG}
-        invalid = [code for code in normalized if code not in supported]
+        raw_codes = list(dict.fromkeys(str(code).strip() for code in menu_codes if str(code).strip()))
+        supported = MENU_CODES | set(LEGACY_MENU_EXPANSIONS)
+        invalid = [code for code in raw_codes if code not in supported]
         if invalid:
             raise AuthError(f"不支持的菜单编码：{','.join(invalid)}")
+        normalized = configurable_menu_codes(raw_codes)
         self.store.set_user_menus(target_id, normalized)
         updated = self.store.get_user_by_id(target_id) or target
         self.audit(

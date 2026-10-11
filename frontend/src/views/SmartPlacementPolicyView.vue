@@ -420,6 +420,8 @@ const failureTypeOptions = [{ value: 'NO_RESOURCE', label: '无可用资源' }, 
 const reviewCheckOptions = [{ value: 'dataMetricConfirmed', label: '数据口径确认' }, { value: 'sampleSufficient', label: '样本充分性确认' }, { value: 'estimatedValueConfirmed', label: '预估价值确认' }]
 const hasPermission = (code: string) => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.permissions?.includes(code))
 const canCreate = computed(() => hasPermission('smart_placement.create'))
+const canEditTasks = computed(() => hasPermission('smart_placement.edit'))
+const canDeleteTasks = computed(() => hasPermission('smart_placement.delete'))
 const canReviewData = computed(() => hasPermission('smart_placement.review_data'))
 const canReviewPolicy = computed(() => hasPermission('smart_placement.review_policy'))
 const canClaimTasks = computed(() => hasPermission('smart_placement.claim'))
@@ -427,14 +429,14 @@ const canExecuteTasks = computed(() => hasPermission('smart_placement.execute'))
 const roleWarning = computed(() => {
   if (authStore.user?.isAdmin) return ''
   if (authStore.user?.rbacConfigured === false) return '请管理员先执行 smart-placement-rbac.sql，再在账号管理中分配岗位。'
-  if (!authStore.user?.businessRoles?.length) return '请管理员在“系统管理 → 账号管理”中分配数据录入员、数据运营经理、政策经理或智能政策员。'
+  if (!authStore.user?.businessRoles?.length) return '请管理员在“系统管理 → 账号管理”中分配数据录入员、数据运营经理、业务经理或智能业务执行员。'
   return ''
 })
 const workScopeOptions = computed(() => {
   const options = [{ value: 'all', label: authStore.user?.isAdmin ? '全部任务' : '与我相关' }]
   if (canReviewData.value || canReviewPolicy.value) options.push({ value: 'review', label: '待我审核' })
   if (canClaimTasks.value) options.push({ value: 'claim', label: '可认领' })
-  if (canCreate.value || canExecuteTasks.value) options.push({ value: 'mine', label: '我的任务' })
+  if (canCreate.value || canEditTasks.value || canDeleteTasks.value || canExecuteTasks.value) options.push({ value: 'mine', label: '我的任务' })
   return options
 })
 const flowSteps = [{ title: '分析入池', description: '保存并提交' }, { title: '数据审核', description: '确认口径价值' }, { title: '政策审核', description: '确认可执行性' }, { title: '政策认领', description: '明确负责人' }, { title: '完成投放', description: '登记政策 ID' }, { title: '订单匹配', description: '命中新订单' }, { title: '来单关注', description: '跟进处理' }]
@@ -643,8 +645,8 @@ async function saveTask(submit: boolean) {
   catch (failure) { message.error(failure instanceof Error ? failure.message : '保存失败') }
   finally { saving.value = false }
 }
-const canEdit = (row: PlacementTaskRow) => canCreate.value && row.status === 'DRAFT' && (Boolean(authStore.user?.isAdmin) || row.createdById === authStore.user?.id)
-const canDelete = (row: PlacementTaskRow) => canCreate.value && ['DRAFT', 'REJECTED'].includes(row.status) && (Boolean(authStore.user?.isAdmin) || row.createdById === authStore.user?.id)
+const canEdit = (row: PlacementTaskRow) => canEditTasks.value && row.status === 'DRAFT' && (Boolean(authStore.user?.isAdmin) || row.createdById === authStore.user?.id)
+const canDelete = (row: PlacementTaskRow) => canDeleteTasks.value && ['DRAFT', 'REJECTED'].includes(row.status) && (Boolean(authStore.user?.isAdmin) || row.createdById === authStore.user?.id)
 function confirmDelete(row: PlacementTaskRow) {
   Modal.confirm({
     title: '确认删除投放任务？',

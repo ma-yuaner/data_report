@@ -15,6 +15,8 @@ export interface MenuPermission {
   code: string
   name: string
   description: string
+  groupCode: string
+  groupName: string
 }
 
 export interface FunctionPermission {
