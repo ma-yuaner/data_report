@@ -11,10 +11,32 @@ CREATE TABLE IF NOT EXISTS `sys_role_menu` (
   KEY `idx_sys_role_menu_code` (`menu_code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='角色菜单权限';
 
+CREATE TABLE IF NOT EXISTS `sys_user_permission` (
+  `user_id` BIGINT UNSIGNED NOT NULL COMMENT 'sys_user.id',
+  `permission_code` VARCHAR(100) NOT NULL COMMENT '权限编码',
+  `effect` VARCHAR(8) NOT NULL COMMENT 'ALLOW额外开启；DENY单独关闭',
+  `assigned_by` BIGINT UNSIGNED DEFAULT NULL COMMENT '配置人sys_user.id',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`user_id`, `permission_code`),
+  KEY `idx_sup_permission` (`permission_code`, `effect`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户功能权限例外配置';
+
 -- 现有智能投放四个角色默认继承“智能分析”菜单。
 INSERT IGNORE INTO `sys_role_menu` (`role_id`, `menu_code`)
 SELECT `id`, 'smart'
 FROM `sys_role`
 WHERE `role_code` IN ('DATA_ENTRY', 'DATA_MANAGER', 'POLICY_MANAGER', 'POLICY_OPERATOR');
 
+UPDATE `sys_role`
+SET `role_name`='业务经理',
+    `description`='数据运营审核通过后，任一业务经理可审核政策可执行性与风险'
+WHERE `role_code`='POLICY_MANAGER' AND `role_name`='政策经理';
+
+UPDATE `sys_role`
+SET `role_name`='智能业务执行员',
+    `description`='认领已审核任务并登记投放结果'
+WHERE `role_code`='POLICY_OPERATOR' AND `role_name`='智能政策员';
+
 -- sys_user_menu仅保留兼容历史账号；新配置由sys_user_role -> sys_role_menu继承。
+-- 有效功能权限 = 角色固定权限 + sys_user_permission.ALLOW - sys_user_permission.DENY。

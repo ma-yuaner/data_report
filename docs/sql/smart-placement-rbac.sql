@@ -41,12 +41,23 @@ CREATE TABLE IF NOT EXISTS `sys_role_menu` (
   KEY `idx_sys_role_menu_code` (`menu_code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='角色菜单权限';
 
+CREATE TABLE IF NOT EXISTS `sys_user_permission` (
+  `user_id` BIGINT UNSIGNED NOT NULL COMMENT 'sys_user.id',
+  `permission_code` VARCHAR(100) NOT NULL COMMENT '权限编码',
+  `effect` VARCHAR(8) NOT NULL COMMENT 'ALLOW额外开启；DENY单独关闭',
+  `assigned_by` BIGINT UNSIGNED DEFAULT NULL COMMENT '配置人sys_user.id',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`user_id`, `permission_code`),
+  KEY `idx_sup_permission` (`permission_code`, `effect`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户功能权限例外配置';
+
 INSERT INTO `sys_role` (`role_code`, `role_name`, `description`, `is_active`)
 VALUES
   ('DATA_ENTRY', '数据录入员', '录入、编辑并提交智能投放机会', 1),
   ('DATA_MANAGER', '数据运营经理', '审核数据口径、样本和预估价值', 1),
-  ('POLICY_MANAGER', '政策经理', '审核政策可执行性与风险', 1),
-  ('POLICY_OPERATOR', '智能政策员', '认领任务并登记投放结果', 1)
+  ('POLICY_MANAGER', '业务经理', '数据运营审核通过后，任一业务经理可审核政策可执行性与风险', 1),
+  ('POLICY_OPERATOR', '智能业务执行员', '认领已审核任务并登记投放结果', 1)
 ON DUPLICATE KEY UPDATE
   `role_name` = VALUES(`role_name`),
   `description` = VALUES(`description`),

@@ -47,6 +47,8 @@ export interface AuthUser {
   createdAt?: string | null
   businessRoles: BusinessRole[]
   permissions: string[]
+  rolePermissions: string[]
+  permissionOverrides: Record<string, 'ALLOW' | 'DENY'>
   rbacConfigured: boolean
   menuCodes: string[]
   legacyMenuCodes?: string[]
@@ -80,6 +82,7 @@ export const authApi = {
   updateUser: (id: number, payload: { displayName?: string; email?: string; isAdmin?: boolean; isEnabled?: boolean }) => http.patch<ApiEnvelope<AuthUser>>(`/admin/users/${id}`, payload).then(response => response.data.data),
   resetPassword: (id: number, newPassword: string) => http.post<ApiEnvelope<null>>(`/admin/users/${id}/reset-password`, { newPassword }).then(response => response.data.data),
   updateBusinessRoles: (id: number, roleCodes: string[]) => http.put<ApiEnvelope<AuthUser>>(`/admin/users/${id}/business-roles`, { roleCodes }).then(response => response.data.data),
+  updateUserPermissions: (id: number, overrides: Record<string, 'ALLOW' | 'DENY'>) => http.put<ApiEnvelope<AuthUser>>(`/admin/users/${id}/permissions`, { overrides }).then(response => response.data.data),
   updateMenus: (id: number, menuCodes: string[]) => http.put<ApiEnvelope<AuthUser>>(`/admin/users/${id}/menus`, { menuCodes }).then(response => response.data.data),
   audits: (limit = 200) => http.get<ApiEnvelope<AuthAudit[]>>('/admin/audits', { params: { limit } }).then(response => response.data.data),
 }

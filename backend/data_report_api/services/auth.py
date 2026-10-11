@@ -36,8 +36,8 @@ ROLE_MENUS = {
 BUSINESS_ROLE_CATALOG = (
     {"code": "DATA_ENTRY", "name": "数据录入员", "description": "录入、编辑并提交智能投放机会"},
     {"code": "DATA_MANAGER", "name": "数据运营经理", "description": "审核数据口径、样本和预估价值"},
-    {"code": "POLICY_MANAGER", "name": "政策经理", "description": "审核政策可执行性与风险"},
-    {"code": "POLICY_OPERATOR", "name": "智能政策员", "description": "认领任务并登记投放结果"},
+    {"code": "POLICY_MANAGER", "name": "业务经理", "description": "任一业务经理可审核政策可执行性与风险"},
+    {"code": "POLICY_OPERATOR", "name": "智能业务执行员", "description": "认领已审核任务并登记投放结果"},
 )
 PERMISSION_CATALOG = (
     {"code": "smart_placement.create", "name": "新建投放机会", "description": "新建、编辑并提交本人创建的投放机会", "menuCode": "smart"},
@@ -144,6 +144,18 @@ class MySqlAuthStore:
             KEY idx_sys_role_menu_code (menu_code)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='角色菜单权限'
         """,
+        """
+        CREATE TABLE IF NOT EXISTS sys_user_permission (
+            user_id BIGINT UNSIGNED NOT NULL COMMENT 'sys_user.id',
+            permission_code VARCHAR(100) NOT NULL COMMENT '权限编码',
+            effect VARCHAR(8) NOT NULL COMMENT 'ALLOW额外开启；DENY单独关闭',
+            assigned_by BIGINT UNSIGNED NULL COMMENT '配置人sys_user.id',
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (user_id, permission_code),
+            KEY idx_sup_permission (permission_code, effect)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户功能权限例外配置'
+        """,
     )
     USER_SELECT = """
         SELECT u.id, u.username, u.email,
@@ -216,27 +228,57 @@ class MySqlAuthStore:
                     if not self._missing_rbac(error):
                         raise
                     direct_menus = set()
+                try:
+                    cursor.execute(
+                        "SELECT permission_code, effect FROM sys_user_permission WHERE user_id=%s ORDER BY permission_code",
+                        (int(user["id"]),),
+                    )
+                    permission_overrides = {
+                        str(row["permission_code"]): str(row["effect"]).upper()
+                        for row in cursor.fetchall()
+                    }
+                except Exception as error:
+                    if not self._missing_rbac(error):
+                        raise
+                    permission_overrides = {}
             roles_by_code: dict[str, dict[str, str]] = {}
-            permissions: set[str] = set()
+            role_permissions: set[str] = set()
             for row in access_rows:
                 roles_by_code.setdefault(
                     row["role_code"],
                     {"code": row["role_code"], "name": row["role_name"], "description": row.get("description") or ""},
                 )
                 if row.get("permission_code"):
-                    permissions.add(row["permission_code"])
+                    role_permissions.add(row["permission_code"])
+            allowed_permissions = {
+                code for code, effect in permission_overrides.items() if effect == "ALLOW"
+            }
+            denied_permissions = {
+                code for code, effect in permission_overrides.items() if effect == "DENY"
+            }
+            permissions = (role_permissions | allowed_permissions) - denied_permissions
+            permission_menus = {
+                row["menuCode"] for row in PERMISSION_CATALOG
+                if row["code"] in permissions
+            }
             return {
                 **user,
                 "business_roles": list(roles_by_code.values()),
                 "permissions": sorted(permissions),
-                "menu_codes": sorted(role_menus | direct_menus),
+                "role_permissions": sorted(role_permissions),
+                "permission_overrides": permission_overrides,
+                "menu_codes": sorted(role_menus | direct_menus | permission_menus),
                 "direct_menu_codes": sorted(direct_menus),
                 "rbac_configured": role_menu_configured,
             }
         except Exception as error:
             if not self._missing_rbac(error):
                 raise
-            return {**user, "business_roles": [], "permissions": [], "menu_codes": [], "direct_menu_codes": [], "rbac_configured": False}
+            return {
+                **user, "business_roles": [], "permissions": [],
+                "role_permissions": [], "permission_overrides": {},
+                "menu_codes": [], "direct_menu_codes": [], "rbac_configured": False,
+            }
         finally:
             if connection is not None:
                 connection.close()
@@ -285,6 +327,22 @@ class MySqlAuthStore:
                         INSERT IGNORE INTO sys_role_menu (role_id, menu_code)
                         SELECT id, 'smart' FROM sys_role
                         WHERE role_code IN ('DATA_ENTRY','DATA_MANAGER','POLICY_MANAGER','POLICY_OPERATOR')
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        UPDATE sys_role
+                        SET role_name='业务经理',
+                            description='数据运营审核通过后，任一业务经理可审核政策可执行性与风险'
+                        WHERE role_code='POLICY_MANAGER' AND role_name='政策经理'
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        UPDATE sys_role
+                        SET role_name='智能业务执行员',
+                            description='认领已审核任务并登记投放结果'
+                        WHERE role_code='POLICY_OPERATOR' AND role_name='智能政策员'
                         """
                     )
                 except Exception as error:
@@ -602,6 +660,31 @@ class MySqlAuthStore:
         finally:
             connection.close()
 
+    def set_user_permissions(
+        self, user_id: int, overrides: dict[str, str], actor_id: int
+    ) -> None:
+        connection = self.source.connect()
+        try:
+            connection.begin()
+            with connection.cursor() as cursor:
+                cursor.execute("DELETE FROM sys_user_permission WHERE user_id=%s", (user_id,))
+                now = business_now_naive()
+                for permission_code, effect in overrides.items():
+                    cursor.execute(
+                        """
+                        INSERT INTO sys_user_permission (
+                            user_id, permission_code, effect, assigned_by, created_at, updated_at
+                        ) VALUES (%s,%s,%s,%s,%s,%s)
+                        """,
+                        (user_id, permission_code, effect, actor_id, now, now),
+                    )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
     def list_menu_catalog(self) -> list[dict[str, Any]]:
         return [dict(row) for row in MENU_CATALOG]
 
@@ -737,12 +820,28 @@ class MemoryAuthStore:
             {"code": role["code"], "name": role["name"], "description": role["description"]}
             for role in active_roles
         ]
-        row["permissions"] = sorted({
+        role_permissions = {
             permission for role in active_roles for permission in role["permissions"]
-        })
+        }
+        overrides = row.get("permission_overrides", {})
+        allowed_permissions = {
+            code for code, effect in overrides.items() if effect == "ALLOW"
+        }
+        denied_permissions = {
+            code for code, effect in overrides.items() if effect == "DENY"
+        }
+        row["role_permissions"] = sorted(role_permissions)
+        row["permissions"] = sorted(
+            (role_permissions | allowed_permissions) - denied_permissions
+        )
+        permission_menus = {
+            item["menuCode"] for item in PERMISSION_CATALOG
+            if item["code"] in row["permissions"]
+        }
         row["menu_codes"] = sorted(
             {menu for role in active_roles for menu in role["menuCodes"]}
             | set(row.get("direct_menu_codes", []))
+            | permission_menus
         )
 
     def ensure_schema(self) -> None:
@@ -773,6 +872,7 @@ class MemoryAuthStore:
                 "id": self._user_id, "failed_attempts": 0, "locked_until": None,
                 "business_roles": [], "permissions": [], "menu_codes": [], "rbac_configured": True,
                 "role_codes": list(values.get("role_codes") or []), "direct_menu_codes": [],
+                "role_permissions": [], "permission_overrides": {},
                 **deepcopy(values),
             }
             self.users[self._user_id] = row
@@ -849,6 +949,14 @@ class MemoryAuthStore:
         del actor_id
         with self._lock:
             self.users[user_id]["role_codes"] = list(role_codes)
+            self._refresh_user_access(user_id)
+
+    def set_user_permissions(
+        self, user_id: int, overrides: dict[str, str], actor_id: int
+    ) -> None:
+        del actor_id
+        with self._lock:
+            self.users[user_id]["permission_overrides"] = deepcopy(overrides)
             self._refresh_user_access(user_id)
 
     def list_menu_catalog(self) -> list[dict[str, Any]]:
@@ -965,6 +1073,8 @@ class AuthManager:
             "createdAt": AuthManager.iso(user.get("created_at")),
             "businessRoles": list(user.get("business_roles") or []),
             "permissions": list(user.get("permissions") or []),
+            "rolePermissions": list(user.get("role_permissions") or []),
+            "permissionOverrides": dict(user.get("permission_overrides") or {}),
             "rbacConfigured": bool(user.get("rbac_configured", True)),
             "menuCodes": list(user.get("menu_codes") or []),
             "legacyMenuCodes": list(user.get("direct_menu_codes") or []),
@@ -1301,6 +1411,37 @@ class AuthManager:
             "update_business_roles", True, user=actor, ip_address=ip_address,
             user_agent=user_agent,
             detail={"targetUserId": target_id, "roleCodes": normalized},
+        )
+        return self.public_user(updated)
+
+    def update_user_permissions(
+        self, actor: dict[str, Any], target_id: int, overrides: Any,
+        ip_address: str, user_agent: str,
+    ) -> dict[str, Any]:
+        self.require_admin(actor)
+        target = self.store.get_user_by_id(target_id)
+        if not target:
+            raise AuthError("账号不存在", 404, "USER_NOT_FOUND")
+        if not isinstance(overrides, dict):
+            raise AuthError("个人权限配置必须为对象")
+        supported = {row["code"] for row in PERMISSION_CATALOG}
+        normalized: dict[str, str] = {}
+        for raw_code, raw_effect in overrides.items():
+            code = str(raw_code).strip()
+            effect = str(raw_effect).strip().upper()
+            if code not in supported:
+                raise AuthError(f"不支持的功能权限：{code}")
+            if effect == "INHERIT" or not effect:
+                continue
+            if effect not in {"ALLOW", "DENY"}:
+                raise AuthError(f"个人权限状态不支持：{effect}")
+            normalized[code] = effect
+        self.store.set_user_permissions(target_id, normalized, int(actor["id"]))
+        updated = self.store.get_user_by_id(target_id) or target
+        self.audit(
+            "update_user_permissions", True, user=actor,
+            ip_address=ip_address, user_agent=user_agent,
+            detail={"targetUserId": target_id, "permissionOverrides": normalized},
         )
         return self.public_user(updated)
 

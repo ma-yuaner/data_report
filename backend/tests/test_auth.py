@@ -290,6 +290,52 @@ def test_admin_configures_role_menus_permissions_and_assigns_role_on_create(auth
     assert refreshed["permissions"] == ["smart_placement.create"]
 
 
+def test_admin_can_apply_personal_permission_overrides(auth_client):
+    admin_login = login(auth_client)
+    changed = change_initial_password(auth_client, admin_login)
+    admin_csrf = csrf(changed)
+    created = auth_client.post(
+        "/api/admin/users",
+        json={
+            "username": "business01", "displayName": "业务经理甲",
+            "email": "business01@example.com", "initialPassword": "Business123",
+            "isAdmin": False, "roleCodes": ["POLICY_MANAGER"],
+        },
+        headers={"X-CSRF-Token": admin_csrf},
+    )
+    assert created.status_code == 201
+    user = created.get_json()["data"]
+    assert user["rolePermissions"] == ["smart_placement.review_policy"]
+    assert user["permissions"] == ["smart_placement.review_policy"]
+
+    updated = auth_client.put(
+        f"/api/admin/users/{user['id']}/permissions",
+        json={
+            "overrides": {
+                "smart_placement.review_policy": "DENY",
+                "smart_placement.claim": "ALLOW",
+            }
+        },
+        headers={"X-CSRF-Token": admin_csrf},
+    )
+    assert updated.status_code == 200
+    body = updated.get_json()["data"]
+    assert body["rolePermissions"] == ["smart_placement.review_policy"]
+    assert body["permissionOverrides"] == {
+        "smart_placement.review_policy": "DENY",
+        "smart_placement.claim": "ALLOW",
+    }
+    assert body["permissions"] == ["smart_placement.claim"]
+    assert body["menuCodes"] == ["smart"]
+
+    invalid = auth_client.put(
+        f"/api/admin/users/{user['id']}/permissions",
+        json={"overrides": {"smart_placement.claim": "MAYBE"}},
+        headers={"X-CSRF-Token": admin_csrf},
+    )
+    assert invalid.status_code == 400
+
+
 def test_password_reset_revokes_sessions_and_audits_are_available(auth_client):
     admin_login = login(auth_client)
     changed = change_initial_password(auth_client, admin_login)

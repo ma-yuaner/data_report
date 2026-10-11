@@ -102,7 +102,7 @@ def login():
 def me():
     if not current_app.config["AUTH_ENABLED"]:
         return ok({
-            "user": {"id": 0, "username": "development", "email": "development@local", "displayName": "开发模式", "isAdmin": True, "isEnabled": True, "mustChangePassword": False, "businessRoles": [], "permissions": [], "rbacConfigured": True, "menuCodes": [], "legacyMenuCodes": []},
+            "user": {"id": 0, "username": "development", "email": "development@local", "displayName": "开发模式", "isAdmin": True, "isEnabled": True, "mustChangePassword": False, "businessRoles": [], "permissions": [], "rolePermissions": [], "permissionOverrides": {}, "rbacConfigured": True, "menuCodes": [], "legacyMenuCodes": []},
             "csrfToken": "development",
         })
     return ok({"user": manager().public_user(g.current_user), "csrfToken": g.current_csrf_token})
@@ -234,6 +234,16 @@ def update_business_roles(user_id: int):
         g.current_user, user_id, values.get("roleCodes"), ip_address, user_agent
     )
     return ok(user, "业务角色已更新")
+
+
+@auth_api.put("/admin/users/<int:user_id>/permissions")
+def update_user_permissions(user_id: int):
+    values = body()
+    ip_address, user_agent = request_context()
+    user = manager().update_user_permissions(
+        g.current_user, user_id, values.get("overrides"), ip_address, user_agent
+    )
+    return ok(user, "个人权限已更新")
 
 
 @auth_api.put("/admin/users/<int:user_id>/menus")
