@@ -31,13 +31,18 @@ def task_payload(**changes):
         "airlineCode": "HO",
         "departureCode": "PVG",
         "arrivalCode": "KUL",
-        "routeText": "PVG-KUL,KUL-PVG",
+        "journeyType": "ROUND_TRIP",
+        "segmentType": "直达",
         "flightNos": "HO1355,HO1356",
         "includeCabins": "Y,B,M",
         "excludeCabins": "X,N",
         "productType": "公布转私有",
         "orderSource": "平台手工订单",
+        "advanceSaleDays": 14,
         "placementMethod": "下调20元后测试投放",
+        "lossThresholdMin": 0,
+        "lossThresholdMax": 30,
+        "longTerm": False,
         "suggestedEffectiveStart": "2026-10-11 00:00:00",
         "suggestedEffectiveEnd": "2026-10-18 23:59:59",
         "historicalTicketCount": 128,
@@ -67,6 +72,9 @@ def test_create_task_persists_separate_scope_and_excluded_cabins():
     insert_query, insert_params = cursor.execute.call_args_list[0].args
     assert "platform_code,platform_name" in insert_query
     assert "departure_code,arrival_code" in insert_query
+    assert "journey_type,segment_type" in insert_query
+    assert "advance_sale_days" in insert_query
+    assert "loss_threshold_min,loss_threshold_max,long_term_flag" in insert_query
     assert "include_cabins,exclude_cabins" in insert_query
     assert "Y,B,M" in insert_params
     assert "X,N" in insert_params
@@ -81,6 +89,33 @@ def test_create_task_rejects_overlapping_cabin_rules_before_database_access():
         service.create_task(
             {"id": 3, "display_name": "数据分析员", "permissions": ["smart_placement.create"]},
             task_payload(includeCabins="Y,B", excludeCabins="B,X"),
+        )
+
+    service.source.connect.assert_not_called()
+
+
+def test_create_long_term_task_allows_empty_end_time():
+    service, connection, cursor = service_with_cursor()
+    cursor.lastrowid = 18
+
+    result = service.create_task(
+        {"id": 3, "display_name": "数据分析员", "permissions": ["smart_placement.create"]},
+        task_payload(longTerm=True, suggestedEffectiveEnd=""),
+    )
+
+    assert result["status"] == "PENDING_DATA_REVIEW"
+    insert_params = cursor.execute.call_args_list[0].args[1]
+    assert None in insert_params
+    connection.commit.assert_called_once()
+
+
+def test_create_task_rejects_reversed_loss_threshold_before_database_access():
+    service, _connection, _cursor = service_with_cursor()
+
+    with pytest.raises(ValueError, match="亏损阈值上限不能小于下限"):
+        service.create_task(
+            {"id": 3, "display_name": "数据分析员", "permissions": ["smart_placement.create"]},
+            task_payload(lossThresholdMin=30, lossThresholdMax=10),
         )
 
     service.source.connect.assert_not_called()
@@ -407,13 +442,22 @@ def test_successful_execution_compiles_monitor_rule_in_same_transaction():
             "externalPolicyId": "POLICY-001",
             "actualPlacementAt": "2026-10-11 10:00:00",
             "effectiveStartAt": "2026-10-11 10:00:00",
-            "effectiveEndAt": "2026-10-31 23:59:59",
+            "longTerm": True,
+            "segmentType": "直达",
+            "lossThresholdMin": 0,
+            "lossThresholdMax": 30,
         },
     )
 
     assert result["status"] == "MONITORING"
     assert result["monitorRule"]["ruleCode"] == "SPM-17-31"
     compiler.sync_smart_placement.assert_called_once()
+    assert compiler.sync_smart_placement.call_args.kwargs["execution"]["effective_end_at"] is None
+    insert_query, insert_params = next(
+        call.args for call in cursor.execute.call_args_list
+        if "INSERT INTO sibebid.smart_placement_execution" in call.args[0]
+    )
+    assert insert_query.count("%s") == len(insert_params)
     connection.commit.assert_called_once()
 
 

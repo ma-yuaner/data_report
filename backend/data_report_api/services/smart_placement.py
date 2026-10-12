@@ -45,6 +45,8 @@ REVIEW_RESULTS = frozenset({"APPROVED", "RETURNED", "REJECTED"})
 POLICY_EXECUTABLE_LEVELS = frozenset({"EXECUTABLE", "CONDITIONAL", "NOT_EXECUTABLE"})
 ATTENTION_STATUSES = frozenset({"IN_PROGRESS", "COMPLETED", "NO_ACTION"})
 ORDER_SOURCES = frozenset({"平台手工订单", "直连订单"})
+TRIP_TYPES = frozenset({"ONE_WAY", "ROUND_TRIP", "MULTI_CITY"})
+SEGMENT_TYPES = frozenset({"直达", "中转"})
 CODE_RE = re.compile(r"^[A-Za-z0-9._:/-]{1,128}$")
 PERMISSION_CREATE = "smart_placement.create"
 PERMISSION_EDIT = "smart_placement.edit"
@@ -141,6 +143,44 @@ def _order_source(value: Any, name: str = "订单来源") -> str | None:
     return result
 
 
+def _segment_type(value: Any, name: str = "航段类型") -> str | None:
+    result = _text(value, name, 32) or None
+    if result == "直飞":
+        result = "直达"
+    if result and result not in SEGMENT_TYPES:
+        raise ValueError(f"{name}只支持直达或中转")
+    return result
+
+
+def _trip_type(value: Any, name: str = "航程类型") -> str | None:
+    aliases = {
+        "单程": "ONE_WAY",
+        "往返": "ROUND_TRIP",
+        "多程": "MULTI_CITY",
+        "多城市": "MULTI_CITY",
+    }
+    result = _text(value, name, 32).upper() or None
+    if result:
+        result = aliases.get(result, result)
+    if result and result not in TRIP_TYPES:
+        raise ValueError(f"{name}只支持单程、往返或多程")
+    return result
+
+
+def _loss_thresholds(values: dict[str, Any], *, required: bool = False) -> tuple[Decimal | None, Decimal | None]:
+    minimum = _decimal(values.get("lossThresholdMin"), "亏损阈值下限")
+    maximum = _decimal(values.get("lossThresholdMax"), "亏损阈值上限")
+    if required and (minimum is None or maximum is None):
+        raise ValueError("亏损阈值区间不能为空")
+    if minimum is not None and minimum < 0:
+        raise ValueError("亏损阈值下限不能小于0")
+    if maximum is not None and maximum < 0:
+        raise ValueError("亏损阈值上限不能小于0")
+    if minimum is not None and maximum is not None and maximum < minimum:
+        raise ValueError("亏损阈值上限不能小于下限")
+    return minimum, maximum
+
+
 def _required_value(values: dict[str, Any], key: str, name: str) -> Any:
     value = values.get(key)
     if value in (None, ""):
@@ -160,23 +200,29 @@ def _task_fields(values: dict[str, Any], *, submit: bool) -> dict[str, Any]:
     if analysis_end < analysis_start:
         raise ValueError("分析结束日期不能早于开始日期")
 
-    order_start = _date_value(values.get("orderStartDate"), "订单开始日期")
-    order_end = _date_value(values.get("orderEndDate"), "订单结束日期")
+    order_start = _date_value(values.get("orderStartDate"), "销售开始日期")
+    order_end = _date_value(values.get("orderEndDate"), "销售结束日期")
     if order_start and order_end and order_end < order_start:
-        raise ValueError("订单结束日期不能早于开始日期")
-    travel_start = _date_value(values.get("travelStartDate"), "起飞开始日期")
-    travel_end = _date_value(values.get("travelEndDate"), "起飞结束日期")
+        raise ValueError("销售结束日期不能早于开始日期")
+    travel_start = _date_value(values.get("travelStartDate"), "去程旅行开始日期")
+    travel_end = _date_value(values.get("travelEndDate"), "去程旅行结束日期")
     if travel_start and travel_end and travel_end < travel_start:
-        raise ValueError("起飞结束日期不能早于开始日期")
+        raise ValueError("去程旅行结束日期不能早于开始日期")
+
+    long_term = _bool(values.get("longTerm"))
 
     suggested_start = _datetime_value(
         values.get("suggestedEffectiveStart"), "建议生效时间", required=submit,
     )
     suggested_end = _datetime_value(
-        values.get("suggestedEffectiveEnd"), "建议失效时间", required=submit,
+        values.get("suggestedEffectiveEnd"), "建议失效时间", required=submit and not long_term,
     )
+    if long_term:
+        suggested_end = None
     if suggested_start and suggested_end and suggested_end <= suggested_start:
         raise ValueError("建议失效时间必须晚于生效时间")
+
+    loss_threshold_min, loss_threshold_max = _loss_thresholds(values, required=submit)
 
     include_cabins = _text(values.get("includeCabins"), "包含舱位", 500)
     exclude_cabins = _text(values.get("excludeCabins"), "排除舱位", 500)
@@ -217,8 +263,11 @@ def _task_fields(values: dict[str, Any], *, submit: bool) -> dict[str, Any]:
         "airline_code": _code(values.get("airlineCode"), "航司", required=True).upper(),
         "departure_code": _code(values.get("departureCode"), "出发地").upper() or None,
         "arrival_code": _code(values.get("arrivalCode"), "到达地").upper() or None,
-        "route_text": _text(values.get("routeText"), "航程", 300) or None,
-        "journey_type": _text(values.get("journeyType"), "航程类型", 32) or None,
+        # route_text is retained for legacy rows only. New policies match the
+        # structured departure/arrival fields and do not require a full route.
+        "route_text": None,
+        "journey_type": _trip_type(values.get("journeyType")),
+        "segment_type": _segment_type(values.get("segmentType")),
         "flight_nos": _text(values.get("flightNos"), "航班号", 500) or None,
         "include_cabins": ",".join(included_list) or None,
         "exclude_cabins": ",".join(excluded_list) or None,
@@ -226,15 +275,16 @@ def _task_fields(values: dict[str, Any], *, submit: bool) -> dict[str, Any]:
         "order_source": _order_source(values.get("orderSource")),
         "order_start_date": order_start,
         "order_end_date": order_end,
+        "advance_sale_days": _integer(values.get("advanceSaleDays"), "提前销售天数"),
         "travel_start_date": travel_start,
         "travel_end_date": travel_end,
         "placement_method": _text(values.get("placementMethod"), "建议投放方式", 300, required=True),
-        "adjustment_value": _decimal(values.get("adjustmentValue"), "建议调整值"),
-        "adjustment_unit": _text(values.get("adjustmentUnit"), "调整单位", 32) or None,
+        "loss_threshold_min": loss_threshold_min,
+        "loss_threshold_max": loss_threshold_max,
+        "long_term_flag": 1 if long_term else 0,
         "suggested_effective_start": suggested_start,
         "suggested_effective_end": suggested_end,
         "historical_ticket_count": _integer(values.get("historicalTicketCount"), "历史票数"),
-        "historical_segment_count": _integer(values.get("historicalSegmentCount"), "历史航段数"),
         "historical_profit_cny": _decimal(values.get("historicalProfitCny"), "历史利润"),
         "estimated_month_ticket_count": _integer(values.get("estimatedMonthTicketCount"), "预估月票数"),
         "estimated_month_profit_cny": _decimal(values.get("estimatedMonthProfitCny"), "预估月利润"),
@@ -557,8 +607,8 @@ class SmartPlacementService:
             where.append("t.status=%s"); params.append(status)
         if keyword:
             token = f"%{_text(keyword, '搜索词', 100)}%"
-            where.append("(t.task_no LIKE %s OR t.opportunity_name LIKE %s OR t.route_text LIKE %s)")
-            params.extend([token, token, token])
+            where.append("(t.task_no LIKE %s OR t.opportunity_name LIKE %s OR t.airline_code LIKE %s OR t.departure_code LIKE %s OR t.arrival_code LIKE %s)")
+            params.extend([token, token, token, token, token])
         if platform:
             where.append("t.platform_name=%s"); params.append(_text(platform, "平台", 100))
         if airline:
@@ -996,9 +1046,18 @@ class SmartPlacementService:
         failure_reason = _text(values.get("failureReason"), "失败原因", 10_000, required=result == "FAILED")
         actual_at = _datetime_value(values.get("actualPlacementAt"), "实际投放时间", required=result == "SUCCESS")
         effective_start = _datetime_value(values.get("effectiveStartAt"), "政策生效时间", required=result == "SUCCESS")
-        effective_end = _datetime_value(values.get("effectiveEndAt"), "政策失效时间", required=result == "SUCCESS")
+        long_term = result == "SUCCESS" and _bool(values.get("longTerm"))
+        effective_end = _datetime_value(
+            values.get("effectiveEndAt"), "政策失效时间",
+            required=result == "SUCCESS" and not long_term,
+        )
+        if long_term:
+            effective_end = None
         if effective_start and effective_end and effective_end <= effective_start:
             raise ValueError("政策失效时间必须晚于生效时间")
+        loss_threshold_min, loss_threshold_max = _loss_thresholds(
+            values, required=result == "SUCCESS",
+        )
         retry_required = _bool(values.get("retryRequired"))
         next_handle_at = _datetime_value(values.get("nextHandleAt"), "下次处理时间", required=result == "FAILED" and retry_required)
         include_cabins = _text(values.get("includeCabins"), "包含舱位", 500)
@@ -1029,14 +1088,16 @@ class SmartPlacementService:
             "airline_code": _code(values.get("airlineCode"), "航司").upper() or None,
             "departure_code": _code(values.get("departureCode"), "出发地").upper() or None,
             "arrival_code": _code(values.get("arrivalCode"), "到达地").upper() or None,
-            "route_text": _text(values.get("routeText"), "航程", 300) or None,
+            "route_text": None,
+            "segment_type": _segment_type(values.get("segmentType"), "实际航段类型"),
             "flight_nos": _text(values.get("flightNos"), "航班号", 500) or None,
             "include_cabins": ",".join(included_list) or None,
             "exclude_cabins": ",".join(excluded_list) or None,
             "product_type": _text(values.get("productType"), "产品类型", 150) or None,
             "order_source": _order_source(values.get("orderSource"), "实际订单来源"),
-            "adjustment_value": _decimal(values.get("adjustmentValue"), "实际调整值"),
-            "adjustment_unit": _text(values.get("adjustmentUnit"), "调整单位", 32) or None,
+            "loss_threshold_min": loss_threshold_min,
+            "loss_threshold_max": loss_threshold_max,
+            "long_term_flag": 1 if long_term else 0,
             "placement_channel": _text(values.get("placementChannel"), "投放渠道", 100) or None,
             "proof_url": _text(values.get("proofUrl"), "投放凭证", 500) or None,
             "execution_note": _text(values.get("executionNote"), "执行说明", 10_000) or None,
@@ -1060,11 +1121,12 @@ class SmartPlacementService:
                     external_policy_name, actual_placement_at, effective_start_at,
                     effective_end_at, platform_code, platform_name, site_code,
                     site_name, airline_code, departure_code, arrival_code, route_text,
-                    flight_nos, include_cabins, exclude_cabins, product_type, order_source,
-                    adjustment_value, adjustment_unit, placement_channel, proof_url,
+                    segment_type, flight_nos, include_cabins, exclude_cabins,
+                    product_type, order_source, loss_threshold_min, loss_threshold_max,
+                    long_term_flag, placement_channel, proof_url,
                     execution_note, failure_type, failure_reason, retry_required,
                     next_handle_at, operator_id, operator_name, created_at
-                ) VALUES ({','.join(['%s'] * 33)})
+                ) VALUES ({','.join(['%s'] * 35)})
                 """,
                 (
                     task_id, attempt, result, policy_id or None,
@@ -1077,14 +1139,16 @@ class SmartPlacementService:
                     execution["airline_code"] or task.get("airline_code"),
                     execution["departure_code"] or task.get("departure_code"),
                     execution["arrival_code"] or task.get("arrival_code"),
-                    execution["route_text"] or task.get("route_text"),
+                    None,
+                    execution["segment_type"] or task.get("segment_type"),
                     execution["flight_nos"] or task.get("flight_nos"),
                     execution["include_cabins"] or task.get("include_cabins"),
                     execution["exclude_cabins"] or task.get("exclude_cabins"),
                     execution["product_type"] or task.get("product_type"),
                     execution["order_source"] or task.get("order_source"),
-                    execution["adjustment_value"],
-                    execution["adjustment_unit"] or task.get("adjustment_unit"),
+                    execution["loss_threshold_min"] if execution["loss_threshold_min"] is not None else task.get("loss_threshold_min"),
+                    execution["loss_threshold_max"] if execution["loss_threshold_max"] is not None else task.get("loss_threshold_max"),
+                    execution["long_term_flag"],
                     execution["placement_channel"],
                     execution["proof_url"],
                     execution["execution_note"],
@@ -1106,12 +1170,16 @@ class SmartPlacementService:
                     "airline_code": execution["airline_code"] or task.get("airline_code"),
                     "departure_code": execution["departure_code"] or task.get("departure_code"),
                     "arrival_code": execution["arrival_code"] or task.get("arrival_code"),
-                    "route_text": execution["route_text"] or task.get("route_text"),
+                    "route_text": None,
+                    "segment_type": execution["segment_type"] or task.get("segment_type"),
                     "flight_nos": execution["flight_nos"] or task.get("flight_nos"),
                     "include_cabins": execution["include_cabins"] or task.get("include_cabins"),
                     "exclude_cabins": execution["exclude_cabins"] or task.get("exclude_cabins"),
                     "product_type": execution["product_type"] or task.get("product_type"),
                     "order_source": execution["order_source"] or task.get("order_source"),
+                    "loss_threshold_min": execution["loss_threshold_min"] if execution["loss_threshold_min"] is not None else task.get("loss_threshold_min"),
+                    "loss_threshold_max": execution["loss_threshold_max"] if execution["loss_threshold_max"] is not None else task.get("loss_threshold_max"),
+                    "long_term_flag": execution["long_term_flag"],
                 }
                 monitor_rule = self.monitor_rule_compiler.sync_smart_placement(
                     cursor=cursor,

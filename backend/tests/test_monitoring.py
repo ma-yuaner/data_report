@@ -1,4 +1,6 @@
+import json
 from datetime import datetime
+from decimal import Decimal
 from unittest.mock import MagicMock
 
 import pytest
@@ -31,6 +33,11 @@ def test_smart_placement_compiler_creates_versioned_structured_conditions():
         "airline_code": "HO",
         "departure_code": "PVG",
         "arrival_code": "KUL",
+        "journey_type": "ROUND_TRIP",
+        "segment_type": "直达",
+        "advance_sale_days": 14,
+        "loss_threshold_min": Decimal("0"),
+        "loss_threshold_max": Decimal("30"),
         "include_cabins": "Y,B",
         "exclude_cabins": "X",
         "product_type": "公布转私有",
@@ -69,11 +76,18 @@ def test_smart_placement_compiler_creates_versioned_structured_conditions():
         if "monitor_rule_condition" in call.args[0]
     ]
     field_codes = {params[3] for params in condition_params}
-    assert {"platform_name", "site_name", "order_source", "airline_code", "departure_location_codes", "cabin_codes", "order_time"} <= field_codes
+    assert {"platform_name", "site_name", "order_source", "airline_code", "departure_location_codes", "cabin_codes", "trip_type", "journey_type", "advance_sale_days", "estimated_profit_cny", "order_time"} <= field_codes
     assert "platform_code" not in field_codes
+    assert "route_text" not in field_codes
     cabin_roles = {(params[4], params[7]) for params in condition_params if params[3] == "cabin_codes"}
     assert ("SUBSET_OF", "INCLUDE") in cabin_roles
     assert ("DISJOINT", "EXCLUDE") in cabin_roles
+    profit_conditions = {
+        (params[4], json.loads(params[6]))
+        for params in condition_params
+        if params[3] == "estimated_profit_cny"
+    }
+    assert profit_conditions == {("GTE", "-30"), ("LTE", "0")}
 
 
 def test_diagnostic_condition_comparison_covers_name_source_and_time():

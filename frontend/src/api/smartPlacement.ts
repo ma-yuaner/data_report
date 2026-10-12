@@ -96,8 +96,8 @@ export interface PlacementTaskInput {
   airlineCode: string
   departureCode?: string
   arrivalCode?: string
-  routeText?: string
   journeyType?: string
+  segmentType?: string
   flightNos?: string
   includeCabins?: string
   excludeCabins?: string
@@ -105,15 +105,16 @@ export interface PlacementTaskInput {
   orderSource?: string
   orderStartDate?: string
   orderEndDate?: string
+  advanceSaleDays?: number
   travelStartDate?: string
   travelEndDate?: string
   placementMethod: string
-  adjustmentValue?: number
-  adjustmentUnit?: string
+  lossThresholdMin?: number
+  lossThresholdMax?: number
+  longTerm: boolean
   suggestedEffectiveStart?: string
   suggestedEffectiveEnd?: string
   historicalTicketCount?: number
-  historicalSegmentCount?: number
   historicalProfitCny?: number
   estimatedMonthTicketCount?: number
   estimatedMonthProfitCny?: number

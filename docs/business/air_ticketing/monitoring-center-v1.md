@@ -26,11 +26,11 @@
 
 调度水位记录在 `monitor_data_cursor`，三类任务的执行量、耗时和异常记录在 `monitor_run_log`。规则级检查量和失败字段汇总写入 `monitor_rule_run_stat`；“匹配诊断”按需对单个订单逐项计算，不把所有订单×规则明细永久落库。事件处理写入 `monitor_event_operation_log`，规则状态调整写入 `monitor_rule_operation_log`。
 
-标准时间契约固定为：`order_create_time` 是业务进单时间，`create_time` 是宽表同步时间。平台和站点按中文名称匹配，避免不同系统编码体系不一致；`manual_flag` 映射为 `order_source`，允许“平台手工订单”“直连订单”，任务未选择时表示不限。
+标准时间契约固定为：`order_create_time` 是业务进单时间，`create_time` 是宽表同步时间。平台和站点按中文名称匹配，避免不同系统编码体系不一致；`manual_flag` 映射为 `order_source`，允许“平台手工订单”“直连订单”，任务未选择时表示不限。源宽表`flight_way`映射为`trip_type`（单程/往返/多程），`journey_type`单独作为航段类型并兼容“直达/直飞”和“中转”；`advance_sale_days`由首段起飞日期与订单日期计算。完整航程不再作为智能投放规则条件。
 
 ## 3. 部署顺序
 
-1. 新环境在 `sibebid` 执行 [monitoring-center-schema.sql](../../sql/monitoring-center-schema.sql)；已部署V1表的环境执行 [monitoring-order-source-v2.sql](../../sql/monitoring-order-source-v2.sql)。
+1. 新环境在 `sibebid` 执行 [monitoring-center-schema.sql](../../sql/monitoring-center-schema.sql)；已部署V1/V2表的环境依次确认 [monitoring-order-source-v2.sql](../../sql/monitoring-order-source-v2.sql) 已执行，并执行 [smart-placement-business-fields-v3.sql](../../sql/smart-placement-business-fields-v3.sql)。
 2. 发布 `data_report`，并在角色管理中分配 `monitor.center` 菜单和需要的查看/管理权限。
 3. 发布 `data-team-repo` 中 `etl_scripts/automation/monitoring/`。
 4. 手工串行执行特征采集、规则匹配、通知发送各一次。

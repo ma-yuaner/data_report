@@ -276,13 +276,30 @@ class MonitorRuleCompiler:
         add("departure_location_codes", "OVERLAP", "STRING_SET", _split_values(execution.get("departure_code") or task.get("departure_code")))
         add("arrival_location_codes", "OVERLAP", "STRING_SET", _split_values(execution.get("arrival_code") or task.get("arrival_code")))
 
-        route_text = _clean_text(execution.get("route_text") or task.get("route_text"))
-        add("route_text", "EQ", "STRING", route_text)
         add("flight_nos", "OVERLAP", "STRING_SET", _split_values(execution.get("flight_nos") or task.get("flight_nos")))
         add("cabin_codes", "SUBSET_OF", "STRING_SET", _split_values(execution.get("include_cabins") or task.get("include_cabins")))
         add("cabin_codes", "DISJOINT", "STRING_SET", _split_values(execution.get("exclude_cabins") or task.get("exclude_cabins")), "EXCLUDE")
         add("product_type", "IN", "STRING_SET", _split_values(execution.get("product_type") or task.get("product_type")))
-        add("journey_type", "EQ", "STRING", _clean_text(task.get("journey_type")))
+        trip_type = _clean_text(task.get("journey_type"))
+        trip_type_values = {
+            "ONE_WAY": ["ONE_WAY", "单程"],
+            "ROUND_TRIP": ["ROUND_TRIP", "往返"],
+            "MULTI_CITY": ["MULTI_CITY", "多程", "多城市"],
+        }.get(trip_type, [trip_type] if trip_type else [])
+        add("trip_type", "IN", "STRING_SET", trip_type_values)
+        segment_type = _clean_text(execution.get("segment_type") or task.get("segment_type"))
+        if segment_type == "直达":
+            add("journey_type", "IN", "STRING_SET", ["直达", "直飞"])
+        else:
+            add("journey_type", "EQ", "STRING", segment_type)
+        add("advance_sale_days", "GTE", "NUMBER", task.get("advance_sale_days"))
+        loss_min = task.get("loss_threshold_min")
+        loss_max = task.get("loss_threshold_max")
+        if loss_min is not None and loss_max is not None:
+            # Business users enter loss as a positive absolute interval. The
+            # order feature stores profit, so 0-30 CNY maps to -30 <= profit <= 0.
+            add("estimated_profit_cny", "GTE", "NUMBER", -Decimal(str(loss_max)))
+            add("estimated_profit_cny", "LTE", "NUMBER", -Decimal(str(loss_min)))
         add("order_time", "BETWEEN", "DATETIME", _smart_order_time_range(task, execution))
         add("first_departure_time", "BETWEEN", "DATETIME", _time_range(task.get("travel_start_date"), task.get("travel_end_date")))
 
