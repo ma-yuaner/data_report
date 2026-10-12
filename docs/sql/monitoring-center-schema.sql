@@ -140,6 +140,7 @@ CREATE TABLE IF NOT EXISTS `rt_order_monitor_feature` (
   `ota_order_no` VARCHAR(150) DEFAULT NULL,
   `order_time` DATETIME NOT NULL COMMENT '进单时间',
   `source_updated_at` DATETIME NOT NULL COMMENT '源订单最后更新时间',
+  `order_source` VARCHAR(32) DEFAULT NULL COMMENT '订单来源：平台手工订单/直连订单',
   `platform_code` VARCHAR(64) DEFAULT NULL,
   `platform_name` VARCHAR(100) DEFAULT NULL,
   `site_code` VARCHAR(64) DEFAULT NULL,
@@ -174,7 +175,8 @@ CREATE TABLE IF NOT EXISTS `rt_order_monitor_feature` (
   UNIQUE KEY `uk_rt_order_feature` (`source_system`, `feature_key`),
   KEY `idx_rt_order_source_watermark` (`source_updated_at`, `source_order_id`),
   KEY `idx_rt_order_batch` (`batch_id`, `id`),
-  KEY `idx_rt_order_candidate` (`platform_code`, `site_code`, `airline_code`),
+  KEY `idx_rt_order_candidate` (`platform_name`, `site_name`, `airline_code`),
+  KEY `idx_rt_order_source` (`order_source`, `order_time`),
   KEY `idx_rt_order_time` (`order_time`),
   KEY `idx_rt_order_hash` (`feature_hash`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='分钟级订单监控匹配特征表';
@@ -213,6 +215,22 @@ CREATE TABLE IF NOT EXISTS `monitor_run_log` (
   KEY `idx_monitor_run_status_time` (`status`, `started_at`),
   KEY `idx_monitor_run_batch` (`batch_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='监控采集、匹配和通知运行日志';
+
+CREATE TABLE IF NOT EXISTS `monitor_rule_run_stat` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `run_no` VARCHAR(40) NOT NULL COMMENT '对应monitor_run_log.run_no',
+  `rule_id` BIGINT UNSIGNED NOT NULL,
+  `rule_code` VARCHAR(64) NOT NULL,
+  `execution_type` VARCHAR(16) NOT NULL COMMENT 'INCREMENTAL/REPLAY',
+  `features_considered` BIGINT NOT NULL DEFAULT 0,
+  `condition_checks` BIGINT NOT NULL DEFAULT 0,
+  `matched_count` BIGINT NOT NULL DEFAULT 0,
+  `failure_summary_json` LONGTEXT DEFAULT NULL COMMENT '未通过字段及次数JSON',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_monitor_rule_run_stat` (`run_no`, `rule_id`, `execution_type`),
+  KEY `idx_monitor_rule_stat_rule` (`rule_id`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='每次匹配运行的规则级诊断统计';
 
 CREATE TABLE IF NOT EXISTS `monitor_alert_event` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -329,6 +347,7 @@ JOIN (
   UNION ALL SELECT 'flight_nos','航班号','STRING_SET','OVERLAP',0,NULL,150
   UNION ALL SELECT 'cabin_codes','适用/排除舱位','STRING_SET','SUBSET_OF,DISJOINT',0,NULL,160
   UNION ALL SELECT 'product_type','产品类型','STRING_SET','IN',0,'SMART_PLACEMENT_DIMENSION',170
+  UNION ALL SELECT 'order_source','订单来源','STRING','EQ,IN',0,NULL,172
   UNION ALL SELECT 'journey_type','航程类型','STRING','EQ,IN',0,NULL,175
   UNION ALL SELECT 'order_time','订单时间','DATETIME','BETWEEN',0,NULL,180
   UNION ALL SELECT 'first_departure_time','首段起飞时间','DATETIME','BETWEEN',0,NULL,190

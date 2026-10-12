@@ -55,7 +55,7 @@
               <template v-else-if="column.key === 'owner'">{{ record.ownerUserName || '系统' }}</template>
               <template v-else-if="column.key === 'updatedAt'">{{ displayTime(record.updatedAt) }}</template>
               <template v-else-if="column.key === 'action'">
-                <a-space><a-button size="small" @click="openRule(record)">详情</a-button><a-button v-if="canManageRules" size="small" @click="openStatus(record)">状态</a-button></a-space>
+                <a-space><a-button size="small" @click="openRule(record)">详情</a-button><a-button size="small" type="link" @click="openDiagnostic(record)">诊断</a-button><a-button v-if="canManageRules" size="small" @click="openStatus(record)">状态</a-button></a-space>
               </template>
             </template>
           </a-table>
@@ -96,6 +96,34 @@
               <template v-else-if="column.key === 'error'"><span class="error-text">{{ record.errorMessage || '—' }}</span></template>
             </template>
           </a-table>
+        </a-tab-pane>
+
+        <a-tab-pane key="diagnostic" tab="匹配诊断">
+          <section class="diagnostic-panel">
+            <header><div><h3>规则 × 订单逐项诊断</h3><p>输入OTA订单号后，直接查看特征采集、规则状态、每个条件及事件落库结果。</p></div><a-tag color="blue">只读诊断</a-tag></header>
+            <div class="diagnostic-query">
+              <a-select v-model:value="diagnosticForm.ruleId" :options="diagnosticRuleOptions" show-search option-filter-prop="label" placeholder="请选择监控规则" />
+              <a-input v-model:value="diagnosticForm.otaOrderNo" allow-clear placeholder="请输入OTA订单号，例如 5868726369" @press-enter="runDiagnostic" />
+              <a-button type="primary" :loading="diagnosticLoading" @click="runDiagnostic"><SearchOutlined />开始诊断</a-button>
+            </div>
+            <a-empty v-if="!diagnostic && !diagnosticLoading" description="选择规则并输入订单号后开始诊断" />
+            <template v-else-if="diagnostic">
+              <a-alert class="diagnostic-result" show-icon :type="diagnostic.matched ? 'success' : 'warning'" :message="diagnostic.matched ? '当前订单满足规则条件' : '当前订单未满足规则或尚未完成落库'" :description="diagnostic.order ? `订单 ${diagnostic.order.otaOrderNo || diagnosticForm.otaOrderNo} · 业务时间 ${displayTime(diagnostic.order.orderTime)}` : `订单 ${diagnosticForm.otaOrderNo} 尚未进入标准特征表`" />
+              <div class="diagnostic-stages">
+                <article v-for="stage in diagnostic.stages" :key="stage.code" :class="{ passed: stage.passed }"><span>{{ stage.passed ? '✓' : '!' }}</span><div><strong>{{ stage.name }}</strong><small>{{ stage.message }}</small></div></article>
+              </div>
+              <section v-if="diagnostic.conditions.length" class="diagnostic-conditions">
+                <h4>条件核对</h4>
+                <div class="diagnostic-condition-head"><span>条件</span><span>规则期望</span><span>订单实际</span><span>结果</span></div>
+                <article v-for="item in diagnostic.conditions" :key="`${item.groupNo}-${item.fieldCode}-${item.operatorCode}`">
+                  <div><strong>{{ item.fieldName }}</strong><small>{{ operatorName(item.operatorCode) }}</small></div>
+                  <code>{{ diagnosticValue(item.expected) }}</code>
+                  <code>{{ diagnosticValue(item.actual) }}</code>
+                  <a-tag :color="item.passed ? 'green' : 'red'">{{ item.passed ? '通过' : '不通过' }}</a-tag>
+                </article>
+              </section>
+            </template>
+          </section>
         </a-tab-pane>
       </a-tabs>
     </a-card>
@@ -149,7 +177,7 @@ import dateLocale from 'ant-design-vue/es/date-picker/locale/zh_CN'
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { useAuthStore } from '@/stores/auth'
-import { monitoringApi, type MonitorEvent, type MonitorOverview, type MonitorRule, type MonitorRuleDetail, type MonitorRuleInput, type MonitorRun, type PagedResult } from '@/api/monitoring'
+import { monitoringApi, type MonitorDiagnostic, type MonitorEvent, type MonitorOverview, type MonitorRule, type MonitorRuleDetail, type MonitorRuleInput, type MonitorRun, type PagedResult } from '@/api/monitoring'
 
 const authStore = useAuthStore()
 const loading = ref(false); const error = ref(''); const activeTab = ref('rules')
@@ -161,6 +189,7 @@ const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai'
 const monthStart = `${today.slice(0, 7)}-01`
 const eventRange = ref<[string, string]>([monthStart, today]); const eventFilters = ref({ keyword: '', status: '' })
 const ruleDetailOpen = ref(false); const ruleDetail = ref<MonitorRuleDetail>(); const statusOpen = ref(false); const statusRule = ref<MonitorRule>(); const saving = ref(false)
+const diagnostic = ref<MonitorDiagnostic>(); const diagnosticLoading = ref(false); const diagnosticForm = ref<{ ruleId?: number; otaOrderNo: string }>({ otaOrderNo: '' })
 const statusForm = ref({ status: 'PAUSED', note: '' })
 const canManageRules = computed(() => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.permissions?.includes('monitor.rule.manage')))
 const canManageEvents = computed(() => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.permissions?.includes('monitor.event.manage')))
@@ -187,6 +216,7 @@ const eventColumns = [{ title: '事件', key: 'event', width: 280 }, { title: '�
 const runColumns = [{ title: '任务 / 运行号', key: 'run', width: 250 }, { title: '状态', key: 'status', width: 100 }, { title: '数据量', key: 'volume', width: 270 }, { title: '耗时', key: 'duration', width: 100 }, { title: '开始时间', key: 'startedAt', width: 160 }, { title: '错误信息', key: 'error', width: 280 }]
 const rulePagination = computed(() => ({ current: rulePage.value, pageSize: rulePageSize.value, total: rules.value?.total || 0, showSizeChanger: true, showTotal: (total: number) => `共 ${number(total)} 条` }))
 const eventPagination = computed(() => ({ current: eventPage.value, pageSize: eventPageSize.value, total: events.value?.total || 0, showSizeChanger: true, showTotal: (total: number) => `共 ${number(total)} 条` }))
+const diagnosticRuleOptions = computed(() => (rules.value?.rows || []).map(item => ({ value: item.id, label: `${item.ruleCode} · ${item.ruleName}` })))
 
 const number = (value: unknown) => new Intl.NumberFormat('zh-CN').format(Number(value || 0))
 const displayTime = (value: unknown) => value ? String(value).replace('T', ' ').slice(0, 16) : '—'
@@ -194,9 +224,10 @@ const duration = (value?: number) => value == null ? '—' : value < 1000 ? `${v
 const templateName = (code: string) => templates.find(item => item.value === code)?.label || code
 const jobTypeName = (value: string) => ({ FEATURE_ETL: '订单特征采集', RULE_MATCH: '规则匹配', NOTIFY: '通知发送' }[value] || value)
 const summaryValue = (key: typeof summaryCards[number]['key']) => key === 'pendingNotifications' ? overview.value?.pendingNotifications : key in (overview.value?.ruleSummary || {}) ? overview.value?.ruleSummary[key as keyof MonitorOverview['ruleSummary']] : overview.value?.eventSummary[key as keyof MonitorOverview['eventSummary']]
-const fieldName = (code: string) => ({ platform_code: '平台编码', platform_name: '平台名称', site_code: '站点编码', site_name: '站点名称', airline_code: '航司', departure_location_codes: '出发地', arrival_location_codes: '到达地', route_text: '航程', flight_nos: '航班号', cabin_codes: '舱位', product_type: '产品类型', journey_type: '航程类型', order_time: '订单时间', first_departure_time: '起飞时间', segment_count: '航段数' }[code] || code)
+const fieldName = (code: string) => ({ platform_code: '平台编码', platform_name: '平台名称', site_code: '站点编码', site_name: '站点名称', order_source: '订单来源', airline_code: '航司', departure_location_codes: '出发地', arrival_location_codes: '到达地', route_text: '航程', flight_nos: '航班号', cabin_codes: '舱位', product_type: '产品类型', journey_type: '航程类型', order_time: '订单时间', first_departure_time: '起飞时间', segment_count: '航段数' }[code] || code)
 const operatorName = (code: string) => ({ EQ: '等于', IN: '属于', BETWEEN: '介于', OVERLAP: '存在交集', SUBSET_OF: '全部包含于', DISJOINT: '不得包含', GTE: '大于等于', GT: '大于', LTE: '小于等于', LT: '小于' }[code] || code)
 function formatConditionValue(raw: string) { try { const value = JSON.parse(raw); return Array.isArray(value) ? value.join(' ～ ') : String(value) } catch { return raw } }
+function diagnosticValue(value: unknown) { if (value === null || value === undefined || value === '') return '—'; return Array.isArray(value) ? value.join('、') : typeof value === 'object' ? JSON.stringify(value) : String(value) }
 
 async function loadOverview() { overview.value = await monitoringApi.overview() }
 async function loadRules(target = rulePage.value) { ruleLoading.value = true; rulePage.value = target; try { rules.value = await monitoringApi.rules({ ...ruleFilters.value, page: target, pageSize: rulePageSize.value }) } finally { ruleLoading.value = false } }
@@ -209,6 +240,15 @@ function resetEventFilters() { eventRange.value = [monthStart, today]; eventFilt
 function changeRulePage(value: { current?: number; pageSize?: number }) { const size = value.pageSize || rulePageSize.value; rulePage.value = size === rulePageSize.value ? value.current || 1 : 1; rulePageSize.value = size; void loadRules(rulePage.value) }
 function changeEventPage(value: { current?: number; pageSize?: number }) { const size = value.pageSize || eventPageSize.value; eventPage.value = size === eventPageSize.value ? value.current || 1 : 1; eventPageSize.value = size; void loadEvents(eventPage.value) }
 async function openRule(record: MonitorRule) { ruleDetailOpen.value = true; ruleDetail.value = undefined; try { ruleDetail.value = await monitoringApi.ruleDetail(record.id) } catch (failure) { message.error(failure instanceof Error ? failure.message : '规则详情查询失败') } }
+function openDiagnostic(record: MonitorRule) { diagnosticForm.value.ruleId = record.id; diagnostic.value = undefined; activeTab.value = 'diagnostic' }
+async function runDiagnostic() {
+  if (!diagnosticForm.value.ruleId) { message.warning('请选择监控规则'); return }
+  if (!diagnosticForm.value.otaOrderNo.trim()) { message.warning('请输入OTA订单号'); return }
+  diagnosticLoading.value = true; diagnostic.value = undefined
+  try { diagnostic.value = await monitoringApi.diagnoseRule(diagnosticForm.value.ruleId, diagnosticForm.value.otaOrderNo.trim()) }
+  catch (failure) { message.error(failure instanceof Error ? failure.message : '匹配诊断失败') }
+  finally { diagnosticLoading.value = false }
+}
 async function openRuleById(id: number) { const record = rules.value?.rows.find(item => item.id === id) || { id } as MonitorRule; await openRule(record) }
 function openStatus(record: MonitorRule) { statusRule.value = record; statusForm.value = { status: record.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE', note: '' }; statusOpen.value = true }
 async function saveStatus() { if (!statusRule.value) return; saving.value = true; try { await monitoringApi.updateRuleStatus(statusRule.value.id, statusForm.value); message.success('规则状态已更新'); statusOpen.value = false; await Promise.all([loadOverview(), loadRules()]) } catch (failure) { message.error(failure instanceof Error ? failure.message : '规则状态更新失败') } finally { saving.value = false } }
@@ -240,6 +280,7 @@ onMounted(() => { void reloadAll() })
 .monitor-panel { border: 1px solid #e5ebf2 !important; border-radius: 14px; box-shadow: 0 7px 24px rgba(25,43,71,.05); }.monitor-panel :deep(.ant-card-body) { padding: 0 20px 20px; }.monitor-panel :deep(.ant-tabs-nav) { margin-bottom: 18px; }.filter-grid { display: grid; gap: 10px; margin-bottom: 16px; }.rule-filters { grid-template-columns: minmax(240px,1fr) 140px 205px auto auto auto; }.event-filters { grid-template-columns: 250px minmax(220px,1fr) 150px auto auto; }.link-cell,.inline-link { padding: 0; border: 0; text-align: left; background: transparent; cursor: pointer; }.link-cell strong,.link-cell small,.two-line strong,.two-line span { display: block; }.link-cell strong,.inline-link { color: #2462ad; }.link-cell small,.two-line span { margin-top: 3px; color: #8591a3; font-size: 11px; }.numeric strong { font-size: 16px; }.run-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }.run-toolbar p { margin: 0; color: #667085; }.run-volume { display: flex; gap: 14px; }.error-text { color: #b42318; }
 .detail-hero { margin: -8px 0 18px; padding: 20px; border: 1px solid #d9e4f2; border-radius: 13px; background: linear-gradient(135deg,#f3f7fd,#fff); }.detail-hero > span { color: #718198; font-size: 11px; }.detail-hero h2 { margin: 4px 0 10px; color: #253a58; font-size: 20px; }.detail-section { margin-bottom: 15px; padding: 16px; border: 1px solid #e4e9f0; border-radius: 11px; }.detail-section h3 { margin: 0 0 12px; color: #31445f; font-size: 14px; }.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }.detail-grid > div { padding: 10px 12px; border-radius: 8px; background: #f7f9fc; }.detail-grid label,.detail-grid span { display: block; }.detail-grid label { color: #8a95a8; font-size: 11px; }.detail-grid span { margin-top: 3px; color: #344054; }.condition-list { display: grid; gap: 8px; }.condition-list article { display: grid; grid-template-columns: 120px 90px minmax(0,1fr) auto; align-items: center; gap: 9px; padding: 10px 12px; border-radius: 8px; background: #f7f9fc; }.condition-list code { overflow: hidden; color: #344054; text-overflow: ellipsis; white-space: nowrap; }.status-form { margin-top: 18px; }.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin: 18px -24px -24px; padding: 14px 24px; border-top: 1px solid #e5eaf1; }
 .rule-form { margin-top: 18px; }.rule-form-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0 14px; }.rule-form-grid .span-2 { grid-column: span 2; }.compact-fields { display: grid; grid-template-columns: 48% 52%; }.compact-fields > :first-child { border-radius: 6px 0 0 6px; }.compact-fields > :last-child { width: 100%; margin-left: -1px; border-radius: 0 6px 6px 0; }
+.diagnostic-panel { min-height: 420px; padding: 4px 2px 12px; }.diagnostic-panel > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 16px; }.diagnostic-panel h3,.diagnostic-panel p { margin: 0; }.diagnostic-panel h3 { color: #263b57; font-size: 17px; }.diagnostic-panel p { margin-top: 5px; color: #78869a; }.diagnostic-query { display: grid; grid-template-columns: minmax(280px,.9fr) minmax(280px,1.1fr) auto; gap: 10px; margin-bottom: 18px; }.diagnostic-result { margin-bottom: 14px; border-radius: 10px; }.diagnostic-stages { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; margin-bottom: 16px; }.diagnostic-stages article { display: flex; gap: 10px; min-height: 78px; padding: 13px; border: 1px solid #fed7aa; border-radius: 10px; background: #fff9f2; }.diagnostic-stages article.passed { border-color: #bbf7d0; background: #f3fcf6; }.diagnostic-stages article > span { display: grid; place-items: center; flex: 0 0 24px; height: 24px; border-radius: 50%; color: #fff; background: #f97316; }.diagnostic-stages article.passed > span { background: #10b981; }.diagnostic-stages strong,.diagnostic-stages small { display: block; }.diagnostic-stages small { margin-top: 5px; color: #69788d; line-height: 1.45; }.diagnostic-conditions { overflow: hidden; border: 1px solid #e3eaf2; border-radius: 11px; }.diagnostic-conditions h4 { margin: 0; padding: 13px 15px; color: #34465f; background: #f7f9fc; }.diagnostic-condition-head,.diagnostic-conditions article { display: grid; grid-template-columns: 1.1fr 1.2fr 1.2fr 90px; align-items: center; gap: 12px; padding: 10px 15px; }.diagnostic-condition-head { color: #8490a2; font-size: 11px; border-top: 1px solid #e8edf3; border-bottom: 1px solid #e8edf3; }.diagnostic-conditions article + article { border-top: 1px solid #edf1f5; }.diagnostic-conditions article strong,.diagnostic-conditions article small { display: block; }.diagnostic-conditions article small { margin-top: 2px; color: #8793a4; }.diagnostic-conditions code { overflow: hidden; color: #344054; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 1180px) { .summary-grid { grid-template-columns: repeat(3,1fr); }.rule-filters,.event-filters { grid-template-columns: repeat(3,1fr); }.monitor-hero { align-items: flex-start; flex-direction: column; }.hero-state { width: 100%; } }
-@media (max-width: 700px) { .summary-grid,.rule-filters,.event-filters,.detail-grid,.rule-form-grid { grid-template-columns: 1fr; }.rule-form-grid .span-2 { grid-column: auto; }.hero-state { grid-template-columns: auto 1fr; min-width: 0; }.hero-state .ant-btn { grid-column: 1 / -1; }.condition-list article { grid-template-columns: 1fr; } }
+@media (max-width: 700px) { .summary-grid,.rule-filters,.event-filters,.detail-grid,.rule-form-grid,.diagnostic-query,.diagnostic-stages { grid-template-columns: 1fr; }.rule-form-grid .span-2 { grid-column: auto; }.hero-state { grid-template-columns: auto 1fr; min-width: 0; }.hero-state .ant-btn { grid-column: 1 / -1; }.condition-list article,.diagnostic-condition-head,.diagnostic-conditions article { grid-template-columns: 1fr; } }
 </style>

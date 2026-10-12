@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS `smart_placement_task` (
   `include_cabins` VARCHAR(500) DEFAULT NULL COMMENT '包含舱位，多个用英文逗号分隔',
   `exclude_cabins` VARCHAR(500) DEFAULT NULL COMMENT '排除舱位，多个用英文逗号分隔',
   `product_type` VARCHAR(150) DEFAULT NULL COMMENT '机票产品类型',
+  `order_source` VARCHAR(32) DEFAULT NULL COMMENT '订单来源：平台手工订单/直连订单',
 
   `order_start_date` DATE DEFAULT NULL COMMENT '适用订单开始日期',
   `order_end_date` DATE DEFAULT NULL COMMENT '适用订单结束日期',
@@ -121,6 +122,7 @@ CREATE TABLE IF NOT EXISTS `smart_placement_execution` (
   `include_cabins` VARCHAR(500) DEFAULT NULL COMMENT '实际包含舱位',
   `exclude_cabins` VARCHAR(500) DEFAULT NULL COMMENT '实际排除舱位',
   `product_type` VARCHAR(150) DEFAULT NULL COMMENT '实际机票产品类型',
+  `order_source` VARCHAR(32) DEFAULT NULL COMMENT '实际订单来源：平台手工订单/直连订单',
   `adjustment_value` DECIMAL(18,4) DEFAULT NULL COMMENT '实际价格调整值',
   `adjustment_unit` VARCHAR(32) DEFAULT NULL COMMENT '实际调整单位',
   `placement_channel` VARCHAR(100) DEFAULT NULL COMMENT '外部投放渠道',
@@ -152,6 +154,7 @@ CREATE TABLE IF NOT EXISTS `smart_placement_order_match` (
   `passenger_name` VARCHAR(200) DEFAULT NULL COMMENT '乘客姓名',
   `platform_name` VARCHAR(100) DEFAULT NULL COMMENT '平台名称',
   `site_name` VARCHAR(150) DEFAULT NULL COMMENT '站点名称',
+  `order_source` VARCHAR(32) DEFAULT NULL COMMENT '订单来源：平台手工订单/直连订单',
   `airline_code` VARCHAR(32) DEFAULT NULL COMMENT '航司',
   `departure_code` VARCHAR(32) DEFAULT NULL COMMENT '出发地',
   `arrival_code` VARCHAR(32) DEFAULT NULL COMMENT '到达地',

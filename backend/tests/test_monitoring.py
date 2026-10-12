@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from data_report_api.services.monitoring import MonitorRuleCompiler, MonitoringService
+from data_report_api.services.monitoring import MonitorRuleCompiler, MonitoringService, _compare_condition
 
 
 def source_with_cursor():
@@ -24,7 +24,10 @@ def test_smart_placement_compiler_creates_versioned_structured_conditions():
         "current_assignee_id": 8,
         "current_assignee_name": "政策员",
         "platform_code": "CTRIP",
+        "platform_name": "携程",
         "site_code": "CTRIP_01",
+        "site_name": "携程一部",
+        "order_source": "平台手工订单",
         "airline_code": "HO",
         "departure_code": "PVG",
         "arrival_code": "KUL",
@@ -38,6 +41,7 @@ def test_smart_placement_compiler_creates_versioned_structured_conditions():
     }
     execution = {
         "external_policy_id": "POLICY-001",
+        "actual_placement_at": datetime(2026, 10, 11, 11, 30),
         "effective_start_at": datetime(2026, 10, 11, 12, 0),
         "effective_end_at": datetime(2026, 10, 31, 23, 59),
         "airline_code": "HO",
@@ -65,10 +69,21 @@ def test_smart_placement_compiler_creates_versioned_structured_conditions():
         if "monitor_rule_condition" in call.args[0]
     ]
     field_codes = {params[3] for params in condition_params}
-    assert {"platform_code", "airline_code", "departure_location_codes", "cabin_codes", "order_time"} <= field_codes
+    assert {"platform_name", "site_name", "order_source", "airline_code", "departure_location_codes", "cabin_codes", "order_time"} <= field_codes
+    assert "platform_code" not in field_codes
     cabin_roles = {(params[4], params[7]) for params in condition_params if params[3] == "cabin_codes"}
     assert ("SUBSET_OF", "INCLUDE") in cabin_roles
     assert ("DISJOINT", "EXCLUDE") in cabin_roles
+
+
+def test_diagnostic_condition_comparison_covers_name_source_and_time():
+    assert _compare_condition("携程", "EQ", "携程")
+    assert not _compare_condition("直连订单", "EQ", "平台手工订单")
+    assert _compare_condition(
+        datetime(2026, 10, 12, 15, 0),
+        "BETWEEN",
+        ["2026-10-12 14:55:00", "2026-10-31 23:59:59"],
+    )
 
 
 def test_monitoring_service_requires_explicit_view_permission():

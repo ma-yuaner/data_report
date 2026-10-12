@@ -36,6 +36,7 @@ def task_payload(**changes):
         "includeCabins": "Y,B,M",
         "excludeCabins": "X,N",
         "productType": "公布转私有",
+        "orderSource": "平台手工订单",
         "placementMethod": "下调20元后测试投放",
         "suggestedEffectiveStart": "2026-10-11 00:00:00",
         "suggestedEffectiveEnd": "2026-10-18 23:59:59",
