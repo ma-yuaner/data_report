@@ -24,6 +24,10 @@ EXECUTION_TABLE = "smart_placement_execution"
 MATCH_TABLE = "smart_placement_order_match"
 LOG_TABLE = "smart_placement_operation_log"
 DIMENSION_TABLE = "bi_business_profit_dimension_day"
+MANAGER_RELATION_TABLE = "sys_user_manager_relation"
+TASK_SCOPE_RESOURCE = "smart_placement.task"
+ORDER_SCOPE_RESOURCE = "smart_placement.order"
+MANAGER_RELATION_RESOURCE = "smart_placement"
 
 _DIMENSION_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _DIMENSION_CACHE_LOCK = threading.Lock()
@@ -446,28 +450,85 @@ class SmartPlacementService:
         actor_id = int(user.get("id") or 0)
         if not actor_id:
             raise PermissionError("登录用户信息不完整")
+        raw_scopes = user.get("data_scopes") or user.get("dataScopes") or {}
+        scope_type = str(raw_scopes.get(TASK_SCOPE_RESOURCE) or "").upper()
+        if scope_type == "ALL":
+            return "1=1", []
         clauses: list[str] = []
         params: list[Any] = []
         permissions = _permissions(user)
         if permissions.intersection({PERMISSION_CREATE, PERMISSION_EDIT, PERMISSION_DELETE, PERMISSION_WITHDRAW}):
             clauses.append(f"{alias}.created_by_id=%s")
             params.append(actor_id)
-        if PERMISSION_CANCEL in permissions:
+        if PERMISSION_CLAIM in permissions or PERMISSION_EXECUTE in permissions:
+            clauses.append(f"({alias}.status='CLAIMABLE' OR {alias}.current_assignee_id=%s)")
+            params.append(actor_id)
+        workflow_scope = scope_type in {"WORKFLOW", "MANAGED"} or not scope_type
+        if workflow_scope and PERMISSION_CANCEL in permissions:
             clauses.append(f"{alias}.status IN ('PENDING_DATA_REVIEW','PENDING_POLICY_REVIEW','CLAIMABLE')")
-        if PERMISSION_REVIEW_DATA in permissions:
+        if workflow_scope and PERMISSION_REVIEW_DATA in permissions:
             clauses.append(
                 f"({alias}.status='PENDING_DATA_REVIEW' OR EXISTS (SELECT 1 FROM {self._table(REVIEW_TABLE)} rv WHERE rv.task_id={alias}.id AND rv.review_stage='DATA_MANAGER' AND rv.reviewer_id=%s))"
             )
             params.append(actor_id)
-        if PERMISSION_REVIEW_POLICY in permissions:
+        if workflow_scope and PERMISSION_REVIEW_POLICY in permissions:
             clauses.append(
                 f"({alias}.status='PENDING_POLICY_REVIEW' OR EXISTS (SELECT 1 FROM {self._table(REVIEW_TABLE)} rv WHERE rv.task_id={alias}.id AND rv.review_stage='POLICY_MANAGER' AND rv.reviewer_id=%s))"
             )
             params.append(actor_id)
-        if PERMISSION_CLAIM in permissions or PERMISSION_EXECUTE in permissions:
-            clauses.append(f"({alias}.status='CLAIMABLE' OR {alias}.current_assignee_id=%s)")
-            params.append(actor_id)
+        if scope_type == "MANAGED":
+            clauses.append(
+                f"EXISTS (SELECT 1 FROM {self._table(MANAGER_RELATION_TABLE)} mr "
+                f"WHERE mr.manager_user_id=%s AND mr.resource_code=%s AND mr.is_active=1 "
+                f"AND (mr.member_user_id={alias}.created_by_id "
+                f"OR mr.member_user_id={alias}.current_assignee_id "
+                f"OR EXISTS (SELECT 1 FROM {self._table(REVIEW_TABLE)} mrv "
+                f"WHERE mrv.task_id={alias}.id AND mrv.reviewer_id=mr.member_user_id)))"
+            )
+            params.extend([actor_id, MANAGER_RELATION_RESOURCE])
         return ("(" + " OR ".join(clauses) + ")", params) if clauses else ("1=0", [])
+
+    def _order_visibility_condition(self, user: dict[str, Any], alias: str = "m") -> tuple[str, list[Any]]:
+        if _is_admin(user):
+            return "1=1", []
+        actor_id = int(user.get("id") or 0)
+        if not actor_id:
+            raise PermissionError("登录用户信息不完整")
+        raw_scopes = user.get("data_scopes") or user.get("dataScopes") or {}
+        scope_type = str(raw_scopes.get(ORDER_SCOPE_RESOURCE) or "SELF").upper()
+        if scope_type == "ALL":
+            return "1=1", []
+        task_alias = "scope_task"
+        task_participation = [
+            f"{task_alias}.created_by_id=%s",
+            f"{task_alias}.current_assignee_id=%s",
+        ]
+        params: list[Any] = [actor_id, actor_id, actor_id]
+        if scope_type in {"WORKFLOW", "MANAGED"}:
+            task_participation.append(
+                f"EXISTS (SELECT 1 FROM {self._table(REVIEW_TABLE)} scope_review "
+                f"WHERE scope_review.task_id={task_alias}.id AND scope_review.reviewer_id=%s)"
+            )
+            params.append(actor_id)
+        clauses = [
+            f"{alias}.attention_owner_id=%s",
+            f"EXISTS (SELECT 1 FROM {self._table(TASK_TABLE)} {task_alias} "
+            f"WHERE {task_alias}.id={alias}.task_id AND ({' OR '.join(task_participation)}))",
+        ]
+        if scope_type == "MANAGED":
+            clauses.append(
+                f"EXISTS (SELECT 1 FROM {self._table(MANAGER_RELATION_TABLE)} mr "
+                f"JOIN {self._table(TASK_TABLE)} managed_task ON managed_task.id={alias}.task_id "
+                f"WHERE mr.manager_user_id=%s AND mr.resource_code=%s AND mr.is_active=1 "
+                f"AND (mr.member_user_id={alias}.attention_owner_id "
+                f"OR mr.member_user_id=managed_task.created_by_id "
+                f"OR mr.member_user_id=managed_task.current_assignee_id "
+                f"OR EXISTS (SELECT 1 FROM {self._table(REVIEW_TABLE)} managed_review "
+                f"WHERE managed_review.task_id=managed_task.id AND managed_review.reviewer_id=mr.member_user_id)))"
+            )
+            params.append(actor_id)
+            params.append(MANAGER_RELATION_RESOURCE)
+        return "(" + " OR ".join(clauses) + ")", params
 
     def list_tasks(
         self, *, user: dict[str, Any], status: str = "", keyword: str = "", platform: str = "",
@@ -1077,7 +1138,7 @@ class SmartPlacementService:
             if connection is not None: connection.close()
 
     def list_orders(
-        self, *, start_date: str = "", end_date: str = "", attention_status: str = "",
+        self, *, user: dict[str, Any], start_date: str = "", end_date: str = "", attention_status: str = "",
         platform: str = "", airline: str = "", owner: str = "", keyword: str = "",
         page: int = 1, page_size: int = 30,
     ) -> dict[str, Any]:
@@ -1086,19 +1147,20 @@ class SmartPlacementService:
         if last < first or (last - first).days > 366:
             raise ValueError("订单查询日期范围不合法或超过366天")
         page = max(1, int(page)); page_size = max(1, min(int(page_size), 100))
-        where = ["matched_at >= %s", "matched_at < %s"]
-        params: list[Any] = [datetime.combine(first, time.min), datetime.combine(last + timedelta(days=1), time.min)]
+        visibility, visibility_params = self._order_visibility_condition(user)
+        where = ["m.matched_at >= %s", "m.matched_at < %s", visibility]
+        params: list[Any] = [datetime.combine(first, time.min), datetime.combine(last + timedelta(days=1), time.min), *visibility_params]
         if attention_status:
-            where.append("attention_status=%s"); params.append(_text(attention_status, "关注状态", 20))
+            where.append("m.attention_status=%s"); params.append(_text(attention_status, "关注状态", 20))
         if platform:
-            where.append("platform_name=%s"); params.append(_text(platform, "平台", 100))
+            where.append("m.platform_name=%s"); params.append(_text(platform, "平台", 100))
         if airline:
-            where.append("airline_code=%s"); params.append(_code(airline, "航司"))
+            where.append("m.airline_code=%s"); params.append(_code(airline, "航司"))
         if owner:
-            where.append("attention_owner_name=%s"); params.append(_text(owner, "负责人", 100))
+            where.append("m.attention_owner_name=%s"); params.append(_text(owner, "负责人", 100))
         if keyword:
             token = f"%{_text(keyword, '搜索词', 128)}%"
-            where.append("(ota_order_no LIKE %s OR external_policy_id LIKE %s OR route_text LIKE %s)")
+            where.append("(m.ota_order_no LIKE %s OR m.external_policy_id LIKE %s OR m.route_text LIKE %s)")
             params.extend([token, token, token])
         condition = " AND ".join(where)
         connection = cursor = None
@@ -1111,16 +1173,16 @@ class SmartPlacementService:
                            COALESCE(SUM(estimated_profit_cny),0) AS estimated_profit,
                            SUM(CASE WHEN attention_status IN ('PENDING','ESCALATED') THEN 1 ELSE 0 END) AS pending_count,
                            COUNT(DISTINCT external_policy_id) AS active_policy_count
-                    FROM {self._table(MATCH_TABLE)} WHERE {condition}""",
+                    FROM {self._table(MATCH_TABLE)} m WHERE {condition}""",
                 tuple(params),
             )
             summary = _public_row(_dict_row(cursor, cursor.fetchone()) or {})
-            cursor.execute(f"SELECT COUNT(1) FROM {self._table(MATCH_TABLE)} WHERE {condition}", tuple(params))
+            cursor.execute(f"SELECT COUNT(1) FROM {self._table(MATCH_TABLE)} m WHERE {condition}", tuple(params))
             total = int(cursor.fetchone()[0])
             cursor.execute(
-                f"""SELECT * FROM {self._table(MATCH_TABLE)} WHERE {condition}
-                    ORDER BY CASE attention_status WHEN 'ESCALATED' THEN 0 WHEN 'PENDING' THEN 1 WHEN 'IN_PROGRESS' THEN 2 ELSE 3 END,
-                             matched_at DESC, id DESC LIMIT %s OFFSET %s""",
+                f"""SELECT m.* FROM {self._table(MATCH_TABLE)} m WHERE {condition}
+                    ORDER BY CASE m.attention_status WHEN 'ESCALATED' THEN 0 WHEN 'PENDING' THEN 1 WHEN 'IN_PROGRESS' THEN 2 ELSE 3 END,
+                             m.matched_at DESC, m.id DESC LIMIT %s OFFSET %s""",
                 tuple([*params, page_size, (page - 1) * page_size]),
             )
             rows = [_public_row(row) for row in _dict_rows(cursor, list(cursor.fetchall()))]
@@ -1146,7 +1208,11 @@ class SmartPlacementService:
         connection = cursor = None
         try:
             connection = self.source.connect(); connection.begin(); cursor = connection.cursor()
-            cursor.execute(f"SELECT * FROM {self._table(MATCH_TABLE)} WHERE id=%s FOR UPDATE", (match_id,))
+            visibility, visibility_params = self._order_visibility_condition(user)
+            cursor.execute(
+                f"SELECT m.* FROM {self._table(MATCH_TABLE)} m WHERE m.id=%s AND {visibility} FOR UPDATE",
+                tuple([match_id, *visibility_params]),
+            )
             match = _dict_row(cursor, cursor.fetchone())
             if not match:
                 raise ValueError("匹配订单不存在")

@@ -1,5 +1,8 @@
 import { http, type ApiEnvelope } from './http'
 
+export type DataScopeType = 'SELF' | 'WORKFLOW' | 'MANAGED' | 'ALL'
+export type DataScopeResource = 'smart_placement.task' | 'smart_placement.order'
+
 export interface BusinessRole {
   code: string
   name: string
@@ -8,7 +11,7 @@ export interface BusinessRole {
   userCount?: number
   menuCodes?: string[]
   permissions?: string[]
-  dataScope?: 'ALL'
+  dataScopes?: Partial<Record<DataScopeResource, DataScopeType>>
 }
 
 export interface MenuPermission {
@@ -33,6 +36,7 @@ export interface RolePayload {
   isActive: boolean
   menuCodes: string[]
   permissions: string[]
+  dataScopes: Record<DataScopeResource, DataScopeType>
 }
 
 export interface AuthUser {
@@ -51,6 +55,7 @@ export interface AuthUser {
   permissions: string[]
   rolePermissions: string[]
   permissionOverrides: Record<string, 'ALLOW' | 'DENY'>
+  dataScopes: Partial<Record<DataScopeResource, DataScopeType>>
   rbacConfigured: boolean
   menuCodes: string[]
   legacyMenuCodes?: string[]
@@ -84,6 +89,8 @@ export const authApi = {
   updateUser: (id: number, payload: { displayName?: string; email?: string; isAdmin?: boolean; isEnabled?: boolean }) => http.patch<ApiEnvelope<AuthUser>>(`/admin/users/${id}`, payload).then(response => response.data.data),
   resetPassword: (id: number, newPassword: string) => http.post<ApiEnvelope<null>>(`/admin/users/${id}/reset-password`, { newPassword }).then(response => response.data.data),
   updateBusinessRoles: (id: number, roleCodes: string[]) => http.put<ApiEnvelope<AuthUser>>(`/admin/users/${id}/business-roles`, { roleCodes }).then(response => response.data.data),
+  managedMembers: (id: number) => http.get<ApiEnvelope<{ resourceCode: string; memberUserIds: number[] }>>(`/admin/users/${id}/managed-members`, { params: { resourceCode: 'smart_placement' } }).then(response => response.data.data),
+  updateManagedMembers: (id: number, memberUserIds: number[]) => http.put<ApiEnvelope<{ resourceCode: string; memberUserIds: number[] }>>(`/admin/users/${id}/managed-members`, { resourceCode: 'smart_placement', memberUserIds }).then(response => response.data.data),
   updateUserPermissions: (id: number, overrides: Record<string, 'ALLOW' | 'DENY'>) => http.put<ApiEnvelope<AuthUser>>(`/admin/users/${id}/permissions`, { overrides }).then(response => response.data.data),
   updateMenus: (id: number, menuCodes: string[]) => http.put<ApiEnvelope<AuthUser>>(`/admin/users/${id}/menus`, { menuCodes }).then(response => response.data.data),
   audits: (limit = 200) => http.get<ApiEnvelope<AuthAudit[]>>('/admin/audits', { params: { limit } }).then(response => response.data.data),

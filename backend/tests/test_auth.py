@@ -241,7 +241,11 @@ def test_admin_configures_role_menus_permissions_and_assigns_role_on_create(auth
 
     existing = auth_client.get("/api/admin/roles")
     assert existing.status_code == 200
-    assert all(row["dataScope"] == "ALL" for row in existing.get_json()["data"])
+    role_scopes = {row["code"]: row["dataScopes"] for row in existing.get_json()["data"]}
+    assert role_scopes["DATA_ENTRY"]["smart_placement.task"] == "SELF"
+    assert role_scopes["DATA_MANAGER"]["smart_placement.order"] == "ALL"
+    assert role_scopes["POLICY_MANAGER"]["smart_placement.task"] == "MANAGED"
+    assert role_scopes["POLICY_OPERATOR"]["smart_placement.order"] == "SELF"
     role_menus = {row["code"]: row["menuCodes"] for row in existing.get_json()["data"]}
     assert role_menus["DATA_ENTRY"] == ["smart.placement.policies"]
     assert role_menus["DATA_MANAGER"] == ["smart.placement.policies"]
@@ -302,6 +306,45 @@ def test_admin_configures_role_menus_permissions_and_assigns_role_on_create(auth
         "risk", "risk.overview", "smart", "smart.placement.policies",
     ]
     assert refreshed["permissions"] == ["smart_placement.create"]
+
+
+def test_admin_configures_manager_member_relationship(auth_client):
+    admin_login = login(auth_client)
+    changed = change_initial_password(auth_client, admin_login)
+    admin_csrf = csrf(changed)
+    manager_user = auth_client.post(
+        "/api/admin/users",
+        json={
+            "username": "manager01", "displayName": "业务经理",
+            "email": "manager01@example.com", "initialPassword": "Manager123",
+            "isAdmin": False, "roleCodes": ["POLICY_MANAGER"],
+        },
+        headers={"X-CSRF-Token": admin_csrf},
+    ).get_json()["data"]
+    member_user = auth_client.post(
+        "/api/admin/users",
+        json={
+            "username": "member01", "displayName": "智能业务员",
+            "email": "member01@example.com", "initialPassword": "Member123",
+            "isAdmin": False, "roleCodes": ["POLICY_OPERATOR"],
+        },
+        headers={"X-CSRF-Token": admin_csrf},
+    ).get_json()["data"]
+
+    saved = auth_client.put(
+        f"/api/admin/users/{manager_user['id']}/managed-members",
+        json={"resourceCode": "smart_placement", "memberUserIds": [member_user["id"]]},
+        headers={"X-CSRF-Token": admin_csrf},
+    )
+    assert saved.status_code == 200
+    assert saved.get_json()["data"]["memberUserIds"] == [member_user["id"]]
+    loaded = auth_client.get(
+        f"/api/admin/users/{manager_user['id']}/managed-members?resourceCode=smart_placement"
+    )
+    assert loaded.status_code == 200
+    assert loaded.get_json()["data"] == {
+        "resourceCode": "smart_placement", "memberUserIds": [member_user["id"]],
+    }
 
 
 def test_builtin_role_update_reaches_active_users_and_is_not_reset_on_initialize(auth_client):

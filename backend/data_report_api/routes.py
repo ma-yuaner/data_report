@@ -341,9 +341,14 @@ def register_smart_placement_execution(task_id: int):
 @api.get("/v1/smart-placement/tasks/<int:task_id>/monitoring")
 def smart_placement_task_monitoring(task_id: int):
     try:
+        SmartPlacementService(current_app.config).task_detail(g.current_user, task_id)
         return ok(MonitoringService(current_app.config).task_monitoring(g.current_user, task_id))
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
     except ValueError as error:
         return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except SmartPlacementUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
     except MonitoringUnavailable as error:
         return jsonify({"success": False, "message": str(error), "data": None}), 503
 
@@ -352,6 +357,7 @@ def smart_placement_task_monitoring(task_id: int):
 def smart_placement_orders():
     try:
         return ok(SmartPlacementService(current_app.config).list_orders(
+            user=g.current_user,
             start_date=request.args.get("startDate", ""),
             end_date=request.args.get("endDate", ""),
             attention_status=request.args.get("attentionStatus", ""),
@@ -362,6 +368,8 @@ def smart_placement_orders():
             page=int(request.args.get("page", "1")),
             page_size=int(request.args.get("pageSize", "30")),
         ))
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
     except ValueError as error:
         return jsonify({"success": False, "message": str(error), "data": None}), 400
     except SmartPlacementUnavailable as error:

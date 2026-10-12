@@ -440,6 +440,7 @@ def test_list_orders_returns_real_summary_and_rows():
     ]
 
     result = service.list_orders(
+        user={"id": 1, "is_admin": True},
         start_date="2026-10-01", end_date="2026-10-09", page=1, page_size=30,
     )
 
@@ -449,6 +450,37 @@ def test_list_orders_returns_real_summary_and_rows():
     assert result["period"] == {"startDate": "2026-10-01", "endDate": "2026-10-09"}
     cursor.close.assert_called_once()
     connection.close.assert_called_once()
+
+
+def test_managed_scope_adds_manager_member_relation_to_order_query():
+    service, _connection, cursor = service_with_cursor()
+    cursor.fetchone.side_effect = [
+        {
+            "order_count": 0,
+            "ticket_count": 0,
+            "segment_count": 0,
+            "estimated_profit": "0",
+            "pending_count": 0,
+            "active_policy_count": 0,
+        },
+        (0,),
+    ]
+    cursor.fetchall.return_value = []
+
+    service.list_orders(
+        user={
+            "id": 6,
+            "is_admin": False,
+            "data_scopes": {"smart_placement.order": "MANAGED"},
+        },
+        start_date="2026-10-01",
+        end_date="2026-10-09",
+    )
+
+    summary_query, summary_params = cursor.execute.call_args_list[0].args
+    assert "sys_user_manager_relation" in summary_query
+    assert "mr.member_user_id=m.attention_owner_id" in summary_query
+    assert summary_params[-2:] == (6, "smart_placement")
 
 
 def test_dimension_options_returns_canonical_ads_values():
@@ -500,6 +532,23 @@ def test_cancel_permission_can_see_all_active_pre_claim_tasks():
     assert summary_params == ()
 
 
+def test_managed_scope_adds_manager_member_relation_to_task_query():
+    service, _connection, cursor = service_with_cursor()
+    cursor.fetchall.side_effect = [[], []]
+    cursor.fetchone.return_value = (0,)
+
+    service.list_tasks(user={
+        "id": 6,
+        "permissions": ["smart_placement.review_policy"],
+        "data_scopes": {"smart_placement.task": "MANAGED"},
+    })
+
+    summary_query, summary_params = cursor.execute.call_args_list[0].args
+    assert "sys_user_manager_relation" in summary_query
+    assert "mr.member_user_id=t.current_assignee_id" in summary_query
+    assert summary_params[-2:] == (6, "smart_placement")
+
+
 def test_missing_tables_return_actionable_setup_message():
     service, _connection, _cursor = service_with_cursor()
     service.source.connect.side_effect = Exception(1146, "table missing")
@@ -512,7 +561,10 @@ def test_order_period_cannot_exceed_one_year():
     service, _connection, _cursor = service_with_cursor()
 
     with pytest.raises(ValueError, match="超过366天"):
-        service.list_orders(start_date="2025-01-01", end_date="2026-10-09")
+        service.list_orders(
+            user={"id": 1, "is_admin": True},
+            start_date="2025-01-01", end_date="2026-10-09",
+        )
 
     service.source.connect.assert_not_called()
 

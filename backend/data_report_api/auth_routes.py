@@ -236,6 +236,28 @@ def update_business_roles(user_id: int):
     return ok(user, "业务角色已更新")
 
 
+@auth_api.get("/admin/users/<int:user_id>/managed-members")
+def list_managed_members(user_id: int):
+    return ok(manager().managed_members(
+        g.current_user, user_id, request.args.get("resourceCode", "smart_placement")
+    ))
+
+
+@auth_api.put("/admin/users/<int:user_id>/managed-members")
+def update_managed_members(user_id: int):
+    values = body()
+    ip_address, user_agent = request_context()
+    result = manager().update_managed_members(
+        g.current_user,
+        user_id,
+        values.get("resourceCode", "smart_placement"),
+        values.get("memberUserIds"),
+        ip_address,
+        user_agent,
+    )
+    return ok(result, "管理成员已更新")
+
+
 @auth_api.put("/admin/users/<int:user_id>/permissions")
 def update_user_permissions(user_id: int):
     values = body()
