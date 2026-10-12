@@ -87,7 +87,7 @@ import SmartAnalysisFilters from '@/components/SmartAnalysisFilters.vue'
 import { smartAnalysisApi, type SmartDetailColumn, type SmartDetailData, type SmartDetailValueType, type SmartStage, type SmartTicketData, type SmartType } from '@/api/smartAnalysis'
 import { useSmartAnalysisStore } from '@/stores/smartAnalysis'
 
-const DEFAULT_FIELDS = ['issueId', 'issueTicketNo', 'otaOrderNo', 'airline', 'platform', 'issueTicketTime', 'smartConfirm', 'issueProfit']
+const DEFAULT_FIELDS = ['issueId', 'otaOrderNo', 'issueTicketNo', 'airline', 'platform', 'issueTicketTime', 'smartConfirm', 'issueProfit']
 const FIELD_CATEGORY_ORDER = ['订单与出票', '航程信息', '人员信息', '智能及PNR信息', '智能状态', '金额与派生字段']
 const store = useSmartAnalysisStore()
 const pageState = store.pages.detail

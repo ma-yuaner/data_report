@@ -51,7 +51,7 @@ RISK_UPLOAD_ORC_TIMEZONE=Asia/Shanghai
 RISK_UPLOAD_POLL_SECONDS=2
 ```
 
-同时必须配置现有`HIVE_HOST`、`HIVE_PORT`、`HIVE_DATABASE`、`HIVE_USER`、`HIVE_PASSWORD`和`HIVE_AUTH`。真实口令和数据库密码不得写入`.env.example`或提交Git。
+同时必须配置现有`HIVE_HOST`、`HIVE_PORT`、`HIVE_DATABASE`、`HIVE_USER`、`HIVE_PASSWORD`和`HIVE_AUTH`。真实口令和数据库密码不得写入`../../../.env`或提交Git。
 
 WebHDFS只使用NameNode HTTP端口`9870`发起请求，不依赖NameNode RPC端口`8020`；上传文件正文时NameNode会重定向到DataNode HTTP端口（通常为`9864`）。`RISK_UPLOAD_WEBHDFS_HOST_MAP`同时改写初始NameNode地址和DataNode重定向地址，避免依赖Worker容器的DNS或`/etc/hosts`。ORC始终先上传到唯一临时目录，不直接写正式表LOCATION。
 

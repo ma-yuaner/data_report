@@ -223,7 +223,7 @@ DETAIL_BY_KEY = {item.key: item for item in DETAIL_FIELDS}
 DETAIL_FIELD_POSITION = {item.key: index for index, item in enumerate(DETAIL_FIELDS)}
 DETAIL_METRIC_TYPES = {"money", "count", "boolean"}
 DEFAULT_DETAIL_FIELDS = (
-    "issueId", "issueTicketNo", "otaOrderNo", "airline", "platform",
+    "issueId", "otaOrderNo", "issueTicketNo", "airline", "platform",
     "issueTicketTime", "smartConfirm", "issueProfit",
 )
 EVIDENCE_FIELDS = (
@@ -236,7 +236,7 @@ def ordered_detail_fields(keys: list[str] | tuple[str, ...]) -> list[DetailField
     return sorted(
         (DETAIL_BY_KEY[key] for key in unique_keys),
         key=lambda item: (
-            item.key != "issueId",
+            {"issueId": 0, "otaOrderNo": 1, "issueTicketNo": 2}.get(item.key, 3),
             item.value_type in DETAIL_METRIC_TYPES,
             DETAIL_FIELD_POSITION[item.key],
         ),

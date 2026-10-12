@@ -195,9 +195,10 @@ def test_detail_dimensions_are_ordered_before_metrics(source):
     cursor.fetchall.return_value = []
     result = module.SmartAnalysisService({}, source=source).details(
         start_value="2026-10-09", end_value="2026-10-09",
-        fields_value="issueProfit,issueTicketNo,platform",
+        fields_value="issueProfit,issueTicketNo,platform,otaOrderNo",
     )
     keys = [column["key"] for column in result["columns"]]
+    assert keys[:2] == ["issueId", "otaOrderNo"]
     assert keys.index("issueTicketNo") < keys.index("issueProfit")
     assert keys.index("platform") < keys.index("issueProfit")
 

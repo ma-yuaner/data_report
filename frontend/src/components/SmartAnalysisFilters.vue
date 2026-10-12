@@ -16,7 +16,7 @@
     </div>
 
     <div class="smart-filter-grid">
-      <label v-for="item in visibleFilters" :key="item.key"><span>{{ item.label }}</span><a-select v-model:value="pageState.draft[item.key]" allow-clear show-search :filter-option="false" :options="options[item.key] || []" :placeholder="`全部${item.label}`" :loading="optionLoading === item.key" :not-found-content="optionErrors[item.key] || '暂无可选数据'" @search="onSearch.bind(null, item.key)" @dropdown-visible-change="onDropdown.bind(null, item.key)" /></label>
+      <label v-for="item in visibleFilters" :key="item.key"><span>{{ item.label }}</span><a-select v-model:value="pageState.draft[item.key]" allow-clear show-search :filter-option="false" :options="options[item.key] || []" :placeholder="`全部${item.label}`" :loading="optionLoading === item.key" :not-found-content="optionErrors[item.key] || '暂无可选数据'" @search="onSearch(item.key, $event)" @dropdown-visible-change="onDropdown(item.key, $event)" /></label>
     </div>
 
     <div class="smart-filter-actions">
