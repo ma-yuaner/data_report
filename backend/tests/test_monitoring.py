@@ -5,7 +5,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from data_report_api.services.monitoring import MonitorRuleCompiler, MonitoringService, _compare_condition
+from data_report_api.services.monitoring import (
+    MonitorRuleCompiler,
+    MonitoringService,
+    _compare_condition,
+    _mask_webhook,
+    _validate_wecom_webhook,
+    _wecom_test_message,
+)
 
 
 def source_with_cursor():
@@ -208,3 +215,36 @@ def test_event_resolution_requires_note_and_writes_audit_log():
     assert result == {"id": 9, "status": "RESOLVED"}
     connection.commit.assert_called_once()
     assert any("monitor_event_operation_log" in call.args[0] for call in cursor.execute.call_args_list)
+
+
+def test_wecom_endpoint_helpers_mask_validate_and_build_real_mentions():
+    webhook = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abcDEF_123456"
+    assert _validate_wecom_webhook(webhook, required=True) == webhook
+    assert _mask_webhook(webhook).endswith("******123456")
+    payload = _wecom_test_message("智能收单群", ["zhangsan"], ["13800000000"])
+    assert payload["text"]["mentioned_list"] == ["zhangsan"]
+    assert payload["text"]["mentioned_mobile_list"] == ["13800000000"]
+
+
+def test_create_wecom_endpoint_persists_secret_but_only_returns_identity():
+    source, connection, cursor = source_with_cursor()
+    cursor.lastrowid = 19
+    service = MonitoringService({}, source=source)
+
+    result = service.save_notify_endpoint(
+        {"id": 1, "display_name": "系统管理员", "is_admin": True},
+        {
+            "endpointName": "智能收单群",
+            "webhookUrl": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abcDEF_123456",
+            "mentionedUserIds": ["zhangsan"],
+            "mentionedMobiles": ["13800000000"],
+            "smartPlacementEnabled": True,
+            "status": "ACTIVE",
+        },
+    )
+
+    assert result["id"] == 19
+    assert "webhook" not in result
+    connection.commit.assert_called_once()
+    params = next(call.args[1] for call in cursor.execute.call_args_list if "INSERT INTO" in call.args[0])
+    assert "key=abcDEF_123456" in params[3]

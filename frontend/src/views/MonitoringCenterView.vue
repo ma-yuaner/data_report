@@ -98,6 +98,26 @@
           </a-table>
         </a-tab-pane>
 
+        <a-tab-pane v-if="canManageRules" key="notifications" tab="通知群">
+          <div class="run-toolbar">
+            <div><h3>企业微信通知群</h3><p>命中事件先可靠落库，再发送到所选群；发送失败会自动重试，不影响站内通知。</p></div>
+            <a-space><a-button :loading="endpointLoading" @click="loadNotifyEndpoints"><ReloadOutlined />刷新</a-button><a-button type="primary" @click="openEndpoint()">新增通知群</a-button></a-space>
+          </div>
+          <a-alert class="endpoint-tip" type="info" show-icon message="@人员配置说明" description="企业微信机器人只有使用企业微信用户ID或手机号才能真正@到人员；群名称仅用于本系统识别，不参与发送。" />
+          <a-table row-key="id" :columns="endpointColumns" :data-source="notifyEndpoints" :loading="endpointLoading" :pagination="false" :scroll="{ x: 980 }">
+            <template #emptyText><a-empty description="尚未配置企业微信群机器人" /></template>
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'endpoint'"><div class="two-line"><strong>{{ record.endpointName }}</strong><span>{{ record.endpointCode }}</span></div></template>
+              <template v-else-if="column.key === 'webhook'"><code>{{ record.webhookMasked || '未配置' }}</code></template>
+              <template v-else-if="column.key === 'mentions'"><div class="two-line"><strong>用户ID {{ record.mentionedUserIds.length }} 人</strong><span>手机号 {{ record.mentionedMobiles.length }} 人</span></div></template>
+              <template v-else-if="column.key === 'scope'"><a-tag :color="record.smartPlacementEnabled ? 'green' : 'default'">{{ record.smartPlacementEnabled ? '智能收单自动通知' : '仅规则手工选择' }}</a-tag></template>
+              <template v-else-if="column.key === 'status'"><a-tag :color="record.status === 'ACTIVE' ? 'green' : 'default'">{{ record.status === 'ACTIVE' ? '启用' : '停用' }}</a-tag></template>
+              <template v-else-if="column.key === 'updatedAt'">{{ displayTime(record.updatedAt) }}</template>
+              <template v-else-if="column.key === 'action'"><a-space><a-button size="small" @click="openEndpoint(record)">编辑</a-button><a-button size="small" type="link" :disabled="record.status !== 'ACTIVE'" :loading="testingEndpointId === record.id" @click="testEndpoint(record)">测试发送</a-button></a-space></template>
+            </template>
+          </a-table>
+        </a-tab-pane>
+
         <a-tab-pane key="diagnostic" tab="匹配诊断">
           <section class="diagnostic-panel">
             <header><div><h3>规则 × 订单逐项诊断</h3><p>输入OTA订单号后，直接查看特征采集、规则状态、每个条件及事件落库结果。</p></div><a-tag color="blue">只读诊断</a-tag></header>
@@ -157,6 +177,7 @@
           <a-form-item label="失效时间"><a-date-picker v-model:value="ruleForm.effectiveEndAt" :locale="dateLocale" show-time value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" /></a-form-item>
           <a-form-item label="负责人姓名"><a-input v-model:value="ruleForm.ownerUserName" placeholder="默认当前用户" /></a-form-item>
           <a-form-item label="创建原因"><a-input v-model:value="ruleForm.changeReason" placeholder="说明为什么需要该监控" /></a-form-item>
+          <a-form-item label="企业微信通知群" class="span-2"><a-select v-model:value="ruleForm.notifyEndpointIds" mode="multiple" :options="notifyEndpointOptions" allow-clear placeholder="留空只发送站内通知" /></a-form-item>
         </div>
       </a-form>
       <div class="dialog-actions"><a-button @click="createRuleOpen=false">取消</a-button><a-button type="primary" :loading="saving" @click="saveNewRule">创建并生效</a-button></div>
@@ -166,6 +187,18 @@
       <a-alert v-if="activeEvent" type="info" show-icon :message="activeEvent.eventTitle" :description="activeEvent.entityKey" />
       <a-form layout="vertical" class="status-form"><a-form-item label="处理结果" required><a-select v-model:value="eventStatusForm.status" :options="eventActionOptions" /></a-form-item><a-form-item label="处理说明" :required="eventStatusForm.status !== 'ACKNOWLEDGED'"><a-textarea v-model:value="eventStatusForm.note" :rows="4" placeholder="解决、忽略或关闭时必须填写" /></a-form-item></a-form>
       <div class="dialog-actions"><a-button @click="eventStatusOpen=false">取消</a-button><a-button type="primary" :loading="saving" @click="saveEventStatus">确认处理</a-button></div>
+    </a-modal>
+
+    <a-modal v-model:open="endpointOpen" :title="endpointForm.id ? '编辑企业微信通知群' : '新增企业微信通知群'" :footer="null" :mask-closable="false" width="min(680px, 94vw)">
+      <a-alert type="warning" show-icon message="Webhook属于敏感凭据" description="保存后只展示掩码；编辑时留空表示继续使用原Webhook，不会把明文返回到浏览器。" />
+      <a-form layout="vertical" class="endpoint-form">
+        <a-form-item label="通知群名称" required><a-input v-model:value="endpointForm.endpointName" placeholder="例如：智能政策收单关注群" /></a-form-item>
+        <a-form-item :label="endpointForm.id ? '企业微信Webhook（留空不修改）' : '企业微信Webhook'" :required="!endpointForm.id"><a-input-password v-model:value="endpointForm.webhookUrl" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..." /></a-form-item>
+        <a-form-item label="@企业微信用户ID" extra="多个用户ID用逗号分隔，可在企业微信通讯录中确认"><a-textarea v-model:value="endpointForm.mentionedUserIdsText" :rows="2" placeholder="zhangsan,lisi" /></a-form-item>
+        <a-form-item label="@手机号" extra="多个手机号用逗号分隔；用户ID和手机号可同时配置"><a-textarea v-model:value="endpointForm.mentionedMobilesText" :rows="2" placeholder="13800000000,13900000000" /></a-form-item>
+        <div class="endpoint-switches"><a-form-item label="自动用于智能投放收单"><a-switch v-model:checked="endpointForm.smartPlacementEnabled" /></a-form-item><a-form-item label="状态"><a-select v-model:value="endpointForm.status" :options="endpointStatusOptions" /></a-form-item></div>
+      </a-form>
+      <div class="dialog-actions"><a-button @click="endpointOpen=false">取消</a-button><a-button type="primary" :loading="saving" @click="saveEndpoint">保存配置</a-button></div>
     </a-modal>
   </div>
 </template>
@@ -177,7 +210,7 @@ import dateLocale from 'ant-design-vue/es/date-picker/locale/zh_CN'
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { useAuthStore } from '@/stores/auth'
-import { monitoringApi, type MonitorDiagnostic, type MonitorEvent, type MonitorOverview, type MonitorRule, type MonitorRuleDetail, type MonitorRuleInput, type MonitorRun, type PagedResult } from '@/api/monitoring'
+import { monitoringApi, type MonitorDiagnostic, type MonitorEvent, type MonitorNotifyEndpoint, type MonitorNotifyEndpointInput, type MonitorOverview, type MonitorRule, type MonitorRuleDetail, type MonitorRuleInput, type MonitorRun, type PagedResult } from '@/api/monitoring'
 
 const authStore = useAuthStore()
 const loading = ref(false); const error = ref(''); const activeTab = ref('rules')
@@ -195,8 +228,11 @@ const canManageRules = computed(() => Boolean(authStore.user?.isAdmin) || Boolea
 const canManageEvents = computed(() => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.permissions?.includes('monitor.event.manage')))
 const createRuleOpen = ref(false)
 const eventStatusOpen = ref(false); const activeEvent = ref<MonitorEvent>(); const eventStatusForm = ref({ status: 'ACKNOWLEDGED', note: '' })
-const defaultRuleForm = () => ({ ruleName: '', severity: 'P2', segmentOperator: 'GTE', segmentCount: 6, platformName: '', siteName: '', airlineCode: '', productType: '', effectiveStartAt: '', effectiveEndAt: '', ownerUserName: authStore.user?.displayName || '', changeReason: '' })
+const defaultRuleForm = () => ({ ruleName: '', severity: 'P2', segmentOperator: 'GTE', segmentCount: 6, platformName: '', siteName: '', airlineCode: '', productType: '', effectiveStartAt: '', effectiveEndAt: '', ownerUserName: authStore.user?.displayName || '', changeReason: '', notifyEndpointIds: [] as number[] })
 const ruleForm = ref(defaultRuleForm())
+const notifyEndpoints = ref<MonitorNotifyEndpoint[]>([]); const endpointLoading = ref(false); const endpointOpen = ref(false); const testingEndpointId = ref<number>()
+const emptyEndpointForm = () => ({ id: undefined as number | undefined, endpointName: '', webhookUrl: '', mentionedUserIdsText: '', mentionedMobilesText: '', smartPlacementEnabled: true, status: 'ACTIVE' as 'ACTIVE' | 'DISABLED' })
+const endpointForm = ref(emptyEndpointForm())
 
 const ruleStatusMeta: Record<string, { label: string; color: string }> = { ACTIVE: { label: '运行中', color: 'green' }, SCHEDULED: { label: '待生效', color: 'blue' }, PAUSED: { label: '已暂停', color: 'orange' }, EXPIRED: { label: '已过期', color: 'default' }, DISABLED: { label: '已停用', color: 'red' } }
 const eventStatusMeta: Record<string, { label: string; color: string }> = { OPEN: { label: '待处理', color: 'red' }, ACKNOWLEDGED: { label: '已关注', color: 'blue' }, RESOLVED: { label: '已解决', color: 'green' }, IGNORED: { label: '已忽略', color: 'default' }, CLOSED: { label: '已关闭', color: 'default' } }
@@ -210,13 +246,16 @@ const statusActionOptions = [{ value: 'ACTIVE', label: '启用' }, { value: 'PAU
 const severityOptions = ['P0', 'P1', 'P2', 'P3'].map(value => ({ value, label: value }))
 const segmentOperatorOptions = [{ value: 'GTE', label: '大于等于' }, { value: 'GT', label: '大于' }, { value: 'EQ', label: '等于' }, { value: 'LTE', label: '小于等于' }, { value: 'LT', label: '小于' }]
 const eventActionOptions = [{ value: 'ACKNOWLEDGED', label: '已关注' }, { value: 'RESOLVED', label: '已解决' }, { value: 'IGNORED', label: '已忽略' }, { value: 'CLOSED', label: '已关闭' }]
+const endpointStatusOptions = [{ value: 'ACTIVE', label: '启用' }, { value: 'DISABLED', label: '停用' }]
 const summaryCards = [{ key: 'activeRules', label: '运行规则', note: '当前生效规则', tone: 'green' }, { key: 'scheduledRules', label: '待生效', note: '等待有效期开始', tone: 'blue' }, { key: 'openEvents', label: '今日待处理', note: '尚未完成的命中事件', tone: 'orange' }, { key: 'totalEvents', label: '今日命中', note: '今日全部事件', tone: 'violet' }, { key: 'pendingNotifications', label: '待发通知', note: '待发送及待重试', tone: 'red' }] as const
 const ruleColumns = [{ title: '规则', key: 'rule', width: 260, fixed: 'left' as const }, { title: '模板 / 业务', key: 'template', width: 210 }, { title: '状态', key: 'status', width: 100 }, { title: '生效区间', key: 'period', width: 175 }, { title: '命中', key: 'hit', width: 150 }, { title: '负责人', key: 'owner', width: 110 }, { title: '更新时间', key: 'updatedAt', width: 150 }, { title: '操作', key: 'action', width: 130, fixed: 'right' as const }]
 const eventColumns = [{ title: '事件', key: 'event', width: 280 }, { title: '业务对象', key: 'entity', width: 190 }, { title: '规则', key: 'rule', width: 150 }, { title: '等级', key: 'severity', width: 80 }, { title: '状态', key: 'status', width: 100 }, { title: '命中次数', dataIndex: 'hitCount', width: 90 }, { title: '发生时间', key: 'occurredAt', width: 160 }, { title: '操作', key: 'action', width: 90, fixed: 'right' as const }]
 const runColumns = [{ title: '任务 / 运行号', key: 'run', width: 250 }, { title: '状态', key: 'status', width: 100 }, { title: '数据量', key: 'volume', width: 270 }, { title: '耗时', key: 'duration', width: 100 }, { title: '开始时间', key: 'startedAt', width: 160 }, { title: '错误信息', key: 'error', width: 280 }]
+const endpointColumns = [{ title: '通知群', key: 'endpoint', width: 220 }, { title: 'Webhook', key: 'webhook', width: 300 }, { title: '@人员', key: 'mentions', width: 140 }, { title: '使用范围', key: 'scope', width: 170 }, { title: '状态', key: 'status', width: 80 }, { title: '更新时间', key: 'updatedAt', width: 150 }, { title: '操作', key: 'action', width: 150, fixed: 'right' as const }]
 const rulePagination = computed(() => ({ current: rulePage.value, pageSize: rulePageSize.value, total: rules.value?.total || 0, showSizeChanger: true, showTotal: (total: number) => `共 ${number(total)} 条` }))
 const eventPagination = computed(() => ({ current: eventPage.value, pageSize: eventPageSize.value, total: events.value?.total || 0, showSizeChanger: true, showTotal: (total: number) => `共 ${number(total)} 条` }))
 const diagnosticRuleOptions = computed(() => (rules.value?.rows || []).map(item => ({ value: item.id, label: `${item.ruleCode} · ${item.ruleName}` })))
+const notifyEndpointOptions = computed(() => notifyEndpoints.value.filter(item => item.status === 'ACTIVE').map(item => ({ value: item.id, label: item.endpointName })))
 
 const number = (value: unknown) => new Intl.NumberFormat('zh-CN').format(Number(value || 0))
 const displayTime = (value: unknown) => value ? String(value).replace('T', ' ').slice(0, 16) : '—'
@@ -234,8 +273,9 @@ async function loadOverview() { overview.value = await monitoringApi.overview() 
 async function loadRules(target = rulePage.value) { ruleLoading.value = true; rulePage.value = target; try { rules.value = await monitoringApi.rules({ ...ruleFilters.value, page: target, pageSize: rulePageSize.value }) } finally { ruleLoading.value = false } }
 async function loadEvents(target = eventPage.value) { eventLoading.value = true; eventPage.value = target; try { events.value = await monitoringApi.events({ ...eventFilters.value, startDate: eventRange.value[0], endDate: eventRange.value[1], page: target, pageSize: eventPageSize.value }) } finally { eventLoading.value = false } }
 async function loadRuns() { runLoading.value = true; try { runs.value = await monitoringApi.runs({ limit: 100 }) } finally { runLoading.value = false } }
+async function loadNotifyEndpoints() { endpointLoading.value = true; try { notifyEndpoints.value = await monitoringApi.notifyEndpoints() } catch (failure) { message.error(failure instanceof Error ? failure.message : '通知群配置加载失败') } finally { endpointLoading.value = false } }
 async function reloadAll() { loading.value = true; error.value = ''; try { await Promise.all([loadOverview(), loadRules(), loadEvents(), loadRuns()]) } catch (failure) { error.value = failure instanceof Error ? failure.message : '监控中心加载失败' } finally { loading.value = false } }
-function changeTab(key: string) { if (key === 'runs' && !runs.value.length) void loadRuns() }
+function changeTab(key: string) { if (key === 'runs' && !runs.value.length) void loadRuns(); if (key === 'notifications' && !notifyEndpoints.value.length) void loadNotifyEndpoints() }
 function resetRuleFilters() { ruleFilters.value = { keyword: '', status: '', template: '' }; void loadRules(1) }
 function resetEventFilters() { eventRange.value = [monthStart, today]; eventFilters.value = { keyword: '', status: '' }; void loadEvents(1) }
 function changeRulePage(value: { current?: number; pageSize?: number }) { const size = value.pageSize || rulePageSize.value; rulePage.value = size === rulePageSize.value ? value.current || 1 : 1; rulePageSize.value = size; void loadRules(rulePage.value) }
@@ -254,7 +294,7 @@ async function openRuleById(id: number) { const record = rules.value?.rows.find(
 function openStatus(record: MonitorRule) { statusRule.value = record; statusForm.value = { status: record.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE', note: '' }; statusOpen.value = true }
 async function saveStatus() { if (!statusRule.value) return; saving.value = true; try { await monitoringApi.updateRuleStatus(statusRule.value.id, statusForm.value); message.success('规则状态已更新'); statusOpen.value = false; await Promise.all([loadOverview(), loadRules()]) } catch (failure) { message.error(failure instanceof Error ? failure.message : '规则状态更新失败') } finally { saving.value = false } }
 const splitValues = (value: string) => value.replace(/，/g, ',').split(',').map(item => item.trim().toUpperCase()).filter(Boolean)
-function openCreateRule() { ruleForm.value = defaultRuleForm(); createRuleOpen.value = true }
+async function openCreateRule() { if (!notifyEndpoints.value.length) await loadNotifyEndpoints(); ruleForm.value = defaultRuleForm(); createRuleOpen.value = true }
 async function saveNewRule() {
   if (!ruleForm.value.ruleName.trim()) { message.warning('请填写规则名称'); return }
   if (!ruleForm.value.segmentCount || ruleForm.value.segmentCount < 1) { message.warning('请填写有效航段阈值'); return }
@@ -264,12 +304,34 @@ async function saveNewRule() {
   if (ruleForm.value.siteName.trim()) conditions.push({ fieldCode: 'site_name', operatorCode: 'EQ', value: ruleForm.value.siteName.trim() })
   if (splitValues(ruleForm.value.airlineCode).length) conditions.push({ fieldCode: 'airline_code', operatorCode: 'IN', value: splitValues(ruleForm.value.airlineCode) })
   if (splitValues(ruleForm.value.productType).length) conditions.push({ fieldCode: 'product_type', operatorCode: 'IN', value: splitValues(ruleForm.value.productType) })
-  const payload: MonitorRuleInput = { templateCode: 'ORDER_SEGMENT_THRESHOLD', ruleName: ruleForm.value.ruleName.trim(), severity: ruleForm.value.severity, effectiveStartAt: ruleForm.value.effectiveStartAt || undefined, effectiveEndAt: ruleForm.value.effectiveEndAt || undefined, ownerUserName: ruleForm.value.ownerUserName.trim() || undefined, scheduleSeconds: 60, changeReason: ruleForm.value.changeReason.trim() || undefined, conditions }
+  const endpointIds = ruleForm.value.notifyEndpointIds
+  const payload: MonitorRuleInput = { templateCode: 'ORDER_SEGMENT_THRESHOLD', ruleName: ruleForm.value.ruleName.trim(), severity: ruleForm.value.severity, effectiveStartAt: ruleForm.value.effectiveStartAt || undefined, effectiveEndAt: ruleForm.value.effectiveEndAt || undefined, ownerUserName: ruleForm.value.ownerUserName.trim() || undefined, scheduleSeconds: 60, changeReason: ruleForm.value.changeReason.trim() || undefined, notifyPolicy: { channels: endpointIds.length ? ['IN_APP', 'WECOM'] : ['IN_APP'], wecomEndpointIds: endpointIds }, conditions }
   saving.value = true
   try { const result = await monitoringApi.createRule(payload); message.success(`规则 ${result.ruleCode} 已创建`); createRuleOpen.value = false; await Promise.all([loadOverview(), loadRules(1)]) } catch (failure) { message.error(failure instanceof Error ? failure.message : '规则创建失败') } finally { saving.value = false }
 }
 function openEventStatus(record: MonitorEvent) { activeEvent.value = record; eventStatusForm.value = { status: record.eventStatus === 'OPEN' ? 'ACKNOWLEDGED' : 'RESOLVED', note: '' }; eventStatusOpen.value = true }
 async function saveEventStatus() { if (!activeEvent.value) return; saving.value = true; try { await monitoringApi.updateEventStatus(activeEvent.value.id, eventStatusForm.value); message.success('事件状态已更新'); eventStatusOpen.value = false; await Promise.all([loadOverview(), loadEvents()]) } catch (failure) { message.error(failure instanceof Error ? failure.message : '事件处理失败') } finally { saving.value = false } }
+
+function openEndpoint(record?: MonitorNotifyEndpoint) {
+  endpointForm.value = record ? { id: record.id, endpointName: record.endpointName, webhookUrl: '', mentionedUserIdsText: record.mentionedUserIds.join(','), mentionedMobilesText: record.mentionedMobiles.join(','), smartPlacementEnabled: record.smartPlacementEnabled, status: record.status } : emptyEndpointForm()
+  endpointOpen.value = true
+}
+const mentionValues = (value: string) => value.replace(/[，；;\s]+/g, ',').split(',').map(item => item.trim()).filter(Boolean)
+async function saveEndpoint() {
+  if (!endpointForm.value.endpointName.trim()) { message.warning('请填写通知群名称'); return }
+  if (!endpointForm.value.id && !endpointForm.value.webhookUrl.trim()) { message.warning('请填写企业微信Webhook'); return }
+  const payload: MonitorNotifyEndpointInput = { endpointName: endpointForm.value.endpointName.trim(), webhookUrl: endpointForm.value.webhookUrl.trim() || undefined, mentionedUserIds: mentionValues(endpointForm.value.mentionedUserIdsText), mentionedMobiles: mentionValues(endpointForm.value.mentionedMobilesText), smartPlacementEnabled: endpointForm.value.smartPlacementEnabled, status: endpointForm.value.status }
+  saving.value = true
+  try { if (endpointForm.value.id) await monitoringApi.updateNotifyEndpoint(endpointForm.value.id, payload); else await monitoringApi.createNotifyEndpoint(payload); message.success('通知群配置已保存'); endpointOpen.value = false; await loadNotifyEndpoints() }
+  catch (failure) { message.error(failure instanceof Error ? failure.message : '通知群配置保存失败') }
+  finally { saving.value = false }
+}
+async function testEndpoint(record: MonitorNotifyEndpoint) {
+  testingEndpointId.value = record.id
+  try { await monitoringApi.testNotifyEndpoint(record.id); message.success(`测试消息已发送到“${record.endpointName}”`) }
+  catch (failure) { message.error(failure instanceof Error ? failure.message : '测试发送失败') }
+  finally { testingEndpointId.value = undefined }
+}
 
 onMounted(() => { void reloadAll() })
 </script>
@@ -281,6 +343,7 @@ onMounted(() => { void reloadAll() })
 .monitor-panel { border: 1px solid #e5ebf2 !important; border-radius: 14px; box-shadow: 0 7px 24px rgba(25,43,71,.05); }.monitor-panel :deep(.ant-card-body) { padding: 0 20px 20px; }.monitor-panel :deep(.ant-tabs-nav) { margin-bottom: 18px; }.filter-grid { display: grid; gap: 10px; margin-bottom: 16px; }.rule-filters { grid-template-columns: minmax(240px,1fr) 140px 205px auto auto auto; }.event-filters { grid-template-columns: 250px minmax(220px,1fr) 150px auto auto; }.link-cell,.inline-link { padding: 0; border: 0; text-align: left; background: transparent; cursor: pointer; }.link-cell strong,.link-cell small,.two-line strong,.two-line span { display: block; }.link-cell strong,.inline-link { color: #2462ad; }.link-cell small,.two-line span { margin-top: 3px; color: #8591a3; font-size: 11px; }.numeric strong { font-size: 16px; }.run-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }.run-toolbar p { margin: 0; color: #667085; }.run-volume { display: flex; gap: 14px; }.error-text { color: #b42318; }
 .detail-hero { margin: -8px 0 18px; padding: 20px; border: 1px solid #d9e4f2; border-radius: 13px; background: linear-gradient(135deg,#f3f7fd,#fff); }.detail-hero > span { color: #718198; font-size: 11px; }.detail-hero h2 { margin: 4px 0 10px; color: #253a58; font-size: 20px; }.detail-section { margin-bottom: 15px; padding: 16px; border: 1px solid #e4e9f0; border-radius: 11px; }.detail-section h3 { margin: 0 0 12px; color: #31445f; font-size: 14px; }.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }.detail-grid > div { padding: 10px 12px; border-radius: 8px; background: #f7f9fc; }.detail-grid label,.detail-grid span { display: block; }.detail-grid label { color: #8a95a8; font-size: 11px; }.detail-grid span { margin-top: 3px; color: #344054; }.condition-list { display: grid; gap: 8px; }.condition-list article { display: grid; grid-template-columns: 120px 90px minmax(0,1fr) auto; align-items: center; gap: 9px; padding: 10px 12px; border-radius: 8px; background: #f7f9fc; }.condition-list code { overflow: hidden; color: #344054; text-overflow: ellipsis; white-space: nowrap; }.status-form { margin-top: 18px; }.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin: 18px -24px -24px; padding: 14px 24px; border-top: 1px solid #e5eaf1; }
 .rule-form { margin-top: 18px; }.rule-form-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0 14px; }.rule-form-grid .span-2 { grid-column: span 2; }.compact-fields { display: grid; grid-template-columns: 48% 52%; }.compact-fields > :first-child { border-radius: 6px 0 0 6px; }.compact-fields > :last-child { width: 100%; margin-left: -1px; border-radius: 0 6px 6px 0; }
+.endpoint-tip { margin-bottom: 14px; }.endpoint-form { margin-top: 16px; }.endpoint-switches { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }.monitor-panel code { color: #526276; font-size: 12px; }
 .diagnostic-panel { min-height: 420px; padding: 4px 2px 12px; }.diagnostic-panel > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 16px; }.diagnostic-panel h3,.diagnostic-panel p { margin: 0; }.diagnostic-panel h3 { color: #263b57; font-size: 17px; }.diagnostic-panel p { margin-top: 5px; color: #78869a; }.diagnostic-query { display: grid; grid-template-columns: minmax(280px,.9fr) minmax(280px,1.1fr) auto; gap: 10px; margin-bottom: 18px; }.diagnostic-result { margin-bottom: 14px; border-radius: 10px; }.diagnostic-stages { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; margin-bottom: 16px; }.diagnostic-stages article { display: flex; gap: 10px; min-height: 78px; padding: 13px; border: 1px solid #fed7aa; border-radius: 10px; background: #fff9f2; }.diagnostic-stages article.passed { border-color: #bbf7d0; background: #f3fcf6; }.diagnostic-stages article > span { display: grid; place-items: center; flex: 0 0 24px; height: 24px; border-radius: 50%; color: #fff; background: #f97316; }.diagnostic-stages article.passed > span { background: #10b981; }.diagnostic-stages strong,.diagnostic-stages small { display: block; }.diagnostic-stages small { margin-top: 5px; color: #69788d; line-height: 1.45; }.diagnostic-conditions { overflow: hidden; border: 1px solid #e3eaf2; border-radius: 11px; }.diagnostic-conditions h4 { margin: 0; padding: 13px 15px; color: #34465f; background: #f7f9fc; }.diagnostic-condition-head,.diagnostic-conditions article { display: grid; grid-template-columns: 1.1fr 1.2fr 1.2fr 90px; align-items: center; gap: 12px; padding: 10px 15px; }.diagnostic-condition-head { color: #8490a2; font-size: 11px; border-top: 1px solid #e8edf3; border-bottom: 1px solid #e8edf3; }.diagnostic-conditions article + article { border-top: 1px solid #edf1f5; }.diagnostic-conditions article strong,.diagnostic-conditions article small { display: block; }.diagnostic-conditions article small { margin-top: 2px; color: #8793a4; }.diagnostic-conditions code { overflow: hidden; color: #344054; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 1180px) { .summary-grid { grid-template-columns: repeat(3,1fr); }.rule-filters,.event-filters { grid-template-columns: repeat(3,1fr); }.monitor-hero { align-items: flex-start; flex-direction: column; }.hero-state { width: 100%; } }
 @media (max-width: 700px) { .summary-grid,.rule-filters,.event-filters,.detail-grid,.rule-form-grid,.diagnostic-query,.diagnostic-stages { grid-template-columns: 1fr; }.rule-form-grid .span-2 { grid-column: auto; }.hero-state { grid-template-columns: auto 1fr; min-width: 0; }.hero-state .ant-btn { grid-column: 1 / -1; }.condition-list article,.diagnostic-condition-head,.diagnostic-conditions article { grid-template-columns: 1fr; } }

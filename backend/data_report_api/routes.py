@@ -658,6 +658,52 @@ def monitoring_runs():
         return jsonify({"success": False, "message": str(error), "data": None}), 503
 
 
+@api.get("/v1/monitoring/notify-endpoints")
+def monitoring_notify_endpoints():
+    try:
+        return ok(MonitoringService(current_app.config).list_notify_endpoints(g.current_user))
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except MonitoringUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.post("/v1/monitoring/notify-endpoints")
+def create_monitoring_notify_endpoint():
+    try:
+        return ok(MonitoringService(current_app.config).save_notify_endpoint(g.current_user, json_body()), "通知群已创建")
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except MonitoringUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.put("/v1/monitoring/notify-endpoints/<int:endpoint_id>")
+def update_monitoring_notify_endpoint(endpoint_id: int):
+    try:
+        return ok(MonitoringService(current_app.config).save_notify_endpoint(g.current_user, json_body(), endpoint_id), "通知群已更新")
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except MonitoringUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.post("/v1/monitoring/notify-endpoints/<int:endpoint_id>/test")
+def test_monitoring_notify_endpoint(endpoint_id: int):
+    try:
+        return ok(MonitoringService(current_app.config).test_notify_endpoint(g.current_user, endpoint_id), "测试消息发送成功")
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except MonitoringUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
 @api.patch("/v1/monitoring/events/<int:event_id>/status")
 def update_monitoring_event_status(event_id: int):
     try:

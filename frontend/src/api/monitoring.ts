@@ -82,6 +82,30 @@ export interface MonitorOverview {
 
 export interface PagedResult<T> { rows: T[]; total: number; page: number; pageSize: number }
 
+export interface MonitorNotifyEndpoint {
+  id: number
+  endpointCode: string
+  endpointName: string
+  channel: 'WECOM'
+  webhookMasked: string
+  webhookConfigured: boolean
+  mentionedUserIds: string[]
+  mentionedMobiles: string[]
+  smartPlacementEnabled: boolean
+  status: 'ACTIVE' | 'DISABLED'
+  updatedByName?: string
+  updatedAt?: string
+}
+
+export interface MonitorNotifyEndpointInput {
+  endpointName: string
+  webhookUrl?: string
+  mentionedUserIds: string[]
+  mentionedMobiles: string[]
+  smartPlacementEnabled: boolean
+  status: 'ACTIVE' | 'DISABLED'
+}
+
 export interface MonitorRuleInput {
   templateCode: 'ORDER_SEGMENT_THRESHOLD'
   ruleName: string
@@ -91,6 +115,7 @@ export interface MonitorRuleInput {
   ownerUserName?: string
   scheduleSeconds?: number
   changeReason?: string
+  notifyPolicy?: { channels: string[]; wecomEndpointIds?: number[] }
   conditions: Array<{ fieldCode: string; operatorCode: string; value: string | number | string[]; conditionRole?: string }>
 }
 
@@ -125,4 +150,8 @@ export const monitoringApi = {
   events: (params: Record<string, unknown>) => http.get<ApiEnvelope<PagedResult<MonitorEvent>>>('/v1/monitoring/events', { params }).then(response => response.data.data),
   updateEventStatus: (id: number, payload: { status: string; note?: string }) => http.patch<ApiEnvelope<{ id: number; status: string }>>(`/v1/monitoring/events/${id}/status`, payload).then(response => response.data.data),
   runs: (params: Record<string, unknown> = {}) => http.get<ApiEnvelope<MonitorRun[]>>('/v1/monitoring/runs', { params }).then(response => response.data.data),
+  notifyEndpoints: () => http.get<ApiEnvelope<MonitorNotifyEndpoint[]>>('/v1/monitoring/notify-endpoints').then(response => response.data.data),
+  createNotifyEndpoint: (payload: MonitorNotifyEndpointInput) => http.post<ApiEnvelope<{ id: number }>>('/v1/monitoring/notify-endpoints', payload).then(response => response.data.data),
+  updateNotifyEndpoint: (id: number, payload: MonitorNotifyEndpointInput) => http.put<ApiEnvelope<{ id: number }>>(`/v1/monitoring/notify-endpoints/${id}`, payload).then(response => response.data.data),
+  testNotifyEndpoint: (id: number) => http.post<ApiEnvelope<{ id: number; success: boolean; message: string }>>(`/v1/monitoring/notify-endpoints/${id}/test`).then(response => response.data.data),
 }

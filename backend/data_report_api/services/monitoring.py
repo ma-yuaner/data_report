@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import uuid
+from urllib import request as urlrequest
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any
@@ -27,10 +28,12 @@ OUTBOX_TABLE = "monitor_notify_outbox"
 EVENT_LOG_TABLE = "monitor_event_operation_log"
 FEATURE_TABLE = "rt_order_monitor_feature"
 RULE_STAT_TABLE = "monitor_rule_run_stat"
+NOTIFY_ENDPOINT_TABLE = "monitor_notify_endpoint"
 
 SMART_TEMPLATE = "SMART_PLACEMENT_ORDER"
 RULE_STATUSES = frozenset({"SCHEDULED", "ACTIVE", "PAUSED", "EXPIRED", "DISABLED"})
 EVENT_STATUSES = frozenset({"OPEN", "ACKNOWLEDGED", "RESOLVED", "IGNORED", "CLOSED"})
+ENDPOINT_STATUSES = frozenset({"ACTIVE", "DISABLED"})
 
 
 class MonitoringUnavailable(RuntimeError):
@@ -102,6 +105,55 @@ def _clean_text(value: Any) -> str:
 def _split_values(value: Any) -> list[str]:
     text = _clean_text(value).replace("，", ",").replace("/", ",").replace(";", ",")
     return list(dict.fromkeys(item.strip().upper() for item in text.split(",") if item.strip()))
+
+
+def _string_list(value: Any) -> list[str]:
+    if isinstance(value, (list, tuple, set)):
+        items = value
+    else:
+        items = re.split(r"[,，;；\s]+", _clean_text(value))
+    return list(dict.fromkeys(_clean_text(item) for item in items if _clean_text(item)))
+
+
+def _mask_webhook(value: Any) -> str:
+    text = _clean_text(value)
+    if not text:
+        return ""
+    key = text.rsplit("key=", 1)[-1]
+    suffix = key[-6:] if len(key) >= 6 else key
+    return f"https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=******{suffix}"
+
+
+def _validate_wecom_webhook(value: Any, *, required: bool) -> str:
+    text = _clean_text(value)
+    if not text and not required:
+        return ""
+    if not text:
+        raise ValueError("企业微信Webhook不能为空")
+    if not re.fullmatch(r"https://qyapi\.weixin\.qq\.com/cgi-bin/webhook/send\?key=[A-Za-z0-9_-]+", text):
+        raise ValueError("企业微信Webhook格式不正确")
+    return text
+
+
+def _wecom_test_message(endpoint_name: str, mentioned_user_ids: list[str], mentioned_mobiles: list[str]) -> dict[str, Any]:
+    return {
+        "msgtype": "text",
+        "text": {
+            "content": f"企业数据中台通知测试\n通知群：{endpoint_name}\n配置验证成功后，监控命中会自动发送到本群。",
+            "mentioned_list": mentioned_user_ids,
+            "mentioned_mobile_list": mentioned_mobiles,
+        },
+    }
+
+
+def _json_list(value: Any) -> list[str]:
+    if isinstance(value, (list, tuple)):
+        return _string_list(value)
+    try:
+        parsed = json.loads(value or "[]")
+    except (TypeError, json.JSONDecodeError):
+        parsed = value
+    return _string_list(parsed)
 
 
 def _time_range(first: Any, last: Any) -> list[str] | None:
@@ -549,10 +601,23 @@ class MonitoringService:
         actor_name = str(user.get("display_name") or user.get("username") or "SYSTEM")[:100]
         owner_id = int(values.get("ownerUserId") or actor_id)
         owner_name = str(values.get("ownerUserName") or actor_name).strip()[:100]
-        notify_policy = values.get("notifyPolicy") if isinstance(values.get("notifyPolicy"), dict) else {}
-        notify_policy.setdefault("channels", ["IN_APP"])
-        notify_policy.setdefault("ownerUserId", owner_id)
-        notify_policy.setdefault("ownerUserName", owner_name)
+        raw_notify_policy = values.get("notifyPolicy") if isinstance(values.get("notifyPolicy"), dict) else {}
+        endpoint_ids: list[int] = []
+        for item in raw_notify_policy.get("wecomEndpointIds") or []:
+            try:
+                endpoint_ids.append(int(item))
+            except (TypeError, ValueError):
+                raise ValueError("企业微信通知群ID格式不正确") from None
+        endpoint_ids = list(dict.fromkeys(item for item in endpoint_ids if item > 0))
+        notify_channels = ["IN_APP"]
+        if endpoint_ids:
+            notify_channels.append("WECOM")
+        notify_policy = {
+            "channels": notify_channels,
+            "ownerUserId": owner_id,
+            "ownerUserName": owner_name,
+            "wecomEndpointIds": endpoint_ids,
+        }
         schedule_seconds = max(30, min(int(values.get("scheduleSeconds") or 60), 86400))
         connection = cursor = None
         try:
@@ -564,6 +629,15 @@ class MonitoringService:
             template = _dict_row(cursor, cursor.fetchone())
             if not template:
                 raise ValueError("监控模板不存在或已停用")
+            if endpoint_ids:
+                placeholders = ",".join(["%s"] * len(endpoint_ids))
+                cursor.execute(
+                    f"SELECT id FROM {self._table(NOTIFY_ENDPOINT_TABLE)} WHERE status='ACTIVE' AND channel='WECOM' AND id IN ({placeholders})",
+                    tuple(endpoint_ids),
+                )
+                found_ids = {int(_first_value(row)) for row in cursor.fetchall()}
+                if found_ids != set(endpoint_ids):
+                    raise ValueError("选择的企业微信通知群不存在或已停用")
             conditions = self._validated_conditions(cursor, int(template["id"]), values.get("conditions"))
             snapshot = {"templateCode": template_code, "conditionRelation": "AND", "conditions": conditions}
             snapshot_text = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, default=_json_value)
@@ -971,6 +1045,170 @@ class MonitoringService:
             return [_public_row(row) for row in _dict_rows(cursor, list(cursor.fetchall()))]
         except Exception as error:
             raise self._unavailable(error, "监控运行日志查询失败") from error
+        finally:
+            if cursor is not None: cursor.close()
+            if connection is not None: connection.close()
+
+    @staticmethod
+    def _public_endpoint(row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": int(row["id"]),
+            "endpointCode": str(row.get("endpoint_code") or ""),
+            "endpointName": str(row.get("endpoint_name") or ""),
+            "channel": str(row.get("channel") or "WECOM"),
+            "webhookMasked": _mask_webhook(row.get("webhook_url")),
+            "webhookConfigured": bool(row.get("webhook_url")),
+            "mentionedUserIds": _json_list(row.get("mentioned_user_ids")),
+            "mentionedMobiles": _json_list(row.get("mentioned_mobiles")),
+            "smartPlacementEnabled": bool(row.get("smart_placement_enabled")),
+            "status": str(row.get("status") or "DISABLED"),
+            "updatedByName": str(row.get("updated_by_name") or "SYSTEM"),
+            "updatedAt": _json_value(row.get("updated_at")),
+        }
+
+    def list_notify_endpoints(self, user: dict[str, Any]) -> list[dict[str, Any]]:
+        _require(user, "monitor.rule.manage", "当前账号没有通知群配置权限")
+        connection = cursor = None
+        try:
+            connection = self.source.connect(); cursor = connection.cursor()
+            cursor.execute(
+                f"SELECT * FROM {self._table(NOTIFY_ENDPOINT_TABLE)} ORDER BY status='ACTIVE' DESC,smart_placement_enabled DESC,id"
+            )
+            return [self._public_endpoint(row) for row in _dict_rows(cursor, list(cursor.fetchall()))]
+        except Exception as error:
+            if _is_missing_table(error):
+                raise MonitoringUnavailable("企业微信通知表尚未创建，请先执行monitoring-wecom-notification-v1.sql") from error
+            raise self._unavailable(error, "通知群配置查询失败") from error
+        finally:
+            if cursor is not None: cursor.close()
+            if connection is not None: connection.close()
+
+    def save_notify_endpoint(
+        self,
+        user: dict[str, Any],
+        values: dict[str, Any],
+        endpoint_id: int | None = None,
+    ) -> dict[str, Any]:
+        _require(user, "monitor.rule.manage", "当前账号没有通知群配置权限")
+        endpoint_name = _clean_text(values.get("endpointName"))[:100]
+        if not endpoint_name:
+            raise ValueError("通知群名称不能为空")
+        status = _clean_text(values.get("status") or "ACTIVE").upper()
+        if status not in ENDPOINT_STATUSES:
+            raise ValueError("通知群状态不支持")
+        mentioned_user_ids = _string_list(values.get("mentionedUserIds"))
+        mentioned_mobiles = _string_list(values.get("mentionedMobiles"))
+        invalid_mobiles = [item for item in mentioned_mobiles if not re.fullmatch(r"\+?\d{6,20}", item)]
+        if invalid_mobiles:
+            raise ValueError(f"@手机号格式不正确：{invalid_mobiles[0]}")
+        actor_id = int(user.get("id") or 0)
+        actor_name = str(user.get("display_name") or user.get("username") or "SYSTEM")[:100]
+        current = business_now_naive()
+        connection = cursor = None
+        try:
+            connection = self.source.connect(); connection.begin(); cursor = connection.cursor()
+            existing = None
+            if endpoint_id is not None:
+                cursor.execute(
+                    f"SELECT * FROM {self._table(NOTIFY_ENDPOINT_TABLE)} WHERE id=%s FOR UPDATE",
+                    (endpoint_id,),
+                )
+                existing = _dict_row(cursor, cursor.fetchone())
+                if not existing:
+                    raise ValueError("通知群配置不存在")
+            webhook = _validate_wecom_webhook(values.get("webhookUrl"), required=existing is None)
+            if not webhook and existing:
+                webhook = str(existing.get("webhook_url") or "")
+            if existing:
+                cursor.execute(
+                    f"""UPDATE {self._table(NOTIFY_ENDPOINT_TABLE)}
+                        SET endpoint_name=%s,webhook_url=%s,mentioned_user_ids=%s,mentioned_mobiles=%s,
+                            smart_placement_enabled=%s,status=%s,updated_by_id=%s,updated_by_name=%s,updated_at=%s
+                        WHERE id=%s""",
+                    (
+                        endpoint_name, webhook, json.dumps(mentioned_user_ids, ensure_ascii=False),
+                        json.dumps(mentioned_mobiles, ensure_ascii=False),
+                        1 if values.get("smartPlacementEnabled") else 0, status,
+                        actor_id, actor_name, current, endpoint_id,
+                    ),
+                )
+                saved_id = int(endpoint_id)
+                endpoint_code = str(existing.get("endpoint_code") or "")
+            else:
+                endpoint_code = f"WECOM-{uuid.uuid4().hex[:16].upper()}"
+                cursor.execute(
+                    f"""INSERT INTO {self._table(NOTIFY_ENDPOINT_TABLE)} (
+                        endpoint_code,endpoint_name,channel,webhook_url,mentioned_user_ids,mentioned_mobiles,
+                        smart_placement_enabled,status,created_by_id,created_by_name,created_at,
+                        updated_by_id,updated_by_name,updated_at
+                    ) VALUES ({','.join(['%s'] * 14)})""",
+                    (
+                        endpoint_code, endpoint_name, "WECOM", webhook,
+                        json.dumps(mentioned_user_ids, ensure_ascii=False),
+                        json.dumps(mentioned_mobiles, ensure_ascii=False),
+                        1 if values.get("smartPlacementEnabled") else 0, status,
+                        actor_id, actor_name, current, actor_id, actor_name, current,
+                    ),
+                )
+                saved_id = int(cursor.lastrowid)
+            connection.commit()
+            return {
+                "id": saved_id,
+                "endpointCode": endpoint_code,
+                "endpointName": endpoint_name,
+                "status": status,
+                "smartPlacementEnabled": bool(values.get("smartPlacementEnabled")),
+            }
+        except (ValueError, PermissionError):
+            if connection is not None: connection.rollback()
+            raise
+        except Exception as error:
+            if connection is not None: connection.rollback()
+            if _is_missing_table(error):
+                raise MonitoringUnavailable("企业微信通知表尚未创建，请先执行monitoring-wecom-notification-v1.sql") from error
+            raise self._unavailable(error, "通知群配置保存失败") from error
+        finally:
+            if cursor is not None: cursor.close()
+            if connection is not None: connection.close()
+
+    def test_notify_endpoint(self, user: dict[str, Any], endpoint_id: int) -> dict[str, Any]:
+        _require(user, "monitor.rule.manage", "当前账号没有通知群测试权限")
+        connection = cursor = None
+        try:
+            connection = self.source.connect(); cursor = connection.cursor()
+            cursor.execute(f"SELECT * FROM {self._table(NOTIFY_ENDPOINT_TABLE)} WHERE id=%s", (endpoint_id,))
+            endpoint = _dict_row(cursor, cursor.fetchone())
+            if not endpoint:
+                raise ValueError("通知群配置不存在")
+            if str(endpoint.get("status")) != "ACTIVE":
+                raise ValueError("通知群已停用，请先启用后再测试")
+            body = json.dumps(
+                _wecom_test_message(
+                    str(endpoint.get("endpoint_name") or "企业微信群"),
+                    _json_list(endpoint.get("mentioned_user_ids")),
+                    _json_list(endpoint.get("mentioned_mobiles")),
+                ),
+                ensure_ascii=False,
+            ).encode("utf-8")
+            response = urlrequest.urlopen(
+                urlrequest.Request(
+                    str(endpoint["webhook_url"]),
+                    data=body,
+                    headers={"Content-Type": "application/json; charset=utf-8"},
+                    method="POST",
+                ),
+                timeout=10,
+            )
+            result = json.loads(response.read().decode("utf-8"))
+            if int(result.get("errcode", -1)) != 0:
+                raise ValueError(f"企业微信返回失败：{result.get('errmsg') or result}")
+            return {"id": endpoint_id, "success": True, "message": "测试消息发送成功"}
+        except (ValueError, PermissionError):
+            raise
+        except Exception as error:
+            if _is_missing_table(error):
+                raise MonitoringUnavailable("企业微信通知表尚未创建，请先执行monitoring-wecom-notification-v1.sql") from error
+            raise MonitoringUnavailable(f"企业微信测试发送失败：{error}") from error
         finally:
             if cursor is not None: cursor.close()
             if connection is not None: connection.close()
