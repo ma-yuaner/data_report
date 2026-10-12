@@ -606,6 +606,20 @@ def update_monitoring_rule_status(rule_id: int):
         return jsonify({"success": False, "message": str(error), "data": None}), 503
 
 
+@api.get("/v1/monitoring/rules/<int:rule_id>/diagnose")
+def diagnose_monitoring_rule(rule_id: int):
+    try:
+        return ok(MonitoringService(current_app.config).diagnose_rule(
+            g.current_user, rule_id, request.args.get("otaOrderNo", ""),
+        ))
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except MonitoringUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
 @api.get("/v1/monitoring/events")
 def monitoring_events():
     try:

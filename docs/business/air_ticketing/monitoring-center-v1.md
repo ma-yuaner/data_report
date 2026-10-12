@@ -24,11 +24,13 @@
   → monitor_notify_outbox（可靠通知、失败重试）
 ```
 
-调度水位记录在 `monitor_data_cursor`，三类任务的执行量、耗时和异常记录在 `monitor_run_log`。事件处理写入 `monitor_event_operation_log`，规则状态调整写入 `monitor_rule_operation_log`。
+调度水位记录在 `monitor_data_cursor`，三类任务的执行量、耗时和异常记录在 `monitor_run_log`。规则级检查量和失败字段汇总写入 `monitor_rule_run_stat`；“匹配诊断”按需对单个订单逐项计算，不把所有订单×规则明细永久落库。事件处理写入 `monitor_event_operation_log`，规则状态调整写入 `monitor_rule_operation_log`。
+
+标准时间契约固定为：`order_create_time` 是业务进单时间，`create_time` 是宽表同步时间。平台和站点按中文名称匹配，避免不同系统编码体系不一致；`manual_flag` 映射为 `order_source`，允许“平台手工订单”“直连订单”，任务未选择时表示不限。
 
 ## 3. 部署顺序
 
-1. 在 `sibebid` 执行 [monitoring-center-schema.sql](../../sql/monitoring-center-schema.sql)。脚本只创建新监控表，不修改旧预警表。
+1. 新环境在 `sibebid` 执行 [monitoring-center-schema.sql](../../sql/monitoring-center-schema.sql)；已部署V1表的环境执行 [monitoring-order-source-v2.sql](../../sql/monitoring-order-source-v2.sql)。
 2. 发布 `data_report`，并在角色管理中分配 `monitor.center` 菜单和需要的查看/管理权限。
 3. 发布 `data-team-repo` 中 `etl_scripts/automation/monitoring/`。
 4. 手工串行执行特征采集、规则匹配、通知发送各一次。
@@ -42,5 +44,6 @@
 - 生产消息默认只写站内事件，企业微信群通知必须在规则通知策略配置真实 Webhook 后才启用；
 - 三段任务必须串行，不允许并行，也不要每条规则分别建立调度；
 - 首次默认只回看 24 小时。历史回补必须单独执行并记录范围。
+- 新激活规则首次运行自动回看近24小时已采集特征；之后仍只走全局增量水位。
 
 调度脚本的具体命令和参数见 `data-team-repo/etl_scripts/automation/monitoring/README.md`。

@@ -44,6 +44,7 @@ REVIEW_STAGES = {
 REVIEW_RESULTS = frozenset({"APPROVED", "RETURNED", "REJECTED"})
 POLICY_EXECUTABLE_LEVELS = frozenset({"EXECUTABLE", "CONDITIONAL", "NOT_EXECUTABLE"})
 ATTENTION_STATUSES = frozenset({"IN_PROGRESS", "COMPLETED", "NO_ACTION"})
+ORDER_SOURCES = frozenset({"平台手工订单", "直连订单"})
 CODE_RE = re.compile(r"^[A-Za-z0-9._:/-]{1,128}$")
 PERMISSION_CREATE = "smart_placement.create"
 PERMISSION_EDIT = "smart_placement.edit"
@@ -133,6 +134,13 @@ def _bool(value: Any) -> bool:
     return value is True or str(value).lower() in {"1", "true", "yes"}
 
 
+def _order_source(value: Any, name: str = "订单来源") -> str | None:
+    result = _text(value, name, 32) or None
+    if result and result not in ORDER_SOURCES:
+        raise ValueError(f"{name}只支持平台手工订单或直连订单")
+    return result
+
+
 def _required_value(values: dict[str, Any], key: str, name: str) -> Any:
     value = values.get(key)
     if value in (None, ""):
@@ -215,6 +223,7 @@ def _task_fields(values: dict[str, Any], *, submit: bool) -> dict[str, Any]:
         "include_cabins": ",".join(included_list) or None,
         "exclude_cabins": ",".join(excluded_list) or None,
         "product_type": _text(values.get("productType"), "产品类型", 150) or None,
+        "order_source": _order_source(values.get("orderSource")),
         "order_start_date": order_start,
         "order_end_date": order_end,
         "travel_start_date": travel_start,
@@ -1025,6 +1034,7 @@ class SmartPlacementService:
             "include_cabins": ",".join(included_list) or None,
             "exclude_cabins": ",".join(excluded_list) or None,
             "product_type": _text(values.get("productType"), "产品类型", 150) or None,
+            "order_source": _order_source(values.get("orderSource"), "实际订单来源"),
             "adjustment_value": _decimal(values.get("adjustmentValue"), "实际调整值"),
             "adjustment_unit": _text(values.get("adjustmentUnit"), "调整单位", 32) or None,
             "placement_channel": _text(values.get("placementChannel"), "投放渠道", 100) or None,
@@ -1050,11 +1060,11 @@ class SmartPlacementService:
                     external_policy_name, actual_placement_at, effective_start_at,
                     effective_end_at, platform_code, platform_name, site_code,
                     site_name, airline_code, departure_code, arrival_code, route_text,
-                    flight_nos, include_cabins, exclude_cabins, product_type,
+                    flight_nos, include_cabins, exclude_cabins, product_type, order_source,
                     adjustment_value, adjustment_unit, placement_channel, proof_url,
                     execution_note, failure_type, failure_reason, retry_required,
                     next_handle_at, operator_id, operator_name, created_at
-                ) VALUES ({','.join(['%s'] * 32)})
+                ) VALUES ({','.join(['%s'] * 33)})
                 """,
                 (
                     task_id, attempt, result, policy_id or None,
@@ -1072,6 +1082,7 @@ class SmartPlacementService:
                     execution["include_cabins"] or task.get("include_cabins"),
                     execution["exclude_cabins"] or task.get("exclude_cabins"),
                     execution["product_type"] or task.get("product_type"),
+                    execution["order_source"] or task.get("order_source"),
                     execution["adjustment_value"],
                     execution["adjustment_unit"] or task.get("adjustment_unit"),
                     execution["placement_channel"],
@@ -1100,6 +1111,7 @@ class SmartPlacementService:
                     "include_cabins": execution["include_cabins"] or task.get("include_cabins"),
                     "exclude_cabins": execution["exclude_cabins"] or task.get("exclude_cabins"),
                     "product_type": execution["product_type"] or task.get("product_type"),
+                    "order_source": execution["order_source"] or task.get("order_source"),
                 }
                 monitor_rule = self.monitor_rule_compiler.sync_smart_placement(
                     cursor=cursor,

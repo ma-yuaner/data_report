@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import uuid
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
@@ -24,6 +25,8 @@ RUN_TABLE = "monitor_run_log"
 EVENT_TABLE = "monitor_alert_event"
 OUTBOX_TABLE = "monitor_notify_outbox"
 EVENT_LOG_TABLE = "monitor_event_operation_log"
+FEATURE_TABLE = "rt_order_monitor_feature"
+RULE_STAT_TABLE = "monitor_rule_run_stat"
 
 SMART_TEMPLATE = "SMART_PLACEMENT_ORDER"
 RULE_STATUSES = frozenset({"SCHEDULED", "ACTIVE", "PAUSED", "EXPIRED", "DISABLED"})
@@ -114,6 +117,43 @@ def _time_range(first: Any, last: Any) -> list[str] | None:
     ]
 
 
+def _datetime_bound(value: Any, *, end_of_day: bool = False) -> datetime | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=None)
+    if isinstance(value, date):
+        return datetime.combine(value, time.max.replace(microsecond=0) if end_of_day else time.min)
+    text = str(value).strip().replace("T", " ")
+    try:
+        parsed = datetime.fromisoformat(text).replace(tzinfo=None)
+    except ValueError:
+        return None
+    if len(text) == 10:
+        return datetime.combine(parsed.date(), time.max.replace(microsecond=0) if end_of_day else time.min)
+    return parsed
+
+
+def _smart_order_time_range(task: dict[str, Any], execution: dict[str, Any]) -> list[str] | None:
+    """Use the strict intersection of sales dates and actual policy availability."""
+    starts = [
+        _datetime_bound(task.get("order_start_date")),
+        _datetime_bound(execution.get("actual_placement_at")),
+        _datetime_bound(execution.get("effective_start_at")),
+    ]
+    ends = [
+        _datetime_bound(task.get("order_end_date"), end_of_day=True),
+        _datetime_bound(execution.get("effective_end_at"), end_of_day=True),
+    ]
+    actual_starts = [value for value in starts if value is not None]
+    actual_ends = [value for value in ends if value is not None]
+    first = max(actual_starts) if actual_starts else None
+    last = min(actual_ends) if actual_ends else None
+    if first and last and first > last:
+        raise ValueError("销售日期与实际投放/政策有效期没有交集")
+    return _time_range(first, last)
+
+
 def _parse_datetime(value: Any, field_name: str) -> datetime | None:
     if value in (None, ""):
         return None
@@ -123,6 +163,57 @@ def _parse_datetime(value: Any, field_name: str) -> datetime | None:
         return datetime.fromisoformat(str(value).strip().replace("T", " ")).replace(tzinfo=None)
     except ValueError as error:
         raise ValueError(f"{field_name}格式不正确") from error
+
+
+def _condition_set(value: Any) -> set[str]:
+    if value is None:
+        return set()
+    values = value if isinstance(value, (list, tuple, set)) else re.split(r"[,，;/|\s]+", str(value))
+    return {str(item).strip().upper() for item in values if str(item).strip()}
+
+
+def _condition_scalar(value: Any) -> str:
+    return "" if value is None else str(value).strip().upper()
+
+
+def _compare_condition(actual: Any, operator: str, expected: Any) -> bool:
+    operator = operator.upper()
+    if operator == "EQ":
+        return _condition_scalar(actual) == _condition_scalar(expected)
+    if operator == "NE":
+        return _condition_scalar(actual) != _condition_scalar(expected)
+    if operator == "IN":
+        return _condition_scalar(actual) in _condition_set(expected)
+    if operator == "NOT_IN":
+        return _condition_scalar(actual) not in _condition_set(expected)
+    if operator == "OVERLAP":
+        return bool(_condition_set(actual) & _condition_set(expected))
+    if operator in {"CONTAINS_ALL", "SUPERSET_OF"}:
+        return _condition_set(actual).issuperset(_condition_set(expected))
+    if operator == "SUBSET_OF":
+        actual_set = _condition_set(actual)
+        return bool(actual_set) and actual_set.issubset(_condition_set(expected))
+    if operator == "DISJOINT":
+        return _condition_set(actual).isdisjoint(_condition_set(expected))
+    if operator == "BETWEEN":
+        values = list(expected or []) if isinstance(expected, (list, tuple)) else []
+        if len(values) != 2:
+            return False
+        actual_time = _datetime_bound(actual)
+        start = _datetime_bound(values[0])
+        end = _datetime_bound(values[1], end_of_day=True)
+        return bool(actual_time and start and end and start <= actual_time <= end)
+    if operator in {"GT", "GTE", "LT", "LTE"}:
+        try:
+            left, right = Decimal(str(actual)), Decimal(str(expected))
+        except Exception:
+            return False
+        return {"GT": left > right, "GTE": left >= right, "LT": left < right, "LTE": left <= right}[operator]
+    if operator == "IS_NULL":
+        return actual in (None, "")
+    if operator == "NOT_NULL":
+        return actual not in (None, "")
+    return False
 
 
 class MonitorRuleCompiler:
@@ -173,12 +264,14 @@ class MonitorRuleCompiler:
                 "conditionRole": role,
             })
 
-        platform_code = _clean_text(execution.get("platform_code") or task.get("platform_code"))
         platform_name = _clean_text(execution.get("platform_name") or task.get("platform_name"))
-        site_code = _clean_text(execution.get("site_code") or task.get("site_code"))
         site_name = _clean_text(execution.get("site_name") or task.get("site_name"))
-        add("platform_code" if platform_code else "platform_name", "EQ", "STRING", platform_code or platform_name)
-        add("site_code" if site_code else "site_name", "EQ", "STRING", site_code or site_name)
+        # The order wide table provides stable Chinese names but not always the
+        # same platform/site codes as the policy source.  Smart-placement rules
+        # therefore use names as their canonical matching dimensions.
+        add("platform_name", "EQ", "STRING", platform_name)
+        add("site_name", "EQ", "STRING", site_name)
+        add("order_source", "EQ", "STRING", _clean_text(execution.get("order_source") or task.get("order_source")))
         add("airline_code", "IN", "STRING_SET", _split_values(execution.get("airline_code") or task.get("airline_code")))
         add("departure_location_codes", "OVERLAP", "STRING_SET", _split_values(execution.get("departure_code") or task.get("departure_code")))
         add("arrival_location_codes", "OVERLAP", "STRING_SET", _split_values(execution.get("arrival_code") or task.get("arrival_code")))
@@ -190,7 +283,7 @@ class MonitorRuleCompiler:
         add("cabin_codes", "DISJOINT", "STRING_SET", _split_values(execution.get("exclude_cabins") or task.get("exclude_cabins")), "EXCLUDE")
         add("product_type", "IN", "STRING_SET", _split_values(execution.get("product_type") or task.get("product_type")))
         add("journey_type", "EQ", "STRING", _clean_text(task.get("journey_type")))
-        add("order_time", "BETWEEN", "DATETIME", _time_range(task.get("order_start_date"), task.get("order_end_date")))
+        add("order_time", "BETWEEN", "DATETIME", _smart_order_time_range(task, execution))
         add("first_departure_time", "BETWEEN", "DATETIME", _time_range(task.get("travel_start_date"), task.get("travel_end_date")))
 
         snapshot = {
@@ -563,6 +656,19 @@ class MonitoringService:
             rule = _dict_row(cursor, cursor.fetchone())
             if not rule:
                 raise ValueError("监控规则不存在")
+            canonical_platform_name = canonical_site_name = None
+            if rule.get("template_code") == SMART_TEMPLATE:
+                cursor.execute(
+                    f"""SELECT COALESCE(NULLIF(e.platform_name,''),NULLIF(t.platform_name,'')) platform_name,
+                               COALESCE(NULLIF(e.site_name,''),NULLIF(t.site_name,'')) site_name
+                        FROM {self._table('smart_placement_task')} t
+                        LEFT JOIN {self._table('smart_placement_execution')} e ON e.id=%s
+                        WHERE t.id=%s""",
+                    (rule.get("source_business_id"), rule.get("source_parent_id")),
+                )
+                canonical_row = _dict_row(cursor, cursor.fetchone()) or {}
+                canonical_platform_name = canonical_row.get("platform_name")
+                canonical_site_name = canonical_row.get("site_name")
             cursor.execute(f"SELECT * FROM {self._table(VERSION_TABLE)} WHERE rule_id=%s ORDER BY version_no DESC", (rule_id,))
             versions = _dict_rows(cursor, list(cursor.fetchall()))
             version_ids = [int(row["id"]) for row in versions]
@@ -589,6 +695,115 @@ class MonitoringService:
             raise
         except Exception as error:
             raise self._unavailable(error, "监控规则详情查询失败") from error
+        finally:
+            if cursor is not None: cursor.close()
+            if connection is not None: connection.close()
+
+    def diagnose_rule(self, user: dict[str, Any], rule_id: int, ota_order_no: str) -> dict[str, Any]:
+        """Explain one rule/order decision without persisting an order×rule log."""
+        _require(user, "monitor.center.view", "当前账号没有监控规则诊断权限")
+        order_no = str(ota_order_no or "").strip()
+        if not order_no:
+            raise ValueError("请输入OTA订单号")
+        connection = cursor = None
+        try:
+            connection = self.source.connect(); cursor = connection.cursor()
+            cursor.execute(f"SELECT * FROM {self._table(RULE_TABLE)} WHERE id=%s", (rule_id,))
+            rule = _dict_row(cursor, cursor.fetchone())
+            if not rule:
+                raise ValueError("监控规则不存在")
+            cursor.execute(
+                f"SELECT * FROM {self._table(FEATURE_TABLE)} WHERE ota_order_no=%s ORDER BY source_updated_at DESC,id DESC LIMIT 1",
+                (order_no,),
+            )
+            feature = _dict_row(cursor, cursor.fetchone())
+            stages: list[dict[str, Any]] = [{
+                "code": "FEATURE",
+                "name": "标准特征采集",
+                "passed": feature is not None,
+                "message": "已找到订单特征" if feature else "标准特征表尚未采集到该订单，请检查特征ETL水位和源宽表create_time",
+            }]
+            if not feature:
+                return {
+                    "rule": _public_row(rule), "order": None, "matched": False,
+                    "conditions": [], "stages": stages, "recentStats": [],
+                }
+
+            cursor.execute(
+                f"SELECT * FROM {self._table(CONDITION_TABLE)} WHERE rule_version_id=%s ORDER BY group_no,sort_no",
+                (rule["current_version_id"],),
+            )
+            conditions = _dict_rows(cursor, list(cursor.fetchall()))
+            cursor.execute(
+                f"SELECT field_code,field_name FROM {self._table(TEMPLATE_FIELD_TABLE)} WHERE template_id=%s",
+                (rule["template_id"],),
+            )
+            field_names = {str(row[0] if not isinstance(row, dict) else row["field_code"]): str(row[1] if not isinstance(row, dict) else row["field_name"]) for row in cursor.fetchall()}
+            details: list[dict[str, Any]] = []
+            grouped: dict[int, list[bool]] = {}
+            for condition in conditions:
+                condition = dict(condition)
+                legacy_field = str(condition["field_code"])
+                if rule.get("template_code") == SMART_TEMPLATE and legacy_field in {"platform_code", "site_code"}:
+                    replacement = canonical_platform_name if legacy_field == "platform_code" else canonical_site_name
+                    if not replacement:
+                        continue
+                    condition["field_code"] = "platform_name" if legacy_field == "platform_code" else "site_name"
+                    condition["value_json"] = json.dumps(replacement, ensure_ascii=False)
+                try:
+                    expected = json.loads(condition["value_json"])
+                except (TypeError, json.JSONDecodeError):
+                    expected = condition["value_json"]
+                field_code = str(condition["field_code"])
+                actual = feature.get(field_code)
+                passed = _compare_condition(actual, str(condition["operator_code"]), expected)
+                group_no = int(condition["group_no"])
+                grouped.setdefault(group_no, []).append(passed)
+                details.append({
+                    "fieldCode": field_code,
+                    "fieldName": field_names.get(field_code, field_code),
+                    "operatorCode": condition["operator_code"],
+                    "expected": _json_value(expected),
+                    "actual": _json_value(actual),
+                    "passed": passed,
+                    "conditionRole": condition.get("condition_role") or "INCLUDE",
+                    "groupNo": group_no,
+                })
+            relation = "AND"
+            cursor.execute(f"SELECT condition_relation FROM {self._table(VERSION_TABLE)} WHERE id=%s", (rule["current_version_id"],))
+            version_row = cursor.fetchone()
+            if version_row:
+                relation = str(_first_value(version_row) or "AND").upper()
+            group_results = [all(items) for items in grouped.values()]
+            conditions_passed = bool(group_results) and (any(group_results) if relation == "OR" else all(group_results))
+            rule_runnable = str(rule.get("status")) == "ACTIVE"
+            stages.extend([
+                {"code": "RULE", "name": "规则运行状态", "passed": rule_runnable, "message": f"当前状态：{rule.get('status')}"},
+                {"code": "CONDITIONS", "name": "业务条件匹配", "passed": conditions_passed, "message": "全部条件通过" if conditions_passed else f"{sum(not item['passed'] for item in details)}项条件未通过"},
+            ])
+            matched = rule_runnable and conditions_passed
+            cursor.execute(
+                f"SELECT event_no,event_status,occurred_at FROM {self._table(EVENT_TABLE)} WHERE rule_id=%s AND entity_key=%s ORDER BY id DESC LIMIT 1",
+                (rule_id, feature["feature_key"]),
+            )
+            event = _dict_row(cursor, cursor.fetchone())
+            stages.append({
+                "code": "EVENT", "name": "命中事件落库", "passed": event is not None,
+                "message": f"已生成事件{event['event_no']}" if event else ("条件当前通过，但尚未生成事件；请检查匹配任务运行时间" if matched else "条件未通过，不应生成事件"),
+            })
+            cursor.execute(
+                f"SELECT * FROM {self._table(RULE_STAT_TABLE)} WHERE rule_id=%s ORDER BY created_at DESC,id DESC LIMIT 10",
+                (rule_id,),
+            )
+            recent_stats = [_public_row(row) for row in _dict_rows(cursor, list(cursor.fetchall()))]
+            return {
+                "rule": _public_row(rule), "order": _public_row(feature), "event": _public_row(event) if event else None,
+                "matched": matched, "conditions": details, "stages": stages, "recentStats": recent_stats,
+            }
+        except ValueError:
+            raise
+        except Exception as error:
+            raise self._unavailable(error, "监控规则匹配诊断失败") from error
         finally:
             if cursor is not None: cursor.close()
             if connection is not None: connection.close()

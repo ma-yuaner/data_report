@@ -94,11 +94,33 @@ export interface MonitorRuleInput {
   conditions: Array<{ fieldCode: string; operatorCode: string; value: string | number | string[]; conditionRole?: string }>
 }
 
+export interface MonitorDiagnosticCondition {
+  fieldCode: string
+  fieldName: string
+  operatorCode: string
+  expected: unknown
+  actual: unknown
+  passed: boolean
+  conditionRole: string
+  groupNo: number
+}
+
+export interface MonitorDiagnostic {
+  rule: MonitorRule
+  order: Record<string, unknown> | null
+  event?: Record<string, unknown> | null
+  matched: boolean
+  conditions: MonitorDiagnosticCondition[]
+  stages: Array<{ code: string; name: string; passed: boolean; message: string }>
+  recentStats: Array<Record<string, unknown>>
+}
+
 export const monitoringApi = {
   overview: () => http.get<ApiEnvelope<MonitorOverview>>('/v1/monitoring/overview').then(response => response.data.data),
   createRule: (payload: MonitorRuleInput) => http.post<ApiEnvelope<{ id: number; ruleCode: string; status: string; versionNo: number }>>('/v1/monitoring/rules', payload).then(response => response.data.data),
   rules: (params: Record<string, unknown>) => http.get<ApiEnvelope<PagedResult<MonitorRule>>>('/v1/monitoring/rules', { params }).then(response => response.data.data),
   ruleDetail: (id: number) => http.get<ApiEnvelope<MonitorRuleDetail>>(`/v1/monitoring/rules/${id}`).then(response => response.data.data),
+  diagnoseRule: (id: number, otaOrderNo: string) => http.get<ApiEnvelope<MonitorDiagnostic>>(`/v1/monitoring/rules/${id}/diagnose`, { params: { otaOrderNo } }).then(response => response.data.data),
   updateRuleStatus: (id: number, payload: { status: string; note?: string }) => http.patch<ApiEnvelope<{ id: number; status: string }>>(`/v1/monitoring/rules/${id}/status`, payload).then(response => response.data.data),
   events: (params: Record<string, unknown>) => http.get<ApiEnvelope<PagedResult<MonitorEvent>>>('/v1/monitoring/events', { params }).then(response => response.data.data),
   updateEventStatus: (id: number, payload: { status: string; note?: string }) => http.patch<ApiEnvelope<{ id: number; status: string }>>(`/v1/monitoring/events/${id}/status`, payload).then(response => response.data.data),

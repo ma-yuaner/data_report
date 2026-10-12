@@ -17,6 +17,7 @@ export interface PlacementTaskRow {
   includeCabins: string | null
   excludeCabins: string | null
   productType: string | null
+  orderSource: string | null
   placementMethod: string
   estimatedMonthTicketCount: number | null
   estimatedMonthProfitCny: string | null
@@ -101,6 +102,7 @@ export interface PlacementTaskInput {
   includeCabins?: string
   excludeCabins?: string
   productType?: string
+  orderSource?: string
   orderStartDate?: string
   orderEndDate?: string
   travelStartDate?: string
