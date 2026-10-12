@@ -9,9 +9,12 @@
 html, body, #app { min-width: 320px; min-height: 100%; margin: 0; }
 body { background: #f2f5f9; }
 .app-shell { min-height: 100vh; }
+.route-progress { width: 34%; height: 2px; position: fixed; top: 0; left: 0; z-index: 1200; pointer-events: none; opacity: 0; transform: translateX(-110%); background: linear-gradient(90deg, #4d8cff, #77bcff); box-shadow: 0 0 10px rgba(77,140,255,.55); }
+.route-progress.is-active { opacity: 1; animation: route-progress 1.15s ease-in-out infinite; }
+@keyframes route-progress { 0% { transform: translateX(-110%); } 65% { transform: translateX(170%); } 100% { transform: translateX(300%); } }
 .app-sidebar { position: sticky !important; top: 0; height: 100vh; overflow: hidden; background: #101d32 !important; }
 .app-sidebar .ant-layout-sider-children { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
-.app-brand { height: 72px; padding: 15px 17px; display: flex; align-items: center; gap: 11px; color: #fff; overflow: hidden; }
+.app-brand { height: 72px; padding: 15px 17px; display: flex; align-items: center; gap: 11px; color: #fff; overflow: hidden; cursor: pointer; }
 .app-brand.is-collapsed { justify-content: center; padding-inline: 10px; }
 .brand-mark { width: 38px; height: 38px; flex: none; border-radius: 10px; display: grid; place-items: center; background: linear-gradient(145deg, #3f83f8, #275fd2); font-size: 20px; }
 .brand-copy { display: grid; white-space: nowrap; }
@@ -36,7 +39,60 @@ body { background: #f2f5f9; }
 .user-entry { gap: 8px; cursor: pointer; color: #334155; font-size: 13px; }
 .user-entry > span:last-child { font-size: 10px; color: #8090a5; }
 .app-content { min-height: calc(100vh - 64px); background: #f2f5f9; }
+.logout-mask { position: fixed; inset: 0; z-index: 1400; display: grid; place-items: center; background: rgba(15, 29, 50, .28); backdrop-filter: blur(2px); }
+.logout-mask .ant-spin-text { margin-top: 10px; color: #fff; text-shadow: 0 1px 8px rgba(0,0,0,.25); }
 .page-wrap { max-width: 1500px; margin: 0 auto; padding: 24px; }
+
+.workspace-home { padding-top: 26px; padding-bottom: 34px; }
+.workspace-hero { min-height: 246px; padding: 40px 46px; position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 320px; align-items: center; gap: 40px; overflow: hidden; border: 1px solid rgba(85,134,204,.22); border-radius: 20px; color: #fff; background: linear-gradient(125deg, #10233e 0%, #183e70 56%, #2d6fc2 100%); box-shadow: 0 18px 44px rgba(27,67,119,.18); }
+.workspace-hero::before { content: ''; width: 410px; height: 410px; position: absolute; right: -120px; top: -230px; border: 1px solid rgba(255,255,255,.11); border-radius: 50%; box-shadow: 0 0 0 70px rgba(255,255,255,.025), 0 0 0 140px rgba(255,255,255,.018); }
+.workspace-hero-copy { position: relative; z-index: 1; }
+.workspace-eyebrow, .workspace-section-title span, .workspace-card-title span { color: #8ebcff; font-size: 10px; font-weight: 700; letter-spacing: .16em; }
+.workspace-hero h1 { margin: 9px 0 10px; color: #fff; font-size: clamp(28px, 3vw, 40px); font-weight: 650; letter-spacing: -.025em; }
+.workspace-hero-copy > p { max-width: 700px; margin: 0; color: #c7d8ed; font-size: 13px; line-height: 1.75; }
+.workspace-hero-tags { margin-top: 24px; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.workspace-hero-tags span { padding: 7px 10px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid rgba(255,255,255,.12); border-radius: 7px; color: #d8e6f7; background: rgba(255,255,255,.07); font-size: 11px; }
+.workspace-hero-tags .anticon-check-circle { color: #6ee7ba; }
+.workspace-hero-visual { width: 250px; height: 190px; position: relative; justify-self: center; }
+.workspace-core { width: 78px; height: 78px; position: absolute; left: 86px; top: 55px; z-index: 2; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.36); border-radius: 22px; color: #fff; background: linear-gradient(145deg, rgba(108,167,255,.95), rgba(38,103,197,.92)); box-shadow: 0 16px 42px rgba(3,18,40,.36), inset 0 1px 0 rgba(255,255,255,.3); font-size: 34px; transform: rotate(-5deg); }
+.workspace-orbit { position: absolute; inset: 8px 27px; border: 1px solid rgba(179,211,255,.24); border-radius: 50%; transform: rotate(-15deg); }
+.workspace-orbit.orbit-two { inset: 30px 4px; transform: rotate(27deg); }
+.workspace-node { width: 36px; height: 36px; position: absolute; z-index: 3; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.3); border-radius: 12px; color: #d9e9ff; background: rgba(255,255,255,.12); backdrop-filter: blur(8px); }
+.workspace-node.node-one { left: 8px; top: 76px; }
+.workspace-node.node-two { right: 8px; top: 44px; }
+.workspace-node.node-three { right: 45px; bottom: 4px; }
+.workspace-section { margin-top: 25px; }
+.workspace-section-title { margin-bottom: 13px; display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; }
+.workspace-section-title span, .workspace-card-title span { color: #4f7dbe; }
+.workspace-section-title h2, .workspace-card-title h2 { margin: 4px 0 0; color: #1f2d43; font-size: 18px; font-weight: 650; }
+.workspace-section-title p { margin: 0; color: #8491a3; font-size: 11px; }
+.workspace-entry-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 13px; }
+.workspace-entry { min-width: 0; min-height: 158px; padding: 20px 18px; position: relative; display: flex; align-items: flex-start; flex-direction: column; border: 1px solid #e3e9f1; border-radius: 14px; color: inherit; background: #fff; box-shadow: 0 6px 20px rgba(31,48,73,.035); cursor: pointer; text-align: left; transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
+.workspace-entry:hover { transform: translateY(-3px); border-color: #b7cdf0; box-shadow: 0 13px 28px rgba(36,75,128,.10); }
+.workspace-entry:focus-visible { outline: 3px solid rgba(49,120,246,.2); outline-offset: 2px; }
+.workspace-entry-icon { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 11px; font-size: 19px; }
+.workspace-entry-copy { min-width: 0; margin-top: 16px; display: grid; }
+.workspace-entry-copy small { color: #8b97a8; font-size: 9px; font-weight: 700; letter-spacing: .11em; }
+.workspace-entry-copy strong { margin-top: 4px; color: #26364c; font-size: 15px; font-weight: 650; }
+.workspace-entry-copy em { margin-top: 6px; color: #768499; font-size: 11px; font-style: normal; line-height: 1.55; }
+.workspace-entry-arrow { position: absolute; right: 17px; top: 25px; color: #b0bbca; font-size: 12px; transition: transform .18s ease, color .18s ease; }
+.workspace-entry:hover .workspace-entry-arrow { color: #3178f6; transform: translateX(3px); }
+.workspace-bottom-grid { margin-top: 14px; display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(310px, .7fr); gap: 14px; }
+.workspace-card { padding: 22px 24px; border: 1px solid #e3e9f1; border-radius: 14px; background: #fff; box-shadow: 0 6px 20px rgba(31,48,73,.035); }
+.workspace-card-title { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.workspace-card-title > .anticon { color: #96a7bb; font-size: 22px; }
+.workspace-flow { margin-top: 22px; display: grid; grid-template-columns: 1fr 36px 1fr 36px 1fr; align-items: center; }
+.workspace-flow > div { min-width: 0; display: flex; align-items: center; gap: 11px; }
+.workspace-flow b { width: 34px; height: 34px; flex: none; display: grid; place-items: center; border-radius: 10px; color: #3975cd; background: #edf4ff; font-size: 11px; }
+.workspace-flow span { min-width: 0; display: grid; }
+.workspace-flow strong { color: #344258; font-size: 12px; }
+.workspace-flow small { margin-top: 4px; color: #8793a4; font-size: 10px; line-height: 1.5; }
+.workspace-flow i { height: 1px; margin-inline: 9px; background: #dce4ee; }
+.workspace-principle-card ul { margin: 17px 0 0; padding: 0; list-style: none; }
+.workspace-principle-card li { padding: 10px 0; display: flex; justify-content: space-between; gap: 14px; border-bottom: 1px solid #edf1f5; font-size: 11px; }
+.workspace-principle-card li:last-child { border-bottom: 0; }
+.workspace-principle-card li span { color: #8a96a7; }
+.workspace-principle-card li strong { color: #46566d; font-weight: 550; text-align: right; }
 .page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
 .page-eyebrow { margin-bottom: 6px; color: #3178f6; font-size: 11px; font-weight: 600; letter-spacing: .12em; }
 .page-header h1 { margin: 0; color: #172033; font-size: 25px; font-weight: 600; letter-spacing: -.02em; }
@@ -260,6 +316,8 @@ body { background: #f2f5f9; }
 .account-edit-form label { display: grid; gap: 6px; color: #56657a; font-size: 12px; }
 
 @media (max-width: 1100px) {
+  .workspace-entry-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .workspace-bottom-grid { grid-template-columns: 1fr; }
   .account-create-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .kpi-grid, .coverage-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .profit-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -278,6 +336,11 @@ body { background: #f2f5f9; }
   .global-search, .filter-tip, .user-entry > span { display: none; }
   .app-header { padding: 0 14px !important; }
   .page-wrap { padding: 16px; }
+  .workspace-hero { min-height: auto; padding: 30px 26px; grid-template-columns: 1fr; }
+  .workspace-hero-visual { display: none; }
+  .workspace-entry-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .workspace-flow { grid-template-columns: 1fr; gap: 12px; }
+  .workspace-flow i { width: 1px; height: 18px; margin: 0 0 0 17px; }
   .page-header, .data-state-bar, .filter-bar, .issue-toolbar, .profit-filter, .total-profit-card { align-items: flex-start; flex-direction: column; }
   .risk-profit-title, .risk-profit-source { align-items: flex-start; flex-direction: column; }
   .total-profit-formula { flex-wrap: wrap; white-space: normal; }
@@ -291,6 +354,8 @@ body { background: #f2f5f9; }
 @media (max-width: 600px) {
   .auth-panel { padding: 28px 22px; }
   .account-create-grid { grid-template-columns: 1fr; }
+  .workspace-section-title { align-items: flex-start; flex-direction: column; }
+  .workspace-entry-grid { grid-template-columns: 1fr; }
   .kpi-grid, .kpi-grid.three, .coverage-grid, .asset-summary, .profit-metric-grid, .problem-summary-grid, .problem-domain-grid { grid-template-columns: 1fr; }
   .profit-filter-fields { width: 100%; align-items: stretch; flex-direction: column; }
   .issue-summary-grid { grid-template-columns: 1fr; }

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from time import perf_counter
+
 from flask import Flask, g, jsonify, request
 from werkzeug.exceptions import RequestEntityTooLarge
 
@@ -13,6 +15,40 @@ PUBLIC_AUTH_ENDPOINTS = {"api.health", "auth.login", "auth.status"}
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
+def required_menu_code(path: str) -> str | None:
+    if path.startswith("/api/v1/dashboard/"):
+        return "overview"
+    if path.startswith("/api/v1/analysis/comprehensive"):
+        return "analysis.comprehensive"
+    if path.startswith("/api/v1/analysis/issue-profit"):
+        return "analysis.issue"
+    if path.startswith("/api/v1/analysis/business-profit/refund"):
+        return "analysis.refund"
+    if path.startswith("/api/v1/analysis/business-profit/change"):
+        return "analysis.change"
+    if path.startswith("/api/v1/analysis/business-profit/ancillary"):
+        return "analysis.ancillary"
+    if path.startswith("/api/v1/analysis/risk-monthly") or path.startswith("/api/v1/analysis/risk-daily"):
+        return "risk.overview"
+    if path.startswith("/api/v1/analysis/risk-business/"):
+        return "risk"
+    if path.startswith("/api/v1/risk-uploads"):
+        return "risk.upload"
+    if path.startswith("/api/v1/smart-analysis"):
+        return "smart.home"
+    if path.startswith("/api/v1/smart-placement/orders"):
+        return "smart.placement.orders"
+    if path.startswith("/api/v1/smart-placement"):
+        return "smart.placement.policies"
+    if path.startswith("/api/v1/monitoring"):
+        return "monitor.center"
+    if path.startswith("/api/v1/problems/") or path == "/api/v1/issues":
+        return "problems"
+    if path.startswith("/api/v1/assets/"):
+        return "data_assets"
+    return None
+
+
 def create_app(config: type[Config] = Config, auth_store=None) -> Flask:
     app = Flask(__name__)
     app.config.from_object(config)
@@ -24,6 +60,7 @@ def create_app(config: type[Config] = Config, auth_store=None) -> Flask:
         manager = AuthManager(store, app.config)
         configured = manager.initialize()
         app.extensions["auth_manager"] = manager
+        app.extensions["auth_configured"] = configured
         if not configured:
             app.logger.warning(
                 "认证表中没有账号；请配置AUTH_BOOTSTRAP_ADMIN_USERNAME和"
@@ -32,6 +69,8 @@ def create_app(config: type[Config] = Config, auth_store=None) -> Flask:
 
     @app.before_request
     def authenticate_request():
+        g.request_started_at = perf_counter()
+        g.auth_duration_ms = 0.0
         if request.method == "OPTIONS" or not request.path.startswith("/api"):
             return None
         if not app.config["AUTH_ENABLED"]:
@@ -45,7 +84,9 @@ def create_app(config: type[Config] = Config, auth_store=None) -> Flask:
 
         manager: AuthManager = app.extensions["auth_manager"]
         raw_token = request.cookies.get(app.config["AUTH_COOKIE_NAME"])
+        auth_started_at = perf_counter()
         authenticated = manager.authenticate(raw_token)
+        g.auth_duration_ms = (perf_counter() - auth_started_at) * 1000
         if not authenticated:
             return jsonify({
                 "success": False, "message": "登录已过期，请重新登录",
@@ -67,7 +108,31 @@ def create_app(config: type[Config] = Config, auth_store=None) -> Flask:
                 "success": False, "message": "首次登录必须修改密码",
                 "data": None, "code": "PASSWORD_CHANGE_REQUIRED",
             }), 403
+        menu_code = required_menu_code(request.path)
+        if menu_code and not bool(user.get("is_admin")) and menu_code not in set(user.get("menu_codes") or []):
+            return jsonify({
+                "success": False, "message": "当前账号没有该模块的菜单权限",
+                "data": None, "code": "MENU_FORBIDDEN",
+            }), 403
         return None
+
+    @app.after_request
+    def report_request_timing(response):
+        started_at = getattr(g, "request_started_at", None)
+        if started_at is None:
+            return response
+        total_ms = (perf_counter() - started_at) * 1000
+        auth_ms = float(getattr(g, "auth_duration_ms", 0.0))
+        response.headers["Server-Timing"] = (
+            f"auth;dur={auth_ms:.1f}, app;dur={max(0.0, total_ms - auth_ms):.1f}, total;dur={total_ms:.1f}"
+        )
+        threshold = int(app.config.get("PERFORMANCE_SLOW_REQUEST_MS", 500))
+        if total_ms >= threshold:
+            app.logger.warning(
+                "Slow request method=%s path=%s status=%s total_ms=%.1f auth_ms=%.1f",
+                request.method, request.path, response.status_code, total_ms, auth_ms,
+            )
+        return response
 
     @app.errorhandler(AuthError)
     def handle_auth_error(error: AuthError):

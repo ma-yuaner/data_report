@@ -68,7 +68,7 @@ http.interceptors.response.use(
       error.response?.status,
       error.response?.data?.code,
     )
-    if (apiError.code === 'AUTH_REQUIRED' || apiError.code === 'PASSWORD_CHANGE_REQUIRED') {
+    if (apiError.code === 'AUTH_REQUIRED' || apiError.code === 'PASSWORD_CHANGE_REQUIRED' || apiError.code === 'MENU_FORBIDDEN') {
       authFailureHandler?.(apiError)
     }
     if (error.config) publishApiResult(error.config, error.response?.status ?? 0, false, apiError.code)

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
+    "check:components": "node scripts/check-ant-components.mjs",
     "type-check": "vue-tsc -b --pretty false",
     "preview": "vite preview"
   },

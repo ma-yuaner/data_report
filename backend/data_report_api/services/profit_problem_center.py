@@ -4,12 +4,13 @@ import logging
 import threading
 import time
 from copy import deepcopy
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
 from .data_source import DataSource, data_mode, is_live_mode
 from .profit_overview import _period
+from ..time_utils import business_now
 
 
 LOGGER = logging.getLogger(__name__)
@@ -80,7 +81,7 @@ class ProfitProblemCenterService:
         return result
 
     def _fetch_live(self, source: DataSource, start: date, end: date) -> dict[str, Any]:
-        generated_at = datetime.now().astimezone().isoformat(timespec="seconds")
+        generated_at = business_now().isoformat(timespec="seconds")
         start_at = f"{start.isoformat()} 00:00:00"
         end_at = f"{(end + timedelta(days=1)).isoformat()} 00:00:00"
         try:
@@ -219,7 +220,7 @@ class ProfitProblemCenterService:
         ]
         return {
             "mode": "mock", "source": "演示数据", "available": True,
-            "generatedAt": datetime.now().astimezone().isoformat(timespec="seconds"), "cacheHit": False,
+            "generatedAt": business_now().isoformat(timespec="seconds"), "cacheHit": False,
             "period": {"startDate": start.isoformat(), "endDate": end.isoformat()},
             "summary": {"negativeCount": 51, "lossAmount": 13531.5, "affectedBusinessCount": 4, "availableBusinessCount": 4},
             "businesses": businesses, "items": items,

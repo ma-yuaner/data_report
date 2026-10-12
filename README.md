@@ -4,6 +4,7 @@
 
 ## MVP菜单
 
+- 工作台：登录默认首页，只展示欢迎语、常用入口和数据口径，不自动触发经营查询；
 - 经营总览：统一查看出、退、改、增利润及总预估利润；
 - 业务分析：出票、退票、改签、增值四个实际数据入口；
 - 风控分析：预留 ADM、平台罚单、投诉及高风险售后等风控分析入口，指标与数据待确认后接入；
@@ -60,7 +61,8 @@ docker compose up -d --build
 
 本地账号直接复用 MySQL `sibebid.sys_user`；角色 `admin` 对应系统管理员，
 `analyst`、`viewer` 当前均按普通用户处理。密码沿用该表的 bcrypt 哈希。
-`sys_user_menu` 暂不参与登录和菜单控制。失败锁定、会话和审计分别保存在
+`sys_user_menu` 已用于普通账号的一级菜单控制；工作台始终可见，管理员自动拥有全部菜单。智能投放岗位及权限使用
+`sys_role`、`sys_role_permission`、`sys_user_role`，由管理员在账号管理页面配置。失败锁定、会话和审计分别保存在
 `auth_user_security`、`auth_session`、`auth_audit_log`。应用默认自动建立这三张认证扩展表；若部署账号没有DDL权限，先手工执行
 [本地认证表DDL](docs/sql/local-auth-schema.sql)，再将 `AUTH_AUTO_CREATE_TABLES=false`。
 完整字段适配、接口、权限和验收标准见[本地账号登录技术方案](docs/product/local-account-auth-technical-design.md)。
@@ -76,6 +78,9 @@ AUTH_BOOTSTRAP_ADMIN_DISPLAY_NAME=系统管理员
 请在等号后填写仅部署人员知道的初始密码（至少8位且包含字母和数字）。启动后使用该账号登录并按提示修改密码，再从 `.env` 删除
 `AUTH_BOOTSTRAP_ADMIN_PASSWORD` 并重新创建容器。系统不开放自助注册；后续账号由管理员在右上角“账号管理”中创建。
 会话闲置4小时失效，单次登录最长24小时；管理员禁用账号或重置密码后，该账号已有会话立即失效。
+登录成功后默认进入“工作台”，不会自动查询经营总览。API 使用 MySQL 连接池复用物理连接；可通过
+`MYSQL_POOL_SIZE`、`MYSQL_POOL_MIN_CACHED` 调整每个 API 进程的连接数。超过
+`PERFORMANCE_SLOW_REQUEST_MS` 的接口会写入慢请求日志，响应头 `Server-Timing` 可用于区分鉴权和业务处理耗时。
 
 经营总览及各业务分析页提供今日、昨日、本月、本年和自定义日期查询，默认展示今日，避免首次打开扫描大时间范围。项目默认使用 `DATA_MODE=mysql` 读取 `sibebid`；在 `.env` 中填写 `MYSQL_HOST`、`MYSQL_USER` 等连接信息即可。MySQL 临时不可用时，将 `DATA_MODE` 手工改成 `hive` 并重启 API。原经营指标和底部的“风控利润核对”都跟随此手工切换，不自动混用两个数据源；核对区默认读取 MySQL 的三张 `bi_order_*_profit_reconcile_year` 表，不纳入上方经营利润合计。连接密码只能保存在部署环境的 `.env`，不得提交到 Git。
 

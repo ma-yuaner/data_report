@@ -4,12 +4,13 @@ import logging
 import threading
 import time
 from copy import deepcopy
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
 from .data_source import DataSource, TABLE_SPECS, data_mode, is_live_mode
 from .profit_overview import _period
+from ..time_utils import business_now
 
 
 LOGGER = logging.getLogger(__name__)
@@ -85,7 +86,7 @@ class BusinessProfitAnalysisService:
 
     def _fetch_live(self, source: DataSource, business_type: str, definition: dict[str, Any], start: date, end: date) -> dict[str, Any]:
         spec = source.table(business_type)
-        generated_at = datetime.now().astimezone().isoformat(timespec="seconds")
+        generated_at = business_now().isoformat(timespec="seconds")
         granularity = "month" if (end - start).days > 62 else "day"
         period_expression = source.period_expression(spec.time_field, granularity)
         segment_expression = f"coalesce(sum({definition['segmentField']}), 0)" if definition["segmentField"] else "NULL"
@@ -174,7 +175,7 @@ class BusinessProfitAnalysisService:
             items.append({"period": f"2026-{month:02d}", "count": round(base[0] / 9), "segmentCount": None if base[1] is None else round(base[1] / 9), "profit": round(base[2] / 9, 2), "negativeCount": round(base[0] / 45)})
         return {
             "mode": "mock", "source": "演示数据", "available": True, "error": None,
-            "generatedAt": datetime.now().astimezone().isoformat(timespec="seconds"), "cacheHit": False,
+            "generatedAt": business_now().isoformat(timespec="seconds"), "cacheHit": False,
             "business": cls._business_meta(business_type, definition, time_field),
             "period": {"startDate": start.isoformat(), "endDate": end.isoformat()},
             "summary": {"count": base[0], "segmentCount": base[1], "profit": base[2], "averageProfit": round(base[2] / base[0], 2), "negativeCount": round(base[0] / 5), "negativeRate": 20},

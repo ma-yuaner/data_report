@@ -14,10 +14,125 @@ import bcrypt
 from werkzeug.security import check_password_hash
 
 from .data_source import DataSource
+from ..time_utils import business_now_naive
 
 
 USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]{3,64}$")
 EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+ROLE_CODE_RE = re.compile(r"^[A-Z][A-Z0-9_]{2,63}$")
+
+DATA_SCOPE_RESOURCES = {
+    "smart_placement.task": "投放政策",
+    "smart_placement.order": "收单情况",
+}
+MANAGED_RELATION_RESOURCES = frozenset({"smart_placement"})
+DATA_SCOPE_TYPES = frozenset({"SELF", "WORKFLOW", "MANAGED", "ALL"})
+DATA_SCOPE_RANK = {"SELF": 1, "WORKFLOW": 2, "MANAGED": 3, "ALL": 4}
+DEFAULT_ROLE_DATA_SCOPES = {
+    "DATA_ENTRY": {"smart_placement.task": "SELF", "smart_placement.order": "SELF"},
+    "DATA_MANAGER": {"smart_placement.task": "ALL", "smart_placement.order": "ALL"},
+    "POLICY_MANAGER": {"smart_placement.task": "MANAGED", "smart_placement.order": "MANAGED"},
+    "POLICY_OPERATOR": {"smart_placement.task": "SELF", "smart_placement.order": "SELF"},
+}
+
+ROLE_PERMISSIONS = {
+    "DATA_ENTRY": (
+        "smart_placement.create",
+        "smart_placement.edit",
+        "smart_placement.delete",
+        "smart_placement.withdraw",
+    ),
+    "DATA_MANAGER": (
+        "smart_placement.review_data",
+        "smart_placement.cancel",
+    ),
+    "POLICY_MANAGER": ("smart_placement.review_policy",),
+    "POLICY_OPERATOR": (
+        "smart_placement.claim",
+        "smart_placement.execute",
+        "smart_placement.orders.attention",
+    ),
+}
+ROLE_MENUS = {
+    "DATA_ENTRY": ("smart.placement.policies",),
+    "DATA_MANAGER": ("smart.placement.policies",),
+    "POLICY_MANAGER": ("smart.placement.policies",),
+    "POLICY_OPERATOR": ("smart.placement.policies", "smart.placement.orders"),
+}
+BUSINESS_ROLE_CATALOG = (
+    {"code": "DATA_ENTRY", "name": "数据录入员", "description": "录入、编辑并提交智能投放机会"},
+    {"code": "DATA_MANAGER", "name": "数据运营经理", "description": "审核数据口径、样本和预估价值"},
+    {"code": "POLICY_MANAGER", "name": "业务经理", "description": "任一业务经理可审核政策可执行性与风险"},
+    {"code": "POLICY_OPERATOR", "name": "智能业务执行员", "description": "认领已审核任务并登记投放结果"},
+)
+PERMISSION_CATALOG = (
+    {"code": "smart_placement.create", "name": "新建投放机会", "description": "创建投放机会并保存或提交", "menuCode": "smart.placement.policies"},
+    {"code": "smart_placement.edit", "name": "编辑投放机会", "description": "编辑并重新提交本人创建的草稿或退回任务", "menuCode": "smart.placement.policies"},
+    {"code": "smart_placement.delete", "name": "删除草稿或驳回任务", "description": "逻辑删除本人创建的草稿或已驳回任务并保留操作日志", "menuCode": "smart.placement.policies"},
+    {"code": "smart_placement.withdraw", "name": "撤回待审核任务", "description": "在数据经理处理前撤回本人提交的任务并继续修改", "menuCode": "smart.placement.policies"},
+    {"code": "smart_placement.cancel", "name": "作废投放任务", "description": "管理者作废尚未认领的已提交任务，必须填写原因", "menuCode": "smart.placement.policies"},
+    {"code": "smart_placement.review_data", "name": "数据运营审核", "description": "审核数据口径、样本和预估价值", "menuCode": "smart.placement.policies"},
+    {"code": "smart_placement.review_policy", "name": "业务经理审核", "description": "审核政策可执行性、风险与投放要求", "menuCode": "smart.placement.policies"},
+    {"code": "smart_placement.claim", "name": "认领投放任务", "description": "认领已通过两级审核的投放任务", "menuCode": "smart.placement.policies"},
+    {"code": "smart_placement.execute", "name": "登记投放结果", "description": "登记政策ID、投放时间并进入监控", "menuCode": "smart.placement.policies"},
+    {"code": "smart_placement.orders.attention", "name": "处理收单关注", "description": "更新命中订单的关注状态和处理结果", "menuCode": "smart.placement.orders"},
+    {"code": "monitor.center.view", "name": "查看监控中心", "description": "查看通用规则、命中事件和运行状态", "menuCode": "monitor.center"},
+    {"code": "monitor.rule.manage", "name": "管理监控规则", "description": "新建、启用、暂停或停用监控规则", "menuCode": "monitor.center"},
+    {"code": "monitor.event.view", "name": "查看监控事件", "description": "查看全部监控命中事件及业务关联", "menuCode": "monitor.center"},
+    {"code": "monitor.event.manage", "name": "处理监控事件", "description": "确认、解决或忽略监控命中事件", "menuCode": "monitor.center"},
+    {"code": "monitor.run.view", "name": "查看监控运行日志", "description": "查看采集、匹配和通知任务运行情况", "menuCode": "monitor.center"},
+)
+MENU_CATALOG = (
+    {"code": "overview", "name": "经营总览", "description": "经营总览页面", "groupCode": "overview", "groupName": "经营总览"},
+    {"code": "analysis.comprehensive", "name": "综合分析", "description": "出退改增综合经营分析", "groupCode": "analysis", "groupName": "业务分析"},
+    {"code": "analysis.issue", "name": "出票分析", "description": "出票利润分析", "groupCode": "analysis", "groupName": "业务分析"},
+    {"code": "analysis.refund", "name": "退票分析", "description": "退票利润分析", "groupCode": "analysis", "groupName": "业务分析"},
+    {"code": "analysis.change", "name": "改签分析", "description": "改签利润分析", "groupCode": "analysis", "groupName": "业务分析"},
+    {"code": "analysis.ancillary", "name": "增值分析", "description": "增值利润分析", "groupCode": "analysis", "groupName": "业务分析"},
+    {"code": "risk.overview", "name": "风控总览", "description": "风控月度与趋势分析", "groupCode": "risk", "groupName": "风控分析"},
+    {"code": "risk.issue", "name": "出票利润分析", "description": "风控出票利润分析", "groupCode": "risk", "groupName": "风控分析"},
+    {"code": "risk.refund", "name": "退票利润分析", "description": "风控退票利润分析", "groupCode": "risk", "groupName": "风控分析"},
+    {"code": "risk.change", "name": "改签利润分析", "description": "风控改签利润分析", "groupCode": "risk", "groupName": "风控分析"},
+    {"code": "risk.errors", "name": "差错分析", "description": "差错原因与责任分析", "groupCode": "risk", "groupName": "风控分析"},
+    {"code": "risk.orders", "name": "订单明细", "description": "风控订单明细", "groupCode": "risk", "groupName": "风控分析"},
+    {"code": "risk.upload", "name": "数据上传", "description": "出退改风控数据上传", "groupCode": "risk", "groupName": "风控分析"},
+    {"code": "customer_service.refund", "name": "退票分析", "description": "客服退票分析", "groupCode": "customer_service", "groupName": "客服分析"},
+    {"code": "customer_service.change", "name": "改签分析", "description": "客服改签分析", "groupCode": "customer_service", "groupName": "客服分析"},
+    {"code": "customer_service.flight_change", "name": "清Q/航变分析", "description": "客服清Q与航变分析", "groupCode": "customer_service", "groupName": "客服分析"},
+    {"code": "smart.home", "name": "智能分析首页", "description": "智能分析工作台", "groupCode": "smart", "groupName": "智能分析"},
+    {"code": "smart.placement.policies", "name": "投放政策", "description": "投放机会、审核、认领与登记", "groupCode": "smart", "groupName": "智能分析"},
+    {"code": "smart.placement.orders", "name": "收单情况", "description": "政策命中订单与关注处理", "groupCode": "smart", "groupName": "智能分析"},
+    {"code": "monitor.center", "name": "监控中心", "description": "通用规则、告警事件与任务运行监控", "groupCode": "monitor", "groupName": "监控中心"},
+    {"code": "problems", "name": "问题中心", "description": "经营问题跟踪", "groupCode": "problems", "groupName": "问题中心"},
+    {"code": "data_assets", "name": "数据资产", "description": "数据资产目录", "groupCode": "data_assets", "groupName": "数据资产"},
+)
+
+LEGACY_MENU_EXPANSIONS = {
+    group_code: tuple(item["code"] for item in MENU_CATALOG if item["groupCode"] == group_code)
+    for group_code in {item["groupCode"] for item in MENU_CATALOG}
+}
+MENU_CODES = {item["code"] for item in MENU_CATALOG}
+MENU_GROUP_BY_CODE = {item["code"]: item["groupCode"] for item in MENU_CATALOG}
+
+
+def configurable_menu_codes(menu_codes: Any) -> list[str]:
+    """Return leaf page codes, expanding legacy first-level module codes."""
+    normalized: set[str] = set()
+    for raw_code in menu_codes or ():
+        code = str(raw_code).strip()
+        if not code:
+            continue
+        if code in LEGACY_MENU_EXPANSIONS:
+            normalized.update(LEGACY_MENU_EXPANSIONS[code])
+        elif code in MENU_CODES:
+            normalized.add(code)
+    return sorted(normalized)
+
+
+def effective_menu_codes(menu_codes: Any) -> list[str]:
+    """Return page codes plus their first-level group codes for navigation."""
+    leaves = configurable_menu_codes(menu_codes)
+    return sorted(set(leaves) | {MENU_GROUP_BY_CODE[code] for code in leaves})
 
 
 def utc_now() -> datetime:
@@ -98,6 +213,27 @@ class MySqlAuthStore:
             KEY idx_auth_audit_action (action, success, created_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='数据中心认证审计日志'
         """,
+        """
+        CREATE TABLE IF NOT EXISTS sys_role_menu (
+            role_id BIGINT UNSIGNED NOT NULL,
+            menu_code VARCHAR(64) NOT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (role_id, menu_code),
+            KEY idx_sys_role_menu_code (menu_code)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='角色菜单权限'
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS sys_user_permission (
+            user_id BIGINT UNSIGNED NOT NULL COMMENT 'sys_user.id',
+            permission_code VARCHAR(100) NOT NULL COMMENT '权限编码',
+            effect VARCHAR(8) NOT NULL COMMENT 'ALLOW额外开启；DENY单独关闭',
+            assigned_by BIGINT UNSIGNED NULL COMMENT '配置人sys_user.id',
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (user_id, permission_code),
+            KEY idx_sup_permission (permission_code, effect)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户功能权限例外配置'
+        """,
     )
     USER_SELECT = """
         SELECT u.id, u.username, u.email,
@@ -117,6 +253,142 @@ class MySqlAuthStore:
         mysql_config = dict(config)
         mysql_config["DATA_MODE"] = "mysql"
         self.source = DataSource(mysql_config)
+
+    @staticmethod
+    def _missing_rbac(error: Exception) -> bool:
+        return bool(getattr(error, "args", ())) and error.args[0] == 1146
+
+    def _with_access(self, user: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not user:
+            return None
+        connection = None
+        try:
+            import pymysql
+
+            connection = self.source.connect()
+            with connection.cursor(pymysql.cursors.DictCursor) as cursor:
+                cursor.execute(
+                    """
+                    SELECT r.role_code, r.role_name, r.description, rp.permission_code
+                    FROM sys_user_role ur
+                    JOIN sys_role r ON r.id = ur.role_id AND r.is_active = 1
+                    LEFT JOIN sys_role_permission rp ON rp.role_id = r.id
+                    WHERE ur.user_id = %s ORDER BY r.id, rp.permission_code
+                    """,
+                    (int(user["id"]),),
+                )
+                access_rows = [dict(row) for row in cursor.fetchall()]
+                role_menu_configured = True
+                try:
+                    cursor.execute(
+                        """
+                        SELECT DISTINCT rm.menu_code
+                        FROM sys_user_role ur
+                        JOIN sys_role r ON r.id = ur.role_id AND r.is_active = 1
+                        JOIN sys_role_menu rm ON rm.role_id = r.id
+                        WHERE ur.user_id = %s ORDER BY rm.menu_code
+                        """,
+                        (int(user["id"]),),
+                    )
+                    role_menus = {str(row["menu_code"]) for row in cursor.fetchall()}
+                except Exception as error:
+                    if not self._missing_rbac(error):
+                        raise
+                    role_menu_configured = False
+                    role_menus = set()
+                try:
+                    cursor.execute(
+                        "SELECT menu_code FROM sys_user_menu WHERE user_id=%s ORDER BY id",
+                        (int(user["id"]),),
+                    )
+                    direct_menus = {str(row["menu_code"]) for row in cursor.fetchall()}
+                except Exception as error:
+                    if not self._missing_rbac(error):
+                        raise
+                    direct_menus = set()
+                try:
+                    cursor.execute(
+                        "SELECT permission_code, effect FROM sys_user_permission WHERE user_id=%s ORDER BY permission_code",
+                        (int(user["id"]),),
+                    )
+                    permission_overrides = {
+                        str(row["permission_code"]): str(row["effect"]).upper()
+                        for row in cursor.fetchall()
+                    }
+                except Exception as error:
+                    if not self._missing_rbac(error):
+                        raise
+                    permission_overrides = {}
+                try:
+                    cursor.execute(
+                        """
+                        SELECT rds.resource_code, rds.scope_type
+                        FROM sys_user_role ur
+                        JOIN sys_role r ON r.id=ur.role_id AND r.is_active=1
+                        JOIN sys_role_data_scope rds ON rds.role_id=r.id
+                        WHERE ur.user_id=%s
+                        ORDER BY rds.resource_code
+                        """,
+                        (int(user["id"]),),
+                    )
+                    data_scope_rows = [dict(row) for row in cursor.fetchall()]
+                except Exception as error:
+                    if not self._missing_rbac(error):
+                        raise
+                    data_scope_rows = []
+            roles_by_code: dict[str, dict[str, str]] = {}
+            role_permissions: set[str] = set()
+            for row in access_rows:
+                roles_by_code.setdefault(
+                    row["role_code"],
+                    {"code": row["role_code"], "name": row["role_name"], "description": row.get("description") or ""},
+                )
+                if row.get("permission_code"):
+                    role_permissions.add(row["permission_code"])
+            allowed_permissions = {
+                code for code, effect in permission_overrides.items() if effect == "ALLOW"
+            }
+            denied_permissions = {
+                code for code, effect in permission_overrides.items() if effect == "DENY"
+            }
+            permissions = (role_permissions | allowed_permissions) - denied_permissions
+            data_scopes: dict[str, str] = {}
+            for row in data_scope_rows:
+                resource = str(row["resource_code"])
+                scope = str(row["scope_type"]).upper()
+                if scope not in DATA_SCOPE_TYPES:
+                    continue
+                if DATA_SCOPE_RANK[scope] > DATA_SCOPE_RANK.get(data_scopes.get(resource, ""), 0):
+                    data_scopes[resource] = scope
+            permission_menus = {
+                row["menuCode"] for row in PERMISSION_CATALOG
+                if row["code"] in permissions
+            }
+            return {
+                **user,
+                "business_roles": list(roles_by_code.values()),
+                "permissions": sorted(permissions),
+                "role_permissions": sorted(role_permissions),
+                "permission_overrides": permission_overrides,
+                "data_scopes": data_scopes,
+                "menu_codes": effective_menu_codes(
+                    role_menus | direct_menus | permission_menus
+                ),
+                "direct_menu_codes": sorted(direct_menus),
+                "rbac_configured": role_menu_configured,
+            }
+        except Exception as error:
+            if not self._missing_rbac(error):
+                raise
+            return {
+                **user, "business_roles": [], "permissions": [],
+                "role_permissions": [], "permission_overrides": {},
+                "data_scopes": {},
+                "menu_codes": [], "direct_menu_codes": [], "rbac_configured": False,
+            }
+        finally:
+            if connection is not None:
+                connection.close()
 
     def _fetchone(self, sql: str, params: tuple[Any, ...] = ()) -> dict[str, Any] | None:
         import pymysql
@@ -170,13 +442,13 @@ class MySqlAuthStore:
         return int(row["total"] if row else 0)
 
     def get_user_by_username(self, username: str) -> dict[str, Any] | None:
-        return self._fetchone(f"{self.USER_SELECT} WHERE u.username = %s", (username,))
+        return self._with_access(self._fetchone(f"{self.USER_SELECT} WHERE u.username = %s", (username,)))
 
     def get_user_by_id(self, user_id: int) -> dict[str, Any] | None:
-        return self._fetchone(f"{self.USER_SELECT} WHERE u.id = %s", (user_id,))
+        return self._with_access(self._fetchone(f"{self.USER_SELECT} WHERE u.id = %s", (user_id,)))
 
     def get_user_by_email(self, email: str) -> dict[str, Any] | None:
-        return self._fetchone(f"{self.USER_SELECT} WHERE u.email = %s", (email,))
+        return self._with_access(self._fetchone(f"{self.USER_SELECT} WHERE u.email = %s", (email,)))
 
     def create_user(self, values: dict[str, Any]) -> dict[str, Any]:
         connection = self.source.connect()
@@ -198,6 +470,17 @@ class MySqlAuthStore:
                     ),
                 )
                 user_id = int(cursor.lastrowid)
+                for code in values.get("role_codes") or []:
+                    cursor.execute(
+                        """
+                        INSERT INTO sys_user_role (user_id, role_id, assigned_by, assigned_at)
+                        SELECT %s, id, %s, %s FROM sys_role
+                        WHERE role_code=%s AND is_active=1
+                        """,
+                        (user_id, values.get("assigned_by"), values["created_at"], code),
+                    )
+                    if cursor.rowcount != 1:
+                        raise AuthError(f"角色不存在或未启用：{code}")
                 cursor.execute(
                     """
                     INSERT INTO auth_user_security (
@@ -300,7 +583,294 @@ class MySqlAuthStore:
         )
 
     def list_users(self) -> list[dict[str, Any]]:
-        return self._fetchall(f"{self.USER_SELECT} ORDER BY u.id")
+        return [self._with_access(row) or row for row in self._fetchall(f"{self.USER_SELECT} ORDER BY u.id")]
+
+    def list_business_roles(self) -> list[dict[str, Any]]:
+        try:
+            return [
+                {"code": row["role_code"], "name": row["role_name"], "description": row.get("description") or ""}
+                for row in self._fetchall(
+                    "SELECT role_code, role_name, description FROM sys_role WHERE is_active=1 ORDER BY id"
+                )
+            ]
+        except Exception as error:
+            if self._missing_rbac(error):
+                raise AuthError("智能投放角色表尚未创建，请先执行smart-placement-rbac.sql", 503, "RBAC_NOT_CONFIGURED") from error
+            raise
+
+    def list_roles(self) -> list[dict[str, Any]]:
+        connection = self.source.connect()
+        try:
+            import pymysql
+
+            with connection.cursor(pymysql.cursors.DictCursor) as cursor:
+                cursor.execute(
+                    """
+                    SELECT r.role_code, r.role_name, r.description, r.is_active,
+                           count(distinct ur.user_id) AS user_count
+                    FROM sys_role r
+                    LEFT JOIN sys_user_role ur ON ur.role_id = r.id
+                    GROUP BY r.id, r.role_code, r.role_name, r.description, r.is_active
+                    ORDER BY r.id
+                    """
+                )
+                roles = [dict(row) for row in cursor.fetchall()]
+                cursor.execute(
+                    """
+                    SELECT r.role_code, rm.menu_code
+                    FROM sys_role r JOIN sys_role_menu rm ON rm.role_id = r.id
+                    ORDER BY r.id, rm.menu_code
+                    """
+                )
+                menu_rows = [dict(row) for row in cursor.fetchall()]
+                cursor.execute(
+                    """
+                    SELECT r.role_code, rp.permission_code
+                    FROM sys_role r JOIN sys_role_permission rp ON rp.role_id = r.id
+                    ORDER BY r.id, rp.permission_code
+                    """
+                )
+                permission_rows = [dict(row) for row in cursor.fetchall()]
+                try:
+                    cursor.execute(
+                        """
+                        SELECT r.role_code, rds.resource_code, rds.scope_type
+                        FROM sys_role r JOIN sys_role_data_scope rds ON rds.role_id=r.id
+                        ORDER BY r.id, rds.resource_code
+                        """
+                    )
+                    scope_rows = [dict(row) for row in cursor.fetchall()]
+                except Exception as error:
+                    if not self._missing_rbac(error):
+                        raise
+                    scope_rows = []
+        except Exception as error:
+            if self._missing_rbac(error):
+                raise AuthError("角色菜单权限表尚未创建，请先执行role-based-access-control.sql", 503, "RBAC_NOT_CONFIGURED") from error
+            raise
+        finally:
+            connection.close()
+        menus_by_role: dict[str, list[str]] = {}
+        permissions_by_role: dict[str, list[str]] = {}
+        scopes_by_role: dict[str, dict[str, str]] = {}
+        for row in menu_rows:
+            menus_by_role.setdefault(str(row["role_code"]), []).append(str(row["menu_code"]))
+        for row in permission_rows:
+            permissions_by_role.setdefault(str(row["role_code"]), []).append(str(row["permission_code"]))
+        for row in scope_rows:
+            scopes_by_role.setdefault(str(row["role_code"]), {})[str(row["resource_code"])] = str(row["scope_type"])
+        return [
+            {
+                "code": str(row["role_code"]),
+                "name": str(row["role_name"]),
+                "description": str(row.get("description") or ""),
+                "isActive": bool(row["is_active"]),
+                "userCount": int(row.get("user_count") or 0),
+                "menuCodes": configurable_menu_codes(
+                    menus_by_role.get(str(row["role_code"]), [])
+                ),
+                "permissions": permissions_by_role.get(str(row["role_code"]), []),
+                "dataScopes": scopes_by_role.get(
+                    str(row["role_code"]),
+                    dict(DEFAULT_ROLE_DATA_SCOPES.get(str(row["role_code"]), {})),
+                ),
+            }
+            for row in roles
+        ]
+
+    def create_role(self, values: dict[str, Any]) -> None:
+        connection = self.source.connect()
+        try:
+            connection.begin()
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "INSERT INTO sys_role (role_code, role_name, description, is_active) VALUES (%s,%s,%s,%s)",
+                    (values["code"], values["name"], values.get("description") or None, int(values["is_active"])),
+                )
+                role_id = int(cursor.lastrowid)
+                for menu_code in values["menu_codes"]:
+                    cursor.execute(
+                        "INSERT INTO sys_role_menu (role_id, menu_code, created_at) VALUES (%s,%s,%s)",
+                        (role_id, menu_code, values["updated_at"]),
+                    )
+                for permission_code in values["permissions"]:
+                    cursor.execute(
+                        "INSERT INTO sys_role_permission (role_id, permission_code, created_at) VALUES (%s,%s,%s)",
+                        (role_id, permission_code, values["updated_at"]),
+                    )
+                for resource_code, scope_type in values["data_scopes"].items():
+                    cursor.execute(
+                        "INSERT INTO sys_role_data_scope (role_id, resource_code, scope_type, created_at, updated_at) VALUES (%s,%s,%s,%s,%s)",
+                        (role_id, resource_code, scope_type, values["updated_at"], values["updated_at"]),
+                    )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def update_role(self, role_code: str, values: dict[str, Any]) -> None:
+        connection = self.source.connect()
+        try:
+            connection.begin()
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT id FROM sys_role WHERE role_code=%s FOR UPDATE", (role_code,))
+                role_row = cursor.fetchone()
+                if not role_row:
+                    raise AuthError("角色不存在", 404, "ROLE_NOT_FOUND")
+                role_id = int(role_row[0])
+                cursor.execute(
+                    "UPDATE sys_role SET role_name=%s, description=%s, is_active=%s, updated_at=%s WHERE role_code=%s",
+                    (values["name"], values.get("description") or None, int(values["is_active"]), values["updated_at"], role_code),
+                )
+                cursor.execute("DELETE FROM sys_role_menu WHERE role_id=%s", (role_id,))
+                cursor.execute("DELETE FROM sys_role_permission WHERE role_id=%s", (role_id,))
+                cursor.execute("DELETE FROM sys_role_data_scope WHERE role_id=%s", (role_id,))
+                for menu_code in values["menu_codes"]:
+                    cursor.execute(
+                        "INSERT INTO sys_role_menu (role_id, menu_code, created_at) VALUES (%s,%s,%s)",
+                        (role_id, menu_code, values["updated_at"]),
+                    )
+                for permission_code in values["permissions"]:
+                    cursor.execute(
+                        "INSERT INTO sys_role_permission (role_id, permission_code, created_at) VALUES (%s,%s,%s)",
+                        (role_id, permission_code, values["updated_at"]),
+                    )
+                for resource_code, scope_type in values["data_scopes"].items():
+                    cursor.execute(
+                        "INSERT INTO sys_role_data_scope (role_id, resource_code, scope_type, created_at, updated_at) VALUES (%s,%s,%s,%s,%s)",
+                        (role_id, resource_code, scope_type, values["updated_at"], values["updated_at"]),
+                    )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def set_user_roles(self, user_id: int, role_codes: list[str], actor_id: int) -> None:
+        connection = self.source.connect()
+        try:
+            connection.begin()
+            with connection.cursor() as cursor:
+                cursor.execute("DELETE FROM sys_user_role WHERE user_id=%s", (user_id,))
+                for code in role_codes:
+                    cursor.execute(
+                        """
+                        INSERT INTO sys_user_role (user_id, role_id, assigned_by, assigned_at)
+                        SELECT %s, id, %s, %s FROM sys_role
+                        WHERE role_code=%s AND is_active=1
+                        """,
+                        (user_id, actor_id, business_now_naive(), code),
+                    )
+                    if cursor.rowcount != 1:
+                        raise AuthError(f"业务角色不存在或未启用：{code}")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def list_managed_member_ids(self, manager_user_id: int, resource_code: str) -> list[int]:
+        rows = self._fetchall(
+            """
+            SELECT member_user_id
+            FROM sys_user_manager_relation
+            WHERE manager_user_id=%s AND resource_code=%s AND is_active=1
+            ORDER BY member_user_id
+            """,
+            (manager_user_id, resource_code),
+        )
+        return [int(row["member_user_id"]) for row in rows]
+
+    def set_managed_members(
+        self, manager_user_id: int, resource_code: str,
+        member_user_ids: list[int], actor_id: int,
+    ) -> None:
+        connection = self.source.connect()
+        try:
+            connection.begin()
+            with connection.cursor() as cursor:
+                if member_user_ids:
+                    placeholders = ",".join(["%s"] * len(member_user_ids))
+                    cursor.execute(
+                        f"SELECT id FROM sys_user WHERE id IN ({placeholders}) AND is_active=1",
+                        tuple(member_user_ids),
+                    )
+                    existing = {int(row[0]) for row in cursor.fetchall()}
+                    missing = sorted(set(member_user_ids) - existing)
+                    if missing:
+                        raise AuthError(f"管理成员不存在或未启用：{','.join(map(str, missing))}")
+                cursor.execute(
+                    "DELETE FROM sys_user_manager_relation WHERE manager_user_id=%s AND resource_code=%s",
+                    (manager_user_id, resource_code),
+                )
+                current = business_now_naive()
+                for member_user_id in member_user_ids:
+                    cursor.execute(
+                        """
+                        INSERT INTO sys_user_manager_relation (
+                            manager_user_id,member_user_id,resource_code,is_active,
+                            assigned_by,created_at,updated_at
+                        ) VALUES (%s,%s,%s,1,%s,%s,%s)
+                        """,
+                        (manager_user_id, member_user_id, resource_code, actor_id, current, current),
+                    )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def set_user_permissions(
+        self, user_id: int, overrides: dict[str, str], actor_id: int
+    ) -> None:
+        connection = self.source.connect()
+        try:
+            connection.begin()
+            with connection.cursor() as cursor:
+                cursor.execute("DELETE FROM sys_user_permission WHERE user_id=%s", (user_id,))
+                now = business_now_naive()
+                for permission_code, effect in overrides.items():
+                    cursor.execute(
+                        """
+                        INSERT INTO sys_user_permission (
+                            user_id, permission_code, effect, assigned_by, created_at, updated_at
+                        ) VALUES (%s,%s,%s,%s,%s,%s)
+                        """,
+                        (user_id, permission_code, effect, actor_id, now, now),
+                    )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def list_menu_catalog(self) -> list[dict[str, Any]]:
+        return [dict(row) for row in MENU_CATALOG]
+
+    def set_user_menus(self, user_id: int, menu_codes: list[str]) -> None:
+        connection = self.source.connect()
+        try:
+            connection.begin()
+            with connection.cursor() as cursor:
+                cursor.execute("DELETE FROM sys_user_menu WHERE user_id=%s", (user_id,))
+                now = business_now_naive()
+                for code in menu_codes:
+                    cursor.execute(
+                        "INSERT INTO sys_user_menu (user_id, menu_code, created_at, updated_at) VALUES (%s,%s,%s,%s)",
+                        (user_id, code, now, now),
+                    )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
 
     def create_session(self, values: dict[str, Any]) -> None:
         self._execute(
@@ -319,7 +889,7 @@ class MySqlAuthStore:
         )
 
     def get_session(self, hashed_token: str) -> dict[str, Any] | None:
-        return self._fetchone(
+        return self._with_access(self._fetchone(
             """
             SELECT s.id AS session_id, s.user_id, s.token_hash, s.csrf_token_hash,
                    s.created_at AS session_created_at, s.last_seen_at,
@@ -339,7 +909,7 @@ class MySqlAuthStore:
             WHERE s.token_hash = %s
             """,
             (hashed_token,),
-        )
+        ))
 
     def touch_session(self, session_id: int, now: datetime) -> None:
         self._execute(
@@ -396,6 +966,56 @@ class MemoryAuthStore:
         self._session_id = 0
         self._audit_id = 0
         self._lock = threading.RLock()
+        self.managed_members: dict[tuple[int, str], list[int]] = {}
+        self.roles: dict[str, dict[str, Any]] = {
+            row["code"]: {
+                **dict(row), "isActive": True, "userCount": 0,
+                "menuCodes": list(ROLE_MENUS.get(row["code"], ())),
+                "permissions": list(ROLE_PERMISSIONS.get(row["code"], ())),
+                "dataScopes": dict(DEFAULT_ROLE_DATA_SCOPES.get(row["code"], {})),
+            }
+            for row in BUSINESS_ROLE_CATALOG
+        }
+
+    def _refresh_user_access(self, user_id: int) -> None:
+        row = self.users[user_id]
+        active_roles = [
+            self.roles[code] for code in row.get("role_codes", [])
+            if code in self.roles and self.roles[code]["isActive"]
+        ]
+        row["business_roles"] = [
+            {"code": role["code"], "name": role["name"], "description": role["description"]}
+            for role in active_roles
+        ]
+        role_permissions = {
+            permission for role in active_roles for permission in role["permissions"]
+        }
+        overrides = row.get("permission_overrides", {})
+        allowed_permissions = {
+            code for code, effect in overrides.items() if effect == "ALLOW"
+        }
+        denied_permissions = {
+            code for code, effect in overrides.items() if effect == "DENY"
+        }
+        row["role_permissions"] = sorted(role_permissions)
+        row["permissions"] = sorted(
+            (role_permissions | allowed_permissions) - denied_permissions
+        )
+        data_scopes: dict[str, str] = {}
+        for role in active_roles:
+            for resource, scope in role.get("dataScopes", {}).items():
+                if DATA_SCOPE_RANK.get(scope, 0) > DATA_SCOPE_RANK.get(data_scopes.get(resource, ""), 0):
+                    data_scopes[resource] = scope
+        row["data_scopes"] = data_scopes
+        permission_menus = {
+            item["menuCode"] for item in PERMISSION_CATALOG
+            if item["code"] in row["permissions"]
+        }
+        row["menu_codes"] = effective_menu_codes(
+            {menu for role in active_roles for menu in role["menuCodes"]}
+            | set(row.get("direct_menu_codes", []))
+            | permission_menus
+        )
 
     def ensure_schema(self) -> None:
         return None
@@ -423,9 +1043,13 @@ class MemoryAuthStore:
             self._user_id += 1
             row = {
                 "id": self._user_id, "failed_attempts": 0, "locked_until": None,
+                "business_roles": [], "permissions": [], "menu_codes": [], "rbac_configured": True,
+                "role_codes": list(values.get("role_codes") or []), "direct_menu_codes": [],
+                "role_permissions": [], "permission_overrides": {},
                 **deepcopy(values),
             }
             self.users[self._user_id] = row
+            self._refresh_user_access(self._user_id)
             return deepcopy(row)
 
     def update_login_failure(self, user_id: int, failed_attempts: int, locked_until: datetime | None, now: datetime) -> None:
@@ -451,6 +1075,87 @@ class MemoryAuthStore:
     def list_users(self) -> list[dict[str, Any]]:
         with self._lock:
             return [deepcopy(self.users[key]) for key in sorted(self.users)]
+
+    def list_business_roles(self) -> list[dict[str, Any]]:
+        return [
+            {"code": role["code"], "name": role["name"], "description": role["description"]}
+            for role in self.roles.values() if role["isActive"]
+        ]
+
+    def list_roles(self) -> list[dict[str, Any]]:
+        with self._lock:
+            counts = {
+                code: sum(code in row.get("role_codes", []) for row in self.users.values())
+                for code in self.roles
+            }
+            return [
+                {**deepcopy(role), "userCount": counts[code]}
+                for code, role in self.roles.items()
+            ]
+
+    def create_role(self, values: dict[str, Any]) -> None:
+        with self._lock:
+            if values["code"] in self.roles:
+                raise AuthError("角色编码已存在", 409, "ROLE_EXISTS")
+            self.roles[values["code"]] = {
+                "code": values["code"], "name": values["name"],
+                "description": values.get("description") or "",
+                "isActive": bool(values["is_active"]), "userCount": 0,
+                "menuCodes": list(values["menu_codes"]),
+                "permissions": list(values["permissions"]),
+                "dataScopes": dict(values["data_scopes"]),
+            }
+
+    def update_role(self, role_code: str, values: dict[str, Any]) -> None:
+        with self._lock:
+            if role_code not in self.roles:
+                raise AuthError("角色不存在", 404, "ROLE_NOT_FOUND")
+            self.roles[role_code].update(
+                name=values["name"], description=values.get("description") or "",
+                isActive=bool(values["is_active"]),
+                menuCodes=list(values["menu_codes"]),
+                permissions=list(values["permissions"]),
+                dataScopes=dict(values["data_scopes"]),
+            )
+            for user_id in self.users:
+                self._refresh_user_access(user_id)
+
+    def set_user_roles(self, user_id: int, role_codes: list[str], actor_id: int) -> None:
+        del actor_id
+        with self._lock:
+            self.users[user_id]["role_codes"] = list(role_codes)
+            self._refresh_user_access(user_id)
+
+    def list_managed_member_ids(self, manager_user_id: int, resource_code: str) -> list[int]:
+        with self._lock:
+            return list(self.managed_members.get((manager_user_id, resource_code), []))
+
+    def set_managed_members(
+        self, manager_user_id: int, resource_code: str,
+        member_user_ids: list[int], actor_id: int,
+    ) -> None:
+        del actor_id
+        with self._lock:
+            missing = [item for item in member_user_ids if item not in self.users or not self.users[item]["is_enabled"]]
+            if missing:
+                raise AuthError(f"管理成员不存在或未启用：{','.join(map(str, missing))}")
+            self.managed_members[(manager_user_id, resource_code)] = list(member_user_ids)
+
+    def set_user_permissions(
+        self, user_id: int, overrides: dict[str, str], actor_id: int
+    ) -> None:
+        del actor_id
+        with self._lock:
+            self.users[user_id]["permission_overrides"] = deepcopy(overrides)
+            self._refresh_user_access(user_id)
+
+    def list_menu_catalog(self) -> list[dict[str, Any]]:
+        return [dict(row) for row in MENU_CATALOG]
+
+    def set_user_menus(self, user_id: int, menu_codes: list[str]) -> None:
+        with self._lock:
+            self.users[user_id]["direct_menu_codes"] = list(menu_codes)
+            self._refresh_user_access(user_id)
 
     def create_session(self, values: dict[str, Any]) -> None:
         with self._lock:
@@ -556,6 +1261,14 @@ class AuthManager:
             "lockedUntil": AuthManager.iso(user.get("locked_until")),
             "passwordChangedAt": AuthManager.iso(user.get("password_changed_at")),
             "createdAt": AuthManager.iso(user.get("created_at")),
+            "businessRoles": list(user.get("business_roles") or []),
+            "permissions": list(user.get("permissions") or []),
+            "rolePermissions": list(user.get("role_permissions") or []),
+            "permissionOverrides": dict(user.get("permission_overrides") or {}),
+            "dataScopes": dict(user.get("data_scopes") or {}),
+            "rbacConfigured": bool(user.get("rbac_configured", True)),
+            "menuCodes": list(user.get("menu_codes") or []),
+            "legacyMenuCodes": list(user.get("direct_menu_codes") or []),
         }
 
     @staticmethod
@@ -572,7 +1285,7 @@ class AuthManager:
             "username": user.get("username") if user else username,
             "action": action, "success": success, "ip_address": ip_address,
             "user_agent": (user_agent or "")[:500] or None,
-            "detail": detail or {}, "created_at": self.now_fn(),
+            "detail": detail or {}, "created_at": business_now_naive(),
         })
 
     def login(self, username_value: str, password: str, ip_address: str, user_agent: str) -> dict[str, Any]:
@@ -667,6 +1380,7 @@ class AuthManager:
     def _create_user(
         self, *, username: str, display_name: str, password: str,
         is_admin: bool, must_change_password: bool, email: str | None,
+        role_codes: list[str] | None = None, assigned_by: int | None = None,
     ) -> dict[str, Any]:
         username = self.normalize_username(username)
         name = display_name.strip()
@@ -680,26 +1394,30 @@ class AuthManager:
             raise AuthError("用户名已存在", 409, "USERNAME_EXISTS")
         if self.store.get_user_by_email(normalized_email):
             raise AuthError("邮箱已存在", 409, "EMAIL_EXISTS")
-        now = self.now_fn()
+        now = business_now_naive()
         return self.store.create_user({
             "username": username, "email": normalized_email, "display_name": name,
             "password_hash": password_hash(password),
             "is_admin": is_admin, "is_enabled": True,
             "must_change_password": must_change_password,
             "password_changed_at": None, "created_at": now, "updated_at": now,
+            "role_codes": role_codes or [], "assigned_by": assigned_by,
         })
 
     def create_user(
         self, actor: dict[str, Any], *, username: str, display_name: str,
         password: str, is_admin: bool, email: str | None,
+        role_codes: Any,
         ip_address: str, user_agent: str,
     ) -> dict[str, Any]:
         self.require_admin(actor)
+        normalized_roles = self._validate_assignable_roles(role_codes)
         user = self._create_user(
             username=username, display_name=display_name, password=password,
             is_admin=is_admin, must_change_password=True, email=email,
+            role_codes=normalized_roles, assigned_by=int(actor["id"]),
         )
-        self.audit("create_user", True, user=actor, ip_address=ip_address, user_agent=user_agent, detail={"targetUserId": user["id"], "targetUsername": user["username"], "isAdmin": is_admin})
+        self.audit("create_user", True, user=actor, ip_address=ip_address, user_agent=user_agent, detail={"targetUserId": user["id"], "targetUsername": user["username"], "isAdmin": is_admin, "roleCodes": normalized_roles})
         return self.public_user(user)
 
     def update_user(
@@ -735,7 +1453,7 @@ class AuthManager:
                 if not isinstance(values[key], bool):
                     raise AuthError("账号状态参数不合法")
                 cleaned[key] = values[key]
-        self.store.update_user(target_id, cleaned, self.now_fn())
+        self.store.update_user(target_id, cleaned, business_now_naive())
         if cleaned.get("is_enabled") is False:
             self.store.revoke_user_sessions(target_id, self.now_fn())
         updated = self.store.get_user_by_id(target_id) or target
@@ -759,6 +1477,289 @@ class AuthManager:
     def users(self, actor: dict[str, Any]) -> list[dict[str, Any]]:
         self.require_admin(actor)
         return [self.public_user(row) for row in self.store.list_users()]
+
+    def business_roles(self, actor: dict[str, Any]) -> list[dict[str, Any]]:
+        self.require_admin(actor)
+        return self.store.list_business_roles()
+
+    def roles(self, actor: dict[str, Any]) -> list[dict[str, Any]]:
+        self.require_admin(actor)
+        return self.store.list_roles()
+
+    def permission_catalog(self, actor: dict[str, Any]) -> list[dict[str, Any]]:
+        self.require_admin(actor)
+        return [dict(row) for row in PERMISSION_CATALOG]
+
+    @staticmethod
+    def _normalize_role_codes(role_codes: Any) -> list[str]:
+        if not isinstance(role_codes, list):
+            raise AuthError("角色必须为数组")
+        return list(dict.fromkeys(
+            str(code).strip().upper() for code in role_codes if str(code).strip()
+        ))
+
+    def _validate_assignable_roles(self, role_codes: Any) -> list[str]:
+        normalized = self._normalize_role_codes(role_codes)
+        supported = {row["code"] for row in self.store.list_business_roles()}
+        invalid = [code for code in normalized if code not in supported]
+        if invalid:
+            raise AuthError(f"角色不存在或未启用：{','.join(invalid)}")
+        return normalized
+
+    @staticmethod
+    def _role_values(values: dict[str, Any], *, require_code: bool) -> dict[str, Any]:
+        code = str(values.get("roleCode", "")).strip().upper()
+        if require_code and not ROLE_CODE_RE.fullmatch(code):
+            raise AuthError("角色编码须为3至64位大写字母、数字或下划线，且以字母开头")
+        name = str(values.get("name", "")).strip()
+        description = str(values.get("description", "")).strip()
+        if not name or len(name) > 100:
+            raise AuthError("角色名称不能为空且不能超过100个字符")
+        if len(description) > 500:
+            raise AuthError("角色说明不能超过500个字符")
+        menu_codes = values.get("menuCodes")
+        permissions = values.get("permissions")
+        if not isinstance(menu_codes, list) or not isinstance(permissions, list):
+            raise AuthError("菜单权限和功能权限必须为数组")
+        raw_menus = list(dict.fromkeys(str(item).strip() for item in menu_codes if str(item).strip()))
+        normalized_menus = configurable_menu_codes(raw_menus)
+        normalized_permissions = list(dict.fromkeys(str(item).strip() for item in permissions if str(item).strip()))
+        supported_menus = MENU_CODES | set(LEGACY_MENU_EXPANSIONS)
+        supported_permissions = {row["code"] for row in PERMISSION_CATALOG}
+        invalid_menus = [item for item in raw_menus if item not in supported_menus]
+        invalid_permissions = [item for item in normalized_permissions if item not in supported_permissions]
+        if invalid_menus:
+            raise AuthError(f"不支持的菜单权限：{','.join(invalid_menus)}")
+        if invalid_permissions:
+            raise AuthError(f"不支持的功能权限：{','.join(invalid_permissions)}")
+        required_menus = {
+            row["menuCode"] for row in PERMISSION_CATALOG
+            if row["code"] in normalized_permissions
+        }
+        missing_menus = sorted(required_menus - set(normalized_menus))
+        if missing_menus:
+            raise AuthError(f"所选功能权限必须同时授权菜单：{','.join(missing_menus)}")
+        is_active = values.get("isActive", True)
+        if not isinstance(is_active, bool):
+            raise AuthError("角色启用状态不合法")
+        raw_scopes = values.get("dataScopes")
+        data_scopes: dict[str, str] | None = None
+        if raw_scopes is not None:
+            if not isinstance(raw_scopes, dict):
+                raise AuthError("数据范围配置必须为对象")
+            invalid_resources = sorted(set(map(str, raw_scopes)) - set(DATA_SCOPE_RESOURCES))
+            if invalid_resources:
+                raise AuthError(f"不支持的数据范围资源：{','.join(invalid_resources)}")
+            data_scopes = {}
+            for resource_code in DATA_SCOPE_RESOURCES:
+                scope_type = str(raw_scopes.get(resource_code) or "SELF").strip().upper()
+                if scope_type not in DATA_SCOPE_TYPES:
+                    raise AuthError(f"数据范围状态不支持：{resource_code}={scope_type}")
+                data_scopes[resource_code] = scope_type
+        return {
+            "code": code, "name": name, "description": description,
+            "menu_codes": normalized_menus,
+            "permissions": normalized_permissions,
+            "data_scopes": data_scopes,
+            "is_active": is_active,
+            "updated_at": business_now_naive(),
+        }
+
+    def create_role(
+        self, actor: dict[str, Any], values: dict[str, Any],
+        ip_address: str, user_agent: str,
+    ) -> dict[str, Any]:
+        self.require_admin(actor)
+        cleaned = self._role_values(values, require_code=True)
+        if any(row["code"] == cleaned["code"] for row in self.store.list_roles()):
+            raise AuthError("角色编码已存在", 409, "ROLE_EXISTS")
+        if cleaned["data_scopes"] is None:
+            cleaned["data_scopes"] = dict(DEFAULT_ROLE_DATA_SCOPES.get(
+                cleaned["code"], {resource: "SELF" for resource in DATA_SCOPE_RESOURCES},
+            ))
+        self.store.create_role(cleaned)
+        self.audit(
+            "create_role", True, user=actor, ip_address=ip_address,
+            user_agent=user_agent, detail={
+                "roleCode": cleaned["code"],
+                "menuCodes": cleaned["menu_codes"],
+                "permissions": cleaned["permissions"],
+                "dataScopes": cleaned["data_scopes"],
+                "isActive": cleaned["is_active"],
+            },
+        )
+        return next(row for row in self.roles(actor) if row["code"] == cleaned["code"])
+
+    def update_role(
+        self, actor: dict[str, Any], role_code: str, values: dict[str, Any],
+        ip_address: str, user_agent: str,
+    ) -> dict[str, Any]:
+        self.require_admin(actor)
+        normalized_code = role_code.strip().upper()
+        cleaned = self._role_values(values, require_code=False)
+        existing = next(
+            (row for row in self.store.list_roles() if row["code"] == normalized_code),
+            None,
+        )
+        if not existing:
+            raise AuthError("角色不存在", 404, "ROLE_NOT_FOUND")
+        if cleaned["data_scopes"] is None:
+            cleaned["data_scopes"] = dict(
+                existing.get("dataScopes")
+                or DEFAULT_ROLE_DATA_SCOPES.get(
+                    normalized_code, {resource: "SELF" for resource in DATA_SCOPE_RESOURCES},
+                )
+            )
+        self.store.update_role(normalized_code, cleaned)
+        self.audit(
+            "update_role", True, user=actor, ip_address=ip_address,
+            user_agent=user_agent,
+            detail={
+                "roleCode": normalized_code,
+                "affectedUserCount": int(existing.get("userCount") or 0),
+                "before": {
+                    "name": existing["name"],
+                    "menuCodes": existing.get("menuCodes") or [],
+                    "permissions": existing.get("permissions") or [],
+                    "dataScopes": existing.get("dataScopes") or {},
+                    "isActive": bool(existing.get("isActive")),
+                },
+                "after": {
+                    "name": cleaned["name"],
+                    "menuCodes": cleaned["menu_codes"],
+                    "permissions": cleaned["permissions"],
+                    "dataScopes": cleaned["data_scopes"],
+                    "isActive": cleaned["is_active"],
+                },
+            },
+        )
+        return next(row for row in self.roles(actor) if row["code"] == normalized_code)
+
+    def update_business_roles(
+        self, actor: dict[str, Any], target_id: int, role_codes: list[Any],
+        ip_address: str, user_agent: str,
+    ) -> dict[str, Any]:
+        self.require_admin(actor)
+        target = self.store.get_user_by_id(target_id)
+        if not target:
+            raise AuthError("账号不存在", 404, "USER_NOT_FOUND")
+        normalized = self._validate_assignable_roles(role_codes)
+        self.store.set_user_roles(target_id, normalized, int(actor["id"]))
+        updated = self.store.get_user_by_id(target_id) or target
+        self.audit(
+            "update_business_roles", True, user=actor, ip_address=ip_address,
+            user_agent=user_agent,
+            detail={"targetUserId": target_id, "roleCodes": normalized},
+        )
+        return self.public_user(updated)
+
+    @staticmethod
+    def _managed_resource(resource_code: Any) -> str:
+        normalized = str(resource_code or "smart_placement").strip()
+        if normalized not in MANAGED_RELATION_RESOURCES:
+            raise AuthError(f"不支持的成员管理资源：{normalized}")
+        return normalized
+
+    def managed_members(
+        self, actor: dict[str, Any], target_id: int, resource_code: Any,
+    ) -> dict[str, Any]:
+        self.require_admin(actor)
+        if not self.store.get_user_by_id(target_id):
+            raise AuthError("账号不存在", 404, "USER_NOT_FOUND")
+        resource = self._managed_resource(resource_code)
+        return {
+            "resourceCode": resource,
+            "memberUserIds": self.store.list_managed_member_ids(target_id, resource),
+        }
+
+    def update_managed_members(
+        self, actor: dict[str, Any], target_id: int, resource_code: Any,
+        member_user_ids: Any, ip_address: str, user_agent: str,
+    ) -> dict[str, Any]:
+        self.require_admin(actor)
+        target = self.store.get_user_by_id(target_id)
+        if not target:
+            raise AuthError("账号不存在", 404, "USER_NOT_FOUND")
+        resource = self._managed_resource(resource_code)
+        if not isinstance(member_user_ids, list):
+            raise AuthError("管理成员必须为数组")
+        try:
+            normalized = list(dict.fromkeys(int(item) for item in member_user_ids))
+        except (TypeError, ValueError) as error:
+            raise AuthError("管理成员ID必须为整数") from error
+        if target_id in normalized:
+            raise AuthError("不能把账号本人设置为自己的管理成员")
+        self.store.set_managed_members(target_id, resource, normalized, int(actor["id"]))
+        self.audit(
+            "update_managed_members", True, user=actor,
+            ip_address=ip_address, user_agent=user_agent,
+            detail={
+                "targetUserId": target_id,
+                "resourceCode": resource,
+                "memberUserIds": normalized,
+            },
+        )
+        return {"resourceCode": resource, "memberUserIds": normalized}
+
+    def update_user_permissions(
+        self, actor: dict[str, Any], target_id: int, overrides: Any,
+        ip_address: str, user_agent: str,
+    ) -> dict[str, Any]:
+        self.require_admin(actor)
+        target = self.store.get_user_by_id(target_id)
+        if not target:
+            raise AuthError("账号不存在", 404, "USER_NOT_FOUND")
+        if not isinstance(overrides, dict):
+            raise AuthError("个人权限配置必须为对象")
+        supported = {row["code"] for row in PERMISSION_CATALOG}
+        normalized: dict[str, str] = {}
+        for raw_code, raw_effect in overrides.items():
+            code = str(raw_code).strip()
+            effect = str(raw_effect).strip().upper()
+            if code not in supported:
+                raise AuthError(f"不支持的功能权限：{code}")
+            if effect == "INHERIT" or not effect:
+                continue
+            if effect not in {"ALLOW", "DENY"}:
+                raise AuthError(f"个人权限状态不支持：{effect}")
+            normalized[code] = effect
+        self.store.set_user_permissions(target_id, normalized, int(actor["id"]))
+        updated = self.store.get_user_by_id(target_id) or target
+        self.audit(
+            "update_user_permissions", True, user=actor,
+            ip_address=ip_address, user_agent=user_agent,
+            detail={"targetUserId": target_id, "permissionOverrides": normalized},
+        )
+        return self.public_user(updated)
+
+    def menu_catalog(self, actor: dict[str, Any]) -> list[dict[str, Any]]:
+        self.require_admin(actor)
+        return self.store.list_menu_catalog()
+
+    def update_user_menus(
+        self, actor: dict[str, Any], target_id: int, menu_codes: list[Any],
+        ip_address: str, user_agent: str,
+    ) -> dict[str, Any]:
+        self.require_admin(actor)
+        target = self.store.get_user_by_id(target_id)
+        if not target:
+            raise AuthError("账号不存在", 404, "USER_NOT_FOUND")
+        if not isinstance(menu_codes, list):
+            raise AuthError("菜单权限必须为数组")
+        raw_codes = list(dict.fromkeys(str(code).strip() for code in menu_codes if str(code).strip()))
+        supported = MENU_CODES | set(LEGACY_MENU_EXPANSIONS)
+        invalid = [code for code in raw_codes if code not in supported]
+        if invalid:
+            raise AuthError(f"不支持的菜单编码：{','.join(invalid)}")
+        normalized = configurable_menu_codes(raw_codes)
+        self.store.set_user_menus(target_id, normalized)
+        updated = self.store.get_user_by_id(target_id) or target
+        self.audit(
+            "update_user_menus", True, user=actor, ip_address=ip_address,
+            user_agent=user_agent,
+            detail={"targetUserId": target_id, "menuCodes": normalized},
+        )
+        return self.public_user(updated)
 
     def audits(self, actor: dict[str, Any], limit: int) -> list[dict[str, Any]]:
         self.require_admin(actor)

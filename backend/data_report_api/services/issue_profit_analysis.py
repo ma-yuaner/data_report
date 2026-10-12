@@ -4,12 +4,13 @@ import logging
 import threading
 import time
 from copy import deepcopy
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
 from .data_source import DataSource, data_mode, is_live_mode
 from .profit_overview import _period
+from ..time_utils import business_now
 
 
 LOGGER = logging.getLogger(__name__)
@@ -90,7 +91,7 @@ class IssueProfitAnalysisService:
         return result
 
     def _fetch_live(self, source: DataSource, start: date, end: date) -> dict[str, Any]:
-        generated_at = datetime.now().astimezone().isoformat(timespec="seconds")
+        generated_at = business_now().isoformat(timespec="seconds")
         try:
             connection = source.connect()
             try:
@@ -248,7 +249,7 @@ class IssueProfitAnalysisService:
         }
         return {
             "mode": "mock", "source": "演示数据", "available": True, "error": None,
-            "generatedAt": datetime.now().astimezone().isoformat(timespec="seconds"), "cacheHit": False,
+            "generatedAt": business_now().isoformat(timespec="seconds"), "cacheHit": False,
             "period": {"startDate": start.isoformat(), "endDate": end.isoformat()},
             "summary": {"issueCount": total, "segmentCount": 196500, "profit": -2220857.63, "averageProfit": -17.27, "lossCount": 48120, "lossRate": 37.42, "profitCount": 75200, "zeroProfitCount": 5280},
             "trend": {"granularity": "month", "items": [{"period": f"2026-{month:02d}", "count": 13000 + month * 600, "profit": -480000 + month * 72000} for month in range(1, 10)]},

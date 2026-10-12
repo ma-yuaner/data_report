@@ -4,11 +4,12 @@ import logging
 import threading
 import time
 from copy import deepcopy
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
 from .data_source import DataSource, TABLE_SPECS, data_mode, is_live_mode
+from ..time_utils import business_now
 
 
 LOGGER = logging.getLogger(__name__)
@@ -67,7 +68,7 @@ def _number(value: Any) -> int | float | None:
 
 
 def _period(start_value: str | None, end_value: str | None) -> tuple[date, date]:
-    today = datetime.now().astimezone().date()
+    today = business_now().date()
     try:
         start = date.fromisoformat(start_value) if start_value else today
         end = date.fromisoformat(end_value) if end_value else today
@@ -100,7 +101,7 @@ class ProfitOverviewService:
         metrics = self._fetch_live(source, start, end) if source else self._mock_metrics()
         complete = all(item["available"] for item in metrics)
         total = sum(float(item["profit"]) for item in metrics) if complete else None
-        generated_at = datetime.now().astimezone().isoformat(timespec="seconds")
+        generated_at = business_now().isoformat(timespec="seconds")
         result = {
             "mode": "live" if source else "mock",
             "source": source.label if source else "演示数据",

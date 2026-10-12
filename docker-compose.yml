@@ -3,6 +3,8 @@ services:
     build:
       context: ./backend
     environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
       APP_ENV: ${APP_ENV:-production}
       SECRET_KEY: ${SECRET_KEY:-change-this-in-production}
       DATA_MODE: ${DATA_MODE:-mysql}
@@ -15,6 +17,10 @@ services:
       MYSQL_CONNECT_TIMEOUT: ${MYSQL_CONNECT_TIMEOUT:-10}
       MYSQL_READ_TIMEOUT: ${MYSQL_READ_TIMEOUT:-60}
       MYSQL_WRITE_TIMEOUT: ${MYSQL_WRITE_TIMEOUT:-60}
+      MYSQL_POOL_SIZE: ${MYSQL_POOL_SIZE:-12}
+      MYSQL_POOL_MIN_CACHED: ${MYSQL_POOL_MIN_CACHED:-2}
+      MYSQL_TIME_ZONE: ${MYSQL_TIME_ZONE:-+08:00}
+      PERFORMANCE_SLOW_REQUEST_MS: ${PERFORMANCE_SLOW_REQUEST_MS:-500}
       AUTH_ENABLED: ${AUTH_ENABLED:-true}
       AUTH_AUTO_CREATE_TABLES: ${AUTH_AUTO_CREATE_TABLES:-true}
       AUTH_IDLE_TIMEOUT_SECONDS: ${AUTH_IDLE_TIMEOUT_SECONDS:-14400}
@@ -57,6 +63,8 @@ services:
       context: ./backend
     command: ["python", "-m", "data_report_api.risk_upload_worker"]
     environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
       APP_ENV: ${APP_ENV:-production}
       DATA_MODE: ${DATA_MODE:-mysql}
       HIVE_HOST: ${HIVE_HOST:-}
@@ -87,6 +95,8 @@ services:
     depends_on:
       api:
         condition: service_healthy
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
     ports:
       - "${WEB_PORT:-1818}:80"
     restart: unless-stopped

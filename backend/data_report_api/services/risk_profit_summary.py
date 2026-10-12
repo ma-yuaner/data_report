@@ -5,12 +5,13 @@ import json
 import threading
 import time
 from copy import deepcopy
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
 from .data_source import DataSource, data_mode, is_live_mode
 from .profit_overview import _period
+from ..time_utils import business_now
 
 
 LOGGER = logging.getLogger(__name__)
@@ -140,7 +141,7 @@ class RiskProfitSummaryService:
             return cached
 
         metrics = self._fetch(source, start, end, filters)
-        generated_at = datetime.now().astimezone().isoformat(timespec="seconds")
+        generated_at = business_now().isoformat(timespec="seconds")
         start_month = start.strftime("%Y-%m")
         end_month = end.strftime("%Y-%m")
         result = {

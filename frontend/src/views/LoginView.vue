@@ -51,8 +51,8 @@ onMounted(async () => {
 })
 
 const safeRedirect = () => {
-  const value = typeof route.query.redirect === 'string' ? route.query.redirect : '/overview'
-  return value.startsWith('/') && !value.startsWith('//') ? value : '/overview'
+  const value = typeof route.query.redirect === 'string' ? route.query.redirect : '/home'
+  return value.startsWith('/') && !value.startsWith('//') ? value : '/home'
 }
 
 const submit = async () => {

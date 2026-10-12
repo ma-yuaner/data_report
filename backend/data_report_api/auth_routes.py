@@ -78,7 +78,7 @@ def auth_error(error: AuthError):
 def status():
     if not current_app.config["AUTH_ENABLED"]:
         return ok({"enabled": False, "configured": True})
-    return ok({"enabled": True, "configured": manager().store.user_count() > 0})
+    return ok({"enabled": True, "configured": bool(current_app.extensions.get("auth_configured"))})
 
 
 @auth_api.post("/auth/login")
@@ -102,7 +102,7 @@ def login():
 def me():
     if not current_app.config["AUTH_ENABLED"]:
         return ok({
-            "user": {"id": 0, "username": "development", "email": "development@local", "displayName": "开发模式", "isAdmin": True, "isEnabled": True, "mustChangePassword": False},
+            "user": {"id": 0, "username": "development", "email": "development@local", "displayName": "开发模式", "isAdmin": True, "isEnabled": True, "mustChangePassword": False, "businessRoles": [], "permissions": [], "rolePermissions": [], "permissionOverrides": {}, "rbacConfigured": True, "menuCodes": [], "legacyMenuCodes": []},
             "csrfToken": "development",
         })
     return ok({"user": manager().public_user(g.current_user), "csrfToken": g.current_csrf_token})
@@ -140,6 +140,26 @@ def list_users():
     return ok(manager().users(g.current_user))
 
 
+@auth_api.get("/admin/business-roles")
+def list_business_roles():
+    return ok(manager().business_roles(g.current_user))
+
+
+@auth_api.get("/admin/roles")
+def list_roles():
+    return ok(manager().roles(g.current_user))
+
+
+@auth_api.get("/admin/permission-catalog")
+def list_permission_catalog():
+    return ok(manager().permission_catalog(g.current_user))
+
+
+@auth_api.get("/admin/menu-catalog")
+def list_menu_catalog():
+    return ok(manager().menu_catalog(g.current_user))
+
+
 @auth_api.post("/admin/users")
 def create_user():
     values = body()
@@ -151,10 +171,29 @@ def create_user():
         email=str(values.get("email", "")) or None,
         password=str(values.get("initialPassword", "")),
         is_admin=values.get("isAdmin") is True,
+        role_codes=values.get("roleCodes", []),
         ip_address=ip_address,
         user_agent=user_agent,
     )
     return ok(user, "账号创建成功"), 201
+
+
+@auth_api.post("/admin/roles")
+def create_role():
+    ip_address, user_agent = request_context()
+    role = manager().create_role(
+        g.current_user, body(), ip_address, user_agent
+    )
+    return ok(role, "角色创建成功"), 201
+
+
+@auth_api.put("/admin/roles/<string:role_code>")
+def update_role(role_code: str):
+    ip_address, user_agent = request_context()
+    role = manager().update_role(
+        g.current_user, role_code, body(), ip_address, user_agent
+    )
+    return ok(role, "角色权限已更新")
 
 
 @auth_api.patch("/admin/users/<int:user_id>")
@@ -185,6 +224,58 @@ def reset_password(user_id: int):
         ip_address, user_agent,
     )
     return ok(None, "密码已重置，用户下次登录必须修改密码")
+
+
+@auth_api.put("/admin/users/<int:user_id>/business-roles")
+def update_business_roles(user_id: int):
+    values = body()
+    ip_address, user_agent = request_context()
+    user = manager().update_business_roles(
+        g.current_user, user_id, values.get("roleCodes"), ip_address, user_agent
+    )
+    return ok(user, "业务角色已更新")
+
+
+@auth_api.get("/admin/users/<int:user_id>/managed-members")
+def list_managed_members(user_id: int):
+    return ok(manager().managed_members(
+        g.current_user, user_id, request.args.get("resourceCode", "smart_placement")
+    ))
+
+
+@auth_api.put("/admin/users/<int:user_id>/managed-members")
+def update_managed_members(user_id: int):
+    values = body()
+    ip_address, user_agent = request_context()
+    result = manager().update_managed_members(
+        g.current_user,
+        user_id,
+        values.get("resourceCode", "smart_placement"),
+        values.get("memberUserIds"),
+        ip_address,
+        user_agent,
+    )
+    return ok(result, "管理成员已更新")
+
+
+@auth_api.put("/admin/users/<int:user_id>/permissions")
+def update_user_permissions(user_id: int):
+    values = body()
+    ip_address, user_agent = request_context()
+    user = manager().update_user_permissions(
+        g.current_user, user_id, values.get("overrides"), ip_address, user_agent
+    )
+    return ok(user, "个人权限已更新")
+
+
+@auth_api.put("/admin/users/<int:user_id>/menus")
+def update_user_menus(user_id: int):
+    values = body()
+    ip_address, user_agent = request_context()
+    user = manager().update_user_menus(
+        g.current_user, user_id, values.get("menuCodes"), ip_address, user_agent
+    )
+    return ok(user, "菜单权限已更新")
 
 
 @auth_api.get("/admin/audits")

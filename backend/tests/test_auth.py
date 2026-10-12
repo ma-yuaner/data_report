@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from data_report_api import create_app
+from data_report_api import create_app, required_menu_code
 from data_report_api.config import TestConfig
 from data_report_api.services.auth import MemoryAuthStore
 
@@ -50,10 +50,20 @@ def change_initial_password(client, login_response, current="Admin1234", new="Ch
 
 
 def test_health_is_public_but_business_api_requires_login(auth_client):
-    assert auth_client.get("/api/health").status_code == 200
+    health = auth_client.get("/api/health")
+    assert health.status_code == 200
+    assert "total;dur=" in health.headers["Server-Timing"]
     response = auth_client.get("/api/v1/dashboard/overview")
     assert response.status_code == 401
     assert response.get_json()["code"] == "AUTH_REQUIRED"
+
+
+def test_auth_status_uses_startup_state_without_querying_users_again(auth_app):
+    app, store = auth_app
+    store.user_count = lambda: (_ for _ in ()).throw(AssertionError("unexpected query"))
+    response = app.test_client().get("/api/auth/status")
+    assert response.status_code == 200
+    assert response.get_json()["data"] == {"enabled": True, "configured": True}
 
 
 def test_passwords_are_bcrypt_hashes(auth_app):
@@ -147,7 +157,45 @@ def test_admin_can_manage_users_and_ordinary_user_cannot(auth_client):
     created_user = created.get_json()["data"]
     user_id = created_user["id"]
     assert created_user["email"] == "analyst01@example.com"
+    assert created_user["businessRoles"] == []
     assert auth_client.get("/api/admin/users").status_code == 200
+
+    roles = auth_client.get("/api/admin/business-roles")
+    assert roles.status_code == 200
+    assert {row["code"] for row in roles.get_json()["data"]} == {
+        "DATA_ENTRY", "DATA_MANAGER", "POLICY_MANAGER", "POLICY_OPERATOR"
+    }
+    assigned = auth_client.put(
+        f"/api/admin/users/{user_id}/business-roles",
+        json={"roleCodes": ["DATA_ENTRY", "POLICY_OPERATOR"]},
+        headers={"X-CSRF-Token": admin_csrf},
+    )
+    assert assigned.status_code == 200
+    assert {row["code"] for row in assigned.get_json()["data"]["businessRoles"]} == {
+        "DATA_ENTRY", "POLICY_OPERATOR"
+    }
+    assert set(assigned.get_json()["data"]["permissions"]) == {
+        "smart_placement.create", "smart_placement.edit", "smart_placement.delete",
+        "smart_placement.withdraw",
+        "smart_placement.claim", "smart_placement.execute",
+        "smart_placement.orders.attention",
+    }
+    assert assigned.get_json()["data"]["menuCodes"] == [
+        "smart", "smart.placement.orders", "smart.placement.policies",
+    ]
+    menu_catalog = auth_client.get("/api/admin/menu-catalog")
+    assert menu_catalog.status_code == 200
+    assert "smart.placement.policies" in {row["code"] for row in menu_catalog.get_json()["data"]}
+    assert all("groupCode" in row for row in menu_catalog.get_json()["data"])
+    menu_assigned = auth_client.put(
+        f"/api/admin/users/{user_id}/menus",
+        json={"menuCodes": ["smart"]},
+        headers={"X-CSRF-Token": admin_csrf},
+    )
+    assert menu_assigned.status_code == 200
+    assert menu_assigned.get_json()["data"]["menuCodes"] == [
+        "smart", "smart.home", "smart.placement.orders", "smart.placement.policies",
+    ]
 
     duplicate_email = auth_client.post(
         "/api/admin/users",
@@ -171,6 +219,9 @@ def test_admin_can_manage_users_and_ordinary_user_cannot(auth_client):
         ordinary_client, ordinary_login, "Analyst123", "Analyst456"
     )
     assert ordinary_changed.status_code == 200
+    forbidden_module = ordinary_client.get("/api/v1/dashboard/overview")
+    assert forbidden_module.status_code == 403
+    assert forbidden_module.get_json()["code"] == "MENU_FORBIDDEN"
     assert ordinary_client.get("/api/admin/users").status_code == 403
     assert ordinary_client.get("/api/v1/admin/telemetry/dashboard").status_code == 403
 
@@ -181,6 +232,232 @@ def test_admin_can_manage_users_and_ordinary_user_cannot(auth_client):
     )
     assert disabled.status_code == 200
     assert ordinary_client.get("/api/auth/me").status_code == 401
+
+
+def test_admin_configures_role_menus_permissions_and_assigns_role_on_create(auth_client):
+    admin_login = login(auth_client)
+    changed = change_initial_password(auth_client, admin_login)
+    admin_csrf = csrf(changed)
+
+    existing = auth_client.get("/api/admin/roles")
+    assert existing.status_code == 200
+    role_scopes = {row["code"]: row["dataScopes"] for row in existing.get_json()["data"]}
+    assert role_scopes["DATA_ENTRY"]["smart_placement.task"] == "SELF"
+    assert role_scopes["DATA_MANAGER"]["smart_placement.order"] == "ALL"
+    assert role_scopes["POLICY_MANAGER"]["smart_placement.task"] == "MANAGED"
+    assert role_scopes["POLICY_OPERATOR"]["smart_placement.order"] == "SELF"
+    role_menus = {row["code"]: row["menuCodes"] for row in existing.get_json()["data"]}
+    assert role_menus["DATA_ENTRY"] == ["smart.placement.policies"]
+    assert role_menus["DATA_MANAGER"] == ["smart.placement.policies"]
+    assert role_menus["POLICY_MANAGER"] == ["smart.placement.policies"]
+    assert role_menus["POLICY_OPERATOR"] == ["smart.placement.policies", "smart.placement.orders"]
+
+    invalid = auth_client.post(
+        "/api/admin/roles",
+        json={
+            "roleCode": "SMART_CREATOR", "name": "智能录入测试",
+            "description": "缺少智能分析菜单", "isActive": True,
+            "menuCodes": [], "permissions": ["smart_placement.create"],
+        },
+        headers={"X-CSRF-Token": admin_csrf},
+    )
+    assert invalid.status_code == 400
+
+    created_role = auth_client.post(
+        "/api/admin/roles",
+        json={
+            "roleCode": "RISK_VIEWER", "name": "风控查看员",
+            "description": "查看风控分析", "isActive": True,
+            "menuCodes": ["risk.overview"], "permissions": [],
+        },
+        headers={"X-CSRF-Token": admin_csrf},
+    )
+    assert created_role.status_code == 201
+    assert created_role.get_json()["data"]["menuCodes"] == ["risk.overview"]
+
+    created_user = auth_client.post(
+        "/api/admin/users",
+        json={
+            "username": "riskviewer", "displayName": "风控查看员",
+            "email": "riskviewer@example.com", "initialPassword": "Riskview123",
+            "isAdmin": False, "roleCodes": ["RISK_VIEWER"],
+        },
+        headers={"X-CSRF-Token": admin_csrf},
+    )
+    assert created_user.status_code == 201
+    user = created_user.get_json()["data"]
+    assert [row["code"] for row in user["businessRoles"]] == ["RISK_VIEWER"]
+    assert user["menuCodes"] == ["risk", "risk.overview"]
+    assert user["permissions"] == []
+
+    updated_role = auth_client.put(
+        "/api/admin/roles/RISK_VIEWER",
+        json={
+            "name": "风控与智能查看员", "description": "查看风控并录入投放机会",
+            "isActive": True, "menuCodes": ["risk.overview", "smart.placement.policies"],
+            "permissions": ["smart_placement.create"],
+        },
+        headers={"X-CSRF-Token": admin_csrf},
+    )
+    assert updated_role.status_code == 200
+    refreshed_users = auth_client.get("/api/admin/users").get_json()["data"]
+    refreshed = next(row for row in refreshed_users if row["id"] == user["id"])
+    assert refreshed["menuCodes"] == [
+        "risk", "risk.overview", "smart", "smart.placement.policies",
+    ]
+    assert refreshed["permissions"] == ["smart_placement.create"]
+
+
+def test_admin_configures_manager_member_relationship(auth_client):
+    admin_login = login(auth_client)
+    changed = change_initial_password(auth_client, admin_login)
+    admin_csrf = csrf(changed)
+    manager_user = auth_client.post(
+        "/api/admin/users",
+        json={
+            "username": "manager01", "displayName": "业务经理",
+            "email": "manager01@example.com", "initialPassword": "Manager123",
+            "isAdmin": False, "roleCodes": ["POLICY_MANAGER"],
+        },
+        headers={"X-CSRF-Token": admin_csrf},
+    ).get_json()["data"]
+    member_user = auth_client.post(
+        "/api/admin/users",
+        json={
+            "username": "member01", "displayName": "智能业务员",
+            "email": "member01@example.com", "initialPassword": "Member123",
+            "isAdmin": False, "roleCodes": ["POLICY_OPERATOR"],
+        },
+        headers={"X-CSRF-Token": admin_csrf},
+    ).get_json()["data"]
+
+    saved = auth_client.put(
+        f"/api/admin/users/{manager_user['id']}/managed-members",
+        json={"resourceCode": "smart_placement", "memberUserIds": [member_user["id"]]},
+        headers={"X-CSRF-Token": admin_csrf},
+    )
+    assert saved.status_code == 200
+    assert saved.get_json()["data"]["memberUserIds"] == [member_user["id"]]
+    loaded = auth_client.get(
+        f"/api/admin/users/{manager_user['id']}/managed-members?resourceCode=smart_placement"
+    )
+    assert loaded.status_code == 200
+    assert loaded.get_json()["data"] == {
+        "resourceCode": "smart_placement", "memberUserIds": [member_user["id"]],
+    }
+
+
+def test_builtin_role_update_reaches_active_users_and_is_not_reset_on_initialize(auth_client):
+    admin_login = login(auth_client)
+    changed = change_initial_password(auth_client, admin_login)
+    admin_csrf = csrf(changed)
+    created = auth_client.post(
+        "/api/admin/users",
+        json={
+            "username": "operator01", "displayName": "智能业务执行员",
+            "email": "operator01@example.com", "initialPassword": "Operator123",
+            "isAdmin": False, "roleCodes": ["POLICY_OPERATOR"],
+        },
+        headers={"X-CSRF-Token": admin_csrf},
+    )
+    assert created.status_code == 201
+
+    operator_client = auth_client.application.test_client()
+    operator_login = login(operator_client, "operator01", "Operator123")
+    operator_changed = change_initial_password(
+        operator_client, operator_login, "Operator123", "Operator456"
+    )
+    assert operator_changed.status_code == 200
+    before = operator_client.get("/api/auth/me").get_json()["data"]["user"]
+    assert "smart_placement.claim" in before["permissions"]
+
+    updated = auth_client.put(
+        "/api/admin/roles/POLICY_OPERATOR",
+        json={
+            "name": "智能业务执行员", "description": "登记投放并处理收单",
+            "isActive": True,
+            "menuCodes": ["smart.placement.policies", "smart.placement.orders"],
+            "permissions": [
+                "smart_placement.execute", "smart_placement.orders.attention",
+            ],
+        },
+        headers={"X-CSRF-Token": admin_csrf},
+    )
+    assert updated.status_code == 200
+
+    after = operator_client.get("/api/auth/me").get_json()["data"]["user"]
+    assert "smart_placement.claim" not in after["permissions"]
+    denied = operator_client.post(
+        "/api/v1/smart-placement/tasks/999/claim",
+        json={"plannedCompleteAt": "2026-10-12 12:00:00"},
+        headers={"X-CSRF-Token": csrf(operator_changed)},
+    )
+    assert denied.status_code == 403
+
+    auth_client.application.extensions["auth_manager"].initialize()
+    roles = auth_client.get("/api/admin/roles").get_json()["data"]
+    operator_role = next(row for row in roles if row["code"] == "POLICY_OPERATOR")
+    assert "smart_placement.claim" not in operator_role["permissions"]
+
+    audits = auth_client.get("/api/admin/audits").get_json()["data"]
+    audit = next(row for row in audits if row["action"] == "update_role")
+    assert audit["detail"]["roleCode"] == "POLICY_OPERATOR"
+    assert "smart_placement.claim" in audit["detail"]["before"]["permissions"]
+    assert "smart_placement.claim" not in audit["detail"]["after"]["permissions"]
+
+
+def test_admin_can_apply_personal_permission_overrides(auth_client):
+    admin_login = login(auth_client)
+    changed = change_initial_password(auth_client, admin_login)
+    admin_csrf = csrf(changed)
+    created = auth_client.post(
+        "/api/admin/users",
+        json={
+            "username": "business01", "displayName": "业务经理甲",
+            "email": "business01@example.com", "initialPassword": "Business123",
+            "isAdmin": False, "roleCodes": ["POLICY_MANAGER"],
+        },
+        headers={"X-CSRF-Token": admin_csrf},
+    )
+    assert created.status_code == 201
+    user = created.get_json()["data"]
+    assert user["rolePermissions"] == ["smart_placement.review_policy"]
+    assert user["permissions"] == ["smart_placement.review_policy"]
+
+    updated = auth_client.put(
+        f"/api/admin/users/{user['id']}/permissions",
+        json={
+            "overrides": {
+                "smart_placement.review_policy": "DENY",
+                "smart_placement.claim": "ALLOW",
+            }
+        },
+        headers={"X-CSRF-Token": admin_csrf},
+    )
+    assert updated.status_code == 200
+    body = updated.get_json()["data"]
+    assert body["rolePermissions"] == ["smart_placement.review_policy"]
+    assert body["permissionOverrides"] == {
+        "smart_placement.review_policy": "DENY",
+        "smart_placement.claim": "ALLOW",
+    }
+    assert body["permissions"] == ["smart_placement.claim"]
+    assert body["menuCodes"] == ["smart", "smart.placement.policies"]
+
+    invalid = auth_client.put(
+        f"/api/admin/users/{user['id']}/permissions",
+        json={"overrides": {"smart_placement.claim": "MAYBE"}},
+        headers={"X-CSRF-Token": admin_csrf},
+    )
+    assert invalid.status_code == 400
+
+
+def test_page_level_menu_mapping_protects_smart_policy_and_order_pages_separately():
+    assert required_menu_code("/api/v1/smart-analysis/overview") == "smart.home"
+    assert required_menu_code("/api/v1/smart-placement/tasks") == "smart.placement.policies"
+    assert required_menu_code("/api/v1/smart-placement/orders") == "smart.placement.orders"
+    assert required_menu_code("/api/v1/analysis/comprehensive/details") == "analysis.comprehensive"
+    assert required_menu_code("/api/v1/risk-uploads") == "risk.upload"
 
 
 def test_password_reset_revokes_sessions_and_audits_are_available(auth_client):

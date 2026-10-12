@@ -1,5 +1,6 @@
 <template>
   <a-layout class="app-shell">
+    <div class="route-progress" :class="{ 'is-active': appStore.navigating }" />
     <a-layout-sider
       v-model:collapsed="appStore.collapsed"
       :trigger="null"
@@ -7,7 +8,7 @@
       class="app-sidebar"
       :width="224"
     >
-      <div class="app-brand" :class="{ 'is-collapsed': appStore.collapsed }">
+      <div class="app-brand" :class="{ 'is-collapsed': appStore.collapsed }" role="button" tabindex="0" @click="router.push('/home')" @keydown.enter="router.push('/home')">
         <div class="brand-mark"><BarChartOutlined /></div>
         <div v-if="!appStore.collapsed" class="brand-copy">
           <strong>企业数据中心</strong>
@@ -17,51 +18,53 @@
 
       <div class="sidebar-menu-scroll">
         <a-menu v-model:openKeys="openKeys" theme="dark" mode="inline" :selected-keys="selectedKeys" @click="handleMenuClick">
-          <a-menu-item key="/overview"><template #icon><DashboardOutlined /></template>经营总览</a-menu-item>
-          <a-sub-menu key="analysis">
+          <a-menu-item key="/home"><template #icon><HomeOutlined /></template>工作台</a-menu-item>
+          <a-menu-item v-if="canSeeMenu('overview')" key="/overview"><template #icon><DashboardOutlined /></template>经营总览</a-menu-item>
+          <a-sub-menu v-if="canSeeGroup('analysis')" key="analysis">
             <template #icon><LineChartOutlined /></template>
             <template #title>业务分析</template>
-            <a-menu-item key="/analysis/comprehensive">综合分析</a-menu-item>
-            <a-menu-item key="/analysis/issue">出票分析</a-menu-item>
-            <a-menu-item key="/analysis/refund">退票分析</a-menu-item>
-            <a-menu-item key="/analysis/change">改签分析</a-menu-item>
-            <a-menu-item key="/analysis/ancillary">增值分析</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('analysis.comprehensive')" key="/analysis/comprehensive">综合分析</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('analysis.issue')" key="/analysis/issue">出票分析</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('analysis.refund')" key="/analysis/refund">退票分析</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('analysis.change')" key="/analysis/change">改签分析</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('analysis.ancillary')" key="/analysis/ancillary">增值分析</a-menu-item>
           </a-sub-menu>
-          <a-sub-menu key="risk">
+          <a-sub-menu v-if="canSeeGroup('risk')" key="risk">
             <template #icon><SafetyCertificateOutlined /></template>
             <template #title>风控分析</template>
-            <a-menu-item key="/risk-analysis">风控总览</a-menu-item>
-            <a-menu-item key="/risk-analysis/issue">出票利润分析</a-menu-item>
-            <a-menu-item key="/risk-analysis/refund">退票利润分析</a-menu-item>
-            <a-menu-item key="/risk-analysis/change">改签利润分析</a-menu-item>
-            <a-menu-item key="/risk-analysis/errors">差错分析</a-menu-item>
-            <a-menu-item key="/risk-analysis/orders">订单明细</a-menu-item>
-            <a-menu-item key="/risk-analysis/upload">数据上传</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('risk.overview')" key="/risk-analysis">风控总览</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('risk.issue')" key="/risk-analysis/issue">出票利润分析</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('risk.refund')" key="/risk-analysis/refund">退票利润分析</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('risk.change')" key="/risk-analysis/change">改签利润分析</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('risk.errors')" key="/risk-analysis/errors">差错分析</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('risk.orders')" key="/risk-analysis/orders">订单明细</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('risk.upload')" key="/risk-analysis/upload">数据上传</a-menu-item>
           </a-sub-menu>
-          <a-sub-menu key="customer-service">
+          <a-sub-menu v-if="canSeeGroup('customer_service')" key="customer-service">
             <template #icon><CustomerServiceOutlined /></template>
             <template #title>客服分析</template>
-            <a-menu-item key="customer-service-refund" disabled>退票分析</a-menu-item>
-            <a-menu-item key="customer-service-change" disabled>改签分析</a-menu-item>
-            <a-menu-item key="customer-service-flight-change" disabled>清Q/航变分析</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('customer_service.refund')" key="customer-service-refund" disabled>退票分析</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('customer_service.change')" key="customer-service-change" disabled>改签分析</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('customer_service.flight_change')" key="customer-service-flight-change" disabled>清Q/航变分析</a-menu-item>
           </a-sub-menu>
-          <a-sub-menu key="smart">
+          <a-sub-menu v-if="canSeeGroup('smart')" key="smart">
             <template #icon><RobotOutlined /></template>
             <template #title>智能分析</template>
-            <a-sub-menu key="smart-overall">
+            <a-sub-menu v-if="canSeeMenu('smart.home')" key="smart-overall">
               <template #title>智能整体分析首页</template>
               <a-menu-item key="/smart-analysis/overview">智能总览</a-menu-item>
               <a-menu-item key="/smart-analysis/dimensions">维度分析</a-menu-item>
               <a-menu-item key="/smart-analysis/details">出票明细</a-menu-item>
             </a-sub-menu>
-            <a-sub-menu key="smart-placement">
+            <a-sub-menu v-if="canSeeMenu('smart.placement.policies') || canSeeMenu('smart.placement.orders')" key="smart-placement">
               <template #title>智能投放</template>
-              <a-menu-item key="smart-placement-policy" disabled>投放政策</a-menu-item>
-              <a-menu-item key="smart-placement-orders" disabled>收单情况</a-menu-item>
+              <a-menu-item v-if="canSeeMenu('smart.placement.policies')" key="/smart-analysis/placement/policies">投放政策</a-menu-item>
+              <a-menu-item v-if="canSeeMenu('smart.placement.orders')" key="/smart-analysis/placement/orders">收单情况</a-menu-item>
             </a-sub-menu>
           </a-sub-menu>
-          <a-menu-item key="/problems"><template #icon><WarningOutlined /></template>问题中心</a-menu-item>
-          <a-menu-item key="/data-assets"><template #icon><DatabaseOutlined /></template>数据资产</a-menu-item>
+          <a-menu-item v-if="canSeeMenu('monitor.center')" key="/monitoring"><template #icon><RadarChartOutlined /></template>监控中心</a-menu-item>
+          <a-menu-item v-if="canSeeMenu('problems')" key="/problems"><template #icon><WarningOutlined /></template>问题中心</a-menu-item>
+          <a-menu-item v-if="canSeeMenu('data_assets')" key="/data-assets"><template #icon><DatabaseOutlined /></template>数据资产</a-menu-item>
           <a-sub-menu v-if="authStore.user?.isAdmin" key="system">
             <template #icon><MonitorOutlined /></template>
             <template #title>系统管理</template>
@@ -91,7 +94,7 @@
           </a-breadcrumb>
         </div>
         <div class="header-actions">
-          <a-tag color="blue">业务估算利润</a-tag>
+          <a-tag color="blue">{{ route.path === '/home' ? '数据工作台' : '业务估算利润' }}</a-tag>
           <a-dropdown placement="bottomRight">
             <div class="user-entry">
               <a-avatar size="small">{{ userInitial }}</a-avatar>
@@ -111,6 +114,7 @@
 
       <a-layout-content class="app-content"><router-view /></a-layout-content>
     </a-layout>
+    <div v-if="loggingOut" class="logout-mask"><a-spin size="large" tip="正在安全退出..." /></div>
   </a-layout>
 </template>
 
@@ -118,9 +122,9 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  BarChartOutlined, CustomerServiceOutlined, DashboardOutlined, DatabaseOutlined, LineChartOutlined,
+  BarChartOutlined, CustomerServiceOutlined, DashboardOutlined, DatabaseOutlined, HomeOutlined, LineChartOutlined,
   LockOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, MonitorOutlined, RobotOutlined,
-  SafetyCertificateOutlined, TeamOutlined, WarningOutlined,
+  RadarChartOutlined, SafetyCertificateOutlined, TeamOutlined, WarningOutlined,
 } from '@ant-design/icons-vue'
 import type { MenuProps } from 'ant-design-vue'
 import { useAppStore } from '@/stores/app'
@@ -130,13 +134,18 @@ const appStore = useAppStore()
 const authStore = useAuthStore()
 const route = useRoute()
 const router = useRouter()
+const loggingOut = ref(false)
 const selectedKeys = computed(() => [route.path === '/analysis/profit' ? '/analysis/issue' : route.path])
 const userInitial = computed(() => (authStore.user?.displayName || authStore.user?.username || '数').slice(0, 1))
+const canSeeMenu = (code: string) => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.menuCodes?.includes(code))
+const canSeeGroup = (code: string) => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.menuCodes?.some(item => item === code || item.startsWith(`${code}.`)))
 const openKeys = ref<string[]>([])
 watch(() => route.path, path => {
   openKeys.value = path.startsWith('/analysis') ? ['analysis']
     : path.startsWith('/risk-analysis') ? ['risk']
-      : path.startsWith('/smart-analysis') ? ['smart', 'smart-overall']
+      : path.startsWith('/smart-analysis/placement/') ? ['smart', 'smart-placement']
+        : path.startsWith('/smart-analysis') ? ['smart', 'smart-overall']
+        : path.startsWith('/monitoring') ? []
         : path.startsWith('/admin/') ? ['system'] : []
 }, { immediate: true })
 
@@ -148,8 +157,13 @@ const handleUserMenu: MenuProps['onClick'] = async ({ key }) => {
   if (key === 'admin') await router.push('/admin/users')
   if (key === 'password') await router.push('/change-password')
   if (key === 'logout') {
-    await authStore.logout()
-    await router.replace('/login')
+    loggingOut.value = true
+    try {
+      await authStore.logout()
+      await router.replace('/login')
+    } finally {
+      loggingOut.value = false
+    }
   }
 }
 </script>
