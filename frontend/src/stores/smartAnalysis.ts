@@ -1,6 +1,14 @@
 import { defineStore } from 'pinia'
 import { reactive, ref } from 'vue'
-import type { SmartFilters, SmartType } from '@/api/smartAnalysis'
+import type { SmartFilters, SmartStage, SmartTrendDate, SmartType } from '@/api/smartAnalysis'
+
+export type SmartPage = 'overview' | 'dimension' | 'detail'
+
+interface SmartPageState {
+  draft: SmartFilters
+  applied: SmartFilters
+  smartType: SmartType
+}
 
 function businessToday() {
   return new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
@@ -16,34 +24,99 @@ function emptyFilters(): SmartFilters {
     depCity: '', arrCity: '', depCountry: '', arrCountry: '', depZone: '', arrZone: '',
     depArea: '', arrArea: '', flightWay: '', transferType: '', orderSource: '',
     routeCategory: '', ageType: '', ndc: '', routeLength: '', cityRoute: '',
-    countryRoute: '', zoneRoute: '', tcRoute: '', department: '', profitBand: '',
+    countryRoute: '', zoneRoute: '', tcRoute: '', profitBand: '',
   }
 }
 
-export const useSmartAnalysisStore = defineStore('smart-analysis', () => {
-  const draft = reactive<SmartFilters>(emptyFilters())
-  const applied = reactive<SmartFilters>(emptyFilters())
-  const smartType = ref<SmartType>('all')
+function pageState(): SmartPageState {
+  return { draft: emptyFilters(), applied: emptyFilters(), smartType: 'all' }
+}
 
-  function apply() { Object.assign(applied, draft) }
-  function reset() {
-    Object.assign(draft, emptyFilters())
-    Object.assign(applied, draft)
-    smartType.value = 'all'
+export const useSmartAnalysisStore = defineStore('smart-analysis', () => {
+  const pages = reactive<Record<SmartPage, SmartPageState>>({
+    overview: pageState(),
+    dimension: pageState(),
+    detail: pageState(),
+  })
+  const trendDate = ref<SmartTrendDate>('issue')
+  const dimensionState = reactive({
+    groups: ['airline', 'platform'] as string[],
+    metrics: ['ticketCount', 'totalProfit', 'smartParticipated', 'smartSucceeded', 'smartUsed', 'smartUseRate', 'smartProfit', 'smartAverageProfit'] as string[],
+    sortBy: 'smartProfit', direction: 'desc' as 'asc' | 'desc', page: 1, pageSize: 20,
+  })
+  const drillContext = ref<null | {
+    sourcePath: string
+    sourceTitle: string
+    sourceFilters: SmartFilters
+    sourceSmartType: SmartType
+    stage: SmartStage
+    tags: { label: string; value: string }[]
+    scrollY: number
+  }>(null)
+
+  function apply(page: SmartPage) { Object.assign(pages[page].applied, pages[page].draft) }
+  function reset(page: SmartPage) {
+    Object.assign(pages[page].draft, emptyFilters())
+    Object.assign(pages[page].applied, pages[page].draft)
+    pages[page].smartType = 'all'
+    if (page === 'overview') trendDate.value = 'issue'
   }
-  function setPreset(kind: 'today' | 'yesterday' | 'week') {
+  function setPreset(page: SmartPage, kind: 'today' | 'yesterday' | 'week') {
     const today = businessToday()
     const end = new Date(`${today}T12:00:00+08:00`)
     if (kind === 'yesterday') end.setDate(end.getDate() - 1)
     const start = new Date(end)
     if (kind === 'week') start.setDate(start.getDate() - 6)
-    draft.startDate = start.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
-    draft.endDate = end.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
+    pages[page].draft.startDate = start.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
+    pages[page].draft.endDate = end.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
+    pages[page].draft.firstDepStart = ''
+    pages[page].draft.firstDepEnd = ''
+    pages[page].draft.orderStart = ''
+    pages[page].draft.orderEnd = ''
   }
-  function applyDimensionPath(path: { key: keyof SmartFilters; value: string }[]) {
-    for (const item of path) draft[item.key] = item.value
-    apply()
+  function applyDimensionPath(page: SmartPage, path: { key: keyof SmartFilters; value: string }[]) {
+    for (const item of path) pages[page].draft[item.key] = item.value
+    apply(page)
   }
 
-  return { draft, applied, smartType, apply, reset, setPreset, applyDimensionPath }
+  function beginDrill(input: {
+    sourcePath: string
+    sourceTitle: string
+    sourcePage: Exclude<SmartPage, 'detail'>
+    stage: SmartStage
+    smartType?: SmartType
+    tags?: { label: string; value: string }[]
+    path?: { key: keyof SmartFilters; value: string }[]
+  }) {
+    const source = pages[input.sourcePage]
+    const detail = pages.detail
+    const selectedType = input.smartType ?? source.smartType
+    drillContext.value = {
+      sourcePath: input.sourcePath,
+      sourceTitle: input.sourceTitle,
+      sourceFilters: { ...source.applied },
+      sourceSmartType: selectedType,
+      stage: input.stage,
+      tags: input.tags || [],
+      scrollY: window.scrollY,
+    }
+    Object.assign(detail.draft, source.applied)
+    Object.assign(detail.applied, source.applied)
+    detail.smartType = selectedType
+    if (input.path) applyDimensionPath('detail', input.path)
+  }
+
+  function restoreDrillSource() {
+    const context = drillContext.value
+    if (!context) return null
+    drillContext.value = null
+    return context
+  }
+
+  function clearDrill() { drillContext.value = null }
+
+  return {
+    pages, trendDate, dimensionState, drillContext,
+    apply, reset, setPreset, applyDimensionPath, beginDrill, restoreDrillSource, clearDrill,
+  }
 })

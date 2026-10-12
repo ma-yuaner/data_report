@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from flask import Blueprint, current_app, g, jsonify, request
+from flask import Blueprint, current_app, g, jsonify, request, send_file
 
 from .services.dashboard import DashboardService
 from .services.asset_catalog import AssetCatalogService
@@ -219,6 +219,18 @@ def smart_analysis_overview():
     try:
         return ok(SmartAnalysisService(current_app.config).overview(
             **smart_period_args(), filters=smart_filters(),
+            trend_date=request.args.get("trendDate", "issue"),
+        ))
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+
+
+@api.get("/v1/smart-analysis/trends")
+def smart_analysis_trends():
+    try:
+        return ok(SmartAnalysisService(current_app.config).trends(
+            **smart_period_args(), filters=smart_filters(),
+            trend_date=request.args.get("trendDate", "issue"),
         ))
     except ValueError as error:
         return jsonify({"success": False, "message": str(error), "data": None}), 400
@@ -261,6 +273,67 @@ def smart_analysis_filter_options():
         return ok(SmartAnalysisService(current_app.config).filter_options(
             **smart_period_args(), filters=smart_filters(),
             field=request.args.get("field", ""), search=request.args.get("search"),
+        ))
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+
+
+@api.get("/v1/smart-analysis/tickets/<issue_id>")
+def smart_analysis_ticket(issue_id: str):
+    try:
+        return ok(SmartAnalysisService(current_app.config).ticket(issue_id))
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+
+
+def smart_excel_response(result):
+    content, filename = result
+    return send_file(
+        content,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=filename,
+        max_age=0,
+    )
+
+
+@api.get("/v1/smart-analysis/exports/trend")
+def smart_analysis_export_trend():
+    try:
+        return smart_excel_response(SmartAnalysisService(current_app.config).export_trend(
+            **smart_period_args(), filters=smart_filters(),
+            kind=request.args.get("kind", "daily"),
+            smart_type=request.args.get("smartType", "all"),
+            trend_date=request.args.get("trendDate", "issue"),
+        ))
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+
+
+@api.get("/v1/smart-analysis/exports/dimensions")
+def smart_analysis_export_dimensions():
+    try:
+        return smart_excel_response(SmartAnalysisService(current_app.config).export_dimensions(
+            **smart_period_args(), filters=smart_filters(),
+            group_by=request.args.get("groupBy", "airline,platform"),
+            metrics_value=request.args.get("metrics", "ticketCount,smartUsed,smartProfit"),
+            smart_type=request.args.get("smartType", "all"),
+            sort_by=request.args.get("sortBy", "smartProfit"),
+            direction=request.args.get("direction", "desc"),
+        ))
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+
+
+@api.get("/v1/smart-analysis/exports/details")
+def smart_analysis_export_details():
+    try:
+        return smart_excel_response(SmartAnalysisService(current_app.config).export_details(
+            **smart_period_args(), filters=smart_filters(),
+            smart_type=request.args.get("smartType", "all"),
+            stage=request.args.get("stage", "all"),
+            fields_value=request.args.get("fields"),
+            all_fields=request.args.get("scope", "visible") == "all",
         ))
     except ValueError as error:
         return jsonify({"success": False, "message": str(error), "data": None}), 400
