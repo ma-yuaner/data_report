@@ -22,7 +22,26 @@ const MODULE_CODES: Record<string, string> = {
   '系统管理': 'system-admin',
 }
 
-function identifier() { return crypto.randomUUID().replaceAll('-', '').toLowerCase() }
+function identifier() {
+  const bytes = new Uint8Array(16)
+  try {
+    const webCrypto = globalThis.crypto
+    if (!webCrypto || typeof webCrypto.getRandomValues !== 'function') throw new Error('Web Crypto unavailable')
+    webCrypto.getRandomValues(bytes)
+  } catch {
+    // getRandomValues is available on ordinary HTTP in current browsers, but the
+    // fallback keeps telemetry from breaking page navigation on older clients.
+    let timeSeed = Date.now() ^ Math.floor(performance.now() * 1_000)
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256) ^ (timeSeed & 0xff)
+      timeSeed = (timeSeed >>> 8) || (Date.now() & 0xffff_ffff)
+    }
+  }
+  // UUID v4 marker bits are retained while returning the backend-required 32 hex chars.
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  return Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('')
+}
 function pageCode(route: RouteLocationNormalizedLoaded) { return String(route.name || 'unknown-page') }
 function moduleCode(route: RouteLocationNormalizedLoaded) {
   const section = String(route.meta.section || '').trim()
