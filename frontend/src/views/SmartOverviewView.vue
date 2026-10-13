@@ -70,6 +70,7 @@ import BaseChart from '@/components/BaseChart.vue'
 import SmartAnalysisFilters from '@/components/SmartAnalysisFilters.vue'
 import { smartAnalysisApi, type SmartOverviewData, type SmartStage } from '@/api/smartAnalysis'
 import { useSmartAnalysisStore } from '@/stores/smartAnalysis'
+import { guardSmartExport } from '@/utils/smartExportGuard'
 
 const store = useSmartAnalysisStore()
 const pageState = store.pages.overview
@@ -140,7 +141,11 @@ async function loadOverview() { loading.value = true; try { data.value = await s
 async function loadTrends() { trendLoading.value = true; try { trendData.value = await smartAnalysisApi.trends({ ...pageState.applied }, store.trendDate) } catch (error) { trendData.value = undefined; message.error(error instanceof Error ? error.message : '智能趋势加载失败') } finally { trendLoading.value = false } }
 function load() { void loadOverview(); void loadTrends() }
 function openDetail(stage: SmartStage) { if (!data.value?.hasData) return; const label = stages.value.find(item => item.key === stage)?.label || '全部出票'; store.beginDrill({ sourcePath: '/smart-analysis/overview', sourceTitle: '智能总览', sourcePage: 'overview', stage, tags: [{ label: '票单范围', value: label }] }); void router.push({ path: '/smart-analysis/details', query: { stage, smartType: pageState.smartType, drill: '1' } }) }
-async function exportTrend(kind: 'daily' | 'monthly') { exporting.value = kind; try { await smartAnalysisApi.exportTrend({ ...pageState.applied }, { kind, smartType: pageState.smartType, trendDate: store.trendDate }); message.success('导出文件已开始下载') } catch (error) { message.error(error instanceof Error ? error.message : '趋势导出失败') } finally { exporting.value = '' } }
+async function runTrendExport(kind: 'daily' | 'monthly') { exporting.value = kind; try { await smartAnalysisApi.exportTrend({ ...pageState.applied }, { kind, smartType: pageState.smartType, trendDate: store.trendDate }); message.success('导出文件已开始下载') } catch (error) { message.error(error instanceof Error ? error.message : '趋势导出失败') } finally { exporting.value = '' } }
+function exportTrend(kind: 'daily' | 'monthly') {
+  const total = kind === 'daily' ? trendData.value?.dailyTrend.length : trendData.value?.monthlyTrend.length
+  guardSmartExport(total ?? 0, () => runTrendExport(kind))
+}
 function showDefinition() { Modal.info({ title: '智能分析指标口径 · v2.1', width: 620, content: () => '参与、成功和使用量汇总日指标表中的对应字段；明细页的使用判定以 smart_confirm 为准。参与率=参与/全部，成功率=成功/参与，成功使用率=使用/成功，使用率=使用/全部。智能利润为使用智能票单的 issue_profit 之和，不是增量收益。' }) }
 onMounted(load)
 </script>

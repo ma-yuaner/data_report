@@ -194,7 +194,8 @@ def test_admin_can_manage_users_and_ordinary_user_cannot(auth_client):
     )
     assert menu_assigned.status_code == 200
     assert menu_assigned.get_json()["data"]["menuCodes"] == [
-        "smart", "smart.home", "smart.placement.orders", "smart.placement.policies",
+        "smart", "smart.details", "smart.dimensions", "smart.overview",
+        "smart.placement.orders", "smart.placement.policies",
     ]
 
     duplicate_email = auth_client.post(
@@ -496,7 +497,10 @@ def test_admin_can_apply_personal_permission_overrides(auth_client):
 
 
 def test_page_level_menu_mapping_protects_smart_policy_and_order_pages_separately():
-    assert required_menu_code("/api/v1/smart-analysis/overview") == "smart.home"
+    assert required_menu_code("/api/v1/smart-analysis/overview") == "smart.overview"
+    assert required_menu_code("/api/v1/smart-analysis/dimensions") == "smart.dimensions"
+    assert required_menu_code("/api/v1/smart-analysis/details") == "smart.details"
+    assert required_menu_code("/api/v1/smart-analysis/filter-options") == "smart"
     assert required_menu_code("/api/v1/smart-placement/tasks") == "smart.placement.policies"
     assert required_menu_code("/api/v1/smart-placement/orders") == "smart.placement.orders"
     assert required_menu_code("/api/v1/analysis/comprehensive/details") == "analysis.comprehensive"

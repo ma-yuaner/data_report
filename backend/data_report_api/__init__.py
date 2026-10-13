@@ -34,8 +34,25 @@ def required_menu_code(path: str) -> str | None:
         return "risk"
     if path.startswith("/api/v1/risk-uploads"):
         return "risk.upload"
-    if path.startswith("/api/v1/smart-analysis"):
-        return "smart.home"
+    if path.startswith((
+        "/api/v1/smart-analysis/overview",
+        "/api/v1/smart-analysis/trends",
+        "/api/v1/smart-analysis/exports/trend",
+    )):
+        return "smart.overview"
+    if path.startswith((
+        "/api/v1/smart-analysis/dimensions",
+        "/api/v1/smart-analysis/exports/dimensions",
+    )):
+        return "smart.dimensions"
+    if path.startswith((
+        "/api/v1/smart-analysis/details",
+        "/api/v1/smart-analysis/tickets/",
+        "/api/v1/smart-analysis/exports/details",
+    )):
+        return "smart.details"
+    if path.startswith("/api/v1/smart-analysis/filter-options"):
+        return "smart"
     if path.startswith("/api/v1/smart-placement/orders"):
         return "smart.placement.orders"
     if path.startswith("/api/v1/smart-placement"):
