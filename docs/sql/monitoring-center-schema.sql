@@ -160,7 +160,9 @@ CREATE TABLE IF NOT EXISTS `rt_order_monitor_feature` (
   `flight_nos` VARCHAR(1000) DEFAULT NULL,
   `cabin_codes` VARCHAR(1000) DEFAULT NULL,
   `product_type` VARCHAR(150) DEFAULT NULL,
-  `journey_type` VARCHAR(32) DEFAULT NULL,
+  `trip_type` VARCHAR(32) DEFAULT NULL COMMENT '航程类型：单程/往返/多程',
+  `journey_type` VARCHAR(32) DEFAULT NULL COMMENT '航段类型：直达/直飞/中转',
+  `advance_sale_days` INT DEFAULT NULL COMMENT '订单时间至首段起飞时间的提前天数',
   `first_departure_time` DATETIME DEFAULT NULL,
   `order_status` VARCHAR(64) DEFAULT NULL,
   `ticket_count` BIGINT DEFAULT NULL,
@@ -267,6 +269,27 @@ CREATE TABLE IF NOT EXISTS `monitor_alert_event` (
   KEY `idx_monitor_event_business_ref` (`business_ref_type`, `business_ref_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='通用监控命中事件';
 
+CREATE TABLE IF NOT EXISTS `monitor_notify_endpoint` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  `endpoint_code` VARCHAR(64) NOT NULL COMMENT '通知端点唯一编码',
+  `endpoint_name` VARCHAR(100) NOT NULL COMMENT '通知群名称',
+  `channel` VARCHAR(32) NOT NULL DEFAULT 'WECOM' COMMENT '通知渠道',
+  `webhook_url` VARCHAR(1024) NOT NULL COMMENT '企业微信群机器人Webhook；接口查询只返回掩码',
+  `mentioned_user_ids` LONGTEXT DEFAULT NULL COMMENT '默认@企业微信用户ID JSON数组',
+  `mentioned_mobiles` LONGTEXT DEFAULT NULL COMMENT '默认@手机号 JSON数组',
+  `smart_placement_enabled` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否自动用于智能投放收单通知',
+  `status` VARCHAR(16) NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE/DISABLED',
+  `created_by_id` BIGINT DEFAULT NULL,
+  `created_by_name` VARCHAR(100) NOT NULL DEFAULT 'SYSTEM',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_by_id` BIGINT DEFAULT NULL,
+  `updated_by_name` VARCHAR(100) NOT NULL DEFAULT 'SYSTEM',
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_monitor_notify_endpoint_code` (`endpoint_code`),
+  KEY `idx_monitor_notify_endpoint_runtime` (`channel`, `status`, `smart_placement_enabled`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='监控外部通知群配置';
+
 CREATE TABLE IF NOT EXISTS `monitor_notify_outbox` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `event_id` BIGINT UNSIGNED NOT NULL,
@@ -343,14 +366,16 @@ JOIN (
   UNION ALL SELECT 'arrival_city','到达城市','STRING_SET','IN',0,NULL,110
   UNION ALL SELECT 'arrival_country','到达国家','STRING_SET','IN',0,NULL,120
   UNION ALL SELECT 'arrival_zone','到达大区','STRING_SET','IN',0,NULL,130
-  UNION ALL SELECT 'route_text','航程','STRING','EQ,IN',0,NULL,140
   UNION ALL SELECT 'flight_nos','航班号','STRING_SET','OVERLAP',0,NULL,150
   UNION ALL SELECT 'cabin_codes','适用/排除舱位','STRING_SET','SUBSET_OF,DISJOINT',0,NULL,160
   UNION ALL SELECT 'product_type','产品类型','STRING_SET','IN',0,'SMART_PLACEMENT_DIMENSION',170
   UNION ALL SELECT 'order_source','订单来源','STRING','EQ,IN',0,NULL,172
-  UNION ALL SELECT 'journey_type','航程类型','STRING','EQ,IN',0,NULL,175
+  UNION ALL SELECT 'trip_type','航程类型','STRING_SET','IN',0,NULL,173
+  UNION ALL SELECT 'journey_type','航段类型','STRING_SET','EQ,IN',0,NULL,175
   UNION ALL SELECT 'order_time','订单时间','DATETIME','BETWEEN',0,NULL,180
   UNION ALL SELECT 'first_departure_time','首段起飞时间','DATETIME','BETWEEN',0,NULL,190
+  UNION ALL SELECT 'advance_sale_days','提前销售天数','NUMBER','GTE',0,NULL,195
+  UNION ALL SELECT 'estimated_profit_cny','预估利润','NUMBER','GTE,LTE',0,NULL,197
   UNION ALL SELECT 'segment_count','航段数','NUMBER','GT,GTE,LT,LTE,EQ',0,NULL,200
 ) f ON t.template_code='SMART_PLACEMENT_ORDER'
 ON DUPLICATE KEY UPDATE

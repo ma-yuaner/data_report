@@ -72,6 +72,23 @@ export interface AuthAudit {
   createdAt?: string | null
 }
 
+export interface RosterEmployee {
+  id: number
+  username: string
+  displayName: string
+  workNumber: string
+  wechatId: string
+  mobilephone: string
+  hasNotificationIdentity: boolean
+  updatedAt?: string | null
+}
+
+export interface EmployeeBinding {
+  userId: number
+  employee: RosterEmployee | null
+  status: 'UNBOUND' | 'ACTIVE' | 'INVALID'
+}
+
 export const authApi = {
   status: () => http.get<ApiEnvelope<{ enabled: boolean; configured: boolean }>>('/auth/status').then(response => response.data.data),
   login: (username: string, password: string) => http.post<ApiEnvelope<{ user: AuthUser; csrfToken: string }>>('/auth/login', { username, password }).then(response => response.data.data),
@@ -93,5 +110,8 @@ export const authApi = {
   updateManagedMembers: (id: number, memberUserIds: number[]) => http.put<ApiEnvelope<{ resourceCode: string; memberUserIds: number[] }>>(`/admin/users/${id}/managed-members`, { resourceCode: 'smart_placement', memberUserIds }).then(response => response.data.data),
   updateUserPermissions: (id: number, overrides: Record<string, 'ALLOW' | 'DENY'>) => http.put<ApiEnvelope<AuthUser>>(`/admin/users/${id}/permissions`, { overrides }).then(response => response.data.data),
   updateMenus: (id: number, menuCodes: string[]) => http.put<ApiEnvelope<AuthUser>>(`/admin/users/${id}/menus`, { menuCodes }).then(response => response.data.data),
+  employees: (keyword = '', limit = 30) => http.get<ApiEnvelope<RosterEmployee[]>>('/admin/employees', { params: { keyword, limit } }).then(response => response.data.data),
+  employeeBinding: (id: number) => http.get<ApiEnvelope<EmployeeBinding>>(`/admin/users/${id}/employee-binding`).then(response => response.data.data),
+  updateEmployeeBinding: (id: number, employeeId: number | null) => http.put<ApiEnvelope<EmployeeBinding>>(`/admin/users/${id}/employee-binding`, { employeeId }).then(response => response.data.data),
   audits: (limit = 200) => http.get<ApiEnvelope<AuthAudit[]>>('/admin/audits', { params: { limit } }).then(response => response.data.data),
 }

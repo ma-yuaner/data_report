@@ -21,7 +21,7 @@ const componentByTag = {
   'a-layout-sider': 'Layout', 'a-list': 'List', 'a-list-item': 'List',
   'a-menu': 'Menu', 'a-menu-divider': 'Menu', 'a-menu-item': 'Menu', 'a-sub-menu': 'Menu',
   'a-modal': 'Modal', 'a-pagination': 'Pagination', 'a-progress': 'Progress',
-  'a-radio-button': 'Radio', 'a-radio-group': 'Radio', 'a-result': 'Result',
+  'a-radio': 'Radio', 'a-radio-button': 'Radio', 'a-radio-group': 'Radio', 'a-result': 'Result',
   'a-row': 'Row', 'a-segmented': 'Segmented', 'a-select': 'Select',
   'a-space': 'Space', 'a-spin': 'Spin', 'a-steps': 'Steps', 'a-switch': 'Switch',
   'a-table': 'Table', 'a-tab-pane': 'Tabs', 'a-tabs': 'Tabs', 'a-tag': 'Tag',

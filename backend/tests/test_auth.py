@@ -235,6 +235,49 @@ def test_admin_can_manage_users_and_ordinary_user_cannot(auth_client):
     assert ordinary_client.get("/api/auth/me").status_code == 401
 
 
+def test_admin_can_bind_account_to_active_erp_employee(auth_app):
+    app, store = auth_app
+    store.employees = [{
+        "id": 901,
+        "user_name": "pjp",
+        "cname": "皮军平",
+        "work_number": "W00901",
+        "wechat_id": "wecom_pjp",
+        "mobilephone": "13800000001",
+        "status": 1,
+        "enabled": 0,
+        "update_time": datetime(2026, 10, 13, 9, 0, 0),
+    }]
+    client = app.test_client()
+    changed = change_initial_password(client, login(client))
+    admin_csrf = csrf(changed)
+    created = client.post(
+        "/api/admin/users",
+        json={
+            "username": "policy01", "displayName": "智能政策员",
+            "initialPassword": "Policy123", "isAdmin": False,
+        },
+        headers={"X-CSRF-Token": admin_csrf},
+    )
+    user_id = created.get_json()["data"]["id"]
+
+    employees = client.get("/api/admin/employees?keyword=皮军平")
+    assert employees.status_code == 200
+    assert employees.get_json()["data"][0]["wechatId"] == "wecom_pjp"
+
+    bound = client.put(
+        f"/api/admin/users/{user_id}/employee-binding",
+        json={"employeeId": 901},
+        headers={"X-CSRF-Token": admin_csrf},
+    )
+    assert bound.status_code == 200
+    assert bound.get_json()["data"]["status"] == "ACTIVE"
+    assert bound.get_json()["data"]["employee"]["displayName"] == "皮军平"
+
+    queried = client.get(f"/api/admin/users/{user_id}/employee-binding")
+    assert queried.get_json()["data"]["employee"]["hasNotificationIdentity"] is True
+
+
 def test_admin_configures_role_menus_permissions_and_assigns_role_on_create(auth_client):
     admin_login = login(auth_client)
     changed = change_initial_password(auth_client, admin_login)

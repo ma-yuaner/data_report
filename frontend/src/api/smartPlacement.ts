@@ -36,6 +36,15 @@ export type PlacementTask = PlacementTaskRow & Record<string, string | number | 
 export interface PlacementReview extends Record<string, string | number | boolean | null> { id: number; reviewStage: string; reviewResult: string; reviewerName: string; createdAt: string }
 export interface PlacementExecution extends Record<string, string | number | boolean | null> { id: number; executionResult: string; externalPolicyId: string | null; operatorName: string; createdAt: string }
 export interface PlacementLog extends Record<string, string | number | boolean | null> { id: number; actionCode: string; fromStatus: string | null; toStatus: string | null; operatorName: string; operationNote: string | null; createdAt: string }
+export interface PlacementEffectReview extends Record<string, string | number | boolean | null> {
+  id: number
+  reviewResult: string
+  reviewConclusion: string
+  nextAction: string | null
+  reviewerName: string
+  metricSnapshotJson: string
+  createdAt: string
+}
 
 export interface PlacementTaskList {
   available: boolean
@@ -52,6 +61,25 @@ export interface PlacementTaskDetail {
   reviews: PlacementReview[]
   executions: PlacementExecution[]
   logs: PlacementLog[]
+  effectReviews: PlacementEffectReview[]
+}
+
+export interface PlacementEffectSummary extends Record<string, string | number | null> {
+  rawMatchCount: number
+  attributedOrderCount: number
+  ticketCount: number | null
+  segmentCount: number | null
+  estimatedProfitCny: string | null
+  ticketedOrderCount: number
+  smartParticipatedCount: number
+  smartSucceededCount: number
+  smartUsedCount: number
+  handledCount: number
+  staleCount: number
+  waitingSyncCount: number
+  smartParticipationRate: number | null
+  smartSuccessRate: number | null
+  attentionCompletionRate: number | null
 }
 
 export interface PlacementTaskMonitorRule extends Record<string, string | number | boolean | null> {
@@ -71,6 +99,7 @@ export interface PlacementTaskMonitorRule extends Record<string, string | number
 export interface PlacementTaskMonitoring {
   available: boolean
   rule: PlacementTaskMonitorRule | null
+  effectSummary?: PlacementEffectSummary
 }
 
 export interface PlacementDimensionOption { value: string; label: string; code?: string; platformName?: string; platformCode?: string }
@@ -96,8 +125,8 @@ export interface PlacementTaskInput {
   airlineCode: string
   departureCode?: string
   arrivalCode?: string
-  routeText?: string
   journeyType?: string
+  segmentType?: string
   flightNos?: string
   includeCabins?: string
   excludeCabins?: string
@@ -105,15 +134,16 @@ export interface PlacementTaskInput {
   orderSource?: string
   orderStartDate?: string
   orderEndDate?: string
+  advanceSaleDays?: number
   travelStartDate?: string
   travelEndDate?: string
   placementMethod: string
-  adjustmentValue?: number
-  adjustmentUnit?: string
+  lossThresholdMin?: number
+  lossThresholdMax?: number
+  longTerm: boolean
   suggestedEffectiveStart?: string
   suggestedEffectiveEnd?: string
   historicalTicketCount?: number
-  historicalSegmentCount?: number
   historicalProfitCny?: number
   estimatedMonthTicketCount?: number
   estimatedMonthProfitCny?: number
@@ -142,6 +172,27 @@ export interface PlacementOrderRow extends Record<string, string | number | null
   messageStatus: string
   attentionStatus: string
   attentionOwnerName: string | null
+  outcomeStatus: string | null
+  dataFreshnessStatus: string | null
+  outcomeSourceTable: string | null
+  outcomeSourceUpdatedAt: string | null
+  outcomeLastCheckedAt: string | null
+  currentTicketNo: string | null
+  currentPassengerName: string | null
+  currentTicketTime: string | null
+  currentTicketCount: number | null
+  currentSegmentCount: number | null
+  currentEstimatedProfitCny: string | null
+  currentOrderStatus: string | null
+  currentIssueStatus: string | null
+  smartConfirm: string | null
+  smartParticipated: number | null
+  smartSucceeded: number | null
+  smartUsed: number | null
+  attributionType: 'PRIMARY' | 'SECONDARY' | null
+  primaryMatchId: number | null
+  matchedPolicyCount: number | null
+  attributionNote: string | null
 }
 
 export interface PlacementOrderList {
@@ -155,6 +206,15 @@ export interface PlacementOrderList {
     estimatedProfit: string
     pendingCount: number
     activePolicyCount: number
+    primaryOrderCount: number
+    ticketedOrderCount: number
+    smartParticipatedCount: number
+    smartSucceededCount: number
+    smartUsedCount: number
+    staleCount: number
+    waitingSyncCount: number
+    smartParticipationRate: number | null
+    smartSuccessRate: number | null
   }
   rows: PlacementOrderRow[]
   total: number
@@ -228,6 +288,18 @@ export async function claimPlacementTask(id: number, values: { plannedCompleteAt
 
 export async function executePlacementTask(id: number, values: Record<string, unknown>) {
   const response = await http.post<ApiEnvelope<{ id: number; taskId: number; status: PlacementTaskStatus; monitorRule?: { ruleId: number; ruleCode: string; ruleVersionId: number; ruleVersionNo: number; ruleStatus: string; conditionCount: number } | null }>>(`/v1/smart-placement/tasks/${id}/executions`, values)
+  if (!response.data.success) throw new Error(response.data.message)
+  return response.data.data
+}
+
+export async function stopPlacementMonitoring(id: number, reason: string) {
+  const response = await http.post<ApiEnvelope<{ id: number; status: PlacementTaskStatus }>>(`/v1/smart-placement/tasks/${id}/stop`, { reason })
+  if (!response.data.success) throw new Error(response.data.message)
+  return response.data.data
+}
+
+export async function createPlacementEffectReview(id: number, values: { result: string; conclusion: string; nextAction?: string }) {
+  const response = await http.post<ApiEnvelope<{ id: number; taskId: number; result: string; metricSnapshot: PlacementEffectSummary }>>(`/v1/smart-placement/tasks/${id}/effect-reviews`, values)
   if (!response.data.success) throw new Error(response.data.message)
   return response.data.data
 }

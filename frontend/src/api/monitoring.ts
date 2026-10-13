@@ -82,6 +82,30 @@ export interface MonitorOverview {
 
 export interface PagedResult<T> { rows: T[]; total: number; page: number; pageSize: number }
 
+export interface MonitorNotifyEndpoint {
+  id: number
+  endpointCode: string
+  endpointName: string
+  channel: 'WECOM'
+  webhookMasked: string
+  webhookConfigured: boolean
+  mentionedUserIds: string[]
+  mentionedMobiles: string[]
+  smartPlacementEnabled: boolean
+  status: 'ACTIVE' | 'DISABLED'
+  updatedByName?: string
+  updatedAt?: string
+}
+
+export interface MonitorNotifyEndpointInput {
+  endpointName: string
+  webhookUrl?: string
+  mentionedUserIds: string[]
+  mentionedMobiles: string[]
+  smartPlacementEnabled: boolean
+  status: 'ACTIVE' | 'DISABLED'
+}
+
 export interface MonitorRuleInput {
   templateCode: 'ORDER_SEGMENT_THRESHOLD'
   ruleName: string
@@ -91,7 +115,49 @@ export interface MonitorRuleInput {
   ownerUserName?: string
   scheduleSeconds?: number
   changeReason?: string
+  notifyPolicy?: { channels: string[]; wecomEndpointIds?: number[] }
   conditions: Array<{ fieldCode: string; operatorCode: string; value: string | number | string[]; conditionRole?: string }>
+}
+
+export interface MonitorMessageTemplate {
+  id: number
+  templateCode: string
+  templateName: string
+  eventCode: string
+  channel: 'WECOM'
+  titleTemplate: string
+  bodyTemplate: string
+  fieldSchema: { allowedFields?: string[] }
+  versionNo: number
+  status: 'ACTIVE' | 'DISABLED'
+}
+
+export interface MonitorNotifyRoute {
+  id: number
+  routeCode: string
+  routeName: string
+  eventCode: string
+  channel: 'WECOM'
+  endpointId: number | null
+  endpointName?: string | null
+  templateId: number
+  templateCode: string
+  templateName: string
+  recipientStrategy: 'TASK_ASSIGNEE' | 'ATTENTION_OWNER' | 'RULE_OWNER' | 'NONE'
+  useSmartDefaultEndpoints: boolean
+  priorityNo: number
+  status: 'ACTIVE' | 'DISABLED'
+}
+
+export interface MonitorNotifyRouteInput {
+  routeName: string
+  eventCode: string
+  endpointId?: number | null
+  templateId: number
+  recipientStrategy: MonitorNotifyRoute['recipientStrategy']
+  useSmartDefaultEndpoints: boolean
+  priorityNo: number
+  status: 'ACTIVE' | 'DISABLED'
 }
 
 export interface MonitorDiagnosticCondition {
@@ -125,4 +191,13 @@ export const monitoringApi = {
   events: (params: Record<string, unknown>) => http.get<ApiEnvelope<PagedResult<MonitorEvent>>>('/v1/monitoring/events', { params }).then(response => response.data.data),
   updateEventStatus: (id: number, payload: { status: string; note?: string }) => http.patch<ApiEnvelope<{ id: number; status: string }>>(`/v1/monitoring/events/${id}/status`, payload).then(response => response.data.data),
   runs: (params: Record<string, unknown> = {}) => http.get<ApiEnvelope<MonitorRun[]>>('/v1/monitoring/runs', { params }).then(response => response.data.data),
+  notifyEndpoints: () => http.get<ApiEnvelope<MonitorNotifyEndpoint[]>>('/v1/monitoring/notify-endpoints').then(response => response.data.data),
+  createNotifyEndpoint: (payload: MonitorNotifyEndpointInput) => http.post<ApiEnvelope<{ id: number }>>('/v1/monitoring/notify-endpoints', payload).then(response => response.data.data),
+  updateNotifyEndpoint: (id: number, payload: MonitorNotifyEndpointInput) => http.put<ApiEnvelope<{ id: number }>>(`/v1/monitoring/notify-endpoints/${id}`, payload).then(response => response.data.data),
+  testNotifyEndpoint: (id: number) => http.post<ApiEnvelope<{ id: number; success: boolean; message: string }>>(`/v1/monitoring/notify-endpoints/${id}/test`).then(response => response.data.data),
+  messageTemplates: () => http.get<ApiEnvelope<MonitorMessageTemplate[]>>('/v1/monitoring/message-templates').then(response => response.data.data),
+  updateMessageTemplate: (id: number, payload: { titleTemplate: string; bodyTemplate: string; status: 'ACTIVE' | 'DISABLED' }) => http.put<ApiEnvelope<{ id: number; versionNo: number; status: string }>>(`/v1/monitoring/message-templates/${id}`, payload).then(response => response.data.data),
+  notifyRoutes: () => http.get<ApiEnvelope<MonitorNotifyRoute[]>>('/v1/monitoring/notify-routes').then(response => response.data.data),
+  createNotifyRoute: (payload: MonitorNotifyRouteInput) => http.post<ApiEnvelope<{ id: number }>>('/v1/monitoring/notify-routes', payload).then(response => response.data.data),
+  updateNotifyRoute: (id: number, payload: MonitorNotifyRouteInput) => http.put<ApiEnvelope<{ id: number }>>(`/v1/monitoring/notify-routes/${id}`, payload).then(response => response.data.data),
 }

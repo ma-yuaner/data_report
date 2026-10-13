@@ -1,9 +1,18 @@
+import json
 from datetime import datetime
+from decimal import Decimal
 from unittest.mock import MagicMock
 
 import pytest
 
-from data_report_api.services.monitoring import MonitorRuleCompiler, MonitoringService, _compare_condition
+from data_report_api.services.monitoring import (
+    MonitorRuleCompiler,
+    MonitoringService,
+    _compare_condition,
+    _mask_webhook,
+    _validate_wecom_webhook,
+    _wecom_test_message,
+)
 
 
 def source_with_cursor():
@@ -31,6 +40,11 @@ def test_smart_placement_compiler_creates_versioned_structured_conditions():
         "airline_code": "HO",
         "departure_code": "PVG",
         "arrival_code": "KUL",
+        "journey_type": "ROUND_TRIP",
+        "segment_type": "直达",
+        "advance_sale_days": 14,
+        "loss_threshold_min": Decimal("0"),
+        "loss_threshold_max": Decimal("30"),
         "include_cabins": "Y,B",
         "exclude_cabins": "X",
         "product_type": "公布转私有",
@@ -69,11 +83,18 @@ def test_smart_placement_compiler_creates_versioned_structured_conditions():
         if "monitor_rule_condition" in call.args[0]
     ]
     field_codes = {params[3] for params in condition_params}
-    assert {"platform_name", "site_name", "order_source", "airline_code", "departure_location_codes", "cabin_codes", "order_time"} <= field_codes
+    assert {"platform_name", "site_name", "order_source", "airline_code", "departure_location_codes", "cabin_codes", "trip_type", "journey_type", "advance_sale_days", "estimated_profit_cny", "order_time"} <= field_codes
     assert "platform_code" not in field_codes
+    assert "route_text" not in field_codes
     cabin_roles = {(params[4], params[7]) for params in condition_params if params[3] == "cabin_codes"}
     assert ("SUBSET_OF", "INCLUDE") in cabin_roles
     assert ("DISJOINT", "EXCLUDE") in cabin_roles
+    profit_conditions = {
+        (params[4], json.loads(params[6]))
+        for params in condition_params
+        if params[3] == "estimated_profit_cny"
+    }
+    assert profit_conditions == {("GTE", "-30"), ("LTE", "0")}
 
 
 def test_diagnostic_condition_comparison_covers_name_source_and_time():
@@ -129,6 +150,58 @@ def test_rule_status_update_is_transactional_and_audited():
     connection.begin.assert_called_once()
     connection.commit.assert_called_once()
     assert any("monitor_rule_operation_log" in call.args[0] for call in cursor.execute.call_args_list)
+
+
+def test_disabling_smart_placement_rule_ends_linked_task_in_same_transaction():
+    source, connection, cursor = source_with_cursor()
+    cursor.fetchone.side_effect = [
+        {
+            "id": 7,
+            "status": "ACTIVE",
+            "current_version_id": 10,
+            "source_business_type": "SMART_PLACEMENT_EXECUTION",
+            "source_parent_id": 17,
+        },
+        {"id": 17, "status": "MONITORING"},
+    ]
+    service = MonitoringService({}, source=source)
+
+    result = service.update_rule_status(
+        {"id": 1, "display_name": "系统管理员", "is_admin": True},
+        7,
+        {"status": "DISABLED", "note": "测试政策清理前停止监控"},
+    )
+
+    assert result == {"id": 7, "status": "DISABLED"}
+    sql_calls = [call.args[0] for call in cursor.execute.call_args_list]
+    assert any("UPDATE sibebid.smart_placement_task" in sql for sql in sql_calls)
+    assert any("smart_placement_operation_log" in sql for sql in sql_calls)
+    connection.commit.assert_called_once()
+
+
+def test_ended_smart_placement_task_cannot_be_reenabled_from_monitoring_center():
+    source, connection, cursor = source_with_cursor()
+    cursor.fetchone.side_effect = [
+        {
+            "id": 7,
+            "status": "DISABLED",
+            "current_version_id": 10,
+            "source_business_type": "SMART_PLACEMENT_EXECUTION",
+            "source_parent_id": 17,
+        },
+        {"id": 17, "status": "ENDED"},
+    ]
+    service = MonitoringService({}, source=source)
+
+    with pytest.raises(ValueError, match="不能从监控中心直接启用"):
+        service.update_rule_status(
+            {"id": 1, "display_name": "系统管理员", "is_admin": True},
+            7,
+            {"status": "ACTIVE"},
+        )
+
+    connection.rollback.assert_called_once()
+    connection.commit.assert_not_called()
 
 
 def test_manual_order_segment_rule_is_validated_versioned_and_audited():
@@ -194,3 +267,91 @@ def test_event_resolution_requires_note_and_writes_audit_log():
     assert result == {"id": 9, "status": "RESOLVED"}
     connection.commit.assert_called_once()
     assert any("monitor_event_operation_log" in call.args[0] for call in cursor.execute.call_args_list)
+
+
+def test_wecom_endpoint_helpers_mask_validate_and_build_real_mentions():
+    webhook = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abcDEF_123456"
+    assert _validate_wecom_webhook(webhook, required=True) == webhook
+    assert _mask_webhook(webhook).endswith("******123456")
+    payload = _wecom_test_message("智能收单群", ["zhangsan"], ["13800000000"])
+    assert payload["text"]["mentioned_list"] == ["zhangsan"]
+    assert payload["text"]["mentioned_mobile_list"] == ["13800000000"]
+
+
+def test_create_wecom_endpoint_persists_secret_but_only_returns_identity():
+    source, connection, cursor = source_with_cursor()
+    cursor.lastrowid = 19
+    service = MonitoringService({}, source=source)
+
+    result = service.save_notify_endpoint(
+        {"id": 1, "display_name": "系统管理员", "is_admin": True},
+        {
+            "endpointName": "智能收单群",
+            "webhookUrl": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abcDEF_123456",
+            "mentionedUserIds": ["zhangsan"],
+            "mentionedMobiles": ["13800000000"],
+            "smartPlacementEnabled": True,
+            "status": "ACTIVE",
+        },
+    )
+
+    assert result["id"] == 19
+    assert "webhook" not in result
+    connection.commit.assert_called_once()
+    params = next(call.args[1] for call in cursor.execute.call_args_list if "INSERT INTO" in call.args[0])
+    assert "key=abcDEF_123456" in params[3]
+
+
+def test_notification_route_links_event_template_group_and_dynamic_recipient_strategy():
+    source, connection, cursor = source_with_cursor()
+    cursor.fetchone.side_effect = [
+        {"id": 3, "event_code": "SMART_ORDER_MATCHED", "channel": "WECOM"},
+        {"id": 12},
+    ]
+    cursor.lastrowid = 31
+    service = MonitoringService({}, source=source)
+
+    result = service.save_notify_route(
+        {"id": 1, "display_name": "系统管理员", "is_admin": True},
+        {
+            "routeName": "智能收单群通知",
+            "eventCode": "SMART_ORDER_MATCHED",
+            "endpointId": 12,
+            "templateId": 3,
+            "recipientStrategy": "TASK_ASSIGNEE",
+            "priorityNo": 10,
+            "status": "ACTIVE",
+        },
+    )
+
+    assert result == {"id": 31, "eventCode": "SMART_ORDER_MATCHED", "status": "ACTIVE"}
+    connection.commit.assert_called_once()
+    insert_params = next(
+        call.args[1]
+        for call in cursor.execute.call_args_list
+        if "INSERT INTO" in call.args[0]
+    )
+    assert insert_params[4:9] == (12, 3, "TASK_ASSIGNEE", 0, 10)
+
+
+def test_external_message_template_rejects_unapproved_order_fields():
+    source, connection, cursor = source_with_cursor()
+    cursor.fetchone.return_value = {
+        "id": 3,
+        "field_schema_json": '{"allowedFields":[]}',
+        "version_no": 1,
+    }
+    service = MonitoringService({}, source=source)
+
+    with pytest.raises(ValueError, match="未授权变量"):
+        service.update_message_template(
+            {"id": 1, "display_name": "系统管理员", "is_admin": True},
+            3,
+            {
+                "titleTemplate": "智能收单提醒",
+                "bodyTemplate": "订单号：{otaOrderNo}",
+                "status": "ACTIVE",
+            },
+        )
+
+    connection.rollback.assert_called_once()
