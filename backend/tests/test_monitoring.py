@@ -152,6 +152,58 @@ def test_rule_status_update_is_transactional_and_audited():
     assert any("monitor_rule_operation_log" in call.args[0] for call in cursor.execute.call_args_list)
 
 
+def test_disabling_smart_placement_rule_ends_linked_task_in_same_transaction():
+    source, connection, cursor = source_with_cursor()
+    cursor.fetchone.side_effect = [
+        {
+            "id": 7,
+            "status": "ACTIVE",
+            "current_version_id": 10,
+            "source_business_type": "SMART_PLACEMENT_EXECUTION",
+            "source_parent_id": 17,
+        },
+        {"id": 17, "status": "MONITORING"},
+    ]
+    service = MonitoringService({}, source=source)
+
+    result = service.update_rule_status(
+        {"id": 1, "display_name": "系统管理员", "is_admin": True},
+        7,
+        {"status": "DISABLED", "note": "测试政策清理前停止监控"},
+    )
+
+    assert result == {"id": 7, "status": "DISABLED"}
+    sql_calls = [call.args[0] for call in cursor.execute.call_args_list]
+    assert any("UPDATE sibebid.smart_placement_task" in sql for sql in sql_calls)
+    assert any("smart_placement_operation_log" in sql for sql in sql_calls)
+    connection.commit.assert_called_once()
+
+
+def test_ended_smart_placement_task_cannot_be_reenabled_from_monitoring_center():
+    source, connection, cursor = source_with_cursor()
+    cursor.fetchone.side_effect = [
+        {
+            "id": 7,
+            "status": "DISABLED",
+            "current_version_id": 10,
+            "source_business_type": "SMART_PLACEMENT_EXECUTION",
+            "source_parent_id": 17,
+        },
+        {"id": 17, "status": "ENDED"},
+    ]
+    service = MonitoringService({}, source=source)
+
+    with pytest.raises(ValueError, match="不能从监控中心直接启用"):
+        service.update_rule_status(
+            {"id": 1, "display_name": "系统管理员", "is_admin": True},
+            7,
+            {"status": "ACTIVE"},
+        )
+
+    connection.rollback.assert_called_once()
+    connection.commit.assert_not_called()
+
+
 def test_manual_order_segment_rule_is_validated_versioned_and_audited():
     source, connection, cursor = source_with_cursor()
     cursor.fetchone.return_value = {"id": 4, "template_code": "ORDER_SEGMENT_THRESHOLD", "status": "ACTIVE"}

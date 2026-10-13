@@ -31,6 +31,8 @@ RULE_STAT_TABLE = "monitor_rule_run_stat"
 NOTIFY_ENDPOINT_TABLE = "monitor_notify_endpoint"
 MESSAGE_TEMPLATE_TABLE = "monitor_message_template"
 NOTIFY_ROUTE_TABLE = "monitor_notify_route"
+SMART_TASK_TABLE = "smart_placement_task"
+SMART_TASK_LOG_TABLE = "smart_placement_operation_log"
 
 SMART_TEMPLATE = "SMART_PLACEMENT_ORDER"
 RULE_STATUSES = frozenset({"SCHEDULED", "ACTIVE", "PAUSED", "EXPIRED", "DISABLED"})
@@ -933,6 +935,22 @@ class MonitoringService:
             old = str(rule["status"])
             if old == "EXPIRED" and target == "ACTIVE":
                 raise ValueError("已过期规则不能直接启用，请创建新版本")
+            linked_task = None
+            linked_task_id = int(rule.get("source_parent_id") or 0)
+            is_smart_placement = (
+                str(rule.get("source_business_type") or "").upper() == "SMART_PLACEMENT_EXECUTION"
+                and linked_task_id > 0
+            )
+            if is_smart_placement and target in {"ACTIVE", "DISABLED"}:
+                cursor.execute(
+                    f"SELECT id,status FROM {self._table(SMART_TASK_TABLE)} WHERE id=%s FOR UPDATE",
+                    (linked_task_id,),
+                )
+                linked_task = _dict_row(cursor, cursor.fetchone())
+                if not linked_task:
+                    raise ValueError("关联的智能投放任务不存在，不能调整监控状态")
+                if target == "ACTIVE" and str(linked_task.get("status")) != "MONITORING":
+                    raise ValueError("投放政策任务已结束或不在监控中，不能从监控中心直接启用；请回到投放政策调整并重新审核")
             cursor.execute(
                 f"UPDATE {self._table(RULE_TABLE)} SET status=%s,updated_by_id=%s,updated_by_name=%s,updated_at=%s WHERE id=%s",
                 (target, actor_id, actor_name, now, rule_id),
@@ -944,6 +962,28 @@ class MonitoringService:
                 ) VALUES ({','.join(['%s'] * 9)})""",
                 (rule_id, rule.get("current_version_id"), target, old, target, actor_id, actor_name, note or "规则状态调整", now),
             )
+            if target == "DISABLED" and linked_task and str(linked_task.get("status")) == "MONITORING":
+                cursor.execute(
+                    f"""UPDATE {self._table(SMART_TASK_TABLE)}
+                        SET status='ENDED',closed_at=%s,updated_by_id=%s,updated_by_name=%s,
+                            version_no=version_no+1,updated_at=%s
+                        WHERE id=%s""",
+                    (now, actor_id, actor_name, now, linked_task_id),
+                )
+                roles = user.get("business_roles") or user.get("businessRoles") or []
+                role_codes = [str(row.get("code")) for row in roles if isinstance(row, dict) and row.get("code")]
+                role_snapshot = "ADMIN" if user.get("is_admin") or user.get("isAdmin") else ",".join(role_codes) or "USER"
+                cursor.execute(
+                    f"""INSERT INTO {self._table(SMART_TASK_LOG_TABLE)} (
+                        task_id,match_id,action_code,from_status,to_status,
+                        operator_id,operator_name,operator_role_snapshot,operation_note,detail_json,created_at
+                    ) VALUES ({','.join(['%s'] * 11)})""",
+                    (
+                        linked_task_id, None, "STOP_MONITORING_CENTER", "MONITORING", "ENDED",
+                        actor_id, actor_name, role_snapshot[:64], note or "从监控中心停用规则",
+                        json.dumps({"ruleId": rule_id, "ruleStatus": target}, ensure_ascii=False), now,
+                    ),
+                )
             connection.commit()
             return {"id": rule_id, "status": target}
         except (ValueError, PermissionError):
