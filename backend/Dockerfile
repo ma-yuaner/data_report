@@ -18,4 +18,4 @@ RUN mkdir -p /app/var/risk-uploads && chown -R appuser:appgroup /app/var
 USER appuser
 EXPOSE 5160
 
-CMD ["gunicorn", "--bind", "0.0.0.0:5160", "--workers", "2", "--threads", "4", "--timeout", "180", "--access-logfile", "-", "--error-logfile", "-", "app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5160", "--workers", "2", "--threads", "4", "--timeout", "1800", "--access-logfile", "-", "--error-logfile", "-", "app:app"]

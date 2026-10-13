@@ -1,9 +1,10 @@
 """Offline tests for the MySQL smart-analysis API contract and SQL boundaries."""
 from datetime import datetime
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
+from openpyxl import load_workbook
 
 from data_report_api import create_app
 from data_report_api.config import TestConfig
@@ -168,6 +169,26 @@ def test_detail_unused_stage_includes_null_smart_confirm(source):
     assert "src.smart_confirm NOT IN ('智能降舱','智能废票')" in queries[-1]
 
 
+@pytest.mark.parametrize(
+    ("smart_type", "expected"),
+    [
+        ("all", "coalesce(src.down_participated, 0) <> 1 AND coalesce(src.void_participated, 0) <> 1"),
+        ("down", "coalesce(src.down_participated, 0) <> 1"),
+        ("void", "coalesce(src.void_participated, 0) <> 1"),
+    ],
+)
+def test_detail_unparticipated_stage_uses_selected_smart_type(source, smart_type, expected):
+    cursor = source.connect.return_value.cursor.return_value
+    cursor.fetchone.return_value = (0, 0, None, None)
+    cursor.fetchall.return_value = []
+    module.SmartAnalysisService({}, source=source).details(
+        start_value="2026-10-01", end_value="2026-10-02",
+        smart_type=smart_type, stage="unparticipated",
+    )
+    queries = [call.args[0] for call in cursor.execute.call_args_list]
+    assert expected in queries[-1]
+
+
 def test_ticket_drawer_loads_all_fields_by_bound_issue_id(source):
     cursor = source.connect.return_value.cursor.return_value
     ordered_fields = module.ordered_detail_fields(tuple(module.DETAIL_BY_KEY))
@@ -203,13 +224,55 @@ def test_detail_dimensions_are_ordered_before_metrics(source):
     assert keys.index("platform") < keys.index("issueProfit")
 
 
-def test_detail_export_rejects_more_than_fifty_thousand_rows(source):
+def test_detail_export_rejects_more_than_nine_hundred_thousand_rows(source):
     cursor = source.connect.return_value.cursor.return_value
     cursor.fetchone.return_value = (module.MAX_DETAIL_EXPORT_ROWS + 1,)
-    with pytest.raises(ValueError, match="50000"):
+    with pytest.raises(ValueError, match="900000"):
         module.SmartAnalysisService({}, source=source).export_details(
             start_value="2026-10-01", end_value="2026-10-09",
             fields_value="issueId,platform",
+        )
+    assert cursor.execute.call_count == 1
+
+
+def test_detail_export_reads_mysql_in_batches_and_writes_valid_workbook(source):
+    connection = source.connect.return_value
+    count_cursor = MagicMock()
+    stream_cursor = MagicMock()
+    connection.cursor.side_effect = [count_cursor, stream_cursor]
+    count_cursor.fetchone.return_value = (2,)
+    stream_cursor.fetchmany.side_effect = [
+        [(101, "携程"), (102, "飞猪")],
+        [],
+    ]
+
+    content, filename = module.SmartAnalysisService({}, source=source).export_details(
+        start_value="2026-10-01", end_value="2026-10-09",
+        fields_value="issueId,platform",
+    )
+    try:
+        workbook = load_workbook(content, read_only=True)
+        rows = list(workbook["出票明细"].values)
+        workbook.close()
+    finally:
+        content.close()
+
+    assert filename.endswith(".xlsx")
+    assert rows == [("出票ID", "OTA平台"), ("101", "携程"), ("102", "飞猪")]
+    assert connection.cursor.call_args_list == [call(), call(module.SSCursor)]
+    assert stream_cursor.fetchmany.call_args_list == [
+        call(module.DETAIL_EXPORT_BATCH_SIZE),
+        call(module.DETAIL_EXPORT_BATCH_SIZE),
+    ]
+
+
+def test_dimension_export_rejects_more_than_nine_hundred_thousand_rows(source):
+    cursor = source.connect.return_value.cursor.return_value
+    cursor.fetchone.return_value = (module.MAX_SMART_EXPORT_ROWS + 1,)
+    with pytest.raises(ValueError, match="900000"):
+        module.SmartAnalysisService({}, source=source).export_dimensions(
+            start_value="2026-10-01", end_value="2026-10-09",
+            group_by="airline,platform",
         )
     assert cursor.execute.call_count == 1
 

@@ -14,6 +14,13 @@
     <a-alert v-if="data?.error" class="smart-alert" type="error" show-icon :message="data.error" />
 
     <a-card :bordered="false" class="panel-card smart-detail-panel">
+      <div class="view-template-bar">
+        <strong>字段模板</strong>
+        <a-select v-model:value="selectedTemplateId" allow-clear placeholder="选择已保存模板" :options="templateOptions" @change="applyFieldTemplate" />
+        <a-button @click="openTemplateModal"><SaveOutlined />保存当前字段</a-button>
+        <a-button danger :disabled="!selectedTemplateId" @click="deleteFieldTemplate"><DeleteOutlined />删除模板</a-button>
+        <span>模板按当前账号保存，退出后仍可直接选用</span>
+      </div>
       <div class="detail-toolbar">
         <label class="ticket-scope"><span>票单范围</span><a-select v-model:value="stage" :options="stageOptions" :dropdown-match-select-width="false" popup-class-name="ticket-scope-popup" @change="queryFromStart" /></label>
         <div class="detail-scope"><a-tag color="blue">{{ typeLabel }}</a-tag><span>已显示 {{ selectedFields.length }} 个字段</span></div>
@@ -39,7 +46,7 @@
         </template>
       </a-table>
       <div class="detail-pagination">
-        <span>共 {{ count(data?.total) }} 张票；页面分页不影响导出，单次最多导出 50,000 条</span>
+        <span>共 {{ count(data?.total) }} 张票；页面分页不影响导出，单次上限 900,000 条。超过 300,000 条时会提醒，建议缩小日期或筛选范围</span>
         <a-pagination v-model:current="page" v-model:pageSize="pageSize" :total="data?.total || 0" :page-size-options="['10','20','50','100']" show-size-changer @change="load" />
       </div>
     </a-card>
@@ -50,6 +57,11 @@
       <div class="field-groups">
         <section v-for="group in filteredFieldGroups" :key="group.name"><h3>{{ group.name }}</h3><div><label v-for="field in group.fields" :key="field.key"><input v-model="draftFields" type="checkbox" :value="field.key" :disabled="field.key === 'issueId'">{{ field.title }}</label></div></section>
       </div>
+    </a-modal>
+
+    <a-modal v-model:open="templateModalOpen" title="保存字段模板" ok-text="保存" cancel-text="取消" @ok="saveFieldTemplate">
+      <p class="template-modal-note">当前已选 {{ selectedFields.length }} 个字段；使用相同名称会覆盖原模板。</p>
+      <a-input v-model:value="templateName" :maxlength="30" show-count placeholder="例如：运营日常明细" @press-enter="saveFieldTemplate" />
     </a-modal>
 
     <a-drawer v-model:open="ticketOpen" title="出票记录完整信息" width="720">
@@ -79,17 +91,26 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Drawer as ADrawer, Empty as AEmpty, message, Pagination as APagination } from 'ant-design-vue'
-import { ArrowLeftOutlined, DownloadOutlined, SearchOutlined, SettingOutlined } from '@ant-design/icons-vue'
+import { Drawer as ADrawer, Empty as AEmpty, message, Modal, Pagination as APagination } from 'ant-design-vue'
+import { ArrowLeftOutlined, DeleteOutlined, DownloadOutlined, SaveOutlined, SearchOutlined, SettingOutlined } from '@ant-design/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import DataStateBar from '@/components/DataStateBar.vue'
 import SmartAnalysisFilters from '@/components/SmartAnalysisFilters.vue'
 import { smartAnalysisApi, type SmartDetailColumn, type SmartDetailData, type SmartDetailValueType, type SmartStage, type SmartTicketData, type SmartType } from '@/api/smartAnalysis'
 import { useSmartAnalysisStore } from '@/stores/smartAnalysis'
+import { useAuthStore } from '@/stores/auth'
+import { guardSmartExport } from '@/utils/smartExportGuard'
+import { loadViewTemplates, removeViewTemplate, saveViewTemplate, type NamedViewTemplate } from '@/utils/smartViewTemplates'
 
 const DEFAULT_FIELDS = ['issueId', 'otaOrderNo', 'issueTicketNo', 'airline', 'platform', 'issueTicketTime', 'smartConfirm', 'issueProfit']
 const FIELD_CATEGORY_ORDER = ['订单与出票', '航程信息', '人员信息', '智能及PNR信息', '智能状态', '金额与派生字段']
+type DetailTemplateValue = { fields: string[] }
+const isDetailTemplateValue = (value: unknown): value is DetailTemplateValue => Boolean(
+  value && typeof value === 'object' && Array.isArray((value as DetailTemplateValue).fields)
+  && (value as DetailTemplateValue).fields.every(item => typeof item === 'string'),
+)
 const store = useSmartAnalysisStore()
+const authStore = useAuthStore()
 const pageState = store.pages.detail
 const route = useRoute()
 const router = useRouter()
@@ -104,6 +125,10 @@ const fieldModalOpen = ref(false)
 const fieldSearch = ref('')
 const selectedFields = ref<string[]>(loadSavedFields())
 const draftFields = ref<string[]>([...selectedFields.value])
+const fieldTemplates = ref<NamedViewTemplate<DetailTemplateValue>[]>(loadViewTemplates('detail-fields', authStore.user?.id, isDetailTemplateValue))
+const selectedTemplateId = ref<string>()
+const templateModalOpen = ref(false)
+const templateName = ref('')
 const ticketOpen = ref(false)
 const ticketLoading = ref(false)
 const ticket = ref<SmartTicketData>()
@@ -116,12 +141,14 @@ const typeLabel = computed(() => ({ all: '智能整体', down: '智能降舱', v
 const stageOptions = computed(() => [
   { label: '全部出票（不区分智能类型）', value: 'all' },
   { label: `${typeLabel.value}参与`, value: 'participation' },
+  { label: `${typeLabel.value}未参与`, value: 'unparticipated' },
   { label: `${typeLabel.value}成功`, value: 'success' },
   { label: `${typeLabel.value}使用`, value: 'use' },
   { label: `${typeLabel.value}参与但未成功`, value: 'unsuccessful' },
   { label: `${typeLabel.value}成功但未使用`, value: 'unused' },
   { label: '退票中/已退票（不区分智能类型）', value: 'refund' },
 ])
+const templateOptions = computed(() => fieldTemplates.value.map(item => ({ value: item.id, label: item.name })))
 const count = (value: number | null | undefined) => value == null ? '—' : integer.format(value)
 const money = (value: unknown) => value == null || value === '' ? '—' : currency.format(Number(value))
 const yesNo = (value: unknown) => value == null ? '—' : value ? '是' : '否'
@@ -148,7 +175,18 @@ const ticketGroups = computed(() => {
   return [...grouped].map(([name, fields]) => ({ name, fields })).sort((a, b) => FIELD_CATEGORY_ORDER.indexOf(a.name) - FIELD_CATEGORY_ORDER.indexOf(b.name))
 })
 
-function loadSavedFields() { try { const value = JSON.parse(localStorage.getItem('smart-detail-fields-v3') || '[]'); if (Array.isArray(value) && value.length) return ['issueId', ...value.filter((key, index) => key !== 'issueId' && typeof key === 'string' && value.indexOf(key) === index)] } catch { /* use defaults */ }; return [...DEFAULT_FIELDS] }
+function fieldStorageKey() { return `smart-detail-fields-v4:user-${authStore.user?.id ?? 'anonymous'}` }
+function normalizeFields(fields: string[]) { return ['issueId', ...fields.filter((key, index) => key !== 'issueId' && typeof key === 'string' && fields.indexOf(key) === index)] }
+function persistFields() { localStorage.setItem(fieldStorageKey(), JSON.stringify(selectedFields.value)) }
+function loadSavedFields() {
+  try {
+    const scoped = JSON.parse(localStorage.getItem(fieldStorageKey()) || '[]')
+    if (Array.isArray(scoped) && scoped.length) return normalizeFields(scoped)
+    const legacy = JSON.parse(localStorage.getItem('smart-detail-fields-v3') || '[]')
+    if (Array.isArray(legacy) && legacy.length) return normalizeFields(legacy)
+  } catch { /* use defaults */ }
+  return [...DEFAULT_FIELDS]
+}
 function formatDetail(value: unknown, valueType: SmartDetailValueType) { if (value == null || value === '') return '—'; if (valueType === 'boolean') return yesNo(value); if (valueType === 'money') return money(value); return String(value) }
 async function load() {
   loading.value = true
@@ -157,11 +195,44 @@ async function load() {
   finally { loading.value = false }
 }
 function queryFromStart() { page.value = 1; void load() }
-function resetPage() { stage.value = 'all'; page.value = 1; selectedFields.value = [...DEFAULT_FIELDS]; void load() }
+function resetPage() { stage.value = 'all'; page.value = 1; selectedTemplateId.value = undefined; selectedFields.value = [...DEFAULT_FIELDS]; persistFields(); void load() }
 function selectDefaults() { draftFields.value = [...DEFAULT_FIELDS] }
 function selectAll() { draftFields.value = (data.value?.availableColumns || []).map(field => field.key) }
-function applyFields() { selectedFields.value = ['issueId', ...draftFields.value.filter(key => key !== 'issueId')]; localStorage.setItem('smart-detail-fields-v3', JSON.stringify(selectedFields.value)); fieldModalOpen.value = false; queryFromStart() }
+function applyFields() { selectedFields.value = normalizeFields(draftFields.value); selectedTemplateId.value = undefined; persistFields(); fieldModalOpen.value = false; queryFromStart() }
 function openFieldModal() { draftFields.value = [...selectedFields.value]; fieldSearch.value = ''; fieldModalOpen.value = true }
+function applyFieldTemplate(templateId?: string) {
+  if (!templateId) return
+  const template = fieldTemplates.value.find(item => item.id === templateId)
+  if (!template) return
+  const available = new Set((data.value?.availableColumns || []).map(item => item.key))
+  const fields = available.size ? template.value.fields.filter(key => available.has(key)) : template.value.fields
+  selectedFields.value = normalizeFields(fields)
+  draftFields.value = [...selectedFields.value]
+  persistFields()
+  queryFromStart()
+}
+function openTemplateModal() {
+  templateName.value = fieldTemplates.value.find(item => item.id === selectedTemplateId.value)?.name || ''
+  templateModalOpen.value = true
+}
+function saveFieldTemplate() {
+  try {
+    const result = saveViewTemplate('detail-fields', authStore.user?.id, fieldTemplates.value, templateName.value, { fields: [...selectedFields.value] })
+    fieldTemplates.value = result.values
+    selectedTemplateId.value = result.saved.id
+    templateModalOpen.value = false
+    message.success(`已保存字段模板“${result.saved.name}”`)
+  } catch (error) { message.warning(error instanceof Error ? error.message : '字段模板保存失败') }
+}
+function deleteFieldTemplate() {
+  const template = fieldTemplates.value.find(item => item.id === selectedTemplateId.value)
+  if (!template) return
+  Modal.confirm({ title: '删除字段模板', content: `确定删除“${template.name}”吗？`, okType: 'danger', onOk: () => {
+    fieldTemplates.value = removeViewTemplate('detail-fields', authStore.user?.id, fieldTemplates.value, template.id)
+    selectedTemplateId.value = undefined
+    message.success('字段模板已删除')
+  } })
+}
 async function openTicket(issueId: unknown) {
   if (issueId == null) return
   ticketOpen.value = true; ticketLoading.value = true; ticket.value = undefined; showEmptyFields.value = false
@@ -169,7 +240,18 @@ async function openTicket(issueId: unknown) {
   catch (error) { message.error(error instanceof Error ? error.message : '出票记录加载失败') }
   finally { ticketLoading.value = false }
 }
-async function exportRows() { exporting.value = true; try { await smartAnalysisApi.exportDetails({ ...pageState.applied }, { smartType: pageState.smartType, stage: stage.value, fields: selectedFields.value, scope: exportScope.value }); message.success('导出文件已开始下载') } catch (error) { message.error(error instanceof Error ? error.message : '出票明细导出失败') } finally { exporting.value = false } }
+async function runExport() {
+  exporting.value = true
+  try {
+    await smartAnalysisApi.exportDetails({ ...pageState.applied }, { smartType: pageState.smartType, stage: stage.value, fields: selectedFields.value, scope: exportScope.value })
+    message.success('导出文件已开始下载')
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '出票明细导出失败')
+  } finally {
+    exporting.value = false
+  }
+}
+function exportRows() { guardSmartExport(data.value?.total ?? 0, runExport) }
 async function backToSource() { const context = store.restoreDrillSource(); if (!context) return; await router.push(context.sourcePath); requestAnimationFrame(() => window.scrollTo({ top: context.scrollY })) }
 
 onMounted(() => {
@@ -188,6 +270,11 @@ onMounted(() => {
 .drill-context strong { color: #34547f; font-size: 12px; }
 .drill-context span { color: #71839a; font-size: 10px; }
 .smart-detail-panel { margin-top: 16px; }
+.view-template-bar { margin-bottom: 14px; padding: 11px 12px; display: flex; align-items: center; gap: 9px; border: 1px solid #dbe7f7; border-radius: 8px; background: #f6f9fe; }
+.view-template-bar strong { color: #3e526f; font-size: 12px; }
+.view-template-bar :deep(.ant-select) { width: 220px; }
+.view-template-bar > span { flex: 1; color: #7b899c; font-size: 10px; text-align: right; }
+.template-modal-note { color: #718096; font-size: 12px; }
 .detail-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin-bottom: 16px; }
 .detail-toolbar > label { width: 190px; display: grid; gap: 6px; color: #718096; font-size: 11px; }
 .detail-toolbar > .ticket-scope { width: 330px; flex: 0 0 330px; }
@@ -223,7 +310,7 @@ onMounted(() => {
 .ticket-groups dt { color: #768398; background: #f8fafc; }
 .ticket-groups dd { color: #394a63; word-break: break-all; }
 .ticket-note { padding: 11px 12px; color: #708198; font-size: 10px; border-left: 3px solid #6da2ef; background: #f5f9ff; }
-@media (max-width: 850px) { .detail-toolbar, .drill-context { align-items: stretch; flex-direction: column; } .detail-toolbar > label, .detail-toolbar > .ticket-scope, .detail-toolbar > .export-scope { width: 100%; flex-basis: auto; } .detail-summary-grid, .field-groups section > div, .ticket-core { grid-template-columns: 1fr; } .detail-pagination { align-items: flex-start; flex-direction: column; gap: 12px; } }
+@media (max-width: 850px) { .detail-toolbar, .drill-context, .view-template-bar { align-items: stretch; flex-direction: column; } .view-template-bar :deep(.ant-select) { width: 100%; } .view-template-bar > span { text-align: left; } .detail-toolbar > label, .detail-toolbar > .ticket-scope, .detail-toolbar > .export-scope { width: 100%; flex-basis: auto; } .detail-summary-grid, .field-groups section > div, .ticket-core { grid-template-columns: 1fr; } .detail-pagination { align-items: flex-start; flex-direction: column; gap: 12px; } }
 </style>
 
 <style>

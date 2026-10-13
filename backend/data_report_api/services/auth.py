@@ -99,7 +99,9 @@ MENU_CATALOG = (
     {"code": "customer_service.refund", "name": "退票分析", "description": "客服退票分析", "groupCode": "customer_service", "groupName": "客服分析"},
     {"code": "customer_service.change", "name": "改签分析", "description": "客服改签分析", "groupCode": "customer_service", "groupName": "客服分析"},
     {"code": "customer_service.flight_change", "name": "清Q/航变分析", "description": "客服清Q与航变分析", "groupCode": "customer_service", "groupName": "客服分析"},
-    {"code": "smart.home", "name": "智能分析首页", "description": "智能分析工作台", "groupCode": "smart", "groupName": "智能分析"},
+    {"code": "smart.overview", "name": "智能总览", "description": "智能参与、成功、使用与利润趋势", "groupCode": "smart", "groupName": "智能分析"},
+    {"code": "smart.dimensions", "name": "维度分析", "description": "按业务维度组合分析智能指标", "groupCode": "smart", "groupName": "智能分析"},
+    {"code": "smart.details", "name": "出票明细", "description": "查看一票一行的智能出票记录", "groupCode": "smart", "groupName": "智能分析"},
     {"code": "smart.placement.policies", "name": "投放政策", "description": "投放机会、审核、认领与登记", "groupCode": "smart", "groupName": "智能分析"},
     {"code": "smart.placement.orders", "name": "收单情况", "description": "政策命中订单与关注处理", "groupCode": "smart", "groupName": "智能分析"},
     {"code": "monitor.center", "name": "监控中心", "description": "通用规则、告警事件与任务运行监控", "groupCode": "monitor", "groupName": "监控中心"},
@@ -111,6 +113,9 @@ LEGACY_MENU_EXPANSIONS = {
     group_code: tuple(item["code"] for item in MENU_CATALOG if item["groupCode"] == group_code)
     for group_code in {item["groupCode"] for item in MENU_CATALOG}
 }
+LEGACY_MENU_EXPANSIONS["smart.home"] = (
+    "smart.overview", "smart.dimensions", "smart.details",
+)
 MENU_CODES = {item["code"] for item in MENU_CATALOG}
 MENU_GROUP_BY_CODE = {item["code"]: item["groupCode"] for item in MENU_CATALOG}
 

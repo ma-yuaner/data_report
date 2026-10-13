@@ -6,12 +6,15 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from io import BytesIO
-from typing import Any
+from tempfile import SpooledTemporaryFile
+from typing import Any, BinaryIO, Iterable, Sequence
 from zoneinfo import ZoneInfo
 
 from openpyxl import Workbook
+from openpyxl.cell import WriteOnlyCell
 from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
+from pymysql.cursors import SSCursor
 
 from .data_source import DataSource
 
@@ -22,7 +25,10 @@ DETAIL_TABLE = "bi_smart_issue_detail_year"
 MAX_RANGE_DAYS = 366
 MAX_PAGE_SIZE = 100
 MAX_OPTION_ROWS = 200
-MAX_DETAIL_EXPORT_ROWS = 50_000
+MAX_SMART_EXPORT_ROWS = 900_000
+MAX_DETAIL_EXPORT_ROWS = MAX_SMART_EXPORT_ROWS
+DETAIL_EXPORT_BATCH_SIZE = 2_000
+WORKBOOK_MEMORY_LIMIT_BYTES = 16 * 1024 * 1024
 NULL_TOKEN = "__NULL__"
 
 TREND_DATES: dict[str, tuple[str, str]] = {
@@ -380,23 +386,28 @@ def build_trend_where(
     }
 
 
-def _workbook(sheet_name: str, headers: list[str], rows: list[list[Any]]) -> BytesIO:
-    workbook = Workbook(write_only=False)
-    sheet = workbook.active
+def _workbook(sheet_name: str, headers: list[str], rows: Iterable[Sequence[Any]]) -> BinaryIO:
+    workbook = Workbook(write_only=True)
+    sheet = workbook.create_sheet()
     sheet.title = sheet_name[:31]
-    sheet.append(headers)
+    sheet.freeze_panes = "A2"
+    for index, header in enumerate(headers, 1):
+        sheet.column_dimensions[get_column_letter(index)].width = min(max(len(header) * 2 + 4, 12), 28)
     header_fill = PatternFill("solid", fgColor="E9F2FF")
-    for cell in sheet[1]:
+    header_cells = []
+    for header in headers:
+        cell = WriteOnlyCell(sheet, value=header)
         cell.font = Font(bold=True, color="23446F")
         cell.fill = header_fill
         cell.alignment = Alignment(horizontal="center")
+        header_cells.append(cell)
+    sheet.append(header_cells)
+    row_count = 1
     for row in rows:
         sheet.append(row)
-    sheet.freeze_panes = "A2"
-    sheet.auto_filter.ref = sheet.dimensions
-    for index, header in enumerate(headers, 1):
-        sheet.column_dimensions[sheet.cell(1, index).column_letter].width = min(max(len(header) * 2 + 4, 12), 28)
-    output = BytesIO()
+        row_count += 1
+    sheet.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{row_count}"
+    output = SpooledTemporaryFile(max_size=WORKBOOK_MEMORY_LIMIT_BYTES, mode="w+b")
     workbook.save(output)
     output.seek(0)
     return output
@@ -850,7 +861,7 @@ class SmartAnalysisService:
             raise ValueError("智能类型不合法")
         if stage == "profit":
             stage = "use"
-        if stage not in {"all", "participation", "success", "use", "unsuccessful", "unused", "refund"}:
+        if stage not in {"all", "participation", "unparticipated", "success", "use", "unsuccessful", "unused", "refund"}:
             raise ValueError("票单范围不合法")
         try:
             page, page_size = int(page_value), int(page_size_value)
@@ -1028,29 +1039,45 @@ class SmartAnalysisService:
             f"SELECT {group_sql}, {aggregate_select()} FROM {DATABASE}.{DIMENSION_TABLE} src "
             f"WHERE {where} GROUP BY {group_sql} ORDER BY {', '.join(order_parts)}"
         )
+        count_query = (
+            f"SELECT count(1) FROM (SELECT 1 FROM {DATABASE}.{DIMENSION_TABLE} src "
+            f"WHERE {where} GROUP BY {group_sql}) grouped_count"
+        )
         total_query = f"SELECT {aggregate_select()} FROM {DATABASE}.{DIMENSION_TABLE} src WHERE {where}"
-        connection = cursor = None
+        connection = metadata_cursor = cursor = None
         try:
             connection = self.source.connect()
-            cursor = connection.cursor()
-            cursor.execute(total_query, tuple(params))
-            total_values = cursor.fetchone()
+            metadata_cursor = connection.cursor()
+            metadata_cursor.execute(count_query, tuple(params))
+            total = int((metadata_cursor.fetchone() or (0,))[0] or 0)
+            if total > MAX_SMART_EXPORT_ROWS:
+                raise ValueError(f"当前匹配{total}条，超过{MAX_SMART_EXPORT_ROWS}条导出上限，请缩小筛选范围后再导出。")
+            metadata_cursor.execute(total_query, tuple(params))
+            total_values = metadata_cursor.fetchone()
             total_metrics = public_metrics(_raw_aggregate(dict(zip(AGGREGATE_NAMES, total_values))))
+            metadata_cursor.close()
+            metadata_cursor = None
+            cursor = connection.cursor(SSCursor)
             cursor.execute(query, tuple(params))
-            export_rows: list[list[Any]] = []
             total_row = ["合计", *([""] * (len(groups) - 1))]
             total_row.extend(_nested_metric(total_metrics, DIMENSION_EXPORT_METRICS[key][1]) for key in metrics)
-            export_rows.append(total_row)
-            for values in cursor.fetchall():
-                dimension_values = [str(value or "未填写") for value in values[:len(groups)]]
-                row_metrics = public_metrics(_raw_aggregate(dict(zip(AGGREGATE_NAMES, values[len(groups):]))))
-                export_rows.append(dimension_values + [
-                    _nested_metric(row_metrics, DIMENSION_EXPORT_METRICS[key][1]) for key in metrics
-                ])
+
+            def export_rows() -> Iterable[list[Any]]:
+                yield total_row
+                while batch := cursor.fetchmany(DETAIL_EXPORT_BATCH_SIZE):
+                    for values in batch:
+                        dimension_values = [str(value or "未填写") for value in values[:len(groups)]]
+                        row_metrics = public_metrics(_raw_aggregate(dict(zip(AGGREGATE_NAMES, values[len(groups):]))))
+                        yield dimension_values + [
+                            _nested_metric(row_metrics, DIMENSION_EXPORT_METRICS[key][1]) for key in metrics
+                        ]
+
             headers = [DIMENSIONS[key][1] for key in groups] + [DIMENSION_EXPORT_METRICS[key][0] for key in metrics]
             suffix = _period_suffix((first, last), (dep_first, dep_last), (order_first, order_last))
-            return _workbook("维度分析", headers, export_rows), f"智能分析_维度分析_{suffix}.xlsx"
+            return _workbook("维度分析", headers, export_rows()), f"智能分析_维度分析_{suffix}.xlsx"
         finally:
+            if metadata_cursor is not None:
+                metadata_cursor.close()
             if cursor is not None:
                 cursor.close()
             if connection is not None:
@@ -1068,7 +1095,7 @@ class SmartAnalysisService:
             raise ValueError("智能类型不合法")
         if stage == "profit":
             stage = "use"
-        if stage not in {"all", "participation", "success", "use", "unsuccessful", "unused", "refund"}:
+        if stage not in {"all", "participation", "unparticipated", "success", "use", "unsuccessful", "unused", "refund"}:
             raise ValueError("票单范围不合法")
         requested = [key.strip() for key in str(fields_value or "").split(",") if key.strip()]
         if all_fields:
@@ -1094,22 +1121,33 @@ class SmartAnalysisService:
             "ORDER BY (src.issue_ticket_time IS NULL) ASC, "
             f"src.issue_ticket_time DESC, src.issue_id DESC LIMIT {MAX_DETAIL_EXPORT_ROWS}"
         )
-        connection = cursor = None
+        connection = count_cursor = cursor = None
         try:
             connection = self.source.connect()
-            cursor = connection.cursor()
-            cursor.execute(count_query, tuple(params))
-            total = int((cursor.fetchone() or (0,))[0] or 0)
+            count_cursor = connection.cursor()
+            count_cursor.execute(count_query, tuple(params))
+            total = int((count_cursor.fetchone() or (0,))[0] or 0)
             if total > MAX_DETAIL_EXPORT_ROWS:
                 raise ValueError(f"当前匹配{total}条，超过{MAX_DETAIL_EXPORT_ROWS}条导出上限，请缩小筛选范围后再导出。")
+            count_cursor.close()
+            count_cursor = None
+            cursor = connection.cursor(SSCursor)
             cursor.execute(query, tuple(params))
-            rows = [[
-                _serialize_detail(value, field.value_type) for field, value in zip(selected_fields, values)
-            ] for values in cursor.fetchall()]
+
+            def export_rows() -> Iterable[list[Any]]:
+                while batch := cursor.fetchmany(DETAIL_EXPORT_BATCH_SIZE):
+                    for values in batch:
+                        yield [
+                            _serialize_detail(value, field.value_type)
+                            for field, value in zip(selected_fields, values)
+                        ]
+
             headers = [field.title for field in selected_fields]
             suffix = _period_suffix((first, last), (dep_first, dep_last), (order_first, order_last))
-            return _workbook("出票明细", headers, rows), f"智能分析_出票明细_{suffix}.xlsx"
+            return _workbook("出票明细", headers, export_rows()), f"智能分析_出票明细_{suffix}.xlsx"
         finally:
+            if count_cursor is not None:
+                count_cursor.close()
             if cursor is not None:
                 cursor.close()
             if connection is not None:
@@ -1130,22 +1168,26 @@ class SmartAnalysisService:
             return "src.refund_flag IN ('退票中','已退票')"
         if smart_type == "down":
             participated, succeeded = "src.down_participated = 1", "src.down_succeeded = 1"
+            not_participated = "coalesce(src.down_participated, 0) <> 1"
             used = "src.smart_confirm = '智能降舱'"
             not_succeeded = "coalesce(src.down_succeeded, 0) <> 1"
             not_used = "(src.smart_confirm IS NULL OR src.smart_confirm <> '智能降舱')"
         elif smart_type == "void":
             participated, succeeded = "src.void_participated = 1", "src.void_succeeded = 1"
+            not_participated = "coalesce(src.void_participated, 0) <> 1"
             used = "src.smart_confirm = '智能废票'"
             not_succeeded = "coalesce(src.void_succeeded, 0) <> 1"
             not_used = "(src.smart_confirm IS NULL OR src.smart_confirm <> '智能废票')"
         else:
             participated = "(src.down_participated = 1 OR src.void_participated = 1)"
+            not_participated = "(coalesce(src.down_participated, 0) <> 1 AND coalesce(src.void_participated, 0) <> 1)"
             succeeded = "(src.down_succeeded = 1 OR src.void_succeeded = 1)"
             used = "src.smart_confirm IN ('智能降舱','智能废票')"
             not_succeeded = "(coalesce(src.down_succeeded, 0) <> 1 AND coalesce(src.void_succeeded, 0) <> 1)"
             not_used = "(src.smart_confirm IS NULL OR src.smart_confirm NOT IN ('智能降舱','智能废票'))"
         return {
             "participation": participated,
+            "unparticipated": not_participated,
             "success": succeeded,
             "use": used,
             "unsuccessful": f"({participated}) AND ({not_succeeded})",
