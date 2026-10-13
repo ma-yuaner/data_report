@@ -10,15 +10,11 @@ USE `sibebid`;
 SET FOREIGN_KEY_CHECKS = 0;
 
 -- 通知发送结果与监控命中事件
-TRUNCATE TABLE `monitor_notify_delivery_context`;
 TRUNCATE TABLE `monitor_notify_outbox`;
 TRUNCATE TABLE `monitor_event_operation_log`;
 TRUNCATE TABLE `monitor_alert_event`;
 
--- 智能收单结果、归属、复盘和业务操作日志
-TRUNCATE TABLE `smart_placement_order_outcome`;
-TRUNCATE TABLE `smart_placement_match_attribution`;
-TRUNCATE TABLE `smart_placement_effect_review`;
+-- 智能收单结果和业务操作日志
 TRUNCATE TABLE `smart_placement_operation_log`;
 TRUNCATE TABLE `smart_placement_order_match`;
 
@@ -42,7 +38,6 @@ SET FOREIGN_KEY_CHECKS = 1;
 SELECT
   (SELECT COUNT(*) FROM `smart_placement_task`) AS placement_tasks,
   (SELECT COUNT(*) FROM `smart_placement_order_match`) AS placement_matches,
-  (SELECT COUNT(*) FROM `smart_placement_order_outcome`) AS placement_outcomes,
   (SELECT COUNT(*) FROM `monitor_rule`) AS monitor_rules,
   (SELECT COUNT(*) FROM `monitor_alert_event`) AS monitor_events,
   (SELECT COUNT(*) FROM `monitor_notify_outbox`) AS notify_outbox;
