@@ -484,8 +484,11 @@ def register_smart_placement_execution(task_id: int):
 @api.get("/v1/smart-placement/tasks/<int:task_id>/monitoring")
 def smart_placement_task_monitoring(task_id: int):
     try:
-        SmartPlacementService(current_app.config).task_detail(g.current_user, task_id)
-        return ok(MonitoringService(current_app.config).task_monitoring(g.current_user, task_id))
+        placement = SmartPlacementService(current_app.config)
+        placement.task_detail(g.current_user, task_id)
+        result = MonitoringService(current_app.config).task_monitoring(g.current_user, task_id)
+        result["effectSummary"] = placement.effect_summary(g.current_user, task_id)["summary"]
+        return ok(result)
     except PermissionError as error:
         return jsonify({"success": False, "message": str(error), "data": None}), 403
     except ValueError as error:
@@ -493,6 +496,40 @@ def smart_placement_task_monitoring(task_id: int):
     except SmartPlacementUnavailable as error:
         return jsonify({"success": False, "message": str(error), "data": None}), 503
     except MonitoringUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.post("/v1/smart-placement/tasks/<int:task_id>/stop")
+def stop_smart_placement_monitoring(task_id: int):
+    try:
+        return ok(
+            SmartPlacementService(current_app.config).stop_monitoring(
+                g.current_user, task_id, json_body()
+            ),
+            "投放监控已停止",
+        )
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except SmartPlacementUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.post("/v1/smart-placement/tasks/<int:task_id>/effect-reviews")
+def create_smart_placement_effect_review(task_id: int):
+    try:
+        return ok(
+            SmartPlacementService(current_app.config).create_effect_review(
+                g.current_user, task_id, json_body()
+            ),
+            "政策效果复盘已保存",
+        ), 201
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except SmartPlacementUnavailable as error:
         return jsonify({"success": False, "message": str(error), "data": None}), 503
 
 
@@ -696,6 +733,77 @@ def update_monitoring_notify_endpoint(endpoint_id: int):
 def test_monitoring_notify_endpoint(endpoint_id: int):
     try:
         return ok(MonitoringService(current_app.config).test_notify_endpoint(g.current_user, endpoint_id), "测试消息发送成功")
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except MonitoringUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.get("/v1/monitoring/message-templates")
+def monitoring_message_templates():
+    try:
+        return ok(MonitoringService(current_app.config).list_message_templates(g.current_user))
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except MonitoringUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.put("/v1/monitoring/message-templates/<int:template_id>")
+def update_monitoring_message_template(template_id: int):
+    try:
+        return ok(
+            MonitoringService(current_app.config).update_message_template(
+                g.current_user, template_id, json_body()
+            ),
+            "消息模板已更新",
+        )
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except MonitoringUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.get("/v1/monitoring/notify-routes")
+def monitoring_notify_routes():
+    try:
+        return ok(MonitoringService(current_app.config).list_notify_routes(g.current_user))
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except MonitoringUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.post("/v1/monitoring/notify-routes")
+def create_monitoring_notify_route():
+    try:
+        return ok(
+            MonitoringService(current_app.config).save_notify_route(
+                g.current_user, json_body()
+            ),
+            "通知路由已创建",
+        )
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except MonitoringUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.put("/v1/monitoring/notify-routes/<int:route_id>")
+def update_monitoring_notify_route(route_id: int):
+    try:
+        return ok(
+            MonitoringService(current_app.config).save_notify_route(
+                g.current_user, json_body(), route_id
+            ),
+            "通知路由已更新",
+        )
     except PermissionError as error:
         return jsonify({"success": False, "message": str(error), "data": None}), 403
     except ValueError as error:

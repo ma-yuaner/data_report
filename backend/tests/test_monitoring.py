@@ -248,3 +248,58 @@ def test_create_wecom_endpoint_persists_secret_but_only_returns_identity():
     connection.commit.assert_called_once()
     params = next(call.args[1] for call in cursor.execute.call_args_list if "INSERT INTO" in call.args[0])
     assert "key=abcDEF_123456" in params[3]
+
+
+def test_notification_route_links_event_template_group_and_dynamic_recipient_strategy():
+    source, connection, cursor = source_with_cursor()
+    cursor.fetchone.side_effect = [
+        {"id": 3, "event_code": "SMART_ORDER_MATCHED", "channel": "WECOM"},
+        {"id": 12},
+    ]
+    cursor.lastrowid = 31
+    service = MonitoringService({}, source=source)
+
+    result = service.save_notify_route(
+        {"id": 1, "display_name": "系统管理员", "is_admin": True},
+        {
+            "routeName": "智能收单群通知",
+            "eventCode": "SMART_ORDER_MATCHED",
+            "endpointId": 12,
+            "templateId": 3,
+            "recipientStrategy": "TASK_ASSIGNEE",
+            "priorityNo": 10,
+            "status": "ACTIVE",
+        },
+    )
+
+    assert result == {"id": 31, "eventCode": "SMART_ORDER_MATCHED", "status": "ACTIVE"}
+    connection.commit.assert_called_once()
+    insert_params = next(
+        call.args[1]
+        for call in cursor.execute.call_args_list
+        if "INSERT INTO" in call.args[0]
+    )
+    assert insert_params[4:9] == (12, 3, "TASK_ASSIGNEE", 0, 10)
+
+
+def test_external_message_template_rejects_unapproved_order_fields():
+    source, connection, cursor = source_with_cursor()
+    cursor.fetchone.return_value = {
+        "id": 3,
+        "field_schema_json": '{"allowedFields":[]}',
+        "version_no": 1,
+    }
+    service = MonitoringService({}, source=source)
+
+    with pytest.raises(ValueError, match="未授权变量"):
+        service.update_message_template(
+            {"id": 1, "display_name": "系统管理员", "is_admin": True},
+            3,
+            {
+                "titleTemplate": "智能收单提醒",
+                "bodyTemplate": "订单号：{otaOrderNo}",
+                "status": "ACTIVE",
+            },
+        )
+
+    connection.rollback.assert_called_once()

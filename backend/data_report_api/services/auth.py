@@ -45,6 +45,8 @@ ROLE_PERMISSIONS = {
     "DATA_MANAGER": (
         "smart_placement.review_data",
         "smart_placement.cancel",
+        "smart_placement.stop",
+        "smart_placement.effect_review",
     ),
     "POLICY_MANAGER": ("smart_placement.review_policy",),
     "POLICY_OPERATOR": (
@@ -76,6 +78,8 @@ PERMISSION_CATALOG = (
     {"code": "smart_placement.claim", "name": "认领投放任务", "description": "认领已通过两级审核的投放任务", "menuCode": "smart.placement.policies"},
     {"code": "smart_placement.execute", "name": "登记投放结果", "description": "登记政策ID、投放时间并进入监控", "menuCode": "smart.placement.policies"},
     {"code": "smart_placement.orders.attention", "name": "处理收单关注", "description": "更新命中订单的关注状态和处理结果", "menuCode": "smart.placement.orders"},
+    {"code": "smart_placement.stop", "name": "停止投放监控", "description": "停止已投放政策的继续匹配并结束任务", "menuCode": "smart.placement.policies"},
+    {"code": "smart_placement.effect_review", "name": "登记效果复盘", "description": "记录政策效果结论及下一步动作", "menuCode": "smart.placement.policies"},
     {"code": "monitor.center.view", "name": "查看监控中心", "description": "查看通用规则、命中事件和运行状态", "menuCode": "monitor.center"},
     {"code": "monitor.rule.manage", "name": "管理监控规则", "description": "新建、启用、暂停或停用监控规则", "menuCode": "monitor.center"},
     {"code": "monitor.event.view", "name": "查看监控事件", "description": "查看全部监控命中事件及业务关联", "menuCode": "monitor.center"},
@@ -585,6 +589,100 @@ class MySqlAuthStore:
     def list_users(self) -> list[dict[str, Any]]:
         return [self._with_access(row) or row for row in self._fetchall(f"{self.USER_SELECT} ORDER BY u.id")]
 
+    @staticmethod
+    def _roster_table(database: str, table: str) -> str:
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", database):
+            raise AuthError("ERP花名册库名配置不合法", 503, "ROSTER_CONFIG_INVALID")
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", table):
+            raise AuthError("ERP花名册表名配置不合法", 503, "ROSTER_CONFIG_INVALID")
+        return f"`{database}`.`{table}`"
+
+    def search_employees(
+        self, database: str, table: str, keyword: str, limit: int = 30,
+    ) -> list[dict[str, Any]]:
+        roster = self._roster_table(database, table)
+        token = f"%{keyword.strip()[:100]}%"
+        return self._fetchall(
+            f"""
+            SELECT id,user_name,wechat_id,mobilephone,cname,work_number,
+                   status,enabled,start_time,end_time,update_time
+            FROM {roster}
+            WHERE status=1 AND enabled=0
+              AND (start_time IS NULL OR start_time<=NOW())
+              AND (end_time IS NULL OR end_time>=NOW())
+              AND (%s='' OR cname LIKE %s OR user_name LIKE %s
+                   OR work_number LIKE %s OR mobilephone LIKE %s)
+            ORDER BY CASE WHEN cname=%s THEN 0 ELSE 1 END,sort_seq,id
+            LIMIT %s
+            """,
+            (keyword.strip(), token, token, token, token, keyword.strip(), max(1, min(limit, 100))),
+        )
+
+    def get_employee_binding(
+        self, user_id: int, database: str, table: str,
+    ) -> dict[str, Any] | None:
+        roster = self._roster_table(database, table)
+        return self._fetchone(
+            f"""
+            SELECT b.sys_user_id,b.employee_id,b.status,b.employee_name_snapshot,
+                   b.work_number_snapshot,b.wechat_id_snapshot,b.mobile_snapshot,
+                   e.user_name,e.wechat_id,e.mobilephone,e.cname,e.work_number,
+                   e.status employee_status,e.enabled employee_enabled,
+                   e.start_time,e.end_time,e.update_time
+            FROM sys_user_employee_binding b
+            LEFT JOIN {roster} e ON e.id=b.employee_id
+            WHERE b.sys_user_id=%s
+            """,
+            (user_id,),
+        )
+
+    def get_employee_by_id(
+        self, database: str, table: str, employee_id: int,
+    ) -> dict[str, Any] | None:
+        roster = self._roster_table(database, table)
+        return self._fetchone(
+            f"""
+            SELECT id,user_name,wechat_id,mobilephone,cname,work_number,
+                   status,enabled,start_time,end_time,update_time
+            FROM {roster}
+            WHERE id=%s AND status=1 AND enabled=0
+              AND (start_time IS NULL OR start_time<=NOW())
+              AND (end_time IS NULL OR end_time>=NOW())
+            """,
+            (employee_id,),
+        )
+
+    def set_employee_binding(
+        self, user_id: int, employee: dict[str, Any] | None, actor_id: int,
+    ) -> None:
+        connection = self.source.connect()
+        try:
+            connection.begin()
+            with connection.cursor() as cursor:
+                cursor.execute("DELETE FROM sys_user_employee_binding WHERE sys_user_id=%s", (user_id,))
+                if employee:
+                    cursor.execute(
+                        """
+                        INSERT INTO sys_user_employee_binding (
+                            sys_user_id,employee_id,employee_name_snapshot,
+                            work_number_snapshot,wechat_id_snapshot,mobile_snapshot,
+                            status,bound_by,created_at,updated_at
+                        ) VALUES (%s,%s,%s,%s,%s,%s,'ACTIVE',%s,%s,%s)
+                        """,
+                        (
+                            user_id, employee["id"], employee["cname"],
+                            employee.get("work_number"), employee.get("wechat_id"),
+                            employee.get("mobilephone"), actor_id,
+                            business_now_naive(), business_now_naive(),
+                        ),
+                    )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
     def list_business_roles(self) -> list[dict[str, Any]]:
         try:
             return [
@@ -967,6 +1065,8 @@ class MemoryAuthStore:
         self._audit_id = 0
         self._lock = threading.RLock()
         self.managed_members: dict[tuple[int, str], list[int]] = {}
+        self.employee_bindings: dict[int, dict[str, Any]] = {}
+        self.employees: list[dict[str, Any]] = []
         self.roles: dict[str, dict[str, Any]] = {
             row["code"]: {
                 **dict(row), "isActive": True, "userCount": 0,
@@ -1075,6 +1175,49 @@ class MemoryAuthStore:
     def list_users(self) -> list[dict[str, Any]]:
         with self._lock:
             return [deepcopy(self.users[key]) for key in sorted(self.users)]
+
+    def search_employees(
+        self, database: str, table: str, keyword: str, limit: int = 30,
+    ) -> list[dict[str, Any]]:
+        del database, table
+        token = keyword.strip().lower()
+        rows = [
+            row for row in self.employees
+            if not token or token in " ".join(
+                str(row.get(key) or "").lower()
+                for key in ("cname", "user_name", "work_number", "mobilephone")
+            )
+        ]
+        return deepcopy(rows[:limit])
+
+    def get_employee_binding(
+        self, user_id: int, database: str, table: str,
+    ) -> dict[str, Any] | None:
+        del database, table
+        return deepcopy(self.employee_bindings.get(user_id))
+
+    def get_employee_by_id(
+        self, database: str, table: str, employee_id: int,
+    ) -> dict[str, Any] | None:
+        del database, table
+        return deepcopy(next((row for row in self.employees if int(row["id"]) == employee_id), None))
+
+    def set_employee_binding(
+        self, user_id: int, employee: dict[str, Any] | None, actor_id: int,
+    ) -> None:
+        del actor_id
+        with self._lock:
+            if employee is None:
+                self.employee_bindings.pop(user_id, None)
+            else:
+                self.employee_bindings[user_id] = {
+                    "sys_user_id": user_id,
+                    "employee_id": employee["id"],
+                    **deepcopy(employee),
+                    "status": "ACTIVE",
+                    "employee_status": employee.get("status", 1),
+                    "employee_enabled": employee.get("enabled", 0),
+                }
 
     def list_business_roles(self) -> list[dict[str, Any]]:
         return [
@@ -1477,6 +1620,110 @@ class AuthManager:
     def users(self, actor: dict[str, Any]) -> list[dict[str, Any]]:
         self.require_admin(actor)
         return [self.public_user(row) for row in self.store.list_users()]
+
+    def _roster_location(self) -> tuple[str, str]:
+        return (
+            str(self.config.get("ERP_ROSTER_DATABASE", "sibebd")).strip(),
+            str(self.config.get("ERP_ROSTER_TABLE", "system_user")).strip(),
+        )
+
+    @staticmethod
+    def _public_employee(row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": int(row["id"]),
+            "username": str(row.get("user_name") or ""),
+            "displayName": str(row.get("cname") or ""),
+            "workNumber": str(row.get("work_number") or ""),
+            "wechatId": str(row.get("wechat_id") or ""),
+            "mobilephone": str(row.get("mobilephone") or ""),
+            "hasNotificationIdentity": bool(row.get("wechat_id") or row.get("mobilephone")),
+            "updatedAt": AuthManager.iso(row.get("update_time")),
+        }
+
+    def employees(self, actor: dict[str, Any], keyword: str, limit: int = 30) -> list[dict[str, Any]]:
+        self.require_admin(actor)
+        database, table = self._roster_location()
+        try:
+            rows = self.store.search_employees(database, table, keyword, limit)
+        except AuthError:
+            raise
+        except Exception as error:
+            raise AuthError(
+                "ERP花名册读取失败，请确认只读权限和ERP_ROSTER_DATABASE配置",
+                503,
+                "ROSTER_UNAVAILABLE",
+            ) from error
+        return [self._public_employee(row) for row in rows]
+
+    def employee_binding(self, actor: dict[str, Any], target_id: int) -> dict[str, Any]:
+        self.require_admin(actor)
+        if not self.store.get_user_by_id(target_id):
+            raise AuthError("账号不存在", 404, "USER_NOT_FOUND")
+        database, table = self._roster_location()
+        try:
+            row = self.store.get_employee_binding(target_id, database, table)
+        except Exception as error:
+            raise AuthError(
+                "账号与花名册映射表尚未创建，或ERP花名册不可读",
+                503,
+                "ROSTER_BINDING_UNAVAILABLE",
+            ) from error
+        if not row:
+            return {"userId": target_id, "employee": None, "status": "UNBOUND"}
+        employee = {
+            "id": int(row.get("employee_id") or 0),
+            "user_name": row.get("user_name"),
+            "cname": row.get("cname") or row.get("employee_name_snapshot"),
+            "work_number": row.get("work_number") or row.get("work_number_snapshot"),
+            "wechat_id": row.get("wechat_id") or row.get("wechat_id_snapshot"),
+            "mobilephone": row.get("mobilephone") or row.get("mobile_snapshot"),
+            "update_time": row.get("update_time"),
+        }
+        valid = (
+            str(row.get("status") or "ACTIVE") == "ACTIVE"
+            and row.get("employee_status") in (None, 1)
+            and row.get("employee_enabled") in (None, 0)
+        )
+        return {
+            "userId": target_id,
+            "employee": self._public_employee(employee),
+            "status": "ACTIVE" if valid else "INVALID",
+        }
+
+    def update_employee_binding(
+        self, actor: dict[str, Any], target_id: int, employee_id: Any,
+        ip_address: str, user_agent: str,
+    ) -> dict[str, Any]:
+        self.require_admin(actor)
+        target = self.store.get_user_by_id(target_id)
+        if not target:
+            raise AuthError("账号不存在", 404, "USER_NOT_FOUND")
+        database, table = self._roster_location()
+        employee = None
+        if employee_id not in (None, ""):
+            try:
+                wanted = int(employee_id)
+            except (TypeError, ValueError) as error:
+                raise AuthError("ERP员工ID必须为整数") from error
+            employee = self.store.get_employee_by_id(database, table, wanted)
+            if employee is None:
+                raise AuthError("ERP员工不存在、已停用或不在有效期内", 404, "EMPLOYEE_NOT_FOUND")
+            if not (employee.get("wechat_id") or employee.get("mobilephone")):
+                raise AuthError("该员工没有企业微信ID或手机号，无法用于动态@通知")
+        try:
+            self.store.set_employee_binding(target_id, employee, int(actor["id"]))
+        except AuthError:
+            raise
+        except Exception as error:
+            if "duplicate" in str(error).lower() or "1062" in str(error):
+                raise AuthError("该ERP员工已经绑定其他数据中台账号", 409, "EMPLOYEE_ALREADY_BOUND") from error
+            raise AuthError("账号与花名册绑定保存失败", 503, "ROSTER_BINDING_FAILED") from error
+        self.audit(
+            "update_employee_binding", True, user=actor,
+            ip_address=ip_address, user_agent=user_agent,
+            detail={"targetUserId": target_id, "employeeId": int(employee["id"]) if employee else None},
+        )
+        return self.employee_binding(actor, target_id)
 
     def business_roles(self, actor: dict[str, Any]) -> list[dict[str, Any]]:
         self.require_admin(actor)

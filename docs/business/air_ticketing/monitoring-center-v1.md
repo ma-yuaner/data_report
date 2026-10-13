@@ -50,3 +50,10 @@
 - 新激活规则首次运行自动回看近24小时已采集特征；之后仍只走全局增量水位。
 
 调度脚本的具体命令和参数见 `data-team-repo/etl_scripts/automation/monitoring/README.md`。
+## 通知模型与花名册（2026-10-13）
+
+站外通知拆成三层：通知群端点、消息模板、事件路由。路由决定“哪类事件使用哪个模板、发送到哪个群、动态@哪类负责人”；人员身份不在通知群中重复维护，而由`sys_user_employee_binding`把数据中台账号映射到ERP`sibebd.system_user`，发送时读取最新`wechat_id/mobilephone`。
+
+企业微信默认模板采用最小必要信息，只提示登录数据中台处理，不包含订单号、乘客、航程、利润等业务明细。实际模板版本、解析后的收件人和发送内容快照写入`monitor_notify_delivery_context`供审计。Webhook只保存在通知端点表，发件箱只保存端点ID。
+
+部署顺序：先执行`smart-placement-lifecycle-notification-v2.sql`，确认应用账号可只读ERP花名册所需字段，再在“监控中心 → 通知群”配置端点、模板与路由。

@@ -191,7 +191,7 @@ def test_update_draft_rejects_non_creator():
         "submitted_at": None,
     }
 
-    with pytest.raises(PermissionError, match="创建人或管理员"):
+    with pytest.raises(PermissionError, match="创建人、当前负责人或管理员"):
         service.update_task(
             {"id": 9, "display_name": "其他用户", "is_admin": False, "permissions": ["smart_placement.edit"]},
             17,
@@ -208,7 +208,7 @@ def test_task_detail_serializes_date_fields_without_datetime_separator():
         "task_no": "SP202610100001",
         "analysis_start_date": date(2026, 9, 1),
     }
-    cursor.fetchall.side_effect = [[], [], []]
+    cursor.fetchall.side_effect = [[], [], [], []]
 
     result = service.task_detail({"id": 1, "is_admin": True}, 17)
 

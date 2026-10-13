@@ -28,6 +28,8 @@ class Config:
     MYSQL_POOL_SIZE = int(os.getenv("MYSQL_POOL_SIZE", "12"))
     MYSQL_POOL_MIN_CACHED = int(os.getenv("MYSQL_POOL_MIN_CACHED", "2"))
     MYSQL_TIME_ZONE = os.getenv("MYSQL_TIME_ZONE", "+08:00")
+    ERP_ROSTER_DATABASE = os.getenv("ERP_ROSTER_DATABASE", "sibebd")
+    ERP_ROSTER_TABLE = os.getenv("ERP_ROSTER_TABLE", "system_user")
     HIVE_HOST = os.getenv("HIVE_HOST", "")
     HIVE_PORT = int(os.getenv("HIVE_PORT", "10000"))
     HIVE_DATABASE = os.getenv("HIVE_DATABASE", "lywz")

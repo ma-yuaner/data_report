@@ -29,11 +29,18 @@ EVENT_LOG_TABLE = "monitor_event_operation_log"
 FEATURE_TABLE = "rt_order_monitor_feature"
 RULE_STAT_TABLE = "monitor_rule_run_stat"
 NOTIFY_ENDPOINT_TABLE = "monitor_notify_endpoint"
+MESSAGE_TEMPLATE_TABLE = "monitor_message_template"
+NOTIFY_ROUTE_TABLE = "monitor_notify_route"
 
 SMART_TEMPLATE = "SMART_PLACEMENT_ORDER"
 RULE_STATUSES = frozenset({"SCHEDULED", "ACTIVE", "PAUSED", "EXPIRED", "DISABLED"})
 EVENT_STATUSES = frozenset({"OPEN", "ACKNOWLEDGED", "RESOLVED", "IGNORED", "CLOSED"})
 ENDPOINT_STATUSES = frozenset({"ACTIVE", "DISABLED"})
+NOTIFY_EVENT_CODES = frozenset({
+    "SMART_ORDER_MATCHED", "SMART_ATTENTION_REMINDER",
+    "SMART_ATTENTION_ESCALATED", "SMART_POLICY_EXPIRED",
+})
+RECIPIENT_STRATEGIES = frozenset({"TASK_ASSIGNEE", "ATTENTION_OWNER", "RULE_OWNER", "NONE"})
 
 
 class MonitoringUnavailable(RuntimeError):
@@ -507,6 +514,8 @@ class MonitoringService:
                 "pendingNotifications": pending_notifications,
                 "recentRuns": recent_runs,
             }
+        except PermissionError:
+            raise
         except Exception as error:
             raise self._unavailable(error, "监控中心概览查询失败") from error
         finally:
@@ -533,6 +542,10 @@ class MonitoringService:
                 item["fields"] = fields_by_template.get(int(template["id"]), [])
                 result.append(item)
             return result
+        except (ValueError, PermissionError):
+            if connection is not None:
+                connection.rollback()
+            raise
         except Exception as error:
             raise self._unavailable(error, "监控模板查询失败") from error
         finally:
@@ -1209,6 +1222,186 @@ class MonitoringService:
             if _is_missing_table(error):
                 raise MonitoringUnavailable("企业微信通知表尚未创建，请先执行monitoring-wecom-notification-v1.sql") from error
             raise MonitoringUnavailable(f"企业微信测试发送失败：{error}") from error
+        finally:
+            if cursor is not None: cursor.close()
+            if connection is not None: connection.close()
+
+    def list_message_templates(self, user: dict[str, Any]) -> list[dict[str, Any]]:
+        _require(user, "monitor.rule.manage", "当前账号没有通知模板配置权限")
+        connection = cursor = None
+        try:
+            connection = self.source.connect(); cursor = connection.cursor()
+            cursor.execute(
+                f"SELECT * FROM {self._table(MESSAGE_TEMPLATE_TABLE)} ORDER BY event_code,channel,id"
+            )
+            rows = []
+            for row in _dict_rows(cursor, list(cursor.fetchall())):
+                item = _public_row(row)
+                item["fieldSchema"] = json.loads(row.get("field_schema_json") or "{}")
+                item.pop("fieldSchemaJson", None)
+                rows.append(item)
+            return rows
+        except PermissionError:
+            raise
+        except Exception as error:
+            if _is_missing_table(error):
+                raise MonitoringUnavailable("通知模型表尚未创建，请先执行smart-placement-lifecycle-notification-v2.sql") from error
+            raise self._unavailable(error, "通知模板查询失败") from error
+        finally:
+            if cursor is not None: cursor.close()
+            if connection is not None: connection.close()
+
+    def update_message_template(
+        self, user: dict[str, Any], template_id: int, values: dict[str, Any],
+    ) -> dict[str, Any]:
+        _require(user, "monitor.rule.manage", "当前账号没有通知模板配置权限")
+        title = _clean_text(values.get("titleTemplate"))[:300]
+        body = _clean_text(values.get("bodyTemplate"))
+        status = _clean_text(values.get("status") or "ACTIVE").upper()
+        if not title or not body:
+            raise ValueError("消息标题和正文模板不能为空")
+        if len(body) > 4000:
+            raise ValueError("消息正文模板不能超过4000个字符")
+        if status not in ENDPOINT_STATUSES:
+            raise ValueError("消息模板状态不支持")
+        actor_id = int(user.get("id") or 0)
+        actor_name = str(user.get("display_name") or user.get("username") or "SYSTEM")[:100]
+        connection = cursor = None
+        try:
+            connection = self.source.connect(); connection.begin(); cursor = connection.cursor()
+            cursor.execute(
+                f"SELECT * FROM {self._table(MESSAGE_TEMPLATE_TABLE)} WHERE id=%s FOR UPDATE",
+                (template_id,),
+            )
+            row = _dict_row(cursor, cursor.fetchone())
+            if not row:
+                raise ValueError("消息模板不存在")
+            schema = json.loads(row.get("field_schema_json") or "{}")
+            allowed = {str(item) for item in schema.get("allowedFields") or []}
+            placeholders = set(re.findall(r"\{([A-Za-z][A-Za-z0-9_]*)\}", f"{title}\n{body}"))
+            invalid = sorted(placeholders - allowed)
+            if invalid:
+                raise ValueError(f"消息模板包含未授权变量：{','.join(invalid)}")
+            cursor.execute(
+                f"""UPDATE {self._table(MESSAGE_TEMPLATE_TABLE)}
+                    SET title_template=%s,body_template=%s,status=%s,
+                        version_no=version_no+1,updated_by_id=%s,
+                        updated_by_name=%s,updated_at=%s WHERE id=%s""",
+                (title, body, status, actor_id, actor_name, business_now_naive(), template_id),
+            )
+            connection.commit()
+            return {"id": template_id, "versionNo": int(row.get("version_no") or 1) + 1, "status": status}
+        except (ValueError, PermissionError):
+            if connection is not None: connection.rollback()
+            raise
+        except Exception as error:
+            if connection is not None: connection.rollback()
+            raise self._unavailable(error, "通知模板保存失败") from error
+        finally:
+            if cursor is not None: cursor.close()
+            if connection is not None: connection.close()
+
+    def list_notify_routes(self, user: dict[str, Any]) -> list[dict[str, Any]]:
+        _require(user, "monitor.rule.manage", "当前账号没有通知路由配置权限")
+        connection = cursor = None
+        try:
+            connection = self.source.connect(); cursor = connection.cursor()
+            cursor.execute(
+                f"""SELECT r.*,t.template_code,t.template_name,e.endpoint_name
+                    FROM {self._table(NOTIFY_ROUTE_TABLE)} r
+                    JOIN {self._table(MESSAGE_TEMPLATE_TABLE)} t ON t.id=r.template_id
+                    LEFT JOIN {self._table(NOTIFY_ENDPOINT_TABLE)} e ON e.id=r.endpoint_id
+                    ORDER BY r.event_code,r.priority_no,r.id"""
+            )
+            return [_public_row(row) for row in _dict_rows(cursor, list(cursor.fetchall()))]
+        except PermissionError:
+            raise
+        except Exception as error:
+            if _is_missing_table(error):
+                raise MonitoringUnavailable("通知模型表尚未创建，请先执行smart-placement-lifecycle-notification-v2.sql") from error
+            raise self._unavailable(error, "通知路由查询失败") from error
+        finally:
+            if cursor is not None: cursor.close()
+            if connection is not None: connection.close()
+
+    def save_notify_route(
+        self, user: dict[str, Any], values: dict[str, Any], route_id: int | None = None,
+    ) -> dict[str, Any]:
+        _require(user, "monitor.rule.manage", "当前账号没有通知路由配置权限")
+        route_name = _clean_text(values.get("routeName"))[:100]
+        event_code = _clean_text(values.get("eventCode")).upper()
+        strategy = _clean_text(values.get("recipientStrategy") or "TASK_ASSIGNEE").upper()
+        status = _clean_text(values.get("status") or "ACTIVE").upper()
+        use_defaults = bool(values.get("useSmartDefaultEndpoints"))
+        if not route_name:
+            raise ValueError("通知路由名称不能为空")
+        if event_code not in NOTIFY_EVENT_CODES:
+            raise ValueError("通知事件类型不支持")
+        if strategy not in RECIPIENT_STRATEGIES:
+            raise ValueError("动态收件人策略不支持")
+        if status not in ENDPOINT_STATUSES:
+            raise ValueError("通知路由状态不支持")
+        try:
+            template_id = int(values.get("templateId"))
+            endpoint_id = int(values["endpointId"]) if values.get("endpointId") not in (None, "") else None
+            priority_no = max(1, min(int(values.get("priorityNo") or 100), 9999))
+        except (TypeError, ValueError) as error:
+            raise ValueError("通知模板、通知群或优先级格式不正确") from error
+        if not endpoint_id and not use_defaults:
+            raise ValueError("请选择通知群，或启用智能投放默认通知群")
+        actor_id = int(user.get("id") or 0)
+        actor_name = str(user.get("display_name") or user.get("username") or "SYSTEM")[:100]
+        current = business_now_naive()
+        connection = cursor = None
+        try:
+            connection = self.source.connect(); connection.begin(); cursor = connection.cursor()
+            cursor.execute(
+                f"SELECT id,event_code,channel FROM {self._table(MESSAGE_TEMPLATE_TABLE)} WHERE id=%s AND status='ACTIVE'",
+                (template_id,),
+            )
+            template = _dict_row(cursor, cursor.fetchone())
+            if not template or str(template["event_code"]) != event_code or str(template["channel"]) != "WECOM":
+                raise ValueError("所选消息模板与事件类型不匹配或已停用")
+            if endpoint_id:
+                cursor.execute(
+                    f"SELECT id FROM {self._table(NOTIFY_ENDPOINT_TABLE)} WHERE id=%s AND channel='WECOM'",
+                    (endpoint_id,),
+                )
+                if not cursor.fetchone():
+                    raise ValueError("通知群不存在")
+            if route_id:
+                cursor.execute(f"SELECT route_code FROM {self._table(NOTIFY_ROUTE_TABLE)} WHERE id=%s FOR UPDATE", (route_id,))
+                existing = _dict_row(cursor, cursor.fetchone())
+                if not existing:
+                    raise ValueError("通知路由不存在")
+                cursor.execute(
+                    f"""UPDATE {self._table(NOTIFY_ROUTE_TABLE)}
+                        SET route_name=%s,event_code=%s,endpoint_id=%s,template_id=%s,
+                            recipient_strategy=%s,use_smart_default_endpoints=%s,
+                            priority_no=%s,status=%s,updated_by_id=%s,updated_by_name=%s,updated_at=%s
+                        WHERE id=%s""",
+                    (route_name,event_code,endpoint_id,template_id,strategy,int(use_defaults),priority_no,status,actor_id,actor_name,current,route_id),
+                )
+                saved_id = route_id
+            else:
+                route_code = f"NRT-{uuid.uuid4().hex[:16].upper()}"
+                cursor.execute(
+                    f"""INSERT INTO {self._table(NOTIFY_ROUTE_TABLE)} (
+                        route_code,route_name,event_code,channel,endpoint_id,template_id,
+                        recipient_strategy,use_smart_default_endpoints,priority_no,status,
+                        created_by_id,created_by_name,created_at,updated_by_id,updated_by_name,updated_at
+                    ) VALUES ({','.join(['%s'] * 16)})""",
+                    (route_code,route_name,event_code,"WECOM",endpoint_id,template_id,strategy,int(use_defaults),priority_no,status,actor_id,actor_name,current,actor_id,actor_name,current),
+                )
+                saved_id = int(cursor.lastrowid)
+            connection.commit()
+            return {"id": saved_id, "eventCode": event_code, "status": status}
+        except (ValueError, PermissionError):
+            if connection is not None: connection.rollback()
+            raise
+        except Exception as error:
+            if connection is not None: connection.rollback()
+            raise self._unavailable(error, "通知路由保存失败") from error
         finally:
             if cursor is not None: cursor.close()
             if connection is not None: connection.close()

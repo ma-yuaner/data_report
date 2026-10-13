@@ -23,6 +23,10 @@ REVIEW_TABLE = "smart_placement_review"
 EXECUTION_TABLE = "smart_placement_execution"
 MATCH_TABLE = "smart_placement_order_match"
 LOG_TABLE = "smart_placement_operation_log"
+OUTCOME_TABLE = "smart_placement_order_outcome"
+ATTRIBUTION_TABLE = "smart_placement_match_attribution"
+EFFECT_REVIEW_TABLE = "smart_placement_effect_review"
+MONITOR_RULE_TABLE = "monitor_rule"
 DIMENSION_TABLE = "bi_business_profit_dimension_day"
 MANAGER_RELATION_TABLE = "sys_user_manager_relation"
 TASK_SCOPE_RESOURCE = "smart_placement.task"
@@ -58,6 +62,8 @@ PERMISSION_REVIEW_POLICY = "smart_placement.review_policy"
 PERMISSION_CLAIM = "smart_placement.claim"
 PERMISSION_EXECUTE = "smart_placement.execute"
 PERMISSION_ORDER_ATTENTION = "smart_placement.orders.attention"
+PERMISSION_STOP = "smart_placement.stop"
+PERMISSION_EFFECT_REVIEW = "smart_placement.effect_review"
 
 
 class SmartPlacementUnavailable(RuntimeError):
@@ -693,11 +699,14 @@ class SmartPlacementService:
             executions = _dict_rows(cursor, list(cursor.fetchall()))
             cursor.execute(f"SELECT * FROM {self._table(LOG_TABLE)} WHERE task_id=%s ORDER BY id DESC LIMIT 200", (task_id,))
             logs = _dict_rows(cursor, list(cursor.fetchall()))
+            cursor.execute(f"SELECT * FROM {self._table(EFFECT_REVIEW_TABLE)} WHERE task_id=%s ORDER BY id DESC", (task_id,))
+            effect_reviews = _dict_rows(cursor, list(cursor.fetchall()))
             return {
                 "task": _public_row(task),
                 "reviews": [_public_row(row) for row in reviews],
                 "executions": [_public_row(row) for row in executions],
                 "logs": [_public_row(row) for row in logs],
+                "effectReviews": [_public_row(row) for row in effect_reviews],
             }
         except ValueError:
             raise
@@ -757,8 +766,9 @@ class SmartPlacementService:
             task = self._task_for_update(cursor, task_id)
             if task["status"] != "DRAFT":
                 raise ValueError("只有草稿或退回修改的任务可以编辑")
-            if int(task.get("created_by_id") or 0) != actor[0] and actor[2] != "ADMIN":
-                raise PermissionError("只能由创建人或管理员编辑该任务")
+            editable_people = {int(task.get("created_by_id") or 0), int(task.get("current_assignee_id") or 0)}
+            if actor[0] not in editable_people and actor[2] != "ADMIN":
+                raise PermissionError("只能由创建人、当前负责人或管理员编辑该任务")
             resume_stage = str(task.get("resume_review_stage") or "DATA_MANAGER")
             next_status = (
                 "PENDING_POLICY_REVIEW" if submit and resume_stage == "POLICY_MANAGER"
@@ -1248,19 +1258,46 @@ class SmartPlacementService:
             connection = self.source.connect(); cursor = connection.cursor()
             cursor.execute(
                 f"""SELECT COUNT(1) AS order_count,
-                           COALESCE(SUM(ticket_count),0) AS ticket_count,
-                           COALESCE(SUM(segment_count),0) AS segment_count,
-                           COALESCE(SUM(estimated_profit_cny),0) AS estimated_profit,
+                           COUNT(DISTINCT CASE WHEN COALESCE(a.attribution_type,'PRIMARY')='PRIMARY' THEN m.ota_order_no END) AS primary_order_count,
+                           SUM(CASE WHEN COALESCE(a.attribution_type,'PRIMARY')='PRIMARY' THEN COALESCE(o.ticket_count,m.ticket_count) END) AS ticket_count,
+                           SUM(CASE WHEN COALESCE(a.attribution_type,'PRIMARY')='PRIMARY' THEN COALESCE(o.segment_count,m.segment_count) END) AS segment_count,
+                           SUM(CASE WHEN COALESCE(a.attribution_type,'PRIMARY')='PRIMARY' THEN COALESCE(o.estimated_profit_cny,m.estimated_profit_cny) END) AS estimated_profit,
                            SUM(CASE WHEN attention_status IN ('PENDING','ESCALATED') THEN 1 ELSE 0 END) AS pending_count,
-                           COUNT(DISTINCT external_policy_id) AS active_policy_count
-                    FROM {self._table(MATCH_TABLE)} m WHERE {condition}""",
+                           COUNT(DISTINCT external_policy_id) AS active_policy_count,
+                           SUM(CASE WHEN o.outcome_status='TICKETED' AND COALESCE(a.attribution_type,'PRIMARY')='PRIMARY' THEN 1 ELSE 0 END) AS ticketed_order_count,
+                           SUM(CASE WHEN o.smart_participated=1 AND COALESCE(a.attribution_type,'PRIMARY')='PRIMARY' THEN 1 ELSE 0 END) AS smart_participated_count,
+                           SUM(CASE WHEN o.smart_succeeded=1 AND COALESCE(a.attribution_type,'PRIMARY')='PRIMARY' THEN 1 ELSE 0 END) AS smart_succeeded_count,
+                           SUM(CASE WHEN o.smart_used=1 AND COALESCE(a.attribution_type,'PRIMARY')='PRIMARY' THEN 1 ELSE 0 END) AS smart_used_count,
+                           SUM(CASE WHEN o.data_freshness_status='STALE' THEN 1 ELSE 0 END) AS stale_count,
+                           SUM(CASE WHEN o.data_freshness_status='MISSING' OR o.match_id IS NULL THEN 1 ELSE 0 END) AS waiting_sync_count
+                    FROM {self._table(MATCH_TABLE)} m
+                    LEFT JOIN {self._table(OUTCOME_TABLE)} o ON o.match_id=m.id
+                    LEFT JOIN {self._table(ATTRIBUTION_TABLE)} a ON a.match_id=m.id
+                    WHERE {condition}""",
                 tuple(params),
             )
             summary = _public_row(_dict_row(cursor, cursor.fetchone()) or {})
+            participated = int(summary.get("smartParticipatedCount") or 0)
+            succeeded = int(summary.get("smartSucceededCount") or 0)
+            ticketed = int(summary.get("ticketedOrderCount") or 0)
+            summary["smartParticipationRate"] = round(participated / ticketed, 6) if ticketed else None
+            summary["smartSuccessRate"] = round(succeeded / participated, 6) if participated else None
             cursor.execute(f"SELECT COUNT(1) FROM {self._table(MATCH_TABLE)} m WHERE {condition}", tuple(params))
             total = int(cursor.fetchone()[0])
             cursor.execute(
-                f"""SELECT m.* FROM {self._table(MATCH_TABLE)} m WHERE {condition}
+                f"""SELECT m.*,
+                           o.outcome_status,o.data_freshness_status,o.source_table outcome_source_table,
+                           o.source_updated_at outcome_source_updated_at,o.last_checked_at outcome_last_checked_at,
+                           o.ticket_no current_ticket_no,o.passenger_name current_passenger_name,
+                           o.ticket_time current_ticket_time,o.ticket_count current_ticket_count,
+                           o.segment_count current_segment_count,o.estimated_profit_cny current_estimated_profit_cny,
+                           o.order_status current_order_status,o.issue_status current_issue_status,
+                           o.smart_confirm,o.smart_participated,o.smart_succeeded,o.smart_used,
+                           a.attribution_type,a.primary_match_id,a.matched_policy_count,a.attribution_note
+                    FROM {self._table(MATCH_TABLE)} m
+                    LEFT JOIN {self._table(OUTCOME_TABLE)} o ON o.match_id=m.id
+                    LEFT JOIN {self._table(ATTRIBUTION_TABLE)} a ON a.match_id=m.id
+                    WHERE {condition}
                     ORDER BY CASE m.attention_status WHEN 'ESCALATED' THEN 0 WHEN 'PENDING' THEN 1 WHEN 'IN_PROGRESS' THEN 2 ELSE 3 END,
                              m.matched_at DESC, m.id DESC LIMIT %s OFFSET %s""",
                 tuple([*params, page_size, (page - 1) * page_size]),
@@ -1318,6 +1355,167 @@ class SmartPlacementService:
             if _is_missing_table(error):
                 raise SmartPlacementUnavailable("智能投放表尚未创建，请先执行smart-placement-schema.sql") from error
             raise SmartPlacementUnavailable("订单关注状态更新失败") from error
+        finally:
+            if cursor is not None: cursor.close()
+            if connection is not None: connection.close()
+
+    def _effect_summary(self, cursor, task_id: int) -> dict[str, Any]:
+        cursor.execute(
+            f"""SELECT COUNT(1) raw_match_count,
+                       COUNT(DISTINCT CASE WHEN COALESCE(a.attribution_type,'PRIMARY')='PRIMARY' THEN m.ota_order_no END) attributed_order_count,
+                       SUM(CASE WHEN COALESCE(a.attribution_type,'PRIMARY')='PRIMARY' THEN COALESCE(o.ticket_count,m.ticket_count) END) ticket_count,
+                       SUM(CASE WHEN COALESCE(a.attribution_type,'PRIMARY')='PRIMARY' THEN COALESCE(o.segment_count,m.segment_count) END) segment_count,
+                       SUM(CASE WHEN COALESCE(a.attribution_type,'PRIMARY')='PRIMARY' THEN COALESCE(o.estimated_profit_cny,m.estimated_profit_cny) END) estimated_profit_cny,
+                       SUM(CASE WHEN o.outcome_status='TICKETED' AND COALESCE(a.attribution_type,'PRIMARY')='PRIMARY' THEN 1 ELSE 0 END) ticketed_order_count,
+                       SUM(CASE WHEN o.smart_participated=1 AND COALESCE(a.attribution_type,'PRIMARY')='PRIMARY' THEN 1 ELSE 0 END) smart_participated_count,
+                       SUM(CASE WHEN o.smart_succeeded=1 AND COALESCE(a.attribution_type,'PRIMARY')='PRIMARY' THEN 1 ELSE 0 END) smart_succeeded_count,
+                       SUM(CASE WHEN o.smart_used=1 AND COALESCE(a.attribution_type,'PRIMARY')='PRIMARY' THEN 1 ELSE 0 END) smart_used_count,
+                       SUM(CASE WHEN m.attention_status IN ('COMPLETED','NO_ACTION') THEN 1 ELSE 0 END) handled_count,
+                       SUM(CASE WHEN o.data_freshness_status='STALE' THEN 1 ELSE 0 END) stale_count,
+                       SUM(CASE WHEN o.data_freshness_status='MISSING' OR o.match_id IS NULL THEN 1 ELSE 0 END) waiting_sync_count,
+                       MIN(m.matched_at) first_matched_at,MAX(m.matched_at) last_matched_at
+                FROM {self._table(MATCH_TABLE)} m
+                LEFT JOIN {self._table(OUTCOME_TABLE)} o ON o.match_id=m.id
+                LEFT JOIN {self._table(ATTRIBUTION_TABLE)} a ON a.match_id=m.id
+                WHERE m.task_id=%s""",
+            (task_id,),
+        )
+        summary = _public_row(_dict_row(cursor, cursor.fetchone()) or {})
+        ticketed = int(summary.get("ticketedOrderCount") or 0)
+        participated = int(summary.get("smartParticipatedCount") or 0)
+        succeeded = int(summary.get("smartSucceededCount") or 0)
+        raw_matches = int(summary.get("rawMatchCount") or 0)
+        handled = int(summary.get("handledCount") or 0)
+        summary["smartParticipationRate"] = round(participated / ticketed, 6) if ticketed else None
+        summary["smartSuccessRate"] = round(succeeded / participated, 6) if participated else None
+        summary["attentionCompletionRate"] = round(handled / raw_matches, 6) if raw_matches else None
+        return summary
+
+    def effect_summary(self, user: dict[str, Any], task_id: int) -> dict[str, Any]:
+        connection = cursor = None
+        try:
+            connection = self.source.connect(); cursor = connection.cursor()
+            visibility, params = self._visibility_condition(user)
+            cursor.execute(
+                f"SELECT t.id FROM {self._table(TASK_TABLE)} t WHERE t.id=%s AND t.is_deleted=0 AND {visibility}",
+                tuple([task_id, *params]),
+            )
+            if not cursor.fetchone():
+                raise ValueError("投放任务不存在或无权查看")
+            return {"taskId": task_id, "summary": self._effect_summary(cursor, task_id)}
+        except (ValueError, PermissionError):
+            raise
+        except Exception as error:
+            LOGGER.exception("Smart placement effect summary failed")
+            if _is_missing_table(error):
+                raise SmartPlacementUnavailable("智能投放闭环表尚未创建，请执行smart-placement-lifecycle-notification-v2.sql") from error
+            raise SmartPlacementUnavailable("政策效果查询失败") from error
+        finally:
+            if cursor is not None: cursor.close()
+            if connection is not None: connection.close()
+
+    def stop_monitoring(self, user: dict[str, Any], task_id: int, values: dict[str, Any]) -> dict[str, Any]:
+        _require_permission(user, PERMISSION_STOP, "当前账号没有停止投放监控权限")
+        reason = _text(values.get("reason"), "停止原因", 1000, required=True)
+        actor = _actor(user); current = _now()
+        connection = cursor = None
+        try:
+            connection = self.source.connect(); connection.begin(); cursor = connection.cursor()
+            task = self._task_for_update(cursor, task_id)
+            if task["status"] != "MONITORING":
+                raise ValueError("只有监控中的投放任务可以停止")
+            cursor.execute(
+                f"""UPDATE {self._table(MONITOR_RULE_TABLE)}
+                    SET status='DISABLED',updated_by_id=%s,updated_by_name=%s,updated_at=%s
+                    WHERE source_parent_id=%s AND source_business_type='SMART_PLACEMENT_EXECUTION'
+                      AND status IN ('ACTIVE','SCHEDULED','PAUSED')""",
+                (actor[0], actor[1], current, task_id),
+            )
+            cursor.execute(
+                f"""UPDATE {self._table(TASK_TABLE)} SET status='ENDED',closed_at=%s,
+                    updated_by_id=%s,updated_by_name=%s,version_no=version_no+1,updated_at=%s
+                    WHERE id=%s""",
+                (current, actor[0], actor[1], current, task_id),
+            )
+            self._log(cursor,task_id=task_id,action="STOP_MONITORING",actor=actor,from_status="MONITORING",to_status="ENDED",note=reason)
+            connection.commit()
+            return {"id": task_id, "status": "ENDED"}
+        except (ValueError, PermissionError):
+            if connection is not None: connection.rollback()
+            raise
+        except Exception as error:
+            if connection is not None: connection.rollback()
+            LOGGER.exception("Smart placement stop monitoring failed")
+            raise SmartPlacementUnavailable("停止投放监控失败") from error
+        finally:
+            if cursor is not None: cursor.close()
+            if connection is not None: connection.close()
+
+    def create_effect_review(self, user: dict[str, Any], task_id: int, values: dict[str, Any]) -> dict[str, Any]:
+        _require_permission(user, PERMISSION_EFFECT_REVIEW, "当前账号没有政策效果复盘权限")
+        result = _text(values.get("result"), "复盘结果", 32, required=True).upper()
+        if result not in {"CONTINUE", "ADJUST", "STOP", "COMPLETED"}:
+            raise ValueError("复盘结果不支持")
+        conclusion = _text(values.get("conclusion"), "复盘结论", 10_000, required=True)
+        next_action = _text(values.get("nextAction"), "下一步动作", 10_000)
+        actor = _actor(user); current = _now()
+        connection = cursor = None
+        try:
+            connection = self.source.connect(); connection.begin(); cursor = connection.cursor()
+            task = self._task_for_update(cursor, task_id)
+            if task["status"] not in {"MONITORING", "ENDED"}:
+                raise ValueError("只有监控中或已结束的任务可以登记效果复盘")
+            snapshot = self._effect_summary(cursor, task_id)
+            cursor.execute(
+                f"""INSERT INTO {self._table(EFFECT_REVIEW_TABLE)} (
+                    task_id,review_result,review_conclusion,next_action,reviewer_id,
+                    reviewer_name,metric_snapshot_json,created_at
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (task_id,result,conclusion,next_action or None,actor[0],actor[1],json.dumps(snapshot,ensure_ascii=False,default=_json_value),current),
+            )
+            review_id = int(cursor.lastrowid)
+            next_status = str(task["status"])
+            if result in {"STOP", "COMPLETED"} and next_status == "MONITORING":
+                cursor.execute(
+                    f"""UPDATE {self._table(MONITOR_RULE_TABLE)} SET status='DISABLED',
+                        updated_by_id=%s,updated_by_name=%s,updated_at=%s
+                        WHERE source_parent_id=%s AND source_business_type='SMART_PLACEMENT_EXECUTION'
+                          AND status IN ('ACTIVE','SCHEDULED','PAUSED')""",
+                    (actor[0], actor[1], current, task_id),
+                )
+                next_status = "ENDED"
+                cursor.execute(
+                    f"""UPDATE {self._table(TASK_TABLE)} SET status='ENDED',closed_at=%s,
+                        updated_by_id=%s,updated_by_name=%s,version_no=version_no+1,updated_at=%s WHERE id=%s""",
+                    (current, actor[0], actor[1], current, task_id),
+                )
+            elif result == "ADJUST":
+                cursor.execute(
+                    f"""UPDATE {self._table(MONITOR_RULE_TABLE)} SET status='DISABLED',
+                        updated_by_id=%s,updated_by_name=%s,updated_at=%s
+                        WHERE source_parent_id=%s AND source_business_type='SMART_PLACEMENT_EXECUTION'
+                          AND status IN ('ACTIVE','SCHEDULED','PAUSED')""",
+                    (actor[0], actor[1], current, task_id),
+                )
+                next_status = "DRAFT"
+                cursor.execute(
+                    f"""UPDATE {self._table(TASK_TABLE)} SET status='DRAFT',closed_at=NULL,
+                        submitted_at=NULL,resume_review_stage='POLICY_MANAGER',
+                        updated_by_id=%s,updated_by_name=%s,version_no=version_no+1,updated_at=%s WHERE id=%s""",
+                    (actor[0], actor[1], current, task_id),
+                )
+            self._log(cursor,task_id=task_id,action="EFFECT_REVIEW",actor=actor,from_status=task["status"],to_status=next_status,note=conclusion,detail={"result": result, "reviewId": review_id})
+            connection.commit()
+            return {"id": review_id, "taskId": task_id, "result": result, "taskStatus": next_status, "metricSnapshot": snapshot}
+        except (ValueError, PermissionError):
+            if connection is not None: connection.rollback()
+            raise
+        except Exception as error:
+            if connection is not None: connection.rollback()
+            LOGGER.exception("Smart placement effect review failed")
+            if _is_missing_table(error):
+                raise SmartPlacementUnavailable("智能投放闭环表尚未创建，请执行smart-placement-lifecycle-notification-v2.sql") from error
+            raise SmartPlacementUnavailable("政策效果复盘保存失败") from error
         finally:
             if cursor is not None: cursor.close()
             if connection is not None: connection.close()

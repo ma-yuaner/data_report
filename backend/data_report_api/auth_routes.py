@@ -140,6 +140,31 @@ def list_users():
     return ok(manager().users(g.current_user))
 
 
+@auth_api.get("/admin/employees")
+def list_employees():
+    try:
+        limit = int(request.args.get("limit", "30"))
+    except ValueError as error:
+        raise AuthError("limit必须为整数") from error
+    return ok(manager().employees(
+        g.current_user, request.args.get("keyword", ""), max(1, min(limit, 100))
+    ))
+
+
+@auth_api.get("/admin/users/<int:user_id>/employee-binding")
+def get_employee_binding(user_id: int):
+    return ok(manager().employee_binding(g.current_user, user_id))
+
+
+@auth_api.put("/admin/users/<int:user_id>/employee-binding")
+def update_employee_binding(user_id: int):
+    values = body()
+    ip_address, user_agent = request_context()
+    return ok(manager().update_employee_binding(
+        g.current_user, user_id, values.get("employeeId"), ip_address, user_agent
+    ), "企业通讯录关联已更新")
+
+
 @auth_api.get("/admin/business-roles")
 def list_business_roles():
     return ok(manager().business_roles(g.current_user))
