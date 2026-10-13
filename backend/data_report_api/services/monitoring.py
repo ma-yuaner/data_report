@@ -1460,7 +1460,28 @@ class MonitoringService:
                 (task_id,),
             )
             rule = _dict_row(cursor, cursor.fetchone())
-            return {"available": bool(rule), "rule": _public_row(rule) if rule else None}
+            conditions: list[dict[str, Any]] = []
+            if rule:
+                version_id = rule.get("current_version_id")
+                if not version_id:
+                    cursor.execute(
+                        f"SELECT id FROM {self._table(VERSION_TABLE)} WHERE rule_id=%s ORDER BY version_no DESC LIMIT 1",
+                        (rule["id"],),
+                    )
+                    version_id = _first_value(cursor.fetchone())
+                if version_id:
+                    cursor.execute(
+                        f"""SELECT c.* FROM {self._table(CONDITION_TABLE)} c
+                            WHERE c.rule_version_id=%s
+                            ORDER BY c.group_no,c.sort_no,c.id""",
+                        (version_id,),
+                    )
+                    conditions = [_public_row(row) for row in _dict_rows(cursor, list(cursor.fetchall()))]
+            return {
+                "available": bool(rule),
+                "rule": _public_row(rule) if rule else None,
+                "conditions": conditions,
+            }
         except Exception as error:
             raise self._unavailable(error, "投放任务监控状态查询失败") from error
         finally:

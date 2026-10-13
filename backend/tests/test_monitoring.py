@@ -117,6 +117,49 @@ def test_monitoring_service_requires_explicit_view_permission():
     source.connect.assert_not_called()
 
 
+def test_task_monitoring_returns_current_rule_conditions():
+    source, _connection, cursor = source_with_cursor()
+    service = MonitoringService({}, source=source)
+    cursor.fetchone.return_value = {
+        "id": 19,
+        "rule_code": "SPM-17-31",
+        "rule_name": "EK平台手工订单投放",
+        "current_version_no": 2,
+        "current_version_id": 29,
+        "status": "ACTIVE",
+    }
+    cursor.fetchall.return_value = [{
+        "id": 81,
+        "rule_version_id": 29,
+        "group_no": 1,
+        "sort_no": 3,
+        "field_code": "order_source",
+        "operator_code": "EQ",
+        "value_type": "STRING",
+        "value_json": '"平台手工订单"',
+        "condition_role": "INCLUDE",
+    }]
+
+    result = service.task_monitoring({"id": 1, "is_admin": True}, 17)
+
+    assert result["available"] is True
+    assert result["rule"]["currentVersionNo"] == 2
+    assert result["conditions"] == [{
+        "id": 81,
+        "ruleVersionId": 29,
+        "groupNo": 1,
+        "sortNo": 3,
+        "fieldCode": "order_source",
+        "operatorCode": "EQ",
+        "valueType": "STRING",
+        "valueJson": '"平台手工订单"',
+        "conditionRole": "INCLUDE",
+    }]
+    condition_query, condition_params = cursor.execute.call_args_list[1].args
+    assert "monitor_rule_condition" in condition_query
+    assert condition_params == (29,)
+
+
 def test_pause_rule_requires_reason_before_database_access():
     source, _connection, _cursor = source_with_cursor()
     service = MonitoringService({}, source=source)

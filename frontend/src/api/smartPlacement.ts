@@ -96,9 +96,22 @@ export interface PlacementTaskMonitorRule extends Record<string, string | number
   openEventCount: number
 }
 
+export interface PlacementTaskMonitorCondition extends Record<string, string | number | null> {
+  id: number
+  ruleVersionId: number
+  groupNo: number
+  sortNo: number
+  fieldCode: string
+  operatorCode: string
+  valueType: string
+  valueJson: string
+  conditionRole: 'INCLUDE' | 'EXCLUDE'
+}
+
 export interface PlacementTaskMonitoring {
   available: boolean
   rule: PlacementTaskMonitorRule | null
+  conditions: PlacementTaskMonitorCondition[]
   effectSummary?: PlacementEffectSummary
 }
 

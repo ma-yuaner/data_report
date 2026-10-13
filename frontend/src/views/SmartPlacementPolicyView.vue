@@ -53,6 +53,7 @@
           <template v-else-if="column.key === 'cabins'">
             <div class="scope-cell"><span>包含：{{ record.includeCabins || '不限' }}</span><span class="exclude">排除：{{ record.excludeCabins || '无' }}</span></div>
           </template>
+          <template v-else-if="column.key === 'orderSource'"><a-tag color="blue">{{ valueOrDash(record.orderSource, '不限') }}</a-tag></template>
           <template v-else-if="column.key === 'estimate'">
             <div class="scope-cell"><strong>{{ money(record.estimatedMonthProfitCny) }} 元</strong><span>{{ number(record.estimatedMonthTicketCount) }} 票/月</span></div>
           </template>
@@ -320,6 +321,7 @@
                   <a-descriptions-item label="平台名称">{{ detail.task.platformName }}</a-descriptions-item>
                   <a-descriptions-item label="平台编码">{{ valueOrDash(detail.task.platformCode) }}</a-descriptions-item>
                   <a-descriptions-item label="产品类型">{{ valueOrDash(detail.task.productType, '不限') }}</a-descriptions-item>
+                  <a-descriptions-item label="订单来源">{{ valueOrDash(detail.task.orderSource, '不限') }}</a-descriptions-item>
                   <a-descriptions-item label="站点名称">{{ valueOrDash(detail.task.siteName, '全部站点') }}</a-descriptions-item>
                   <a-descriptions-item label="站点编码">{{ valueOrDash(detail.task.siteCode) }}</a-descriptions-item>
                   <a-descriptions-item label="航司">{{ detail.task.airlineCode }}</a-descriptions-item>
@@ -368,6 +370,18 @@
                   <div><label>最后命中</label><strong>{{ displayTime(monitoring.rule.lastHitAt) }}</strong></div>
                   <div><label>有效期</label><strong>{{ displayTime(monitoring.rule.effectiveStartAt) }} 至 {{ displayTime(monitoring.rule.effectiveEndAt) }}</strong></div>
                 </div>
+                <section class="monitoring-conditions">
+                  <header><div><h4>当前版本真实匹配条件</h4><p>以下条件来自监控规则 V{{ monitoring.rule.currentVersionNo }}，订单必须同时满足才会命中。</p></div><a-tag>{{ monitoring.conditions?.length || 0 }} 项</a-tag></header>
+                  <a-empty v-if="!monitoring.conditions?.length" description="当前版本尚未生成结构化匹配条件" />
+                  <div v-else class="monitoring-condition-list">
+                    <article v-for="condition in monitoring.conditions || []" :key="condition.id">
+                      <span>{{ monitorFieldName(condition.fieldCode) }}</span>
+                      <strong>{{ monitorOperatorName(condition.operatorCode) }}</strong>
+                      <code>{{ monitorConditionValue(condition.valueJson) }}</code>
+                      <a-tag v-if="condition.conditionRole === 'EXCLUDE'" color="red">排除</a-tag>
+                    </article>
+                  </div>
+                </section>
                 <div v-if="monitoring.effectSummary" class="effect-grid">
                   <div><label>归属收单</label><strong>{{ numberValue(monitoring.effectSummary.attributedOrderCount, '单') }}</strong></div>
                   <div><label>出票票数</label><strong>{{ numberValue(monitoring.effectSummary.ticketCount, '票') }}</strong></div>
@@ -528,7 +542,7 @@ const summaryCards: { key: PlacementTaskStatus; label: string; note: string; ton
 ]
 const columns = [
   { title: '投放机会', key: 'opportunity', width: 240, fixed: 'left' as const }, { title: '平台 / 站点', key: 'scope', width: 180 },
-  { title: '航司 / 航线', key: 'route', width: 180 }, { title: '舱位条件', key: 'cabins', width: 180 }, { title: '产品', dataIndex: 'productType', width: 130 },
+  { title: '航司 / 航线', key: 'route', width: 180 }, { title: '舱位条件', key: 'cabins', width: 180 }, { title: '渠道来源', key: 'orderSource', width: 130 },
   { title: '预估价值', key: 'estimate', width: 150 }, { title: '优先级', key: 'priority', width: 90 }, { title: '状态', key: 'status', width: 120 },
   { title: '负责人', key: 'owner', width: 110 }, { title: '截止时间', key: 'due', width: 155 }, { title: '操作', key: 'action', width: 350, fixed: 'right' as const },
 ]
@@ -542,6 +556,16 @@ const valueOrDash = (value: unknown, fallback = '—') => value === null || valu
 const numberValue = (value: unknown, unit: string) => value === null || value === undefined || value === '' ? '—' : `${new Intl.NumberFormat('zh-CN').format(Number(value))} ${unit}`
 const moneyValue = (value: unknown) => value === null || value === undefined || value === '' ? '—' : `${formatter.format(Number(value))} 元`
 const percentValue = (value: unknown) => value === null || value === undefined || value === '' ? '待同步' : `${(Number(value) * 100).toFixed(1)}%`
+const monitorFieldNames: Record<string, string> = { platform_name: '平台名称', site_name: '站点名称', order_source: '订单来源', airline_code: '航司', departure_location_codes: '出发地', arrival_location_codes: '到达地', flight_nos: '航班号', cabin_codes: '舱位', product_type: '产品类型', trip_type: '航程类型', journey_type: '航段类型', advance_sale_days: '提前销售天数', estimated_profit_cny: '预估利润', order_time: '销售时间', first_departure_time: '去程旅行时间' }
+const monitorOperatorNames: Record<string, string> = { EQ: '等于', IN: '属于', BETWEEN: '介于', OVERLAP: '存在交集', SUBSET_OF: '全部属于', DISJOINT: '不包含', GTE: '大于等于', LTE: '小于等于', GT: '大于', LT: '小于' }
+const monitorFieldName = (value: string) => monitorFieldNames[value] || value
+const monitorOperatorName = (value: string) => monitorOperatorNames[value] || value
+function monitorConditionValue(value: string) {
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed.map(item => String(item).replace('T', ' ')).join(' ～ ') : String(parsed).replace('T', ' ')
+  } catch { return value.replace('T', ' ') }
+}
 const dateRange = (start: unknown, end: unknown) => start || end ? `${valueOrDash(start, '不限')} 至 ${valueOrDash(end, '不限')}` : '不限'
 const sourceLabel = (value: unknown) => sourceOptions.find(item => item.value === value)?.label || valueOrDash(value)
 const journeyLabel = (value: unknown) => journeyOptions.find(item => item.value === value)?.label || valueOrDash(value, '不限')
@@ -882,7 +906,7 @@ async function openDetail(row: PlacementTaskRow) {
   detailOpen.value = true; detailLoading.value = true; detailTab.value = 'overview'; detail.value = undefined; monitoring.value = undefined
   try {
     detail.value = await fetchPlacementTask(row.id)
-    try { monitoring.value = await fetchPlacementTaskMonitoring(row.id) } catch { monitoring.value = { available: false, rule: null } }
+    try { monitoring.value = await fetchPlacementTaskMonitoring(row.id) } catch { monitoring.value = { available: false, rule: null, conditions: [] } }
   } catch (failure) { message.error(failure instanceof Error ? failure.message : '详情查询失败') }
   finally { detailLoading.value = false }
 }
@@ -921,8 +945,8 @@ onMounted(() => {
 .conclusion-section { padding-bottom: 17px; }.modal-actions { position: sticky; bottom: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 -24px; padding: 14px 24px; border-top: 1px solid #e5eaf1; background: rgba(255,255,255,.97); }.modal-actions > span { color: #8994a5; font-size: 11px; }.modal-actions > div { display: flex; gap: 8px; }.modal-alert { margin-bottom: 16px; }.review-checks { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin-bottom: 16px; }
 .action-context { margin-bottom: 16px; padding: 13px 15px; border: 1px solid #d7e3f4; border-radius: 10px; background: #f5f8fd; }.action-context > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; }.action-context strong { color: #263a58; font-size: 14px; }.action-context span,.action-context p { color: #7c899c; font-size: 11px; }.action-context p { margin: 5px 0 0; }.review-section { margin-bottom: 14px; padding: 13px; border: 1px solid #e3e8ef; border-radius: 10px; }.review-section header { display: flex; justify-content: space-between; margin-bottom: 10px; }.review-section header strong { color: #34465f; }.review-section header span { color: #8b97a8; font-size: 11px; }.review-checks :deep(.ant-checkbox-wrapper) { margin: 0; padding: 9px 10px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; }.review-form-grid { margin-bottom: 4px; }.dialog-actions { position: sticky; bottom: -24px; z-index: 3; display: flex; justify-content: flex-end; gap: 8px; margin: 18px -24px -24px; padding: 14px 24px; border-top: 1px solid #e5eaf1; background: rgba(255,255,255,.97); }
 .detail-hero { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin: -8px 0 18px; padding: 18px 20px; border: 1px solid #d7e3f4; border-radius: 13px; background: linear-gradient(135deg,#f3f7fe,#fff); }.detail-hero span,.detail-hero p { color: #76859a; font-size: 11px; }.detail-hero h2 { margin: 4px 0; color: #253a58; font-size: 19px; }.detail-hero p { margin: 0; }.detail-hero-meta { display: grid; flex: none; justify-items: end; gap: 5px; }.detail-hero-meta strong { color: #3a4c66; font-size: 12px; }.detail-hero-meta small { color: #8995a6; }.detail-steps { margin: 0 8px 18px; }.detail-tabs :deep(.ant-tabs-nav) { position: sticky; top: 0; z-index: 4; background: #fff; }.detail-section-card { margin-bottom: 14px; padding: 16px; border: 1px solid #e4e9f0; border-radius: 11px; background: #fff; }.detail-section-card h3 { margin: 0 0 12px; color: #31445f; font-size: 14px; }.record-list { display: grid; gap: 12px; }.record-card { padding: 15px 16px; border: 1px solid #e2e8f0; border-radius: 11px; background: #fff; }.record-card header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 11px; padding-bottom: 10px; border-bottom: 1px solid #edf1f5; }.record-card header strong,.record-card header span { display: block; }.record-card header strong { color: #2f435f; }.record-card header span { margin-top: 3px; color: #8793a4; font-size: 10px; }.record-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 7px 12px; color: #5f6e82; font-size: 11px; }.record-card p { margin: 9px 0 0; color: #5f6e82; font-size: 11px; line-height: 1.7; }.record-card b { color: #3e516c; }
-.monitoring-card { border-color: #cde6df; background: linear-gradient(145deg,#f5fcf9,#fff); }.monitoring-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 15px; }.monitoring-heading span,.monitoring-heading code { display: block; color: #718198; font-size: 11px; }.monitoring-heading h3 { margin: 3px 0; font-size: 17px; }.monitoring-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; }.monitoring-grid > div { min-height: 68px; padding: 11px 13px; border: 1px solid #e1eee9; border-radius: 9px; background: rgba(255,255,255,.78); }.monitoring-grid label,.monitoring-grid strong { display: block; }.monitoring-grid label { color: #8995a6; font-size: 11px; }.monitoring-grid strong { margin-top: 5px; color: #2f435f; font-size: 12px; }.monitoring-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }.effect-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #dceae5; }.effect-grid > div { padding: 10px 12px; border-radius: 9px; background: rgba(255,255,255,.86); }.effect-grid label,.effect-grid strong { display: block; }.effect-grid label { color: #8995a6; font-size: 11px; }.effect-grid strong { margin-top: 4px; color: #29445c; }.monitoring-warning { margin-top: 12px; }
+.monitoring-card { border-color: #cde6df; background: linear-gradient(145deg,#f5fcf9,#fff); }.monitoring-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 15px; }.monitoring-heading span,.monitoring-heading code { display: block; color: #718198; font-size: 11px; }.monitoring-heading h3 { margin: 3px 0; font-size: 17px; }.monitoring-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; }.monitoring-grid > div { min-height: 68px; padding: 11px 13px; border: 1px solid #e1eee9; border-radius: 9px; background: rgba(255,255,255,.78); }.monitoring-grid label,.monitoring-grid strong { display: block; }.monitoring-grid label { color: #8995a6; font-size: 11px; }.monitoring-grid strong { margin-top: 5px; color: #2f435f; font-size: 12px; }.monitoring-conditions { margin-top: 14px; padding-top: 14px; border-top: 1px solid #dceae5; }.monitoring-conditions > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }.monitoring-conditions h4,.monitoring-conditions p { margin: 0; }.monitoring-conditions h4 { color: #31445f; font-size: 13px; }.monitoring-conditions p { margin-top: 3px; color: #8290a4; font-size: 11px; }.monitoring-condition-list { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }.monitoring-condition-list article { display: grid; grid-template-columns: 90px 72px minmax(0,1fr) auto; align-items: center; gap: 8px; padding: 9px 10px; border: 1px solid #e4ece9; border-radius: 8px; background: rgba(255,255,255,.82); font-size: 11px; }.monitoring-condition-list article > span { color: #6f7f92; }.monitoring-condition-list article > strong { color: #39546c; }.monitoring-condition-list code { overflow: hidden; color: #2e6a5a; text-overflow: ellipsis; white-space: nowrap; }.monitoring-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }.effect-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #dceae5; }.effect-grid > div { padding: 10px 12px; border-radius: 9px; background: rgba(255,255,255,.86); }.effect-grid label,.effect-grid strong { display: block; }.effect-grid label { color: #8995a6; font-size: 11px; }.effect-grid strong { margin-top: 4px; color: #29445c; }.monitoring-warning { margin-top: 12px; }
 @media (max-width: 1180px) { .summary-grid { grid-template-columns: repeat(3,1fr); }.filter-bar { grid-template-columns: repeat(3,1fr); }.workflow-chain { grid-template-columns: repeat(4,1fr); gap: 24px 0; }.workflow-node::after { display: none; } }
 @media (max-width: 820px) { .form-grid,.form-grid.three { grid-template-columns: repeat(2,minmax(0,1fr)); }.span-3 { grid-column: span 2; }.grid-placeholder { display: none; } }
-@media (max-width: 600px) { .summary-grid,.form-grid,.form-grid.three,.review-checks,.record-grid { grid-template-columns: 1fr; }.span-2,.span-3 { grid-column: auto; }.filter-bar { grid-template-columns: 1fr 1fr; }.placement-hero { align-items: flex-start; flex-direction: column; }.flow-card { overflow-x: auto; }.workflow-chain { min-width: 760px; grid-template-columns: repeat(7,1fr); }.form-section { padding: 15px 14px; }.form-intro { align-items: flex-start; }.field-legend { display: none; }.modal-actions { align-items: stretch; flex-direction: column; margin-right: -14px; margin-left: -14px; padding-right: 14px; padding-left: 14px; }.modal-actions > div { display: grid; grid-template-columns: repeat(3,1fr); }.detail-hero { flex-direction: column; }.detail-hero-meta { justify-items: start; } }
+@media (max-width: 600px) { .summary-grid,.form-grid,.form-grid.three,.review-checks,.record-grid,.monitoring-grid,.effect-grid,.monitoring-condition-list { grid-template-columns: 1fr; }.span-2,.span-3 { grid-column: auto; }.filter-bar { grid-template-columns: 1fr 1fr; }.placement-hero { align-items: flex-start; flex-direction: column; }.flow-card { overflow-x: auto; }.workflow-chain { min-width: 760px; grid-template-columns: repeat(7,1fr); }.form-section { padding: 15px 14px; }.form-intro { align-items: flex-start; }.field-legend { display: none; }.modal-actions { align-items: stretch; flex-direction: column; margin-right: -14px; margin-left: -14px; padding-right: 14px; padding-left: 14px; }.modal-actions > div { display: grid; grid-template-columns: repeat(3,1fr); }.detail-hero { flex-direction: column; }.detail-hero-meta { justify-items: start; }.monitoring-condition-list article { grid-template-columns: 76px 64px minmax(0,1fr) auto; } }
 </style>
