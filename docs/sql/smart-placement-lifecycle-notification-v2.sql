@@ -182,7 +182,8 @@ ON DUPLICATE KEY UPDATE
 
 INSERT INTO `monitor_notify_route`
   (`route_code`,`route_name`,`event_code`,`channel`,`endpoint_id`,`template_id`,`recipient_strategy`,`use_smart_default_endpoints`,`priority_no`,`status`)
-SELECT route_code,route_name,event_code,'WECOM',NULL,t.id,'TASK_ASSIGNEE',1,priority_no,'ACTIVE'
+SELECT seed.route_code,seed.route_name,seed.event_code,'WECOM',NULL,t.id,
+       'TASK_ASSIGNEE',1,seed.priority_no,'ACTIVE'
 FROM (
   SELECT 'SMART_ORDER_MATCHED_DEFAULT' route_code,'智能收单命中默认路由' route_name,'SMART_ORDER_MATCHED' event_code,'SMART_ORDER_MATCHED_WECOM' template_code,10 priority_no
   UNION ALL SELECT 'SMART_ATTENTION_REMINDER_DEFAULT','智能收单催办默认路由','SMART_ATTENTION_REMINDER','SMART_ATTENTION_REMINDER_WECOM',20
