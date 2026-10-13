@@ -161,9 +161,9 @@ INSERT INTO `monitor_message_template`
   (`template_code`,`template_name`,`event_code`,`channel`,`title_template`,`body_template`,`field_schema_json`,`status`)
 VALUES
   ('SMART_ORDER_MATCHED_WECOM','智能收单命中通知','SMART_ORDER_MATCHED','WECOM',
-   '【智能收单】有新的政策命中',
-   '有新的智能收单命中，请进入企业数据中台查看订单明细并及时关注。',
-   '{"allowedFields":[]}','ACTIVE'),
+   '🚨 智能规则命中订单实时通知',
+   '【OTA订单号】：{otaOrderNo}\n【政策员】：{policyOperators}\n【航司】：{airline}\n【平台】：{platform}\n【航线】：{route}\n【舱位】：{cabinCodes}\n【产品类型】：{productType}\n【投放差价】：{placementDiff}\n【智能类型】：{smartType}\n【预估利润】：{estimatedProfit}\n【进单时间】：{orderTime}\n【出票时间】：{ticketTime}\n【OTA最晚出票时间】：{otaLatestTicketTime}\n【可留单时间】：{holdTimeResult}\n【规则ID】：{ruleCode}\n【政策ID】：{externalPolicyId}\n【备注】：{remark}',
+   '{"allowedFields":["otaOrderNo","policyOperators","airline","platform","route","cabinCodes","productType","placementDiff","smartType","estimatedProfit","orderTime","ticketTime","otaLatestTicketTime","holdTimeResult","ruleCode","externalPolicyId","remark"],"fieldLabels":{"otaOrderNo":"OTA订单号","policyOperators":"政策员","airline":"航司","platform":"平台","route":"航线","cabinCodes":"舱位","productType":"产品类型","placementDiff":"投放差价","smartType":"智能类型","estimatedProfit":"预估利润","orderTime":"进单时间","ticketTime":"出票时间","otaLatestTicketTime":"OTA最晚出票时间","holdTimeResult":"可留单时间","ruleCode":"规则ID","externalPolicyId":"政策ID","remark":"备注"}}','ACTIVE'),
   ('SMART_ATTENTION_REMINDER_WECOM','智能收单首次催办','SMART_ATTENTION_REMINDER','WECOM',
    '【智能收单催办】存在尚未关注的命中订单',
    '存在超过关注时效的智能收单命中，请进入企业数据中台查看并处理。',

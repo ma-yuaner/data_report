@@ -127,7 +127,7 @@ export interface MonitorMessageTemplate {
   channel: 'WECOM'
   titleTemplate: string
   bodyTemplate: string
-  fieldSchema: { allowedFields?: string[] }
+  fieldSchema: { allowedFields?: string[]; fieldLabels?: Record<string, string> }
   versionNo: number
   status: 'ACTIVE' | 'DISABLED'
 }

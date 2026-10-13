@@ -98,11 +98,14 @@
           </a-table>
         </a-tab-pane>
 
-        <a-tab-pane v-if="canManageRules" key="notifications" tab="通知群">
+        <a-tab-pane key="notifications" tab="智能通知">
+          <a-alert v-if="!canManageRules" class="endpoint-tip" type="warning" show-icon message="当前账号只能查看监控结果" description="智能通知包含Webhook和消息模板等敏感配置，请联系系统管理员授予监控规则管理权限。" />
+          <div v-else>
           <div class="run-toolbar">
-            <div><h3>企业微信通知群</h3><p>命中事件先可靠落库，再发送到所选群；发送失败会自动重试，不影响站内通知。</p></div>
+            <div><h3>智能投放通知</h3><p>配置是否启用企业微信、发送到哪个群、使用什么消息结构；订单匹配仍由五分钟调度执行。</p></div>
             <a-space><a-button :loading="endpointLoading" @click="loadNotificationModel"><ReloadOutlined />刷新</a-button><a-button type="primary" @click="openEndpoint()">新增通知群</a-button></a-space>
           </div>
+          <a-alert class="endpoint-tip" type="success" show-icon message="智能收单发送链路" description="订单宽表 → 特征ETL → 规则匹配 → 命中事件 → 发件箱 → 企业微信；本页面负责群、模板和路由配置，不直接扫描订单。" />
           <a-alert class="endpoint-tip" type="info" show-icon message="@人员配置说明" description="企业微信机器人只有使用企业微信用户ID或手机号才能真正@到人员；群名称仅用于本系统识别，不参与发送。" />
           <a-table row-key="id" :columns="endpointColumns" :data-source="notifyEndpoints" :loading="endpointLoading" :pagination="false" :scroll="{ x: 980 }">
             <template #emptyText><a-empty description="尚未配置企业微信群机器人" /></template>
@@ -118,7 +121,7 @@
           </a-table>
           <div class="notification-model-grid">
             <section class="notification-model-card">
-              <header><div><h3>消息模板</h3><p>定义每类事件发送的固定内容；默认不携带订单、乘客、利润等敏感明细。</p></div></header>
+              <header><div><h3>消息模板</h3><p>从授权字段中编排智能收单消息；实际发送内容会保存快照，便于追溯。</p></div></header>
               <a-table row-key="id" size="small" :columns="messageTemplateColumns" :data-source="messageTemplates" :pagination="false">
                 <template #bodyCell="{ column, record }">
                   <template v-if="column.key === 'template'"><div class="two-line"><strong>{{ record.templateName }}</strong><span>{{ record.eventCode }} · V{{ record.versionNo }}</span></div></template>
@@ -138,6 +141,7 @@
                 </template>
               </a-table>
             </section>
+          </div>
           </div>
         </a-tab-pane>
 
@@ -225,8 +229,16 @@
     </a-modal>
 
     <a-modal v-model:open="messageTemplateOpen" title="编辑消息模板" :footer="null" :mask-closable="false" width="min(720px, 94vw)">
-      <a-alert type="info" show-icon message="外部通知默认采用最小必要信息" description="模板只允许系统授权变量；当前智能收单模板不开放订单号、乘客、航程和利润变量。" />
-      <a-form layout="vertical" class="endpoint-form"><a-form-item label="标题" required><a-input v-model:value="messageTemplateForm.titleTemplate" /></a-form-item><a-form-item label="正文" required><a-textarea v-model:value="messageTemplateForm.bodyTemplate" :rows="5" :maxlength="4000" show-count /></a-form-item><a-form-item label="状态"><a-select v-model:value="messageTemplateForm.status" :options="endpointStatusOptions" /></a-form-item></a-form>
+      <a-alert type="info" show-icon message="只允许使用下方授权字段" description="点击字段即可追加到正文；字段缺失时发送端统一展示“未填写”，不会执行任意代码或SQL。" />
+      <a-form layout="vertical" class="endpoint-form">
+        <a-form-item label="标题" required><a-input v-model:value="messageTemplateForm.titleTemplate" /></a-form-item>
+        <a-form-item label="可用字段">
+          <div class="template-field-list"><button v-for="field in activeTemplateFields" :key="field.code" type="button" @click="appendTemplateField(field)"><span>{{ field.label }}</span><code v-text="templateToken(field.code)" /></button></div>
+        </a-form-item>
+        <a-form-item label="正文" required><a-textarea v-model:value="messageTemplateForm.bodyTemplate" :rows="12" :maxlength="4000" show-count /></a-form-item>
+        <a-form-item label="消息预览"><pre class="message-preview">{{ messageTemplatePreview }}</pre></a-form-item>
+        <a-form-item label="状态"><a-select v-model:value="messageTemplateForm.status" :options="endpointStatusOptions" /></a-form-item>
+      </a-form>
       <div class="dialog-actions"><a-button @click="messageTemplateOpen=false">取消</a-button><a-button type="primary" :loading="saving" @click="saveMessageTemplate">保存模板</a-button></div>
     </a-modal>
 
@@ -299,6 +311,23 @@ const notifyEndpointOptions = computed(() => notifyEndpoints.value.filter(item =
 const notificationEventOptions = [{ value: 'SMART_ORDER_MATCHED', label: '智能收单命中' }, { value: 'SMART_ATTENTION_REMINDER', label: '关注首次催办' }, { value: 'SMART_ATTENTION_ESCALATED', label: '关注升级提醒' }, { value: 'SMART_POLICY_EXPIRED', label: '政策到期' }]
 const recipientStrategyOptions = [{ value: 'TASK_ASSIGNEE', label: '投放任务负责人' }, { value: 'ATTENTION_OWNER', label: '订单关注负责人' }, { value: 'RULE_OWNER', label: '监控规则负责人' }, { value: 'NONE', label: '不动态@人员' }]
 const routeTemplateOptions = computed(() => messageTemplates.value.filter(item => item.eventCode === notifyRouteForm.value.eventCode && item.status === 'ACTIVE').map(item => ({ value: item.id, label: item.templateName })))
+const activeTemplate = computed(() => messageTemplates.value.find(item => item.id === messageTemplateForm.value.id))
+const activeTemplateFields = computed(() => {
+  const schema = activeTemplate.value?.fieldSchema
+  return (schema?.allowedFields || []).map(code => ({ code, label: schema?.fieldLabels?.[code] || code }))
+})
+const templatePreviewSamples: Record<string, string> = {
+  otaOrderNo: 'TVLK01FB26101311351071494', policyOperators: '张紫莹 / 罗满珍', airline: 'HX', platform: 'Traveloka',
+  route: 'BKK-HKG', cabinCodes: 'O,O', productType: '非标产品', placementDiff: '未填写', smartType: '没有智能',
+  estimatedProfit: '-52.19', orderTime: '2026-10-13 11:49:03', ticketTime: '2026-10-13 12:04:04',
+  otaLatestTicketTime: '2026-10-13 11:49:02', holdTimeResult: '出票时间大于最晚出票时间', ruleCode: 'SPM-6-3',
+  externalPolicyId: '6848075', remark: '请及时排查原因处理，并在群中回复信息。',
+}
+const messageTemplatePreview = computed(() => `${messageTemplateForm.value.titleTemplate}\n${messageTemplateForm.value.bodyTemplate}`.replace(
+  /\{([A-Za-z][A-Za-z0-9_]*)\}/g,
+  (_matched, code: string) => templatePreviewSamples[code] || '未填写',
+))
+const templateToken = (code: string) => `{${code}}`
 
 const number = (value: unknown) => new Intl.NumberFormat('zh-CN').format(Number(value || 0))
 const displayTime = (value: unknown) => value ? String(value).replace('T', ' ').slice(0, 16) : '—'
@@ -317,9 +346,9 @@ async function loadRules(target = rulePage.value) { ruleLoading.value = true; ru
 async function loadEvents(target = eventPage.value) { eventLoading.value = true; eventPage.value = target; try { events.value = await monitoringApi.events({ ...eventFilters.value, startDate: eventRange.value[0], endDate: eventRange.value[1], page: target, pageSize: eventPageSize.value }) } finally { eventLoading.value = false } }
 async function loadRuns() { runLoading.value = true; try { runs.value = await monitoringApi.runs({ limit: 100 }) } finally { runLoading.value = false } }
 async function loadNotifyEndpoints() { endpointLoading.value = true; try { notifyEndpoints.value = await monitoringApi.notifyEndpoints() } catch (failure) { message.error(failure instanceof Error ? failure.message : '通知群配置加载失败') } finally { endpointLoading.value = false } }
-async function loadNotificationModel() { endpointLoading.value = true; try { ;[notifyEndpoints.value, messageTemplates.value, notifyRoutes.value] = await Promise.all([monitoringApi.notifyEndpoints(), monitoringApi.messageTemplates(), monitoringApi.notifyRoutes()]) } catch (failure) { message.error(failure instanceof Error ? failure.message : '通知模型加载失败') } finally { endpointLoading.value = false } }
+async function loadNotificationModel() { if (!canManageRules.value) return; endpointLoading.value = true; try { ;[notifyEndpoints.value, messageTemplates.value, notifyRoutes.value] = await Promise.all([monitoringApi.notifyEndpoints(), monitoringApi.messageTemplates(), monitoringApi.notifyRoutes()]) } catch (failure) { message.error(failure instanceof Error ? failure.message : '通知模型加载失败') } finally { endpointLoading.value = false } }
 async function reloadAll() { loading.value = true; error.value = ''; try { await Promise.all([loadOverview(), loadRules(), loadEvents(), loadRuns()]) } catch (failure) { error.value = failure instanceof Error ? failure.message : '监控中心加载失败' } finally { loading.value = false } }
-function changeTab(key: string) { if (key === 'runs' && !runs.value.length) void loadRuns(); if (key === 'notifications') void loadNotificationModel() }
+function changeTab(key: string) { if (key === 'runs' && !runs.value.length) void loadRuns(); if (key === 'notifications' && canManageRules.value) void loadNotificationModel() }
 function resetRuleFilters() { ruleFilters.value = { keyword: '', status: '', template: '' }; void loadRules(1) }
 function resetEventFilters() { eventRange.value = [monthStart, today]; eventFilters.value = { keyword: '', status: '' }; void loadEvents(1) }
 function changeRulePage(value: { current?: number; pageSize?: number }) { const size = value.pageSize || rulePageSize.value; rulePage.value = size === rulePageSize.value ? value.current || 1 : 1; rulePageSize.value = size; void loadRules(rulePage.value) }
@@ -378,6 +407,7 @@ async function testEndpoint(record: MonitorNotifyEndpoint) {
 }
 const recipientStrategyLabel = (value: string) => recipientStrategyOptions.find(item => item.value === value)?.label || value
 function openMessageTemplate(record: MonitorMessageTemplate) { messageTemplateForm.value = { id: record.id, titleTemplate: record.titleTemplate, bodyTemplate: record.bodyTemplate, status: record.status }; messageTemplateOpen.value = true }
+function appendTemplateField(field: { code: string; label: string }) { const line = `【${field.label}】：{${field.code}}`; if (!messageTemplateForm.value.bodyTemplate.includes(`{${field.code}}`)) messageTemplateForm.value.bodyTemplate = `${messageTemplateForm.value.bodyTemplate.trim()}\n${line}`.trim() }
 async function saveMessageTemplate() { const form = messageTemplateForm.value; if (!form.titleTemplate.trim() || !form.bodyTemplate.trim()) { message.warning('请完整填写消息标题和正文'); return } saving.value = true; try { await monitoringApi.updateMessageTemplate(form.id, { titleTemplate: form.titleTemplate.trim(), bodyTemplate: form.bodyTemplate.trim(), status: form.status }); message.success('消息模板已更新'); messageTemplateOpen.value = false; await loadNotificationModel() } catch (failure) { message.error(failure instanceof Error ? failure.message : '消息模板保存失败') } finally { saving.value = false } }
 function syncRouteTemplate() { const template = messageTemplates.value.find(item => item.eventCode === notifyRouteForm.value.eventCode && item.status === 'ACTIVE'); notifyRouteForm.value.templateId = template?.id }
 function openNotifyRoute(record?: MonitorNotifyRoute) { notifyRouteForm.value = record ? { id: record.id, routeName: record.routeName, eventCode: record.eventCode, templateId: record.templateId, recipientStrategy: record.recipientStrategy, endpointId: record.endpointId || undefined, useSmartDefaultEndpoints: record.useSmartDefaultEndpoints, priorityNo: record.priorityNo, status: record.status } : emptyNotifyRouteForm(); if (!record) syncRouteTemplate(); notifyRouteOpen.value = true }
@@ -394,6 +424,7 @@ onMounted(() => { void reloadAll() })
 .detail-hero { margin: -8px 0 18px; padding: 20px; border: 1px solid #d9e4f2; border-radius: 13px; background: linear-gradient(135deg,#f3f7fd,#fff); }.detail-hero > span { color: #718198; font-size: 11px; }.detail-hero h2 { margin: 4px 0 10px; color: #253a58; font-size: 20px; }.detail-section { margin-bottom: 15px; padding: 16px; border: 1px solid #e4e9f0; border-radius: 11px; }.detail-section h3 { margin: 0 0 12px; color: #31445f; font-size: 14px; }.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }.detail-grid > div { padding: 10px 12px; border-radius: 8px; background: #f7f9fc; }.detail-grid label,.detail-grid span { display: block; }.detail-grid label { color: #8a95a8; font-size: 11px; }.detail-grid span { margin-top: 3px; color: #344054; }.condition-list { display: grid; gap: 8px; }.condition-list article { display: grid; grid-template-columns: 120px 90px minmax(0,1fr) auto; align-items: center; gap: 9px; padding: 10px 12px; border-radius: 8px; background: #f7f9fc; }.condition-list code { overflow: hidden; color: #344054; text-overflow: ellipsis; white-space: nowrap; }.status-form { margin-top: 18px; }.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin: 18px -24px -24px; padding: 14px 24px; border-top: 1px solid #e5eaf1; }
 .rule-form { margin-top: 18px; }.rule-form-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0 14px; }.rule-form-grid .span-2 { grid-column: span 2; }.compact-fields { display: grid; grid-template-columns: 48% 52%; }.compact-fields > :first-child { border-radius: 6px 0 0 6px; }.compact-fields > :last-child { width: 100%; margin-left: -1px; border-radius: 0 6px 6px 0; }
 .endpoint-tip { margin-bottom: 14px; }.endpoint-form { margin-top: 16px; }.endpoint-switches,.route-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }.monitor-panel code { color: #526276; font-size: 12px; }.notification-model-grid { display: grid; grid-template-columns: .9fr 1.1fr; gap: 14px; margin-top: 18px; }.notification-model-card { min-width: 0; padding: 15px; border: 1px solid #e3e9f0; border-radius: 11px; background: #fbfcfe; }.notification-model-card > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }.notification-model-card h3,.notification-model-card p { margin: 0; }.notification-model-card p { margin-top: 4px; color: #7e8a9d; font-size: 11px; line-height: 1.5; }
+.template-field-list { display: flex; flex-wrap: wrap; gap: 8px; }.template-field-list button { display: inline-flex; align-items: center; gap: 7px; padding: 6px 9px; border: 1px solid #d9e4f0; border-radius: 7px; color: #344054; background: #f8fbff; cursor: pointer; }.template-field-list button:hover { border-color: #69a5df; background: #eef6ff; }.template-field-list code { color: #4f6f95; }.message-preview { min-height: 180px; max-height: 340px; margin: 0; padding: 16px; overflow: auto; border: 1px solid #dce5ef; border-radius: 9px; color: #26384f; font: 13px/1.75 ui-monospace,SFMono-Regular,Consolas,monospace; white-space: pre-wrap; background: #f7f9fc; }
 .diagnostic-panel { min-height: 420px; padding: 4px 2px 12px; }.diagnostic-panel > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 16px; }.diagnostic-panel h3,.diagnostic-panel p { margin: 0; }.diagnostic-panel h3 { color: #263b57; font-size: 17px; }.diagnostic-panel p { margin-top: 5px; color: #78869a; }.diagnostic-query { display: grid; grid-template-columns: minmax(280px,.9fr) minmax(280px,1.1fr) auto; gap: 10px; margin-bottom: 18px; }.diagnostic-result { margin-bottom: 14px; border-radius: 10px; }.diagnostic-stages { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; margin-bottom: 16px; }.diagnostic-stages article { display: flex; gap: 10px; min-height: 78px; padding: 13px; border: 1px solid #fed7aa; border-radius: 10px; background: #fff9f2; }.diagnostic-stages article.passed { border-color: #bbf7d0; background: #f3fcf6; }.diagnostic-stages article > span { display: grid; place-items: center; flex: 0 0 24px; height: 24px; border-radius: 50%; color: #fff; background: #f97316; }.diagnostic-stages article.passed > span { background: #10b981; }.diagnostic-stages strong,.diagnostic-stages small { display: block; }.diagnostic-stages small { margin-top: 5px; color: #69788d; line-height: 1.45; }.diagnostic-conditions { overflow: hidden; border: 1px solid #e3eaf2; border-radius: 11px; }.diagnostic-conditions h4 { margin: 0; padding: 13px 15px; color: #34465f; background: #f7f9fc; }.diagnostic-condition-head,.diagnostic-conditions article { display: grid; grid-template-columns: 1.1fr 1.2fr 1.2fr 90px; align-items: center; gap: 12px; padding: 10px 15px; }.diagnostic-condition-head { color: #8490a2; font-size: 11px; border-top: 1px solid #e8edf3; border-bottom: 1px solid #e8edf3; }.diagnostic-conditions article + article { border-top: 1px solid #edf1f5; }.diagnostic-conditions article strong,.diagnostic-conditions article small { display: block; }.diagnostic-conditions article small { margin-top: 2px; color: #8793a4; }.diagnostic-conditions code { overflow: hidden; color: #344054; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 1180px) { .summary-grid { grid-template-columns: repeat(3,1fr); }.rule-filters,.event-filters,.notification-model-grid { grid-template-columns: repeat(1,1fr); }.monitor-hero { align-items: flex-start; flex-direction: column; }.hero-state { width: 100%; } }
 @media (max-width: 700px) { .summary-grid,.rule-filters,.event-filters,.detail-grid,.rule-form-grid,.diagnostic-query,.diagnostic-stages { grid-template-columns: 1fr; }.rule-form-grid .span-2 { grid-column: auto; }.hero-state { grid-template-columns: auto 1fr; min-width: 0; }.hero-state .ant-btn { grid-column: 1 / -1; }.condition-list article,.diagnostic-condition-head,.diagnostic-conditions article { grid-template-columns: 1fr; } }
