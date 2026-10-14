@@ -99,11 +99,11 @@
                   </section>
                 </div>
                 <a-card :bordered="false" class="analysis-panel diagnosis-dimension-panel">
-                  <template #title><div class="panel-title"><span>继续定位问题维度</span><small>当前利润较低项优先 · 最多显示10项</small></div></template>
+                  <template #title><div class="panel-title"><span>继续定位问题维度</span><small>当前利润较低项优先 · 每页10项，完整展示</small></div></template>
                   <template #extra><a-button type="primary" ghost @click="openDiagnosisDaily">查看当前诊断日汇总</a-button></template>
                   <div v-if="diagnosisGroupOptions.length" class="comparison-toolbar"><a-segmented v-model:value="diagnosisGroup" :options="diagnosisGroupOptions" :disabled="diagnosisLoading" @change="changeDiagnosisGroup" /><span>选择下一维度，或点击某项继续缩小范围</span></div>
                   <a-alert v-else type="success" show-icon message="五个维度已全部限定" description="可查看当前诊断日汇总，并继续下钻出退改增宽表订单。" />
-                  <a-table v-if="diagnosisGroupOptions.length" class="dimension-table" :columns="diagnosisColumns" :data-source="diagnosisRows" row-key="key" :pagination="false" :scroll="{ x: 1050 }" :locale="{ emptyText: '当前条件在该维度下没有可分析数据' }">
+                  <a-table v-if="diagnosisGroupOptions.length" class="dimension-table" :columns="diagnosisColumns" :data-source="diagnosisRows" row-key="key" :pagination="diagnosisPagination" :scroll="{ x: 1050 }" :locale="{ emptyText: '当前条件在该维度下没有可分析数据' }" @change="changeDiagnosisPage">
                     <template #bodyCell="{ column, record }">
                       <template v-if="column.key === 'name'"><strong>{{ record.name }}</strong></template>
                       <template v-else-if="isBusinessKey(column.key)"><div class="metric-cell"><strong :class="{ negative: isNegative(record.metrics[column.key].profit) }">{{ money(record.metrics[column.key].profit) }}<small> 元</small></strong><span>{{ count(record.metrics[column.key].count) }} 票</span><span v-if="column.key === 'issue'">{{ count(record.metrics.issue.segmentCount) }} 航段</span><span v-if="column.key === 'issue' && record.metrics.issue.segmentMissingCount" class="metric-missing">航段缺失 {{ count(record.metrics.issue.segmentMissingCount) }} 票</span></div></template>
@@ -240,6 +240,7 @@ const diagnosisError = ref('')
 const diagnosisData = ref<ComprehensiveDiagnosisData>()
 const diagnosisScope = ref<FilterScope>(todayScope())
 const diagnosisGroup = ref<DimensionKey>('platform')
+const diagnosisPage = ref(1)
 const diagnosisTitle = ref('经营诊断')
 let diagnosisRequestId = 0
 const diagnosisGroupOptions = computed(() => dimensions.filter(dimension => !diagnosisScope.value[dimension.key]).map(dimension => ({ label: '按' + dimension.label, value: dimension.key })))
@@ -248,7 +249,15 @@ const diagnosisRows = computed(() => [...(diagnosisData.value?.current.compariso
   if (left.totalProfit == null) return right.totalProfit == null ? left.name.localeCompare(right.name, 'zh-CN') : 1
   if (right.totalProfit == null) return -1
   return Number(left.totalProfit) - Number(right.totalProfit) || left.name.localeCompare(right.name, 'zh-CN')
-}).slice(0, 10))
+}))
+const diagnosisPagination = computed(() => ({
+  current: diagnosisPage.value,
+  pageSize: 10,
+  total: diagnosisRows.value.length,
+  hideOnSinglePage: true,
+  showSizeChanger: false,
+  showTotal: (total: number) => `共 ${count(total)} 项`,
+}))
 const diagnosisInsight = computed(() => {
   const result = diagnosisData.value
   if (!result?.available) return result?.error || '当前范围无法生成诊断。'
@@ -314,6 +323,7 @@ function nextDiagnosisGroup(scope: FilterScope, fallback: DimensionKey) {
 }
 async function loadDiagnosis() {
   const id = ++diagnosisRequestId
+  diagnosisPage.value = 1
   diagnosisLoading.value = true
   diagnosisError.value = ''
   diagnosisData.value = undefined
@@ -325,6 +335,9 @@ async function loadDiagnosis() {
   } catch (failure) {
     if (id === diagnosisRequestId) diagnosisError.value = failure instanceof Error ? failure.message : '经营诊断查询失败'
   } finally { if (id === diagnosisRequestId) diagnosisLoading.value = false }
+}
+function changeDiagnosisPage(pagination: { current?: number }) {
+  diagnosisPage.value = pagination.current || 1
 }
 function openDiagnosis(row: DimensionRow) {
   const selectedDimension = groupDimension.value
