@@ -22,7 +22,8 @@
           <a-sub-menu v-if="canSeeGroup('governance')" key="governance">
             <template #icon><DeploymentUnitOutlined /></template>
             <template #title>资源治理</template>
-            <a-menu-item v-if="canSeeMenu('governance.gds_ota')" key="/resource-governance">GDS/OTA资源治理</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('governance.gds')" key="/resource-governance/gds">GDS资源治理</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('governance.ota')" key="/resource-governance/ota">OTA渠道质量</a-menu-item>
           </a-sub-menu>
           <a-menu-item v-if="canSeeMenu('overview')" key="/overview"><template #icon><DashboardOutlined /></template>经营总览</a-menu-item>
           <a-sub-menu v-if="canSeeGroup('analysis')" key="analysis">

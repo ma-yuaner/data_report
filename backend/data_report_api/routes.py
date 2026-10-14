@@ -69,13 +69,12 @@ def meta():
     )
 
 
-@api.get("/v1/resource-governance/overview")
-def resource_governance_overview():
+def _resource_governance_overview(data_source: str):
     try:
         return ok(ResourceGovernanceService(current_app.config).overview(
             start_value=request.args.get("startDate"),
             end_value=request.args.get("endDate"),
-            data_source=request.args.get("dataSource", "gds"),
+            data_source=data_source,
             group_by=request.args.get("groupBy"),
             filters={
                 key: request.args.get(key, "")
@@ -84,6 +83,16 @@ def resource_governance_overview():
         ))
     except ValueError as error:
         return jsonify({"success": False, "message": str(error), "data": None}), 400
+
+
+@api.get("/v1/resource-governance/gds/overview")
+def gds_resource_governance_overview():
+    return _resource_governance_overview("gds")
+
+
+@api.get("/v1/resource-governance/ota/overview")
+def ota_resource_governance_overview():
+    return _resource_governance_overview("ota")
 
 
 @api.post("/v1/telemetry/visits")

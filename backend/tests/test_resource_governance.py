@@ -18,12 +18,14 @@ class ResourceGovernanceTests(unittest.TestCase):
         self.source_patch.start()
         self.addCleanup(self.source_patch.stop)
 
-    def configure_rows(self, *, pnr_column=True, pnr=20):
+    def configure_rows(self, *, pnr_column=True, pnr=20, pnr_applicable=True):
         summary = (
             3, 100000, 95000, 2000, 1800, 25, 20, pnr,
             15000, 500000, 90000, datetime(2026, 10, 14, 8, 30),
         )
-        self.cursor.fetchone.side_effect = [(1 if pnr_column else 0,), summary]
+        self.cursor.fetchone.side_effect = (
+            [(1 if pnr_column else 0,), summary] if pnr_applicable else [summary]
+        )
         self.cursor.fetchall.side_effect = [
             [("携程", "携程一部", "1A", "HKGH228DF", "SEARCH")],
             [("20261014",) + summary[:11]],
@@ -32,14 +34,16 @@ class ResourceGovernanceTests(unittest.TestCase):
 
     def test_gds_overview_uses_real_pnr_and_keeps_layers_separate(self):
         self.configure_rows()
-        result = module.ResourceGovernanceService({"RESOURCE_GOVERNANCE_TARGET_RATIO": 4000}).overview(
-            "2026-10-01", "2026-10-14", data_source="gds", group_by="gds",
+        result = module.ResourceGovernanceService({"RESOURCE_GOVERNANCE_GDS_TARGETS": "1A:4000,1G:3000"}).overview(
+            "2026-10-01", "2026-10-14", data_source="gds", group_by="gds", filters={"gds": "1A"},
         )
         self.assertTrue(result["available"])
         self.assertEqual(result["summary"]["pnrCount"], 20)
         self.assertEqual(result["summary"]["queryToPnrRatio"], "5000.00")
         self.assertEqual(result["summary"]["excessQueryCount"], 20000)
+        self.assertEqual(result["summary"]["targetRatio"], 4000)
         self.assertEqual(result["dimension"]["rows"][0]["name"], "1A")
+        self.assertEqual(result["dimension"]["rows"][0]["targetRatio"], 4000)
         self.assertEqual(result["trend"][0]["date"], "2026-10-14")
         executed = [call.args for call in self.cursor.execute.call_args_list]
         self.assertTrue(any("SUM(pnr_count)" in sql for sql, *_ in executed))
@@ -61,14 +65,21 @@ class ResourceGovernanceTests(unittest.TestCase):
         )
 
     def test_ota_layer_rejects_gds_dimension_by_falling_back_to_platform(self):
-        self.configure_rows()
+        self.configure_rows(pnr=None, pnr_applicable=False)
         result = module.ResourceGovernanceService({}).overview(
             "2026-10-14", "2026-10-14", data_source="ota", group_by="pcc",
         )
         self.assertEqual(result["dimension"]["key"], "platform")
+        self.assertFalse(result["pnrApplicable"])
+        self.assertEqual(result["summary"]["status"], "not_applicable")
+        self.assertIsNone(result["summary"]["pnrCount"])
+        self.assertIsNone(result["summary"]["queryToPnrRatio"])
         dimension_sql = self.cursor.execute.call_args_list[-1].args[0]
         self.assertIn("GROUP BY ota_code", dimension_sql)
         self.assertEqual(self.cursor.execute.call_args_list[-1].args[1][2], 0)
+        executed_sql = "\n".join(call.args[0] for call in self.cursor.execute.call_args_list)
+        self.assertNotIn("information_schema.COLUMNS", executed_sql)
+        self.assertNotIn("SUM(pnr_count)", executed_sql)
 
     def test_invalid_inputs_fail_before_connecting(self):
         service = module.ResourceGovernanceService({})
@@ -82,11 +93,17 @@ class ResourceGovernanceTests(unittest.TestCase):
                 service.overview(**kwargs)
         self.source.connect.assert_not_called()
 
-    def test_route_is_available_and_validates_layer(self):
+    def test_separate_routes_fix_their_own_data_layer(self):
         app = create_app(TestConfig)
-        with patch.object(module, "DataSource", return_value=self.source):
-            response = app.test_client().get("/api/v1/resource-governance/overview?dataSource=all")
-        self.assertEqual(response.status_code, 400)
+        with patch("data_report_api.routes.ResourceGovernanceService") as service_class:
+            service_class.return_value.overview.return_value = {"available": True}
+            client = app.test_client()
+            gds_response = client.get("/api/v1/resource-governance/gds/overview")
+            self.assertEqual(gds_response.status_code, 200)
+            self.assertEqual(service_class.return_value.overview.call_args.kwargs["data_source"], "gds")
+            ota_response = client.get("/api/v1/resource-governance/ota/overview")
+            self.assertEqual(ota_response.status_code, 200)
+            self.assertEqual(service_class.return_value.overview.call_args.kwargs["data_source"], "ota")
 
 
 if __name__ == "__main__":

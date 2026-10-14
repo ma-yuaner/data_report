@@ -69,7 +69,27 @@ def _date_label(value: Any) -> str:
     return raw
 
 
-def _metric(row: tuple[Any, ...], pnr_column_available: bool, target_ratio: int) -> dict[str, Any]:
+def _parse_gds_targets(raw: Any) -> dict[str, int]:
+    targets: dict[str, int] = {}
+    for item in str(raw or "").split(","):
+        code, separator, value = item.strip().partition(":")
+        if not separator or not code.strip():
+            continue
+        try:
+            ratio = int(value.strip())
+        except ValueError:
+            continue
+        if ratio > 0:
+            targets[code.strip().upper()] = ratio
+    return targets
+
+
+def _metric(
+    row: tuple[Any, ...],
+    pnr_column_available: bool,
+    target_ratio: int | None,
+    pnr_applicable: bool = True,
+) -> dict[str, Any]:
     row_count = int(row[0] or 0)
     search_requests = int(row[1] or 0)
     search_success = int(row[2] or 0)
@@ -77,13 +97,15 @@ def _metric(row: tuple[Any, ...], pnr_column_available: bool, target_ratio: int)
     verify_success = int(row[4] or 0)
     order_requests = int(row[5] or 0)
     order_success = int(row[6] or 0)
-    pnr_count = int(row[7]) if row[7] is not None else None
+    pnr_count = int(row[7]) if pnr_applicable and row[7] is not None else None
     search_cache = int(row[8] or 0)
     search_execute_time = int(row[9] or 0)
     search_effective_requests = int(row[10] or 0)
 
     if row_count == 0:
         status = "no_records"
+    elif not pnr_applicable:
+        status = "not_applicable"
     elif not pnr_column_available:
         status = "pnr_field_missing"
     elif pnr_count is None:
@@ -93,7 +115,7 @@ def _metric(row: tuple[Any, ...], pnr_column_available: bool, target_ratio: int)
     else:
         status = "ready"
 
-    excess = None if pnr_count is None else max(search_requests - pnr_count * target_ratio, 0)
+    excess = None if not pnr_applicable or pnr_count is None or target_ratio is None else max(search_requests - pnr_count * target_ratio, 0)
     return {
         "rowCount": row_count,
         "searchRequests": search_requests,
@@ -104,13 +126,14 @@ def _metric(row: tuple[Any, ...], pnr_column_available: bool, target_ratio: int)
         "orderSuccess": order_success,
         "pnrCount": pnr_count,
         "queryToPnrRatio": _ratio(search_requests, pnr_count or 0),
-        "ratioInfinite": bool(search_requests > 0 and pnr_count == 0),
+        "ratioInfinite": bool(pnr_applicable and search_requests > 0 and pnr_count == 0),
         "searchSuccessRate": _rate(search_success, search_requests),
         "verifySuccessRate": _rate(verify_success, verify_requests),
         "orderSuccessRate": _rate(order_success, order_requests),
         "searchCacheRate": _rate(search_cache, search_requests),
         "avgSearchExecuteTime": _ratio(search_execute_time, search_effective_requests),
         "excessQueryCount": excess,
+        "targetRatio": target_ratio,
         "status": status,
     }
 
@@ -120,7 +143,7 @@ class ResourceGovernanceService:
         mysql_config = dict(config)
         mysql_config["DATA_MODE"] = "mysql"
         self.source = DataSource(mysql_config)
-        self.target_ratio = max(1, int(config.get("RESOURCE_GOVERNANCE_TARGET_RATIO", 4000)))
+        self.gds_targets = _parse_gds_targets(config.get("RESOURCE_GOVERNANCE_GDS_TARGETS", "1A:4000"))
 
     def overview(
         self,
@@ -146,9 +169,11 @@ class ResourceGovernanceService:
             raise ValueError("不支持的分析维度")
         if source_key == "ota" and dimension_key in {"gds", "pcc"}:
             dimension_key = "platform"
+        pnr_applicable = source_key == "gds"
         cleaned_filters = {
             key: _clean_filter((filters or {}).get(key)) for key in FILTER_FIELDS
         }
+        selected_target = self.gds_targets.get(cleaned_filters["gds"].upper()) if pnr_applicable and cleaned_filters["gds"] else None
 
         result = {
             "source": self.source.label,
@@ -158,31 +183,42 @@ class ResourceGovernanceService:
             "generatedAt": datetime.now(timezone(timedelta(hours=8))).isoformat(timespec="seconds"),
             "period": {"startDate": first.isoformat(), "endDate": last.isoformat()},
             "dataSource": {"key": source_key, **DATA_SOURCES[source_key]},
-            "targetRatio": self.target_ratio,
+            "targetRatio": selected_target,
+            "gdsTargets": self.gds_targets,
+            "pnrApplicable": pnr_applicable,
             "pnrColumnAvailable": False,
             "pnrDataAvailable": False,
             "filters": cleaned_filters,
             "options": {key: [] for key in FILTER_FIELDS},
-            "summary": _metric((0,) + (None,) * 10, False, self.target_ratio),
+            "summary": _metric((0,) + (None,) * 10, False, selected_target, pnr_applicable),
             "trend": [],
             "dimension": {"key": dimension_key, "label": DIMENSIONS[dimension_key]["label"], "rows": []},
-            "notes": [
-                "OTA与GDS是两个独立分析层，页面不跨层相加。",
-                "查定比按查询总量÷实际有效PNR数重算，order_request_success仅表示直连生单接口成功。",
-                "无有效PNR显示为∞，PNR未同步显示为—，二者不会混为0。",
-            ],
+            "notes": (
+                [
+                    "GDS资源层查定比按查询总量÷实际有效PNR数重算。",
+                    "order_request_success仅表示直连生单接口成功，不得替代实际有效PNR。",
+                    "无有效PNR显示为∞，PNR未同步显示为—，二者不会混为0。",
+                ]
+                if pnr_applicable
+                else [
+                    "OTA渠道层只分析查询、验价和生单接口表现，不计算有效PNR与查定比。",
+                    "OTA与GDS是两个独立分析层，页面不跨层相加。",
+                ]
+            ),
         }
         connection = cursor = None
         try:
             connection = self.source.connect()
             cursor = connection.cursor()
-            cursor.execute(
-                "SELECT COUNT(1) FROM information_schema.COLUMNS "
-                "WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s AND COLUMN_NAME='pnr_count'",
-                (self.source.database, TABLE_NAME),
-            )
-            pnr_column_available = bool(int((cursor.fetchone() or (0,))[0] or 0))
-            pnr_expression = "SUM(pnr_count)" if pnr_column_available else "NULL"
+            pnr_column_available = False
+            if pnr_applicable:
+                cursor.execute(
+                    "SELECT COUNT(1) FROM information_schema.COLUMNS "
+                    "WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s AND COLUMN_NAME='pnr_count'",
+                    (self.source.database, TABLE_NAME),
+                )
+                pnr_column_available = bool(int((cursor.fetchone() or (0,))[0] or 0))
+            pnr_expression = "SUM(pnr_count)" if pnr_applicable and pnr_column_available else "NULL"
             metric_select = METRIC_SELECT.format(pnr_expression=pnr_expression)
 
             date_params = [first.strftime("%Y%m%d"), last.strftime("%Y%m%d"), DATA_SOURCES[source_key]["value"]]
@@ -207,7 +243,7 @@ class ResourceGovernanceService:
 
             cursor.execute(f"SELECT {metric_select}, MAX(create_time) FROM {table} WHERE {where_sql}", tuple(parameters))
             summary_row = cursor.fetchone() or ((0,) + (None,) * 11)
-            summary = _metric(tuple(summary_row[:11]), pnr_column_available, self.target_ratio)
+            summary = _metric(tuple(summary_row[:11]), pnr_column_available, selected_target, pnr_applicable)
             summary["sourceUpdatedAt"] = summary_row[11].isoformat(sep=" ", timespec="seconds") if isinstance(summary_row[11], datetime) else (str(summary_row[11]) if summary_row[11] else None)
             result["summary"] = summary
 
@@ -217,7 +253,7 @@ class ResourceGovernanceService:
                 tuple(parameters),
             )
             result["trend"] = [
-                {"date": _date_label(row[0]), **_metric(tuple(row[1:]), pnr_column_available, self.target_ratio)}
+                {"date": _date_label(row[0]), **_metric(tuple(row[1:]), pnr_column_available, selected_target, pnr_applicable)}
                 for row in cursor.fetchall()
             ]
 
@@ -229,16 +265,18 @@ class ResourceGovernanceService:
                 "ORDER BY SUM(search_request_count_all) DESC LIMIT 500",
                 tuple(parameters),
             )
-            result["dimension"]["rows"] = [
-                {
-                    "value": str(row[0]),
-                    "name": str(row[0]),
-                    **_metric(tuple(row[1:]), pnr_column_available, self.target_ratio),
-                }
-                for row in cursor.fetchall()
-            ]
+            dimension_rows = []
+            for row in cursor.fetchall():
+                value = str(row[0])
+                row_target = self.gds_targets.get(value.upper()) if pnr_applicable and dimension_key == "gds" else selected_target
+                dimension_rows.append({
+                    "value": value,
+                    "name": value,
+                    **_metric(tuple(row[1:]), pnr_column_available, row_target, pnr_applicable),
+                })
+            result["dimension"]["rows"] = dimension_rows
             result["pnrColumnAvailable"] = pnr_column_available
-            result["pnrDataAvailable"] = pnr_column_available and summary["pnrCount"] is not None
+            result["pnrDataAvailable"] = pnr_applicable and pnr_column_available and summary["pnrCount"] is not None
             result["available"] = True
         except Exception as error:
             logging.getLogger(__name__).exception("GDS/OTA resource governance query failed")

@@ -1,6 +1,6 @@
 <template>
   <div class="page-wrap governance-page">
-    <PageHeader eyebrow="RESOURCE GOVERNANCE" title="GDS/OTA资源治理" description="查询、验价、生单与实际有效PNR的分层分析">
+    <PageHeader eyebrow="RESOURCE GOVERNANCE" :title="pageTitle" :description="pageDescription">
       <a-tag color="blue">实际数据 · MySQL ADS</a-tag>
     </PageHeader>
 
@@ -11,7 +11,7 @@
     <section class="scope-panel">
       <div class="section-heading">
         <div><h2>统计范围</h2><span>默认本月 · 先选分析层，再按业务维度下钻</span></div>
-        <a-segmented v-model:value="draft.dataSource" :options="layerOptions" :disabled="loading" @change="changeLayer" />
+        <a-tag color="blue">{{ layerLabel(draft.dataSource) }}</a-tag>
       </div>
       <div class="period-line">
         <a-segmented v-model:value="preset" :options="periodOptions" :disabled="loading" @change="applyPreset" />
@@ -39,9 +39,9 @@
       <div><a-tag color="blue">{{ layerLabel(applied.dataSource) }}</a-tag><a-tag v-for="tag in appliedTags" :key="tag">{{ tag }}</a-tag></div>
     </div>
     <a-alert v-if="error || data?.error" class="state-alert" type="error" show-icon :message="error || data?.error" />
-    <a-alert v-else-if="data?.available && !data.pnrColumnAvailable" class="state-alert" type="warning" show-icon
+    <a-alert v-else-if="isGds && data?.available && !data.pnrColumnAvailable" class="state-alert" type="warning" show-icon
       message="有效PNR字段尚未接入" description="当前页面已展示查询、验价和生单接口指标；在bi_ota_gds_request_day增加pnr_count并完成同步后，查定比自动生效。" />
-    <a-alert v-else-if="data?.available && data.pnrColumnAvailable && !data.pnrDataAvailable" class="state-alert" type="warning" show-icon
+    <a-alert v-else-if="isGds && data?.available && data.pnrColumnAvailable && !data.pnrDataAvailable" class="state-alert" type="warning" show-icon
       message="pnr_count字段已存在，但所选范围尚未同步有效PNR" description="有效PNR显示为—，不会使用order_request_success替代，也不会把缺失数据当成0。" />
 
     <a-spin :spinning="loading" tip="正在查询GDS/OTA资源指标">
@@ -51,30 +51,42 @@
           <h2>{{ heroTitle }}</h2>
           <p>{{ heroDescription }}</p>
         </div>
-        <div class="hero-ratio">
+        <div v-if="isGds" class="hero-ratio">
           <small>当前查定比</small>
           <strong :class="ratioTone">{{ ratioText(data?.summary) }}</strong>
-          <span>目标 ≤ {{ integer(data?.targetRatio) }} : 1</span>
+          <span v-if="data?.targetRatio">目标 ≤ {{ integer(data.targetRatio) }} : 1</span>
+          <span v-else>不同GDS按独立目标评估</span>
+        </div>
+        <div v-else class="hero-ratio">
+          <small>渠道分析重点</small>
+          <strong>接口链路</strong>
+          <span>查询 → 验价 → 生单</span>
         </div>
       </section>
 
       <div class="kpi-grid">
         <article><span>查询请求量</span><strong>{{ compact(data?.summary.searchRequests) }}</strong><small>不区分白名单的查询调用</small></article>
-        <article><span>实际有效PNR</span><strong>{{ nullableCount(data?.summary.pnrCount) }}</strong><small>正式查定比分母</small></article>
-        <article><span>超额查询量</span><strong class="orange">{{ nullableCount(data?.summary.excessQueryCount) }}</strong><small>查询量 − PNR × 目标值</small></article>
+        <template v-if="isGds">
+          <article><span>实际有效PNR</span><strong>{{ nullableCount(data?.summary.pnrCount) }}</strong><small>GDS查定比分母</small></article>
+          <article><span>超额查询量</span><strong class="orange">{{ nullableCount(data?.summary.excessQueryCount) }}</strong><small>{{ data?.targetRatio ? '查询量 − PNR × 目标值' : '选择已配置目标的GDS后计算' }}</small></article>
+        </template>
+        <template v-else>
+          <article><span>查询成功量</span><strong>{{ integer(data?.summary.searchSuccess) }}</strong><small>成功率 {{ percent(data?.summary.searchSuccessRate) }}</small></article>
+          <article><span>验价请求量</span><strong>{{ integer(data?.summary.verifyRequests) }}</strong><small>渠道验价接口调用</small></article>
+        </template>
         <article><span>查询成功率</span><strong>{{ percent(data?.summary.searchSuccessRate) }}</strong><small>{{ integer(data?.summary.searchSuccess) }} 次成功</small></article>
         <article><span>验价成功率</span><strong>{{ percent(data?.summary.verifySuccessRate) }}</strong><small>{{ integer(data?.summary.verifyRequests) }} 次验价调用</small></article>
-        <article><span>生单接口成功</span><strong>{{ integer(data?.summary.orderSuccess) }}</strong><small>接口成功，不等同有效PNR</small></article>
+        <article><span>生单接口成功</span><strong>{{ integer(data?.summary.orderSuccess) }}</strong><small>{{ isGds ? '接口成功，不等同有效PNR' : `成功率 ${percent(data?.summary.orderSuccessRate)}` }}</small></article>
       </div>
 
       <div class="charts-grid">
         <a-card :bordered="false" class="analysis-panel">
-          <template #title><div class="panel-title"><div><strong>请求量与查定比趋势</strong><small>按日汇总基础数量后重新计算</small></div><a-tag>{{ layerLabel(applied.dataSource) }}</a-tag></div></template>
-          <BaseChart v-if="data?.available && data.trend.length" :option="trendOption" chart-label="GDS或OTA请求量与查定比日趋势" />
+          <template #title><div class="panel-title"><div><strong>{{ isGds ? '请求量与查定比趋势' : '请求量与接口成功率趋势' }}</strong><small>{{ isGds ? '按日汇总基础数量后重新计算' : '按日观察渠道接口调用质量' }}</small></div><a-tag>{{ layerLabel(applied.dataSource) }}</a-tag></div></template>
+          <BaseChart v-if="data?.available && data.trend.length" :option="trendOption" :chart-label="isGds ? 'GDS请求量与查定比日趋势' : 'OTA请求量与接口成功率日趋势'" />
           <a-empty v-else description="所选范围暂无趋势数据" />
         </a-card>
         <a-card :bordered="false" class="analysis-panel">
-          <template #title><div class="panel-title"><div><strong>接口链路转化</strong><small>接口成功与实际PNR分开展示</small></div></div></template>
+          <template #title><div class="panel-title"><div><strong>接口链路转化</strong><small>{{ isGds ? '接口成功与实际PNR分开展示' : 'OTA层不计算PNR与查定比' }}</small></div></div></template>
           <div class="funnel-list">
             <div v-for="stage in funnel" :key="stage.label" class="funnel-row">
               <div><span>{{ stage.label }}</span><strong>{{ nullableCount(stage.value) }}</strong></div>
@@ -98,12 +110,16 @@
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'name'"><div class="resource-name"><strong>{{ record.name }}</strong><small>{{ data?.dimension.label }}</small></div></template>
             <template v-else-if="column.key === 'ratio'"><strong :class="ratioClass(record)">{{ ratioText(record) }}</strong></template>
+            <template v-else-if="column.key === 'target'">{{ record.targetRatio == null ? '未配置' : `${integer(record.targetRatio)} : 1` }}</template>
             <template v-else-if="column.key === 'search'">{{ integer(record.searchRequests) }}</template>
+            <template v-else-if="column.key === 'searchSuccess'">{{ integer(record.searchSuccess) }}</template>
             <template v-else-if="column.key === 'pnr'">{{ nullableCount(record.pnrCount) }}</template>
             <template v-else-if="column.key === 'excess'">{{ nullableCount(record.excessQueryCount) }}</template>
             <template v-else-if="column.key === 'searchRate'">{{ percent(record.searchSuccessRate) }}</template>
             <template v-else-if="column.key === 'verifyRate'">{{ percent(record.verifySuccessRate) }}</template>
+            <template v-else-if="column.key === 'verify'">{{ integer(record.verifyRequests) }}</template>
             <template v-else-if="column.key === 'orderRate'">{{ percent(record.orderSuccessRate) }}</template>
+            <template v-else-if="column.key === 'order'">{{ integer(record.orderRequests) }}</template>
             <template v-else-if="column.key === 'action'"><a-button type="link" size="small" @click="openAnalysis(record)">分析此项</a-button></template>
           </template>
         </a-table>
@@ -118,13 +134,21 @@
         <div class="drawer-scope"><span>{{ analysisData?.period.startDate }} 至 {{ analysisData?.period.endDate }}</span><strong>{{ drawerScope }}</strong></div>
         <div class="drawer-kpis">
           <article><span>查询量</span><strong>{{ integer(analysisData?.summary.searchRequests) }}</strong></article>
-          <article><span>有效PNR</span><strong>{{ nullableCount(analysisData?.summary.pnrCount) }}</strong></article>
-          <article><span>查定比</span><strong :class="ratioClass(analysisData?.summary)">{{ ratioText(analysisData?.summary) }}</strong></article>
-          <article><span>超额查询</span><strong>{{ nullableCount(analysisData?.summary.excessQueryCount) }}</strong></article>
+          <template v-if="isGds">
+            <article><span>有效PNR</span><strong>{{ nullableCount(analysisData?.summary.pnrCount) }}</strong></article>
+            <article><span>查定比</span><strong :class="ratioClass(analysisData?.summary)">{{ ratioText(analysisData?.summary) }}</strong></article>
+            <article><span>超额查询</span><strong>{{ nullableCount(analysisData?.summary.excessQueryCount) }}</strong></article>
+          </template>
+          <template v-else>
+            <article><span>查询成功</span><strong>{{ integer(analysisData?.summary.searchSuccess) }}</strong></article>
+            <article><span>验价成功</span><strong>{{ integer(analysisData?.summary.verifySuccess) }}</strong></article>
+            <article><span>生单成功</span><strong>{{ integer(analysisData?.summary.orderSuccess) }}</strong></article>
+          </template>
         </div>
         <a-table class="daily-table" :columns="dailyColumns" :data-source="analysisData?.trend || []" row-key="date" :pagination="{ pageSize: 20 }" :scroll="{ x: 880 }" :locale="{ emptyText: '该资源暂无每日数据' }">
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'search'">{{ integer(record.searchRequests) }}</template>
+            <template v-else-if="column.key === 'searchSuccess'">{{ integer(record.searchSuccess) }} / {{ percent(record.searchSuccessRate) }}</template>
             <template v-else-if="column.key === 'pnr'">{{ nullableCount(record.pnrCount) }}</template>
             <template v-else-if="column.key === 'ratio'"><strong :class="ratioClass(record)">{{ ratioText(record) }}</strong></template>
             <template v-else-if="column.key === 'verify'">{{ integer(record.verifyRequests) }} / {{ percent(record.verifySuccessRate) }}</template>
@@ -138,7 +162,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import dateLocale from 'ant-design-vue/es/date-picker/locale/zh_CN'
 import { InfoCircleOutlined } from '@ant-design/icons-vue'
 import type { EChartsCoreOption } from 'echarts/core'
@@ -154,9 +179,11 @@ import {
 } from '@/api/resourceGovernance'
 
 const shanghaiDate = (value = new Date()) => value.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
+const route = useRoute()
+const routeLayer = (): GovernanceLayer => route.meta.governanceLayer === 'ota' ? 'ota' : 'gds'
 const today = shanghaiDate()
 const monthStart = `${today.slice(0, 7)}-01`
-const emptyScope = (): GovernanceScope => ({ startDate: monthStart, endDate: today, dataSource: 'gds', groupBy: 'gds', platform: '', site: '', gds: '', pcc: '', apiGroup: '' })
+const emptyScope = (layer: GovernanceLayer = routeLayer()): GovernanceScope => ({ startDate: monthStart, endDate: today, dataSource: layer, groupBy: layer === 'gds' ? 'gds' : 'platform', platform: '', site: '', gds: '', pcc: '', apiGroup: '' })
 const draft = ref<GovernanceScope>(emptyScope())
 const applied = ref<GovernanceScope>({ ...draft.value })
 const preset = ref('month')
@@ -166,12 +193,14 @@ const loading = ref(false)
 const error = ref('')
 let requestId = 0
 
-const layerOptions = [{ label: 'GDS资源层', value: 'gds' }, { label: 'OTA渠道层', value: 'ota' }]
 const periodOptions = [{ label: '今日', value: 'today' }, { label: '近7天', value: 'seven' }, { label: '本月', value: 'month' }, { label: '自定义', value: 'custom' }]
 const gdsDimensions = [{ label: 'GDS', value: 'gds' }, { label: 'PCC', value: 'pcc' }, { label: '平台', value: 'platform' }, { label: '站点', value: 'site' }, { label: '接口分组', value: 'apiGroup' }]
 const otaDimensions = [{ label: '平台', value: 'platform' }, { label: '站点', value: 'site' }, { label: '接口分组', value: 'apiGroup' }]
 const dimensionOptions = computed(() => draft.value.dataSource === 'gds' ? gdsDimensions : otaDimensions)
 const pending = computed(() => JSON.stringify(draft.value) !== JSON.stringify(applied.value))
+const isGds = computed(() => applied.value.dataSource === 'gds')
+const pageTitle = computed(() => isGds.value ? 'GDS资源治理' : 'OTA渠道质量')
+const pageDescription = computed(() => isGds.value ? '按GDS与PCC分析查询量、有效PNR和查定比' : '按平台与站点分析查询、验价和生单接口成功率')
 const layerLabel = (layer: GovernanceLayer) => layer === 'gds' ? 'GDS资源层' : 'OTA渠道层'
 const selectOptions = (values?: string[]) => (values || []).map(value => ({ label: value, value }))
 const integer = (value?: number | null) => value == null ? '—' : new Intl.NumberFormat('zh-CN').format(value)
@@ -179,7 +208,13 @@ const compact = (value?: number | null) => value == null ? '—' : new Intl.Numb
 const nullableCount = (value?: number | null) => value == null ? '—' : integer(value)
 const percent = (value?: string | null) => value == null ? '—' : `${Number(value).toFixed(2)}%`
 const ratioText = (metric?: GovernanceMetric) => metric?.ratioInfinite ? '∞' : metric?.queryToPnrRatio == null ? '—' : `${integer(Math.round(Number(metric.queryToPnrRatio)))} : 1`
-const ratioClass = (metric?: GovernanceMetric) => ({ danger: Boolean(metric?.ratioInfinite || (metric?.queryToPnrRatio != null && Number(metric.queryToPnrRatio) > (data.value?.targetRatio || 4000))), healthy: Boolean(metric?.queryToPnrRatio != null && Number(metric.queryToPnrRatio) <= (data.value?.targetRatio || 4000)) })
+const ratioClass = (metric?: GovernanceMetric) => {
+  const target = metric?.targetRatio ?? data.value?.targetRatio
+  return {
+    danger: Boolean(target != null && (metric?.ratioInfinite || (metric?.queryToPnrRatio != null && Number(metric.queryToPnrRatio) > target))),
+    healthy: Boolean(target != null && metric?.queryToPnrRatio != null && Number(metric.queryToPnrRatio) <= target),
+  }
+}
 const ratioTone = computed(() => ratioClass(data.value?.summary))
 const appliedTags = computed(() => [
   applied.value.platform && `平台：${applied.value.platform}`,
@@ -191,21 +226,30 @@ const appliedTags = computed(() => [
 const heroTitle = computed(() => {
   const summary = data.value?.summary
   if (!summary || summary.status === 'no_records') return '当前范围暂无资源调用数据'
+  if (!isGds.value) return '当前为OTA渠道接口链路分析'
   if (summary.status === 'pnr_field_missing' || summary.status === 'pnr_data_missing') return '查询链路已接入，有效PNR待补齐'
   if (summary.ratioInfinite) return '存在查询但没有实际有效PNR'
-  if (Number(summary.queryToPnrRatio) > (data.value?.targetRatio || 4000)) return '当前查定比高于阶段治理目标'
+  if (data.value?.targetRatio == null) return applied.value.gds ? '当前GDS尚未配置治理目标' : '请选择具体GDS查看目标达标情况'
+  if (Number(summary.queryToPnrRatio) > data.value.targetRatio) return '当前查定比高于阶段治理目标'
   return '当前查定比处于阶段目标范围内'
 })
 const heroDescription = computed(() => {
   const summary = data.value?.summary
+  if (!isGds.value) return 'OTA渠道层只分析查询、验价与生单接口表现，不计算PNR和查定比。'
   if (!summary?.queryToPnrRatio) return '页面不会使用直连生单接口成功量替代有效PNR。'
-  const gap = Math.round(Number(summary.queryToPnrRatio) - (data.value?.targetRatio || 4000))
+  if (data.value?.targetRatio == null) return '不同GDS目标不同；首版已配置1A目标为4000:1，筛选具体GDS后判断是否达标。'
+  const gap = Math.round(Number(summary.queryToPnrRatio) - data.value.targetRatio)
   return gap > 0 ? `每个有效PNR仍需多消耗约 ${integer(gap)} 次查询，优先从下方高查询量资源开始下钻。` : `当前低于目标约 ${integer(Math.abs(gap))} 次查询，请继续观察有效PNR与业务量是否稳定。`
 })
 
 const funnel = computed(() => {
   const summary = data.value?.summary
   const base = Math.max(summary?.searchRequests || 0, 1)
+  if (!isGds.value) return [
+    { label: '查询调用', value: summary?.searchRequests ?? 0, percent: 100, color: '#3278c8', note: `成功 ${integer(summary?.searchSuccess)} · ${percent(summary?.searchSuccessRate)}` },
+    { label: '验价调用', value: summary?.verifyRequests ?? 0, percent: Math.min(100, Math.round((summary?.verifyRequests || 0) / base * 100)), color: '#e19337', note: `成功 ${integer(summary?.verifySuccess)} · ${percent(summary?.verifySuccessRate)}` },
+    { label: '生单接口调用', value: summary?.orderRequests ?? 0, percent: Math.min(100, Math.round((summary?.orderRequests || 0) / base * 100)), color: '#8067c9', note: `成功 ${integer(summary?.orderSuccess)} · ${percent(summary?.orderSuccessRate)}` },
+  ]
   return [
     { label: '查询调用', value: summary?.searchRequests ?? 0, percent: 100, color: '#3278c8', note: `成功率 ${percent(summary?.searchSuccessRate)}` },
     { label: '验价调用', value: summary?.verifyRequests ?? 0, percent: Math.min(100, Math.round((summary?.verifyRequests || 0) / base * 100)), color: '#e19337', note: `成功率 ${percent(summary?.verifySuccessRate)}` },
@@ -214,10 +258,10 @@ const funnel = computed(() => {
   ]
 })
 
-const trendOption = computed<EChartsCoreOption>(() => ({
+const trendOption = computed<EChartsCoreOption>(() => isGds.value ? ({
   color: ['#4b85d1', '#d66a67', '#2a9b78'],
   tooltip: { trigger: 'axis', valueFormatter: (value: unknown) => integer(Number(value)) },
-  legend: { top: 2, data: ['查询请求量', '查定比', '目标值'] },
+  legend: { top: 2, data: data.value?.targetRatio == null ? ['查询请求量', '查定比'] : ['查询请求量', '查定比', '目标值'] },
   grid: { left: 64, right: 72, top: 44, bottom: 34 },
   xAxis: { type: 'category', data: data.value?.trend.map(item => item.date.slice(5)) || [], axisLabel: { color: '#8090a5' } },
   yAxis: [
@@ -227,22 +271,51 @@ const trendOption = computed<EChartsCoreOption>(() => ({
   series: [
     { name: '查询请求量', type: 'bar', barMaxWidth: 20, data: data.value?.trend.map(item => item.searchRequests) || [], itemStyle: { borderRadius: [4, 4, 0, 0] } },
     { name: '查定比', type: 'line', yAxisIndex: 1, smooth: true, connectNulls: false, data: data.value?.trend.map(item => item.ratioInfinite ? null : item.queryToPnrRatio == null ? null : Number(item.queryToPnrRatio)) || [], symbolSize: 7 },
-    { name: '目标值', type: 'line', yAxisIndex: 1, symbol: 'none', lineStyle: { type: 'dashed', width: 1.5 }, data: data.value?.trend.map(() => data.value?.targetRatio || 4000) || [] },
+    ...(data.value?.targetRatio == null ? [] : [{ name: '目标值', type: 'line', yAxisIndex: 1, symbol: 'none', lineStyle: { type: 'dashed', width: 1.5 }, data: data.value?.trend.map(() => data.value?.targetRatio) || [] }]),
+  ],
+}) : ({
+  color: ['#4b85d1', '#2a9b78', '#e19337', '#8067c9'],
+  tooltip: { trigger: 'axis' },
+  legend: { top: 2, data: ['查询请求量', '查询成功率', '验价成功率', '生单成功率'] },
+  grid: { left: 64, right: 72, top: 44, bottom: 34 },
+  xAxis: { type: 'category', data: data.value?.trend.map(item => item.date.slice(5)) || [], axisLabel: { color: '#8090a5' } },
+  yAxis: [
+    { type: 'value', name: '请求量', axisLabel: { formatter: (value: number) => compact(value), color: '#8090a5' }, splitLine: { lineStyle: { color: '#edf1f6' } } },
+    { type: 'value', name: '成功率', min: 0, max: 100, axisLabel: { formatter: '{value}%', color: '#8090a5' }, splitLine: { show: false } },
+  ],
+  series: [
+    { name: '查询请求量', type: 'bar', barMaxWidth: 20, data: data.value?.trend.map(item => item.searchRequests) || [], itemStyle: { borderRadius: [4, 4, 0, 0] } },
+    { name: '查询成功率', type: 'line', yAxisIndex: 1, smooth: true, data: data.value?.trend.map(item => item.searchSuccessRate == null ? null : Number(item.searchSuccessRate)) || [] },
+    { name: '验价成功率', type: 'line', yAxisIndex: 1, smooth: true, data: data.value?.trend.map(item => item.verifySuccessRate == null ? null : Number(item.verifySuccessRate)) || [] },
+    { name: '生单成功率', type: 'line', yAxisIndex: 1, smooth: true, data: data.value?.trend.map(item => item.orderSuccessRate == null ? null : Number(item.orderSuccessRate)) || [] },
   ],
 }))
 
-const dimensionColumns = [
+const gdsDimensionColumns = [
   { title: '资源', key: 'name', fixed: 'left' as const, width: 170 },
   { title: '查询请求量', key: 'search', width: 130, sorter: (a: GovernanceMetric, b: GovernanceMetric) => a.searchRequests - b.searchRequests },
   { title: '有效PNR', key: 'pnr', width: 110 },
   { title: '查定比', key: 'ratio', width: 125 },
+  { title: '治理目标', key: 'target', width: 125 },
   { title: '超额查询', key: 'excess', width: 130 },
   { title: '查询成功率', key: 'searchRate', width: 120 },
   { title: '验价成功率', key: 'verifyRate', width: 120 },
   { title: '生单成功率', key: 'orderRate', width: 120 },
   { title: '操作', key: 'action', fixed: 'right' as const, width: 100 },
 ]
-const dailyColumns = [
+const otaDimensionColumns = [
+  { title: '资源', key: 'name', fixed: 'left' as const, width: 170 },
+  { title: '查询请求量', key: 'search', width: 125, sorter: (a: GovernanceMetric, b: GovernanceMetric) => a.searchRequests - b.searchRequests },
+  { title: '查询成功量', key: 'searchSuccess', width: 120 },
+  { title: '查询成功率', key: 'searchRate', width: 120 },
+  { title: '验价请求量', key: 'verify', width: 120 },
+  { title: '验价成功率', key: 'verifyRate', width: 120 },
+  { title: '生单请求量', key: 'order', width: 120 },
+  { title: '生单成功率', key: 'orderRate', width: 120 },
+  { title: '操作', key: 'action', fixed: 'right' as const, width: 100 },
+]
+const dimensionColumns = computed(() => isGds.value ? gdsDimensionColumns : otaDimensionColumns)
+const gdsDailyColumns = [
   { title: '日期', dataIndex: 'date', width: 120, fixed: 'left' as const },
   { title: '查询请求量', key: 'search', width: 130 },
   { title: '有效PNR', key: 'pnr', width: 110 },
@@ -251,6 +324,14 @@ const dailyColumns = [
   { title: '生单成功 / 成功率', key: 'order', width: 170 },
   { title: '超额查询', key: 'excess', width: 130 },
 ]
+const otaDailyColumns = [
+  { title: '日期', dataIndex: 'date', width: 120, fixed: 'left' as const },
+  { title: '查询请求量', key: 'search', width: 130 },
+  { title: '查询成功 / 成功率', key: 'searchSuccess', width: 170 },
+  { title: '验价量 / 成功率', key: 'verify', width: 160 },
+  { title: '生单成功 / 成功率', key: 'order', width: 170 },
+]
+const dailyColumns = computed(() => isGds.value ? gdsDailyColumns : otaDailyColumns)
 
 function applyPreset(value: string | number) {
   const selected = String(value)
@@ -260,13 +341,6 @@ function applyPreset(value: string | number) {
   if (selected === 'seven') { const start = new Date(end); start.setDate(start.getDate() - 6); draft.value.startDate = shanghaiDate(start) }
   if (selected === 'month') draft.value.startDate = monthStart
   draft.value.endDate = today
-}
-function changeLayer(value: string | number) {
-  const layer = String(value) as GovernanceLayer
-  draft.value.groupBy = layer === 'gds' ? 'gds' : 'platform'
-  draftGroup.value = draft.value.groupBy
-  draft.value.gds = ''
-  draft.value.pcc = ''
 }
 function resetFilters() { const layer = draft.value.dataSource; draft.value = { ...emptyScope(), dataSource: layer, groupBy: layer === 'gds' ? 'gds' : 'platform' }; draftGroup.value = draft.value.groupBy; preset.value = 'month' }
 function applyFilters() { draft.value.groupBy = draftGroup.value; void load({ ...draft.value }) }
@@ -309,6 +383,14 @@ async function openAnalysis(record: { value: string; name: string }) {
 }
 
 onMounted(() => { void load({ ...draft.value }) })
+watch(() => route.meta.governanceLayer, () => {
+  const next = emptyScope(routeLayer())
+  draft.value = next
+  applied.value = { ...next }
+  draftGroup.value = next.groupBy
+  preset.value = 'month'
+  void load({ ...next })
+})
 </script>
 
 <style scoped>

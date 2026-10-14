@@ -32,7 +32,8 @@ export interface GovernanceMetric {
   searchCacheRate: string | null
   avgSearchExecuteTime: string | null
   excessQueryCount: number | null
-  status: 'no_records' | 'pnr_field_missing' | 'pnr_data_missing' | 'denominator_zero' | 'ready'
+  targetRatio: number | null
+  status: 'no_records' | 'not_applicable' | 'pnr_field_missing' | 'pnr_data_missing' | 'denominator_zero' | 'ready'
   sourceUpdatedAt?: string | null
 }
 
@@ -44,7 +45,9 @@ export interface GovernanceData {
   generatedAt: string
   period: { startDate: string; endDate: string }
   dataSource: { key: GovernanceLayer; value: number; label: string }
-  targetRatio: number
+  targetRatio: number | null
+  gdsTargets: Record<string, number>
+  pnrApplicable: boolean
   pnrColumnAvailable: boolean
   pnrDataAvailable: boolean
   filters: Record<GovernanceDimension, string>
@@ -56,7 +59,7 @@ export interface GovernanceData {
 }
 
 export async function fetchResourceGovernance(scope: GovernanceScope): Promise<GovernanceData> {
-  const response = await http.get<ApiEnvelope<GovernanceData>>('/v1/resource-governance/overview', { params: scope })
+  const response = await http.get<ApiEnvelope<GovernanceData>>(`/v1/resource-governance/${scope.dataSource}/overview`, { params: scope })
   if (!response.data.success) throw new Error(response.data.message)
   return response.data.data
 }

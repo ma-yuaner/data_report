@@ -80,7 +80,8 @@ const todayText = new Intl.DateTimeFormat('zh-CN', {
 }).format(new Date())
 
 const quickEntries = [
-  { to: '/resource-governance', eyebrow: 'RESOURCE GOVERNANCE', title: '资源治理', description: '分析GDS/OTA查询、验价、生单与查定比', icon: DeploymentUnitOutlined, color: '#267b89', background: '#eaf7f8' },
+  { to: '/resource-governance/gds', eyebrow: 'GDS GOVERNANCE', title: 'GDS资源治理', description: '分析GDS、PCC查询量、有效PNR与查定比', icon: DeploymentUnitOutlined, color: '#267b89', background: '#eaf7f8' },
+  { to: '/resource-governance/ota', eyebrow: 'OTA QUALITY', title: 'OTA渠道质量', description: '分析平台查询、验价与生单接口成功率', icon: DeploymentUnitOutlined, color: '#396ec4', background: '#edf4ff' },
   { to: '/overview', eyebrow: 'OVERVIEW', title: '经营总览', description: '查看今日出、退、改、增利润全貌', icon: DashboardOutlined, color: '#2f6edb', background: '#edf4ff' },
   { to: '/analysis/comprehensive', eyebrow: 'ANALYSIS', title: '综合分析', description: '按平台、航司、产品和政策员逐层下钻', icon: ApartmentOutlined, color: '#7257c5', background: '#f2efff' },
   { to: '/risk-analysis', eyebrow: 'RISK CONTROL', title: '风控分析', description: '复核亏损结构并定位具体问题订单', icon: SafetyCertificateOutlined, color: '#cc5a5f', background: '#fff0f0' },
