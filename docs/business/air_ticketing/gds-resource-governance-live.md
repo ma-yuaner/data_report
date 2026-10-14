@@ -23,10 +23,10 @@
 只有GDS资源层计算查定比：
 
 ```text
-GDS查定比 = SUM(search_request_count_all) / SUM(pnr_num)
+GDS查定比 = SUM(search_request_count_all) / SUM(seg_num)
 ```
 
-`order_request_success`是直连生单接口成功量，只用于接口调用质量分析，不得替代实际有效PNR。`pnr_num`只写入`data_source=1`的GDS行。字段不存在、所选范围全部未同步或仅部分记录同步时，页面显示“—”并停止计算查定比和超额查询，避免用不完整分母产生错误结论；查询量大于0且完整同步后的实际有效PNR为0时显示“∞”。OTA渠道层不展示PNR、查定比、目标值与超额查询。
+用户于2026-10-14确认，“定”使用`seg_num`航段数。`pnr_num`与`order_request_success`均不参与正式查定比。`seg_num`字段不存在、所选范围全部未同步或仅部分记录同步时，页面显示“—”并停止计算查定比和超额查询，避免用不完整分母产生错误结论；查询量大于0且完整同步后的航段数为0时显示“∞”。OTA渠道层不展示航段查定比、目标值与超额查询。
 
 GDS目标按资源分别配置。首版通过`RESOURCE_GOVERNANCE_GDS_TARGETS`配置，格式如`1A:4000,1G:3000`；默认只配置`1A:4000`。汇总多个GDS时不套用统一目标，筛选具体GDS或查看GDS维度行时才判断达标并计算超额查询。
 
@@ -37,7 +37,7 @@ OTA成功率目标按平台配置，通过`RESOURCE_GOVERNANCE_OTA_SUCCESS_TARGE
 - GDS资源治理与OTA渠道质量是两个独立菜单，均默认查看本月；
 - 支持今日、近7天、本月和自定义日期；
 - 支持平台、站点、GDS、PCC和接口分组筛选；
-- GDS层展示查询量、有效PNR、查定比、超额查询和接口成功率；
+- GDS层展示查询量、航段数、查定比、超额查询和接口成功率；
 - OTA层展示查询、验价、生单的请求量、成功量与成功率；
 - 展示查询/验价缓存命中率、平均耗时及验价/生单变价率；
 - 查询、验价、生单属于独立接口统计，不伪装成同一批请求的转化漏斗；
@@ -52,12 +52,12 @@ OTA成功率目标按平台配置，通过`RESOURCE_GOVERNANCE_OTA_SUCCESS_TARGE
 
 - GDS规则按GDS及可选PCC、平台、站点、接口组设置最小查询量和查定比上限；
 - OTA规则按平台及可选站点、接口组设置查询、验价或生单成功率下限；
-- 每天ADS与有效PNR同步完成后，由一份调度脚本检查全部规则；
-- GDS的PNR存在未同步行时记录运行诊断但不产生异常，防止误报；
+- 每天ADS与航段数同步完成后，由一份调度脚本检查全部规则；
+- GDS的`seg_num`存在未同步行时记录运行诊断但不产生异常，防止误报；
 - 命中后生成待处理事件，可在监控中心确认、解决、忽略或关闭，并保留审计日志；
 - 选择企业微信群后，异常先可靠写入发件箱，再由通知任务发送，失败不丢事件且可以重试；
 - 同一规则、同一业务日和同一范围只生成一个事件，重复运行只刷新证据，不重复轰炸。
 
-部署前执行[resource-governance-daily-monitor-v1.sql](../../sql/resource-governance-daily-monitor-v1.sql)，调度说明见`data-team-repo/etl_scripts/automation/monitoring/README.md`。
+部署前依次执行[resource-governance-daily-monitor-v1.sql](../../sql/resource-governance-daily-monitor-v1.sql)、[resource-governance-analysis-grain-v2.sql](../../sql/resource-governance-analysis-grain-v2.sql)和[resource-governance-segment-denominator-v3.sql](../../sql/resource-governance-segment-denominator-v3.sql)，调度说明见`data-team-repo/etl_scripts/automation/monitoring/README.md`。
 
 责任人自动分派、分级限流/下线工单与月度治理复盘仍属于后续版本；V1先完成“日规则→异常事件→人工处理→通知”的最小闭环。

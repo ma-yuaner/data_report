@@ -299,7 +299,7 @@ def test_gds_daily_rule_uses_resource_business_type_and_daily_schedule():
     cursor.fetchall.return_value = [
         {"field_code": "gds_code", "field_name": "GDS", "value_type": "STRING", "allowed_operators": "EQ", "required_flag": 1},
         {"field_code": "search_request_count_all", "field_name": "最小查询量", "value_type": "NUMBER", "allowed_operators": "GTE", "required_flag": 1},
-        {"field_code": "query_to_pnr_ratio", "field_name": "查定比上限", "value_type": "NUMBER", "allowed_operators": "GT,GTE", "required_flag": 1},
+        {"field_code": "query_to_segment_ratio", "field_name": "查定比上限", "value_type": "NUMBER", "allowed_operators": "GT,GTE", "required_flag": 1},
     ]
     cursor.lastrowid = 31
     service = MonitoringService({}, source=source)
@@ -311,7 +311,7 @@ def test_gds_daily_rule_uses_resource_business_type_and_daily_schedule():
             "conditions": [
                 {"fieldCode": "gds_code", "operatorCode": "EQ", "value": "1A"},
                 {"fieldCode": "search_request_count_all", "operatorCode": "GTE", "value": 100},
-                {"fieldCode": "query_to_pnr_ratio", "operatorCode": "GT", "value": 4000},
+                {"fieldCode": "query_to_segment_ratio", "operatorCode": "GT", "value": 4000},
             ],
         },
     )
@@ -321,6 +321,112 @@ def test_gds_daily_rule_uses_resource_business_type_and_daily_schedule():
     assert rule_insert.args[1][4] == "RESOURCE_GOVERNANCE"
     assert rule_insert.args[1][11] == 86400
     connection.commit.assert_called_once()
+
+
+ANALYSIS_GRAIN_FIELD_ROW = {
+    "field_code": "analysis_grain", "field_name": "异常分析粒度",
+    "value_type": "ANALYSIS_GRAIN", "allowed_operators": "EQ", "required_flag": 0,
+}
+
+
+def test_gds_rule_snapshot_stores_analysis_grain_and_changes_rule_hash():
+    source, connection, cursor = source_with_cursor()
+    cursor.fetchone.return_value = {"id": 5, "template_code": "GDS_QUERY_RATIO_DAILY", "status": "ACTIVE"}
+    cursor.fetchall.return_value = [
+        {"field_code": "gds_code", "field_name": "GDS", "value_type": "STRING", "allowed_operators": "EQ", "required_flag": 1},
+        {"field_code": "search_request_count_all", "field_name": "最小查询量", "value_type": "NUMBER", "allowed_operators": "GTE", "required_flag": 1},
+        {"field_code": "query_to_segment_ratio", "field_name": "查定比上限", "value_type": "NUMBER", "allowed_operators": "GT,GTE", "required_flag": 1},
+        ANALYSIS_GRAIN_FIELD_ROW,
+    ]
+    cursor.lastrowid = 41
+    service = MonitoringService({}, source=source)
+
+    result = service.create_rule(
+        {"id": 1, "display_name": "数据运营经理", "is_admin": True},
+        {
+            "templateCode": "GDS_QUERY_RATIO_DAILY", "ruleName": "1A按PCC查定比超过4000",
+            "conditions": [
+                {"fieldCode": "gds_code", "operatorCode": "EQ", "value": "1A"},
+                {"fieldCode": "search_request_count_all", "operatorCode": "GTE", "value": 100},
+                {"fieldCode": "query_to_segment_ratio", "operatorCode": "GT", "value": 4000},
+            ],
+            "groupDimensions": ["pcc_code"],
+        },
+    )
+
+    assert result["id"] == 41
+    version_insert = next(call for call in cursor.execute.call_args_list if "INSERT INTO sibebid.monitor_rule_version (" in call.args[0])
+    snapshot = json.loads(version_insert.args[1][6])
+    assert snapshot["groupDimensions"] == ["pcc_code"]
+    assert [item["fieldCode"] for item in snapshot["conditions"]] == [
+        "gds_code", "search_request_count_all", "query_to_segment_ratio",
+    ]
+    condition_sql = [call for call in cursor.execute.call_args_list if "INSERT INTO sibebid.monitor_rule_condition (" in call.args[0]]
+    assert len(condition_sql) == 3
+    assert all("analysis_grain" not in str(call.args[1]) for call in condition_sql)
+    connection.commit.assert_called_once()
+
+
+def test_analysis_grain_rejects_unknown_or_non_resource_dimension():
+    source, connection, cursor = source_with_cursor()
+    cursor.fetchone.return_value = {"id": 5, "template_code": "GDS_QUERY_RATIO_DAILY", "status": "ACTIVE"}
+    cursor.fetchall.return_value = [
+        {"field_code": "gds_code", "field_name": "GDS", "value_type": "STRING", "allowed_operators": "EQ", "required_flag": 1},
+        {"field_code": "search_request_count_all", "field_name": "最小查询量", "value_type": "NUMBER", "allowed_operators": "GTE", "required_flag": 1},
+        {"field_code": "query_to_segment_ratio", "field_name": "查定比上限", "value_type": "NUMBER", "allowed_operators": "GT,GTE", "required_flag": 1},
+        ANALYSIS_GRAIN_FIELD_ROW,
+    ]
+    service = MonitoringService({}, source=source)
+    base = {
+        "templateCode": "GDS_QUERY_RATIO_DAILY", "ruleName": "1A按维度拆分",
+        "conditions": [
+            {"fieldCode": "gds_code", "operatorCode": "EQ", "value": "1A"},
+            {"fieldCode": "search_request_count_all", "operatorCode": "GTE", "value": 100},
+            {"fieldCode": "query_to_segment_ratio", "operatorCode": "GT", "value": 4000},
+        ],
+    }
+
+    with pytest.raises(ValueError, match="异常分析粒度只支持"):
+        service.create_rule({"id": 1, "is_admin": True}, {**base, "groupDimensions": ["segment_count"]})
+    with pytest.raises(ValueError, match="异常分析粒度必须是数组"):
+        service.create_rule({"id": 1, "is_admin": True}, {**base, "groupDimensions": "pcc_code"})
+
+    connection.rollback.assert_called()
+    connection.commit.assert_not_called()
+
+
+def test_analysis_grain_cannot_be_submitted_as_a_condition():
+    source, connection, cursor = source_with_cursor()
+    cursor.fetchone.return_value = {"id": 5, "template_code": "GDS_QUERY_RATIO_DAILY", "status": "ACTIVE"}
+    cursor.fetchall.return_value = [
+        {"field_code": "gds_code", "field_name": "GDS", "value_type": "STRING", "allowed_operators": "EQ", "required_flag": 1},
+        ANALYSIS_GRAIN_FIELD_ROW,
+    ]
+    service = MonitoringService({}, source=source)
+
+    with pytest.raises(ValueError, match="不要写入规则条件"):
+        service.create_rule(
+            {"id": 1, "is_admin": True},
+            {
+                "templateCode": "GDS_QUERY_RATIO_DAILY", "ruleName": "1A按PCC拆分",
+                "conditions": [
+                    {"fieldCode": "gds_code", "operatorCode": "EQ", "value": "1A"},
+                    {"fieldCode": "analysis_grain", "operatorCode": "EQ", "value": "pcc_code"},
+                ],
+            },
+        )
+
+    connection.rollback.assert_called_once()
+    connection.commit.assert_not_called()
+
+
+def test_rule_detail_exposes_group_dimensions_per_version():
+    from data_report_api.services.monitoring import _rule_group_dimensions
+
+    assert _rule_group_dimensions({"condition_snapshot_json": '{"groupDimensions":["pcc_code","gds_code"]}'}) == ["pcc_code", "gds_code"]
+    assert _rule_group_dimensions({"condition_snapshot_json": '{"templateCode":"GDS_QUERY_RATIO_DAILY"}'}) == []
+    assert _rule_group_dimensions({"condition_snapshot_json": "not-json"}) == []
+    assert _rule_group_dimensions(None) == []
 
 
 def test_ota_daily_rule_requires_success_rate_and_matching_minimum_volume():

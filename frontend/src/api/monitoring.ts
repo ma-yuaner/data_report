@@ -17,6 +17,8 @@ export interface MonitorRun {
   durationMs?: number
 }
 
+export type ResourceGrainDimension = 'gds_code' | 'pcc_code' | 'ota_code' | 'ota_site_code' | 'source_api_group'
+
 export interface MonitorRule {
   id: number
   ruleCode: string
@@ -34,6 +36,7 @@ export interface MonitorRule {
   lastRunAt?: string
   lastHitAt?: string
   hitCount?: number
+  groupDimensions?: ResourceGrainDimension[]
   updatedAt: string
 }
 
@@ -48,7 +51,7 @@ export interface MonitorCondition {
 
 export interface MonitorRuleDetail {
   rule: MonitorRule
-  versions: Array<Record<string, unknown> & { id: number; versionNo: number; conditions: MonitorCondition[] }>
+  versions: Array<Record<string, unknown> & { id: number; versionNo: number; conditions: MonitorCondition[]; groupDimensions?: ResourceGrainDimension[] }>
   logs: Array<Record<string, unknown>>
 }
 
@@ -69,6 +72,7 @@ export interface MonitorEvent {
   occurredAt: string
   businessRefType?: string
   businessRefId?: number
+  scope?: Record<string, string>
 }
 
 export interface MonitorOverview {
@@ -116,6 +120,7 @@ export interface MonitorRuleInput {
   scheduleSeconds?: number
   changeReason?: string
   notifyPolicy?: { channels: string[]; wecomEndpointIds?: number[] }
+  groupDimensions?: ResourceGrainDimension[]
   conditions: Array<{ fieldCode: string; operatorCode: string; value: string | number | string[]; conditionRole?: string }>
 }
 

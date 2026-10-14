@@ -48,6 +48,19 @@ NOTIFY_EVENT_CODES = frozenset({
     "SMART_ORDER_MATCHED", "SMART_ATTENTION_REMINDER",
     "SMART_ATTENTION_ESCALATED", "SMART_POLICY_EXPIRED",
 })
+ANALYSIS_GRAIN_FIELD = "analysis_grain"
+ANALYSIS_GRAIN_OPTION_PREFIX = "RESOURCE_GOVERNANCE_GRAIN:"
+RESOURCE_GRAIN_DIMENSIONS = {
+    "GDS_QUERY_RATIO_DAILY": ("gds_code", "pcc_code"),
+    "OTA_SUCCESS_RATE_DAILY": ("ota_code", "ota_site_code", "source_api_group"),
+}
+SCOPE_FIELD_LABELS = (
+    ("gds_code", "GDS"),
+    ("pcc_code", "PCC"),
+    ("ota_code", "平台"),
+    ("ota_site_code", "站点"),
+    ("source_api_group", "接口"),
+)
 RECIPIENT_STRATEGIES = frozenset({"TASK_ASSIGNEE", "ATTENTION_OWNER", "RULE_OWNER", "NONE"})
 
 
@@ -83,12 +96,53 @@ def _json_value(value: Any) -> Any:
     return value
 
 
-def _public_row(row: dict[str, Any]) -> dict[str, Any]:
+def _json_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return dict(value)
+    try:
+        parsed = json.loads(str(value or "{}"))
+    except (TypeError, ValueError):
+        return {}
+    return dict(parsed) if isinstance(parsed, dict) else {}
+
+
+def _grain_option_fields(option_source: Any) -> list[str]:
+    text = _clean_text(option_source)
+    if not text.upper().startswith(ANALYSIS_GRAIN_OPTION_PREFIX):
+        return []
+    raw = text[len(ANALYSIS_GRAIN_OPTION_PREFIX):]
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def _rule_group_dimensions(version: dict[str, Any] | None) -> list[str]:
+    """Read the analysis grain from the rule version snapshot, tolerating legacy versions."""
+    if not version:
+        return []
+    snapshot = _json_dict(version.get("condition_snapshot_json"))
+    raw = snapshot.get("groupDimensions")
+    if not isinstance(raw, list):
+        return []
+    return [str(item).strip() for item in raw if str(item).strip()]
+
+
+def _event_scope(row: dict[str, Any]) -> dict[str, Any]:
+    snapshot = _json_dict(row.get("match_snapshot_json"))
+    raw = snapshot.get("scope")
+    return dict(raw) if isinstance(raw, dict) else {}
+
+
+def _scope_field_label(field_code: str) -> str:
+    return next((label for code, label in SCOPE_FIELD_LABELS if code == field_code), field_code)
+
+
+def _public_row(row: dict[str, Any], **extra: Any) -> dict[str, Any]:
     def camel(name: str) -> str:
         head, *tail = name.split("_")
         return head + "".join(part[:1].upper() + part[1:] for part in tail)
 
-    return {camel(key): _json_value(value) for key, value in row.items()}
+    result = {camel(key): _json_value(value) for key, value in row.items()}
+    result.update(extra)
+    return result
 
 
 def _permissions(user: dict[str, Any]) -> set[str]:
@@ -560,7 +614,9 @@ class MonitoringService:
             if cursor is not None: cursor.close()
             if connection is not None: connection.close()
 
-    def _validated_conditions(self, cursor, template_id: int, values: Any) -> list[dict[str, Any]]:
+    def _validated_conditions(
+        self, cursor, template_id: int, values: Any,
+    ) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
         if not isinstance(values, list) or not values:
             raise ValueError("监控规则至少需要一个条件")
         cursor.execute(
@@ -568,6 +624,10 @@ class MonitoringService:
             (template_id,),
         )
         fields = {str(row["field_code"]): row for row in _dict_rows(cursor, list(cursor.fetchall()))}
+        grain_fields = {
+            code for code, field in fields.items()
+            if str(field.get("value_type") or "").strip().upper() == "ANALYSIS_GRAIN"
+        }
         result: list[dict[str, Any]] = []
         present: set[str] = set()
         for index, item in enumerate(values, 1):
@@ -577,6 +637,8 @@ class MonitoringService:
             field = fields.get(field_code)
             if not field:
                 raise ValueError(f"字段{field_code or index}不属于当前模板")
+            if field_code in grain_fields:
+                raise ValueError("异常分析粒度请使用独立参数提交，不要写入规则条件")
             operator = str(item.get("operatorCode") or "").strip().upper()
             allowed = {token.strip().upper() for token in str(field["allowed_operators"]).split(",") if token.strip()}
             if operator not in allowed:
@@ -599,6 +661,31 @@ class MonitoringService:
         missing = [str(field["field_name"]) for code, field in fields.items() if bool(field["required_flag"]) and code not in present]
         if missing:
             raise ValueError(f"缺少模板必填条件：{','.join(missing)}")
+        return result, fields
+
+    def _validated_group_dimensions(
+        self, fields: dict[str, dict[str, Any]], template_code: str, values: Any,
+    ) -> list[str]:
+        """Resolve the resource-governance analysis grain into snapshot ``groupDimensions``."""
+        allowed = tuple(RESOURCE_GRAIN_DIMENSIONS.get(template_code) or ())
+        if not allowed:
+            if values not in (None, "", []):
+                raise ValueError("当前模板不支持异常分析粒度")
+            return []
+        if values in (None, "", []):
+            return []
+        if not isinstance(values, list):
+            raise ValueError("异常分析粒度必须是数组")
+        result: list[str] = []
+        for item in values:
+            dimension = str(item or "").strip()
+            if not dimension:
+                continue
+            if dimension not in allowed:
+                labels = "、".join(str(fields[code]["field_name"]) for code in allowed if code in fields)
+                raise ValueError(f"异常分析粒度只支持{labels}")
+            if dimension not in result:
+                result.append(dimension)
         return result
 
     def create_rule(self, user: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
@@ -660,7 +747,13 @@ class MonitoringService:
                 found_ids = {int(_first_value(row)) for row in cursor.fetchall()}
                 if found_ids != set(endpoint_ids):
                     raise ValueError("选择的企业微信通知群不存在或已停用")
-            conditions = self._validated_conditions(cursor, int(template["id"]), values.get("conditions"))
+            conditions, template_fields = self._validated_conditions(cursor, int(template["id"]), values.get("conditions"))
+            grain_field_codes = {
+                code for code, field in template_fields.items()
+                if str(field.get("value_type") or "").strip().upper() == "ANALYSIS_GRAIN"
+            }
+            if grain_field_codes & {str(item["fieldCode"]) for item in conditions}:
+                raise ValueError("异常分析粒度请使用独立参数提交，不要写入规则条件")
             if template_code == "OTA_SUCCESS_RATE_DAILY":
                 present = {str(item["fieldCode"]) for item in conditions}
                 stages = (
@@ -674,7 +767,15 @@ class MonitoringService:
                 missing_volume = [label for rate, volume, label in selected if volume not in present]
                 if missing_volume:
                     raise ValueError(f"{','.join(missing_volume)}成功率规则必须同时填写最小请求量")
-            snapshot = {"templateCode": template_code, "conditionRelation": "AND", "conditions": conditions}
+            group_dimensions = self._validated_group_dimensions(
+                template_fields, template_code, values.get("groupDimensions"),
+            )
+            snapshot = {
+                "templateCode": template_code,
+                "conditionRelation": "AND",
+                "conditions": conditions,
+                "groupDimensions": group_dimensions,
+            }
             snapshot_text = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, default=_json_value)
             rule_hash = hashlib.sha256(snapshot_text.encode("utf-8")).hexdigest()
             rule_code = f"MON-{uuid.uuid4().hex[:20].upper()}"
@@ -758,7 +859,9 @@ class MonitoringService:
             total = int(_first_value(cursor.fetchone()) or 0)
             cursor.execute(
                 f"""SELECT r.*,t.template_name,
-                           (SELECT COUNT(1) FROM {self._table(EVENT_TABLE)} e WHERE e.rule_id=r.id) hit_count
+                           (SELECT COUNT(1) FROM {self._table(EVENT_TABLE)} e WHERE e.rule_id=r.id) hit_count,
+                           (SELECT v.condition_snapshot_json FROM {self._table(VERSION_TABLE)} v
+                             WHERE v.id=r.current_version_id) current_snapshot_json
                     FROM {self._table(RULE_TABLE)} r
                     JOIN {self._table(TEMPLATE_TABLE)} t ON t.id=r.template_id
                     WHERE {condition}
@@ -766,7 +869,15 @@ class MonitoringService:
                     LIMIT %s OFFSET %s""",
                 tuple([*params, page_size, (page - 1) * page_size]),
             )
-            rows = [_public_row(row) for row in _dict_rows(cursor, list(cursor.fetchall()))]
+            rows = [
+                _public_row(
+                    row,
+                    groupDimensions=_rule_group_dimensions({"condition_snapshot_json": row.get("current_snapshot_json")}),
+                )
+                for row in _dict_rows(cursor, list(cursor.fetchall()))
+            ]
+            for row in rows:
+                row.pop("currentSnapshotJson", None)
             return {"rows": rows, "total": total, "page": page, "pageSize": page_size}
         except Exception as error:
             raise self._unavailable(error, "监控规则查询失败") from error
@@ -816,8 +927,13 @@ class MonitoringService:
             for version in versions:
                 item = _public_row(version)
                 item["conditions"] = conditions_by_version.get(int(version["id"]), [])
+                item["groupDimensions"] = _rule_group_dimensions(version)
                 public_versions.append(item)
-            return {"rule": _public_row(rule), "versions": public_versions, "logs": [_public_row(row) for row in logs]}
+            return {
+                "rule": _public_row(rule, groupDimensions=_rule_group_dimensions(versions[0] if versions else None)),
+                "versions": public_versions,
+                "logs": [_public_row(row) for row in logs],
+            }
         except ValueError:
             raise
         except Exception as error:
@@ -1052,7 +1168,8 @@ class MonitoringService:
                 f"SELECT * FROM {self._table(EVENT_TABLE)} WHERE {condition} ORDER BY occurred_at DESC,id DESC LIMIT %s OFFSET %s",
                 tuple([*params, page_size, (page - 1) * page_size]),
             )
-            return {"rows": [_public_row(row) for row in _dict_rows(cursor, list(cursor.fetchall()))], "total": total, "page": page, "pageSize": page_size}
+            rows = [_public_row(row, scope=_event_scope(row)) for row in _dict_rows(cursor, list(cursor.fetchall()))]
+            return {"rows": rows, "total": total, "page": page, "pageSize": page_size}
         except Exception as error:
             raise self._unavailable(error, "监控事件查询失败") from error
         finally:

@@ -70,6 +70,7 @@ def meta():
 
 
 def _resource_governance_overview(data_source: str):
+    breach_only = str(request.args.get("breachOnly") or "").strip().lower() in {"1", "true", "yes"}
     try:
         return ok(ResourceGovernanceService(current_app.config).overview(
             start_value=request.args.get("startDate"),
@@ -80,6 +81,7 @@ def _resource_governance_overview(data_source: str):
                 key: request.args.get(key, "")
                 for key in ("platform", "site", "gds", "pcc", "apiGroup")
             },
+            breach_only=breach_only,
         ))
     except ValueError as error:
         return jsonify({"success": False, "message": str(error), "data": None}), 400

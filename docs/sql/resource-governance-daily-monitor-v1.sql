@@ -9,7 +9,7 @@ INSERT INTO `monitor_rule_template` (
   execution_mode, default_schedule_seconds, description, status
 ) VALUES
   ('GDS_QUERY_RATIO_DAILY', 'GDS查定比日异常', 'METRIC', 'BI_OTA_GDS_REQUEST_DAY', 'METRIC',
-   'SCHEDULED', 86400, '按业务日、GDS及可选PCC/平台/站点/API分组检查查询量与有效PNR查定比', 'ACTIVE'),
+   'SCHEDULED', 86400, '按业务日、GDS及可选PCC/平台/站点/API分组检查查询量与航段查定比', 'ACTIVE'),
   ('OTA_SUCCESS_RATE_DAILY', 'OTA接口成功率日异常', 'METRIC', 'BI_OTA_GDS_REQUEST_DAY', 'METRIC',
    'SCHEDULED', 86400, '按业务日、OTA及可选站点/API分组检查查询、验价或生单接口成功率', 'ACTIVE')
 ON DUPLICATE KEY UPDATE
@@ -32,7 +32,7 @@ JOIN (
   UNION ALL SELECT 'ota_site_code','站点编码','STRING','EQ',0,'RESOURCE_GOVERNANCE_DIMENSION',40
   UNION ALL SELECT 'source_api_group','接口分组','STRING','EQ',0,'RESOURCE_GOVERNANCE_DIMENSION',50
   UNION ALL SELECT 'search_request_count_all','最小查询量','NUMBER','GTE',1,NULL,60
-  UNION ALL SELECT 'query_to_pnr_ratio','查定比上限','NUMBER','GT,GTE',1,NULL,70
+  UNION ALL SELECT 'query_to_segment_ratio','查定比上限','NUMBER','GT,GTE',1,NULL,70
 ) f ON t.template_code='GDS_QUERY_RATIO_DAILY'
 ON DUPLICATE KEY UPDATE
   field_name=VALUES(field_name), value_type=VALUES(value_type),

@@ -87,7 +87,7 @@ PERMISSION_CATALOG = (
     {"code": "monitor.run.view", "name": "查看监控运行日志", "description": "查看采集、匹配和通知任务运行情况", "menuCode": "monitor.center"},
 )
 MENU_CATALOG = (
-    {"code": "governance.gds", "name": "GDS资源治理", "description": "GDS、PCC查询量、有效PNR与查定比分析", "groupCode": "governance", "groupName": "资源治理"},
+    {"code": "governance.gds", "name": "GDS资源治理", "description": "GDS、PCC查询量、航段数与查定比分析", "groupCode": "governance", "groupName": "资源治理"},
     {"code": "governance.ota", "name": "OTA渠道质量", "description": "平台查询、验价与生单接口成功率分析", "groupCode": "governance", "groupName": "资源治理"},
     {"code": "overview", "name": "经营总览", "description": "经营总览页面", "groupCode": "overview", "groupName": "经营总览"},
     {"code": "analysis.comprehensive", "name": "综合分析", "description": "出退改增综合经营分析", "groupCode": "analysis", "groupName": "业务分析"},

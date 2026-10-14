@@ -30,7 +30,10 @@
       </div>
       <div class="scope-actions">
         <span>{{ pending ? '筛选条件已变更，点击查询后生效' : `当前为${layerLabel(applied.dataSource)}分析层` }}</span>
-        <div><a-button :disabled="loading" @click="resetFilters">重置</a-button><a-button type="primary" :loading="loading" data-telemetry-code="governance-query" @click="applyFilters">查询</a-button></div>
+        <div>
+          <a-switch v-model:checked="draft.breachOnly" checked-children="只看异常对象" un-checked-children="全部对象" :disabled="loading" @change="applyFilters" />
+          <a-button :disabled="loading" @click="resetFilters">重置</a-button><a-button type="primary" :loading="loading" data-telemetry-code="governance-query" @click="applyFilters">查询</a-button>
+        </div>
       </div>
     </section>
 
@@ -39,13 +42,13 @@
       <div><a-tag color="blue">{{ layerLabel(applied.dataSource) }}</a-tag><a-tag v-for="tag in appliedTags" :key="tag">{{ tag }}</a-tag></div>
     </div>
     <a-alert v-if="error || data?.error" class="state-alert" type="error" show-icon :message="error || data?.error" />
-    <a-alert v-else-if="isGds && data?.available && !data.pnrColumnAvailable" class="state-alert" type="warning" show-icon
-      message="有效PNR字段尚未接入" description="当前页面已展示查询、验价和生单接口指标；在bi_ota_gds_request_day增加pnr_num并完成同步后，查定比自动生效。" />
-    <a-alert v-else-if="isGds && data?.summary.status === 'pnr_partial'" class="state-alert" type="warning" show-icon
-      message="所选范围的有效PNR只完成了部分同步"
-      :description="`仍有 ${integer(data.summary.pnrMissingRowCount)} 条GDS汇总记录缺少pnr_num；为避免分母偏小，当前不计算查定比和超额查询。`" />
-    <a-alert v-else-if="isGds && data?.available && data.pnrColumnAvailable && !data.pnrDataAvailable" class="state-alert" type="warning" show-icon
-      message="pnr_num字段已存在，但所选范围尚未同步有效PNR" description="有效PNR显示为—，不会使用order_request_success替代，也不会把缺失数据当成0。" />
+    <a-alert v-else-if="isGds && data?.available && !data.segmentColumnAvailable" class="state-alert" type="warning" show-icon
+      message="航段数字段尚未接入" description="当前页面已展示查询、验价和生单接口指标；在bi_ota_gds_request_day增加seg_num并完成同步后，查定比自动生效。" />
+    <a-alert v-else-if="isGds && data?.summary.status === 'segment_partial'" class="state-alert" type="warning" show-icon
+      message="所选范围的航段数只完成了部分同步"
+      :description="`仍有 ${integer(data.summary.segmentMissingRowCount)} 条GDS汇总记录缺少seg_num；为避免分母偏小，当前不计算查定比和超额查询。`" />
+    <a-alert v-else-if="isGds && data?.available && data.segmentColumnAvailable && !data.segmentDataAvailable" class="state-alert" type="warning" show-icon
+      message="seg_num字段已存在，但所选范围尚未同步航段数" description="航段数显示为—，不会使用pnr_num或order_request_success替代，也不会把缺失数据当成0。" />
     <a-alert v-else-if="!isGds && applied.platform && !hasOtaTarget(data?.summary)" class="state-alert" type="info" show-icon
       message="该平台尚未配置接口成功率目标" description="当前继续展示实际成功率，但不会标记达标或异常；配置平台目标后自动生效。" />
 
@@ -72,8 +75,8 @@
       <div class="kpi-grid">
         <article><span>查询请求量</span><strong>{{ compact(data?.summary.searchRequests) }}</strong><small>不区分白名单的查询调用</small></article>
         <template v-if="isGds">
-          <article><span>实际有效PNR</span><strong>{{ nullableCount(data?.summary.pnrCount) }}</strong><small>GDS查定比分母</small></article>
-          <article><span>超额查询量</span><strong class="orange">{{ nullableCount(data?.summary.excessQueryCount) }}</strong><small>{{ data?.targetRatio ? '查询量 − PNR × 目标值' : '选择已配置目标的GDS后计算' }}</small></article>
+          <article><span>航段数</span><strong>{{ nullableCount(data?.summary.segmentCount) }}</strong><small>GDS查定比分母</small></article>
+          <article><span>超额查询量</span><strong class="orange">{{ nullableCount(data?.summary.excessQueryCount) }}</strong><small>{{ data?.targetRatio ? '查询量 − 航段数 × 目标值' : '选择已配置目标的GDS后计算' }}</small></article>
         </template>
         <template v-else>
           <article><span>查询成功量</span><strong>{{ integer(data?.summary.searchSuccess) }}</strong><small>成功率 {{ percent(data?.summary.searchSuccessRate) }}</small></article>
@@ -81,7 +84,7 @@
         </template>
         <article><span>查询成功率</span><strong :class="rateClass(data?.summary, 'search')">{{ percent(data?.summary.searchSuccessRate) }}</strong><small>{{ targetLabel(data?.summary, 'search', `${integer(data?.summary.searchSuccess)} 次成功`) }}</small></article>
         <article><span>验价成功率</span><strong :class="rateClass(data?.summary, 'verify')">{{ percent(data?.summary.verifySuccessRate) }}</strong><small>{{ targetLabel(data?.summary, 'verify', `${integer(data?.summary.verifyRequests)} 次验价调用`) }}</small></article>
-        <article><span>生单接口成功</span><strong>{{ integer(data?.summary.orderSuccess) }}</strong><small>{{ isGds ? '接口成功，不等同有效PNR' : `成功率 ${percent(data?.summary.orderSuccessRate)}` }}</small></article>
+        <article><span>生单接口成功</span><strong>{{ integer(data?.summary.orderSuccess) }}</strong><small>{{ isGds ? '接口成功，不等同航段数' : `成功率 ${percent(data?.summary.orderSuccessRate)}` }}</small></article>
       </div>
 
       <section class="quality-strip">
@@ -117,7 +120,7 @@
       <a-card :bordered="false" class="analysis-panel dimension-panel">
         <template #title>
           <div class="dimension-header">
-            <div><strong>维度资源对比</strong><small>默认按查询请求量降序，展示全部结果并分页</small></div>
+            <div><strong>维度资源对比</strong><small>{{ applied.breachOnly ? `仅显示超过治理目标的异常对象，共 ${integer(data?.breachObjectCount)} 项` : `默认按查询请求量降序，当前有 ${integer(data?.breachObjectCount)} 项超过治理目标` }}</small></div>
             <a-segmented v-model:value="draftGroup" :options="dimensionOptions" :disabled="loading" data-telemetry-code="governance-dimension" @change="changeDimension" />
           </div>
         </template>
@@ -130,7 +133,7 @@
             <template v-else-if="column.key === 'target'">{{ record.targetRatio == null ? '未配置' : `${integer(record.targetRatio)} : 1` }}</template>
             <template v-else-if="column.key === 'search'">{{ integer(record.searchRequests) }}</template>
             <template v-else-if="column.key === 'searchSuccess'">{{ integer(record.searchSuccess) }}</template>
-            <template v-else-if="column.key === 'pnr'">{{ nullableCount(record.pnrCount) }}</template>
+            <template v-else-if="column.key === 'segment'">{{ nullableCount(record.segmentCount) }}</template>
             <template v-else-if="column.key === 'excess'">{{ nullableCount(record.excessQueryCount) }}</template>
             <template v-else-if="column.key === 'searchRate'"><strong :class="rateClass(record, 'search')">{{ percent(record.searchSuccessRate) }}</strong></template>
             <template v-else-if="column.key === 'verifyRate'"><strong :class="rateClass(record, 'verify')">{{ percent(record.verifySuccessRate) }}</strong></template>
@@ -138,6 +141,7 @@
             <template v-else-if="column.key === 'orderRate'"><strong :class="rateClass(record, 'order')">{{ percent(record.orderSuccessRate) }}</strong></template>
             <template v-else-if="column.key === 'successTarget'">{{ otaTargetSummary(record) }}</template>
             <template v-else-if="column.key === 'order'">{{ integer(record.orderRequests) }}</template>
+            <template v-else-if="column.key === 'breach'"><a-tag :color="record.breach ? 'red' : 'default'">{{ breachText(record) }}</a-tag></template>
             <template v-else-if="column.key === 'action'"><a-button type="link" size="small" @click="openAnalysis(record)">分析此项</a-button></template>
           </template>
         </a-table>
@@ -157,7 +161,7 @@
         <div class="drawer-kpis">
           <article><span>查询量</span><strong>{{ integer(analysisData?.summary.searchRequests) }}</strong></article>
           <template v-if="isGds">
-            <article><span>有效PNR</span><strong>{{ nullableCount(analysisData?.summary.pnrCount) }}</strong></article>
+            <article><span>航段数</span><strong>{{ nullableCount(analysisData?.summary.segmentCount) }}</strong></article>
             <article><span>查定比</span><strong :class="ratioClass(analysisData?.summary)">{{ ratioText(analysisData?.summary) }}</strong></article>
             <article><span>超额查询</span><strong>{{ nullableCount(analysisData?.summary.excessQueryCount) }}</strong></article>
           </template>
@@ -182,7 +186,7 @@
               <template v-else-if="column.key === 'target'">{{ record.targetRatio == null ? '未配置' : `${integer(record.targetRatio)} : 1` }}</template>
               <template v-else-if="column.key === 'search'">{{ integer(record.searchRequests) }}</template>
               <template v-else-if="column.key === 'searchSuccess'">{{ integer(record.searchSuccess) }}</template>
-              <template v-else-if="column.key === 'pnr'">{{ nullableCount(record.pnrCount) }}</template>
+              <template v-else-if="column.key === 'segment'">{{ nullableCount(record.segmentCount) }}</template>
               <template v-else-if="column.key === 'excess'">{{ nullableCount(record.excessQueryCount) }}</template>
               <template v-else-if="column.key === 'searchRate'"><strong :class="rateClass(record, 'search')">{{ percent(record.searchSuccessRate) }}</strong></template>
               <template v-else-if="column.key === 'verifyRate'"><strong :class="rateClass(record, 'verify')">{{ percent(record.verifySuccessRate) }}</strong></template>
@@ -190,6 +194,7 @@
               <template v-else-if="column.key === 'orderRate'"><strong :class="rateClass(record, 'order')">{{ percent(record.orderSuccessRate) }}</strong></template>
               <template v-else-if="column.key === 'successTarget'">{{ otaTargetSummary(record) }}</template>
               <template v-else-if="column.key === 'order'">{{ integer(record.orderRequests) }}</template>
+              <template v-else-if="column.key === 'breach'"><a-tag :color="record.breach ? 'red' : 'default'">{{ breachText(record) }}</a-tag></template>
               <template v-else-if="column.key === 'action'"><a-button type="link" size="small" @click="continueAnalysis(record)">{{ hasNextAnalysisDimension ? '继续分析' : '锁定此项' }}</a-button></template>
             </template>
           </a-table>
@@ -198,7 +203,7 @@
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'search'">{{ integer(record.searchRequests) }}</template>
             <template v-else-if="column.key === 'searchSuccess'">{{ integer(record.searchSuccess) }} / {{ percent(record.searchSuccessRate) }}</template>
-            <template v-else-if="column.key === 'pnr'">{{ nullableCount(record.pnrCount) }}</template>
+            <template v-else-if="column.key === 'segment'">{{ nullableCount(record.segmentCount) }}</template>
             <template v-else-if="column.key === 'ratio'"><strong :class="ratioClass(record)">{{ ratioText(record) }}</strong></template>
             <template v-else-if="column.key === 'verify'">{{ integer(record.verifyRequests) }} / {{ percent(record.verifySuccessRate) }}</template>
             <template v-else-if="column.key === 'order'">{{ integer(record.orderSuccess) }} / {{ percent(record.orderSuccessRate) }}</template>
@@ -232,7 +237,7 @@ const route = useRoute()
 const routeLayer = (): GovernanceLayer => route.meta.governanceLayer === 'ota' ? 'ota' : 'gds'
 const today = shanghaiDate()
 const monthStart = `${today.slice(0, 7)}-01`
-const emptyScope = (layer: GovernanceLayer = routeLayer()): GovernanceScope => ({ startDate: monthStart, endDate: today, dataSource: layer, groupBy: layer === 'gds' ? 'gds' : 'platform', platform: '', site: '', gds: '', pcc: '', apiGroup: '' })
+const emptyScope = (layer: GovernanceLayer = routeLayer()): GovernanceScope => ({ startDate: monthStart, endDate: today, dataSource: layer, groupBy: layer === 'gds' ? 'gds' : 'platform', platform: '', site: '', gds: '', pcc: '', apiGroup: '', breachOnly: false })
 const draft = ref<GovernanceScope>(emptyScope())
 const applied = ref<GovernanceScope>({ ...draft.value })
 const preset = ref('month')
@@ -249,7 +254,7 @@ const dimensionOptions = computed(() => draft.value.dataSource === 'gds' ? gdsDi
 const pending = computed(() => JSON.stringify(draft.value) !== JSON.stringify(applied.value))
 const isGds = computed(() => applied.value.dataSource === 'gds')
 const pageTitle = computed(() => isGds.value ? 'GDS资源治理' : 'OTA渠道质量')
-const pageDescription = computed(() => isGds.value ? '按GDS与PCC分析查询量、有效PNR和查定比' : '按平台与站点分析查询、验价和生单接口成功率')
+const pageDescription = computed(() => isGds.value ? '按GDS与PCC分析查询量、航段数和查定比' : '按平台与站点分析查询、验价和生单接口成功率')
 const layerLabel = (layer: GovernanceLayer) => layer === 'gds' ? 'GDS资源层' : 'OTA渠道层'
 const selectOptions = (values?: string[]) => (values || []).map(value => ({ label: value, value }))
 const integer = (value?: number | null) => value == null ? '—' : new Intl.NumberFormat('zh-CN').format(value)
@@ -257,7 +262,7 @@ const compact = (value?: number | null) => value == null ? '—' : new Intl.Numb
 const nullableCount = (value?: number | null) => value == null ? '—' : integer(value)
 const percent = (value?: string | null) => value == null ? '—' : `${Number(value).toFixed(2)}%`
 const milliseconds = (value?: string | null) => value == null ? '—' : `${new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(Number(value))} ms`
-const ratioText = (metric?: GovernanceMetric) => metric?.ratioInfinite ? '∞' : metric?.queryToPnrRatio == null ? '—' : `${integer(Math.round(Number(metric.queryToPnrRatio)))} : 1`
+const ratioText = (metric?: GovernanceMetric) => metric?.ratioInfinite ? '∞' : metric?.queryToSegmentRatio == null ? '—' : `${integer(Math.round(Number(metric.queryToSegmentRatio)))} : 1`
 type SuccessStage = 'search' | 'verify' | 'order'
 const successRate = (metric: GovernanceMetric | undefined, stage: SuccessStage) => stage === 'search' ? metric?.searchSuccessRate : stage === 'verify' ? metric?.verifySuccessRate : metric?.orderSuccessRate
 const hasOtaTarget = (metric?: GovernanceMetric) => Boolean(metric && Object.keys(metric.successTargets || {}).length)
@@ -274,11 +279,20 @@ const otaTargetSummary = (metric: GovernanceMetric) => {
 const ratioClass = (metric?: GovernanceMetric) => {
   const target = metric?.targetRatio ?? data.value?.targetRatio
   return {
-    danger: Boolean(target != null && (metric?.ratioInfinite || (metric?.queryToPnrRatio != null && Number(metric.queryToPnrRatio) > target))),
-    healthy: Boolean(target != null && metric?.queryToPnrRatio != null && Number(metric.queryToPnrRatio) <= target),
+    danger: Boolean(target != null && (metric?.ratioInfinite || (metric?.queryToSegmentRatio != null && Number(metric.queryToSegmentRatio) > target))),
+    healthy: Boolean(target != null && metric?.queryToSegmentRatio != null && Number(metric.queryToSegmentRatio) <= target),
   }
 }
 const ratioTone = computed(() => ratioClass(data.value?.summary))
+const breachText = (metric?: GovernanceMetric) => {
+  if (!metric) return '—'
+  if (metric.breach) return metric.breachReasons?.[0] || '超过治理目标'
+  if (isGds.value && metric.targetRatio == null) return '未配置目标'
+  if (!isGds.value && !hasOtaTarget(metric)) return '未配置目标'
+  if (metric.status === 'segment_data_missing' || metric.status === 'segment_partial') return '航段数未同步'
+  if (metric.status === 'no_records') return '无数据'
+  return '正常'
+}
 const appliedTags = computed(() => [
   applied.value.platform && `平台：${applied.value.platform}`,
   applied.value.site && `站点：${applied.value.site}`,
@@ -290,20 +304,20 @@ const heroTitle = computed(() => {
   const summary = data.value?.summary
   if (!summary || summary.status === 'no_records') return '当前范围暂无资源调用数据'
   if (!isGds.value) return '当前为OTA渠道接口链路分析'
-  if (summary.status === 'pnr_field_missing' || summary.status === 'pnr_data_missing') return '查询链路已接入，有效PNR待补齐'
-  if (summary.status === 'pnr_partial') return '有效PNR同步不完整，暂不输出查定比'
-  if (summary.ratioInfinite) return '存在查询但没有实际有效PNR'
+  if (summary.status === 'segment_field_missing' || summary.status === 'segment_data_missing') return '查询链路已接入，航段数待补齐'
+  if (summary.status === 'segment_partial') return '航段数同步不完整，暂不输出查定比'
+  if (summary.ratioInfinite) return '存在查询但没有航段数'
   if (data.value?.targetRatio == null) return applied.value.gds ? '当前GDS尚未配置治理目标' : '请选择具体GDS查看目标达标情况'
-  if (Number(summary.queryToPnrRatio) > data.value.targetRatio) return '当前查定比高于阶段治理目标'
+  if (Number(summary.queryToSegmentRatio) > data.value.targetRatio) return '当前查定比高于阶段治理目标'
   return '当前查定比处于阶段目标范围内'
 })
 const heroDescription = computed(() => {
   const summary = data.value?.summary
-  if (!isGds.value) return 'OTA渠道层只分析查询、验价与生单接口表现，不计算PNR和查定比。'
-  if (!summary?.queryToPnrRatio) return '页面不会使用直连生单接口成功量替代有效PNR。'
+  if (!isGds.value) return 'OTA渠道层只分析查询、验价与生单接口表现，不计算航段查定比。'
+  if (!summary?.queryToSegmentRatio) return '页面不会使用PNR数或直连生单接口成功量替代航段数。'
   if (data.value?.targetRatio == null) return '不同GDS目标不同；首版已配置1A目标为4000:1，筛选具体GDS后判断是否达标。'
-  const gap = Math.round(Number(summary.queryToPnrRatio) - data.value.targetRatio)
-  return gap > 0 ? `每个有效PNR仍需多消耗约 ${integer(gap)} 次查询，优先从下方高查询量资源开始下钻。` : `当前低于目标约 ${integer(Math.abs(gap))} 次查询，请继续观察有效PNR与业务量是否稳定。`
+  const gap = Math.round(Number(summary.queryToSegmentRatio) - data.value.targetRatio)
+  return gap > 0 ? `每个航段仍需多消耗约 ${integer(gap)} 次查询，优先从下方高查询量资源开始下钻。` : `当前低于目标约 ${integer(Math.abs(gap))} 次查询，请继续观察航段数与业务量是否稳定。`
 })
 
 const funnel = computed(() => {
@@ -328,7 +342,7 @@ const trendOption = computed<EChartsCoreOption>(() => isGds.value ? ({
   ],
   series: [
     { name: '查询请求量', type: 'bar', barMaxWidth: 20, data: data.value?.trend.map(item => item.searchRequests) || [], itemStyle: { borderRadius: [4, 4, 0, 0] } },
-    { name: '查定比', type: 'line', yAxisIndex: 1, smooth: true, connectNulls: false, data: data.value?.trend.map(item => item.ratioInfinite ? null : item.queryToPnrRatio == null ? null : Number(item.queryToPnrRatio)) || [], symbolSize: 7 },
+    { name: '查定比', type: 'line', yAxisIndex: 1, smooth: true, connectNulls: false, data: data.value?.trend.map(item => item.ratioInfinite ? null : item.queryToSegmentRatio == null ? null : Number(item.queryToSegmentRatio)) || [], symbolSize: 7 },
     ...(data.value?.targetRatio == null ? [] : [{ name: '目标值', type: 'line', yAxisIndex: 1, symbol: 'none', lineStyle: { type: 'dashed', width: 1.5 }, data: data.value?.trend.map(() => data.value?.targetRatio) || [] }]),
   ],
 }) : ({
@@ -352,13 +366,14 @@ const trendOption = computed<EChartsCoreOption>(() => isGds.value ? ({
 const gdsDimensionColumns = [
   { title: '资源', key: 'name', fixed: 'left' as const, width: 170 },
   { title: '查询请求量', key: 'search', width: 130, sorter: (a: GovernanceMetric, b: GovernanceMetric) => a.searchRequests - b.searchRequests },
-  { title: '有效PNR', key: 'pnr', width: 110 },
+  { title: '航段数', key: 'segment', width: 110 },
   { title: '查定比', key: 'ratio', width: 125 },
   { title: '治理目标', key: 'target', width: 125 },
   { title: '超额查询', key: 'excess', width: 130 },
   { title: '查询成功率', key: 'searchRate', width: 120 },
   { title: '验价成功率', key: 'verifyRate', width: 120 },
   { title: '生单成功率', key: 'orderRate', width: 120 },
+  { title: '异常判定', key: 'breach', width: 210 },
   { title: '操作', key: 'action', fixed: 'right' as const, width: 100 },
 ]
 const otaDimensionColumns = [
@@ -371,13 +386,14 @@ const otaDimensionColumns = [
   { title: '生单请求量', key: 'order', width: 120 },
   { title: '生单成功率', key: 'orderRate', width: 120 },
   { title: '平台成功率要求', key: 'successTarget', width: 235 },
+  { title: '异常判定', key: 'breach', width: 210 },
   { title: '操作', key: 'action', fixed: 'right' as const, width: 100 },
 ]
 const dimensionColumns = computed(() => isGds.value ? gdsDimensionColumns : otaDimensionColumns)
 const gdsDailyColumns = [
   { title: '日期', dataIndex: 'date', width: 120, fixed: 'left' as const },
   { title: '查询请求量', key: 'search', width: 130 },
-  { title: '有效PNR', key: 'pnr', width: 110 },
+  { title: '航段数', key: 'segment', width: 110 },
   { title: '查定比', key: 'ratio', width: 130 },
   { title: '验价量 / 成功率', key: 'verify', width: 160 },
   { title: '生单成功 / 成功率', key: 'order', width: 170 },

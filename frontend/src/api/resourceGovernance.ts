@@ -13,6 +13,7 @@ export interface GovernanceScope {
   gds: string
   pcc: string
   apiGroup: string
+  breachOnly?: boolean
 }
 
 export interface GovernanceMetric {
@@ -23,9 +24,9 @@ export interface GovernanceMetric {
   verifySuccess: number
   orderRequests: number
   orderSuccess: number
-  pnrCount: number | null
-  pnrMissingRowCount: number | null
-  queryToPnrRatio: string | null
+  segmentCount: number | null
+  segmentMissingRowCount: number | null
+  queryToSegmentRatio: string | null
   ratioInfinite: boolean
   searchSuccessRate: string | null
   verifySuccessRate: string | null
@@ -42,7 +43,9 @@ export interface GovernanceMetric {
   excessQueryCount: number | null
   targetRatio: number | null
   successTargets: Partial<Record<'search' | 'verify' | 'order', string>>
-  status: 'no_records' | 'not_applicable' | 'pnr_field_missing' | 'pnr_data_missing' | 'pnr_partial' | 'denominator_zero' | 'ready'
+  status: 'no_records' | 'not_applicable' | 'segment_field_missing' | 'segment_data_missing' | 'segment_partial' | 'denominator_zero' | 'ready'
+  breach: boolean
+  breachReasons: string[]
   sourceUpdatedAt?: string | null
 }
 
@@ -57,9 +60,11 @@ export interface GovernanceData {
   targetRatio: number | null
   gdsTargets: Record<string, number>
   otaSuccessTargets: Record<string, Partial<Record<'search' | 'verify' | 'order', string>>>
-  pnrApplicable: boolean
-  pnrColumnAvailable: boolean
-  pnrDataAvailable: boolean
+  ratioApplicable: boolean
+  segmentColumnAvailable: boolean
+  segmentDataAvailable: boolean
+  breachOnly: boolean
+  breachObjectCount: number
   filters: Record<GovernanceDimension, string>
   options: Record<GovernanceDimension, string[]>
   summary: GovernanceMetric
