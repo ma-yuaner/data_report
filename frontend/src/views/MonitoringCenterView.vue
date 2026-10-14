@@ -55,7 +55,7 @@
               <template v-else-if="column.key === 'owner'">{{ record.ownerUserName || '系统' }}</template>
               <template v-else-if="column.key === 'updatedAt'">{{ displayTime(record.updatedAt) }}</template>
               <template v-else-if="column.key === 'action'">
-                <a-space><a-button size="small" @click="openRule(record)">详情</a-button><a-button size="small" type="link" @click="openDiagnostic(record)">诊断</a-button><a-button v-if="canManageRules" size="small" @click="openStatus(record)">状态</a-button></a-space>
+                <a-space><a-button size="small" @click="openRule(record)">详情</a-button><a-button v-if="['SMART_PLACEMENT_ORDER','ORDER_SEGMENT_THRESHOLD'].includes(record.templateCode)" size="small" type="link" @click="openDiagnostic(record)">诊断</a-button><a-button v-if="canManageRules" size="small" @click="openStatus(record)">状态</a-button></a-space>
               </template>
             </template>
           </a-table>
@@ -189,17 +189,37 @@
       <div class="dialog-actions"><a-button @click="statusOpen=false">取消</a-button><a-button type="primary" :loading="saving" @click="saveStatus">确认调整</a-button></div>
     </a-modal>
 
-    <a-modal v-model:open="createRuleOpen" title="新建订单航段监控" :footer="null" :mask-closable="false" width="min(760px, 94vw)">
-      <a-alert type="info" show-icon message="分钟级增量规则" description="只检查新进或发生变化的订单，不扫描全部历史数据。" />
+    <a-modal v-model:open="createRuleOpen" :title="createRuleMeta.title" :footer="null" :mask-closable="false" width="min(780px, 94vw)">
+      <a-alert type="info" show-icon :message="createRuleMeta.message" :description="createRuleMeta.description" />
       <a-form layout="vertical" class="rule-form">
         <div class="rule-form-grid">
+          <a-form-item label="监控类型" required class="span-2"><a-segmented v-model:value="ruleForm.templateCode" :options="manualTemplateOptions" block /></a-form-item>
           <a-form-item label="规则名称" required class="span-2"><a-input v-model:value="ruleForm.ruleName" placeholder="例如：当日订单航段数不少于6段" /></a-form-item>
           <a-form-item label="告警等级" required><a-select v-model:value="ruleForm.severity" :options="severityOptions" /></a-form-item>
-          <a-form-item label="航段判断" required><div class="compact-fields"><a-select v-model:value="ruleForm.segmentOperator" :options="segmentOperatorOptions" /><a-input-number v-model:value="ruleForm.segmentCount" :min="1" /></div></a-form-item>
-          <a-form-item label="平台名称"><a-input v-model:value="ruleForm.platformName" placeholder="留空表示全部平台" /></a-form-item>
-          <a-form-item label="站点名称"><a-input v-model:value="ruleForm.siteName" placeholder="留空表示全部站点" /></a-form-item>
-          <a-form-item label="航司"><a-input v-model:value="ruleForm.airlineCode" placeholder="多个用逗号分隔" /></a-form-item>
-          <a-form-item label="产品类型"><a-input v-model:value="ruleForm.productType" placeholder="多个用逗号分隔" /></a-form-item>
+          <template v-if="ruleForm.templateCode === 'ORDER_SEGMENT_THRESHOLD'">
+            <a-form-item label="航段判断" required><div class="compact-fields"><a-select v-model:value="ruleForm.segmentOperator" :options="segmentOperatorOptions" /><a-input-number v-model:value="ruleForm.segmentCount" :min="1" /></div></a-form-item>
+            <a-form-item label="平台名称"><a-input v-model:value="ruleForm.platformName" placeholder="留空表示全部平台" /></a-form-item>
+            <a-form-item label="站点名称"><a-input v-model:value="ruleForm.siteName" placeholder="留空表示全部站点" /></a-form-item>
+            <a-form-item label="航司"><a-input v-model:value="ruleForm.airlineCode" placeholder="多个用逗号分隔" /></a-form-item>
+            <a-form-item label="产品类型"><a-input v-model:value="ruleForm.productType" placeholder="多个用逗号分隔" /></a-form-item>
+          </template>
+          <template v-else-if="ruleForm.templateCode === 'GDS_QUERY_RATIO_DAILY'">
+            <a-form-item label="GDS" required><a-input v-model:value="ruleForm.gdsCode" placeholder="例如：1A" /></a-form-item>
+            <a-form-item label="PCC"><a-input v-model:value="ruleForm.pccCode" placeholder="留空表示全部PCC" /></a-form-item>
+            <a-form-item label="平台编码"><a-input v-model:value="ruleForm.platformCode" placeholder="留空表示全部平台" /></a-form-item>
+            <a-form-item label="站点编码"><a-input v-model:value="ruleForm.siteCode" placeholder="留空表示全部站点" /></a-form-item>
+            <a-form-item label="接口分组"><a-input v-model:value="ruleForm.apiGroup" placeholder="留空表示全部接口" /></a-form-item>
+            <a-form-item label="最小查询量" required><a-input-number v-model:value="ruleForm.minRequests" :min="1" style="width:100%" /></a-form-item>
+            <a-form-item label="查定比上限" required><a-input-number v-model:value="ruleForm.maxQueryRatio" :min="1" :precision="2" style="width:100%" addon-after=": 1" /></a-form-item>
+          </template>
+          <template v-else>
+            <a-form-item label="平台编码" required><a-input v-model:value="ruleForm.platformCode" placeholder="例如：CTRIP" /></a-form-item>
+            <a-form-item label="站点编码"><a-input v-model:value="ruleForm.siteCode" placeholder="留空表示全部站点" /></a-form-item>
+            <a-form-item label="接口分组"><a-input v-model:value="ruleForm.apiGroup" placeholder="留空表示全部接口" /></a-form-item>
+            <a-form-item label="监控环节" required><a-select v-model:value="ruleForm.successStage" :options="successStageOptions" /></a-form-item>
+            <a-form-item label="最小请求量" required><a-input-number v-model:value="ruleForm.minRequests" :min="1" style="width:100%" /></a-form-item>
+            <a-form-item label="成功率下限" required><a-input-number v-model:value="ruleForm.minSuccessRate" :min="0" :max="100" :precision="2" style="width:100%" addon-after="%" /></a-form-item>
+          </template>
           <a-form-item label="生效时间"><a-date-picker v-model:value="ruleForm.effectiveStartAt" :locale="dateLocale" show-time value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" /></a-form-item>
           <a-form-item label="失效时间"><a-date-picker v-model:value="ruleForm.effectiveEndAt" :locale="dateLocale" show-time value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" /></a-form-item>
           <a-form-item label="负责人姓名"><a-input v-model:value="ruleForm.ownerUserName" placeholder="默认当前用户" /></a-form-item>
@@ -207,7 +227,7 @@
           <a-form-item label="企业微信通知群" class="span-2"><a-select v-model:value="ruleForm.notifyEndpointIds" mode="multiple" :options="notifyEndpointOptions" allow-clear placeholder="留空只发送站内通知" /></a-form-item>
         </div>
       </a-form>
-      <div class="dialog-actions"><a-button @click="createRuleOpen=false">取消</a-button><a-button type="primary" :loading="saving" @click="saveNewRule">创建并生效</a-button></div>
+      <div class="dialog-actions"><a-button @click="createRuleOpen=false">取消</a-button><a-button type="primary" :loading="saving" @click="saveNewRule">{{ ruleForm.templateCode === 'ORDER_SEGMENT_THRESHOLD' ? '创建并生效' : '创建日检查规则' }}</a-button></div>
     </a-modal>
 
     <a-modal v-model:open="eventStatusOpen" title="处理监控事件" :footer="null" :mask-closable="false" width="min(560px, 94vw)">
@@ -274,7 +294,14 @@ const canManageRules = computed(() => Boolean(authStore.user?.isAdmin) || Boolea
 const canManageEvents = computed(() => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.permissions?.includes('monitor.event.manage')))
 const createRuleOpen = ref(false)
 const eventStatusOpen = ref(false); const activeEvent = ref<MonitorEvent>(); const eventStatusForm = ref({ status: 'ACKNOWLEDGED', note: '' })
-const defaultRuleForm = () => ({ ruleName: '', severity: 'P2', segmentOperator: 'GTE', segmentCount: 6, platformName: '', siteName: '', airlineCode: '', productType: '', effectiveStartAt: '', effectiveEndAt: '', ownerUserName: authStore.user?.displayName || '', changeReason: '', notifyEndpointIds: [] as number[] })
+const defaultRuleForm = () => ({
+  templateCode: 'ORDER_SEGMENT_THRESHOLD' as MonitorRuleInput['templateCode'], ruleName: '', severity: 'P2',
+  segmentOperator: 'GTE', segmentCount: 6, platformName: '', siteName: '', airlineCode: '', productType: '',
+  gdsCode: '1A', pccCode: '', platformCode: '', siteCode: '', apiGroup: '', minRequests: 100,
+  maxQueryRatio: 4000, successStage: 'search', minSuccessRate: 95,
+  effectiveStartAt: '', effectiveEndAt: '', ownerUserName: authStore.user?.displayName || '',
+  changeReason: '', notifyEndpointIds: [] as number[],
+})
 const ruleForm = ref(defaultRuleForm())
 const notifyEndpoints = ref<MonitorNotifyEndpoint[]>([]); const endpointLoading = ref(false); const endpointOpen = ref(false); const testingEndpointId = ref<number>()
 const emptyEndpointForm = () => ({ id: undefined as number | undefined, endpointName: '', webhookUrl: '', mentionedUserIdsText: '', mentionedMobilesText: '', smartPlacementEnabled: true, status: 'ACTIVE' as 'ACTIVE' | 'DISABLED' })
@@ -288,13 +315,15 @@ const ruleStatusMeta: Record<string, { label: string; color: string }> = { ACTIV
 const eventStatusMeta: Record<string, { label: string; color: string }> = { OPEN: { label: '待处理', color: 'red' }, ACKNOWLEDGED: { label: '已关注', color: 'blue' }, RESOLVED: { label: '已解决', color: 'green' }, IGNORED: { label: '已忽略', color: 'default' }, CLOSED: { label: '已关闭', color: 'default' } }
 const runStatusMeta: Record<string, { label: string; color: string }> = { RUNNING: { label: '运行中', color: 'processing' }, SUCCESS: { label: '成功', color: 'green' }, FAILED: { label: '失败', color: 'red' }, SKIPPED: { label: '跳过', color: 'default' } }
 const severityMeta: Record<string, string> = { P0: 'red', P1: 'orange', P2: 'blue', P3: 'default' }
-const templates = [{ value: 'SMART_PLACEMENT_ORDER', label: '智能投放收单匹配' }, { value: 'ORDER_SEGMENT_THRESHOLD', label: '订单航段阈值监控' }, { value: 'METRIC_THRESHOLD', label: '经营指标阈值监控' }, { value: 'STATE_TIMEOUT', label: '业务状态超时监控' }]
+const templates = [{ value: 'SMART_PLACEMENT_ORDER', label: '智能投放收单匹配' }, { value: 'ORDER_SEGMENT_THRESHOLD', label: '订单航段阈值监控' }, { value: 'GDS_QUERY_RATIO_DAILY', label: 'GDS查定比日异常' }, { value: 'OTA_SUCCESS_RATE_DAILY', label: 'OTA成功率日异常' }, { value: 'METRIC_THRESHOLD', label: '经营指标阈值监控' }, { value: 'STATE_TIMEOUT', label: '业务状态超时监控' }]
 const templateOptions = [{ value: '', label: '全部模板' }, ...templates]
+const manualTemplateOptions = [{ value: 'ORDER_SEGMENT_THRESHOLD', label: '订单航段' }, { value: 'GDS_QUERY_RATIO_DAILY', label: 'GDS查定比（日）' }, { value: 'OTA_SUCCESS_RATE_DAILY', label: 'OTA成功率（日）' }]
 const ruleStatusOptions = [{ value: '', label: '全部状态' }, ...Object.entries(ruleStatusMeta).map(([value, meta]) => ({ value, label: meta.label }))]
 const eventStatusOptions = [{ value: '', label: '全部事件状态' }, ...Object.entries(eventStatusMeta).map(([value, meta]) => ({ value, label: meta.label }))]
 const statusActionOptions = [{ value: 'ACTIVE', label: '启用' }, { value: 'PAUSED', label: '暂停' }, { value: 'DISABLED', label: '停用' }]
 const severityOptions = ['P0', 'P1', 'P2', 'P3'].map(value => ({ value, label: value }))
 const segmentOperatorOptions = [{ value: 'GTE', label: '大于等于' }, { value: 'GT', label: '大于' }, { value: 'EQ', label: '等于' }, { value: 'LTE', label: '小于等于' }, { value: 'LT', label: '小于' }]
+const successStageOptions = [{ value: 'search', label: '查询成功率' }, { value: 'verify', label: '验价成功率' }, { value: 'order', label: '生单成功率' }]
 const eventActionOptions = [{ value: 'ACKNOWLEDGED', label: '已关注' }, { value: 'RESOLVED', label: '已解决' }, { value: 'IGNORED', label: '已忽略' }, { value: 'CLOSED', label: '已关闭' }]
 const endpointStatusOptions = [{ value: 'ACTIVE', label: '启用' }, { value: 'DISABLED', label: '停用' }]
 const summaryCards = [{ key: 'activeRules', label: '运行规则', note: '当前生效规则', tone: 'green' }, { key: 'scheduledRules', label: '待生效', note: '等待有效期开始', tone: 'blue' }, { key: 'openEvents', label: '今日待处理', note: '尚未完成的命中事件', tone: 'orange' }, { key: 'totalEvents', label: '今日命中', note: '今日全部事件', tone: 'violet' }, { key: 'pendingNotifications', label: '待发通知', note: '待发送及待重试', tone: 'red' }] as const
@@ -306,7 +335,12 @@ const messageTemplateColumns = [{ title: '模板', key: 'template' }, { title: '
 const notifyRouteColumns = [{ title: '路由', key: 'route', width: 220 }, { title: '模板', dataIndex: 'templateName', width: 170 }, { title: '群与收件人', key: 'target', width: 220 }, { title: '状态', key: 'status', width: 80 }, { title: '操作', key: 'action', width: 80 }]
 const rulePagination = computed(() => ({ current: rulePage.value, pageSize: rulePageSize.value, total: rules.value?.total || 0, showSizeChanger: true, showTotal: (total: number) => `共 ${number(total)} 条` }))
 const eventPagination = computed(() => ({ current: eventPage.value, pageSize: eventPageSize.value, total: events.value?.total || 0, showSizeChanger: true, showTotal: (total: number) => `共 ${number(total)} 条` }))
-const diagnosticRuleOptions = computed(() => (rules.value?.rows || []).map(item => ({ value: item.id, label: `${item.ruleCode} · ${item.ruleName}` })))
+const diagnosticRuleOptions = computed(() => (rules.value?.rows || []).filter(item => ['SMART_PLACEMENT_ORDER', 'ORDER_SEGMENT_THRESHOLD'].includes(item.templateCode)).map(item => ({ value: item.id, label: `${item.ruleCode} · ${item.ruleName}` })))
+const createRuleMeta = computed(() => ({
+  ORDER_SEGMENT_THRESHOLD: { title: '新建订单航段监控', message: '分钟级增量规则', description: '只检查新进或发生变化的订单，不扫描全部历史数据。' },
+  GDS_QUERY_RATIO_DAILY: { title: '新建GDS查定比日规则', message: '每日资源异常检查', description: '每日ADS同步完成后汇总检查一次；GDS仅使用有效PNR计算查定比，PNR未同步完整时不会误报。' },
+  OTA_SUCCESS_RATE_DAILY: { title: '新建OTA成功率日规则', message: '每日接口质量检查', description: '每日按平台及可选站点、接口分组检查查询、验价或生单成功率。' },
+}[ruleForm.value.templateCode]))
 const notifyEndpointOptions = computed(() => notifyEndpoints.value.filter(item => item.status === 'ACTIVE').map(item => ({ value: item.id, label: item.endpointName })))
 const notificationEventOptions = [{ value: 'SMART_ORDER_MATCHED', label: '智能收单命中' }, { value: 'SMART_ATTENTION_REMINDER', label: '关注首次催办' }, { value: 'SMART_ATTENTION_ESCALATED', label: '关注升级提醒' }, { value: 'SMART_POLICY_EXPIRED', label: '政策到期' }]
 const recipientStrategyOptions = [{ value: 'TASK_ASSIGNEE', label: '投放任务负责人' }, { value: 'ATTENTION_OWNER', label: '订单关注负责人' }, { value: 'RULE_OWNER', label: '监控规则负责人' }, { value: 'NONE', label: '不动态@人员' }]
@@ -333,9 +367,9 @@ const number = (value: unknown) => new Intl.NumberFormat('zh-CN').format(Number(
 const displayTime = (value: unknown) => value ? String(value).replace('T', ' ').slice(0, 16) : '—'
 const duration = (value?: number) => value == null ? '—' : value < 1000 ? `${value} ms` : `${(value / 1000).toFixed(1)} s`
 const templateName = (code: string) => templates.find(item => item.value === code)?.label || code
-const jobTypeName = (value: string) => ({ FEATURE_ETL: '订单特征采集', RULE_MATCH: '规则匹配', SMART_LIFECYCLE: '智能收单闭环', NOTIFY: '通知发送' }[value] || value)
+const jobTypeName = (value: string) => ({ FEATURE_ETL: '订单特征采集', RULE_MATCH: '规则匹配', RESOURCE_DAILY: '资源治理日检查', SMART_LIFECYCLE: '智能收单闭环', NOTIFY: '通知发送' }[value] || value)
 const summaryValue = (key: typeof summaryCards[number]['key']) => key === 'pendingNotifications' ? overview.value?.pendingNotifications : key in (overview.value?.ruleSummary || {}) ? overview.value?.ruleSummary[key as keyof MonitorOverview['ruleSummary']] : overview.value?.eventSummary[key as keyof MonitorOverview['eventSummary']]
-const fieldName = (code: string) => ({ platform_code: '平台编码', platform_name: '平台名称', site_code: '站点编码', site_name: '站点名称', order_source: '订单来源', airline_code: '航司', departure_location_codes: '出发地', arrival_location_codes: '到达地', route_text: '航程', flight_nos: '航班号', cabin_codes: '舱位', product_type: '产品类型', journey_type: '航程类型', order_time: '订单时间', first_departure_time: '起飞时间', segment_count: '航段数' }[code] || code)
+const fieldName = (code: string) => ({ platform_code: '平台编码', platform_name: '平台名称', site_code: '站点编码', site_name: '站点名称', ota_code: '平台编码', ota_site_code: '站点编码', gds_code: 'GDS', pcc_code: 'PCC', source_api_group: '接口分组', search_request_count_all: '查询请求量', verify_request_count_all: '验价请求量', order_request_count_all: '生单请求量', query_to_pnr_ratio: '查定比', search_success_rate: '查询成功率', verify_success_rate: '验价成功率', order_success_rate: '生单成功率', order_source: '订单来源', airline_code: '航司', departure_location_codes: '出发地', arrival_location_codes: '到达地', route_text: '航程', flight_nos: '航班号', cabin_codes: '舱位', product_type: '产品类型', journey_type: '航程类型', order_time: '订单时间', first_departure_time: '起飞时间', segment_count: '航段数' }[code] || code)
 const operatorName = (code: string) => ({ EQ: '等于', IN: '属于', BETWEEN: '介于', OVERLAP: '存在交集', SUBSET_OF: '全部包含于', DISJOINT: '不得包含', GTE: '大于等于', GT: '大于', LTE: '小于等于', LT: '小于' }[code] || code)
 const conditionScalar = (value: unknown) => String(value).replace(/^(\d{4}-\d{2}-\d{2})T(?=\d{2}:\d{2})/, '$1 ')
 function formatConditionValue(raw: string) { try { const value = JSON.parse(raw); return Array.isArray(value) ? value.map(conditionScalar).join(' ～ ') : conditionScalar(value) } catch { return conditionScalar(raw) } }
@@ -370,15 +404,42 @@ const splitValues = (value: string) => value.replace(/，/g, ',').split(',').map
 async function openCreateRule() { if (!notifyEndpoints.value.length) await loadNotifyEndpoints(); ruleForm.value = defaultRuleForm(); createRuleOpen.value = true }
 async function saveNewRule() {
   if (!ruleForm.value.ruleName.trim()) { message.warning('请填写规则名称'); return }
-  if (!ruleForm.value.segmentCount || ruleForm.value.segmentCount < 1) { message.warning('请填写有效航段阈值'); return }
   if (ruleForm.value.effectiveStartAt && ruleForm.value.effectiveEndAt && ruleForm.value.effectiveEndAt <= ruleForm.value.effectiveStartAt) { message.warning('失效时间必须晚于生效时间'); return }
-  const conditions: MonitorRuleInput['conditions'] = [{ fieldCode: 'segment_count', operatorCode: ruleForm.value.segmentOperator, value: ruleForm.value.segmentCount }]
-  if (ruleForm.value.platformName.trim()) conditions.push({ fieldCode: 'platform_name', operatorCode: 'EQ', value: ruleForm.value.platformName.trim() })
-  if (ruleForm.value.siteName.trim()) conditions.push({ fieldCode: 'site_name', operatorCode: 'EQ', value: ruleForm.value.siteName.trim() })
-  if (splitValues(ruleForm.value.airlineCode).length) conditions.push({ fieldCode: 'airline_code', operatorCode: 'IN', value: splitValues(ruleForm.value.airlineCode) })
-  if (splitValues(ruleForm.value.productType).length) conditions.push({ fieldCode: 'product_type', operatorCode: 'IN', value: splitValues(ruleForm.value.productType) })
+  const conditions: MonitorRuleInput['conditions'] = []
+  if (ruleForm.value.templateCode === 'ORDER_SEGMENT_THRESHOLD') {
+    if (!ruleForm.value.segmentCount || ruleForm.value.segmentCount < 1) { message.warning('请填写有效航段阈值'); return }
+    conditions.push({ fieldCode: 'segment_count', operatorCode: ruleForm.value.segmentOperator, value: ruleForm.value.segmentCount })
+    if (ruleForm.value.platformName.trim()) conditions.push({ fieldCode: 'platform_name', operatorCode: 'EQ', value: ruleForm.value.platformName.trim() })
+    if (ruleForm.value.siteName.trim()) conditions.push({ fieldCode: 'site_name', operatorCode: 'EQ', value: ruleForm.value.siteName.trim() })
+    if (splitValues(ruleForm.value.airlineCode).length) conditions.push({ fieldCode: 'airline_code', operatorCode: 'IN', value: splitValues(ruleForm.value.airlineCode) })
+    if (splitValues(ruleForm.value.productType).length) conditions.push({ fieldCode: 'product_type', operatorCode: 'IN', value: splitValues(ruleForm.value.productType) })
+  } else if (ruleForm.value.templateCode === 'GDS_QUERY_RATIO_DAILY') {
+    if (!ruleForm.value.gdsCode.trim()) { message.warning('请填写GDS'); return }
+    if (!ruleForm.value.minRequests || ruleForm.value.minRequests < 1 || !ruleForm.value.maxQueryRatio || ruleForm.value.maxQueryRatio < 1) { message.warning('请填写有效的最小查询量和查定比上限'); return }
+    conditions.push(
+      { fieldCode: 'gds_code', operatorCode: 'EQ', value: ruleForm.value.gdsCode.trim().toUpperCase() },
+      { fieldCode: 'search_request_count_all', operatorCode: 'GTE', value: ruleForm.value.minRequests },
+      { fieldCode: 'query_to_pnr_ratio', operatorCode: 'GT', value: ruleForm.value.maxQueryRatio },
+    )
+    if (ruleForm.value.pccCode.trim()) conditions.push({ fieldCode: 'pcc_code', operatorCode: 'EQ', value: ruleForm.value.pccCode.trim().toUpperCase() })
+    if (ruleForm.value.platformCode.trim()) conditions.push({ fieldCode: 'ota_code', operatorCode: 'EQ', value: ruleForm.value.platformCode.trim().toUpperCase() })
+    if (ruleForm.value.siteCode.trim()) conditions.push({ fieldCode: 'ota_site_code', operatorCode: 'EQ', value: ruleForm.value.siteCode.trim().toUpperCase() })
+    if (ruleForm.value.apiGroup.trim()) conditions.push({ fieldCode: 'source_api_group', operatorCode: 'EQ', value: ruleForm.value.apiGroup.trim() })
+  } else {
+    if (!ruleForm.value.platformCode.trim()) { message.warning('请填写平台编码'); return }
+    if (!ruleForm.value.minRequests || ruleForm.value.minRequests < 1 || ruleForm.value.minSuccessRate == null) { message.warning('请填写有效的最小请求量和成功率下限'); return }
+    const requestField = `${ruleForm.value.successStage}_request_count_all`
+    const rateField = `${ruleForm.value.successStage}_success_rate`
+    conditions.push(
+      { fieldCode: 'ota_code', operatorCode: 'EQ', value: ruleForm.value.platformCode.trim().toUpperCase() },
+      { fieldCode: requestField, operatorCode: 'GTE', value: ruleForm.value.minRequests },
+      { fieldCode: rateField, operatorCode: 'LT', value: ruleForm.value.minSuccessRate },
+    )
+    if (ruleForm.value.siteCode.trim()) conditions.push({ fieldCode: 'ota_site_code', operatorCode: 'EQ', value: ruleForm.value.siteCode.trim().toUpperCase() })
+    if (ruleForm.value.apiGroup.trim()) conditions.push({ fieldCode: 'source_api_group', operatorCode: 'EQ', value: ruleForm.value.apiGroup.trim() })
+  }
   const endpointIds = ruleForm.value.notifyEndpointIds
-  const payload: MonitorRuleInput = { templateCode: 'ORDER_SEGMENT_THRESHOLD', ruleName: ruleForm.value.ruleName.trim(), severity: ruleForm.value.severity, effectiveStartAt: ruleForm.value.effectiveStartAt || undefined, effectiveEndAt: ruleForm.value.effectiveEndAt || undefined, ownerUserName: ruleForm.value.ownerUserName.trim() || undefined, scheduleSeconds: 60, changeReason: ruleForm.value.changeReason.trim() || undefined, notifyPolicy: { channels: endpointIds.length ? ['IN_APP', 'WECOM'] : ['IN_APP'], wecomEndpointIds: endpointIds }, conditions }
+  const payload: MonitorRuleInput = { templateCode: ruleForm.value.templateCode, ruleName: ruleForm.value.ruleName.trim(), severity: ruleForm.value.severity, effectiveStartAt: ruleForm.value.effectiveStartAt || undefined, effectiveEndAt: ruleForm.value.effectiveEndAt || undefined, ownerUserName: ruleForm.value.ownerUserName.trim() || undefined, scheduleSeconds: ruleForm.value.templateCode === 'ORDER_SEGMENT_THRESHOLD' ? 60 : 86400, changeReason: ruleForm.value.changeReason.trim() || undefined, notifyPolicy: { channels: endpointIds.length ? ['IN_APP', 'WECOM'] : ['IN_APP'], wecomEndpointIds: endpointIds }, conditions }
   saving.value = true
   try { const result = await monitoringApi.createRule(payload); message.success(`规则 ${result.ruleCode} 已创建`); createRuleOpen.value = false; await Promise.all([loadOverview(), loadRules(1)]) } catch (failure) { message.error(failure instanceof Error ? failure.message : '规则创建失败') } finally { saving.value = false }
 }

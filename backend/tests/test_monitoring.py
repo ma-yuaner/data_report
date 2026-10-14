@@ -284,13 +284,68 @@ def test_manual_rule_rejects_non_executable_template_before_database_access():
     source, _connection, _cursor = source_with_cursor()
     service = MonitoringService({}, source=source)
 
-    with pytest.raises(ValueError, match="仅开放订单航段阈值模板"):
+    with pytest.raises(ValueError, match="仅开放订单航段、GDS查定比和OTA成功率模板"):
         service.create_rule(
             {"id": 1, "is_admin": True},
             {"templateCode": "METRIC_THRESHOLD", "ruleName": "利润阈值", "conditions": []},
         )
 
     source.connect.assert_not_called()
+
+
+def test_gds_daily_rule_uses_resource_business_type_and_daily_schedule():
+    source, connection, cursor = source_with_cursor()
+    cursor.fetchone.return_value = {"id": 5, "template_code": "GDS_QUERY_RATIO_DAILY", "status": "ACTIVE"}
+    cursor.fetchall.return_value = [
+        {"field_code": "gds_code", "field_name": "GDS", "value_type": "STRING", "allowed_operators": "EQ", "required_flag": 1},
+        {"field_code": "search_request_count_all", "field_name": "最小查询量", "value_type": "NUMBER", "allowed_operators": "GTE", "required_flag": 1},
+        {"field_code": "query_to_pnr_ratio", "field_name": "查定比上限", "value_type": "NUMBER", "allowed_operators": "GT,GTE", "required_flag": 1},
+    ]
+    cursor.lastrowid = 31
+    service = MonitoringService({}, source=source)
+
+    result = service.create_rule(
+        {"id": 1, "display_name": "数据运营经理", "is_admin": True},
+        {
+            "templateCode": "GDS_QUERY_RATIO_DAILY", "ruleName": "1A查定比超过4000",
+            "conditions": [
+                {"fieldCode": "gds_code", "operatorCode": "EQ", "value": "1A"},
+                {"fieldCode": "search_request_count_all", "operatorCode": "GTE", "value": 100},
+                {"fieldCode": "query_to_pnr_ratio", "operatorCode": "GT", "value": 4000},
+            ],
+        },
+    )
+
+    assert result["id"] == 31
+    rule_insert = next(call for call in cursor.execute.call_args_list if "INSERT INTO sibebid.monitor_rule (" in call.args[0])
+    assert rule_insert.args[1][4] == "RESOURCE_GOVERNANCE"
+    assert rule_insert.args[1][11] == 86400
+    connection.commit.assert_called_once()
+
+
+def test_ota_daily_rule_requires_success_rate_and_matching_minimum_volume():
+    source, connection, cursor = source_with_cursor()
+    cursor.fetchone.return_value = {"id": 6, "template_code": "OTA_SUCCESS_RATE_DAILY", "status": "ACTIVE"}
+    cursor.fetchall.return_value = [
+        {"field_code": "ota_code", "field_name": "平台编码", "value_type": "STRING", "allowed_operators": "EQ", "required_flag": 1},
+        {"field_code": "search_request_count_all", "field_name": "查询最小请求量", "value_type": "NUMBER", "allowed_operators": "GTE", "required_flag": 0},
+        {"field_code": "search_success_rate", "field_name": "查询成功率下限", "value_type": "NUMBER", "allowed_operators": "LT,LTE", "required_flag": 0},
+    ]
+    service = MonitoringService({}, source=source)
+
+    with pytest.raises(ValueError, match="查询成功率规则必须同时填写最小请求量"):
+        service.create_rule(
+            {"id": 1, "display_name": "管理员", "is_admin": True},
+            {
+                "templateCode": "OTA_SUCCESS_RATE_DAILY", "ruleName": "携程查询成功率低于99%",
+                "conditions": [
+                    {"fieldCode": "ota_code", "operatorCode": "EQ", "value": "CTRIP"},
+                    {"fieldCode": "search_success_rate", "operatorCode": "LT", "value": 99},
+                ],
+            },
+        )
+
+    connection.rollback.assert_called_once()
 
 
 def test_event_resolution_requires_note_and_writes_audit_log():

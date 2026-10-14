@@ -40,12 +40,12 @@
     </div>
     <a-alert v-if="error || data?.error" class="state-alert" type="error" show-icon :message="error || data?.error" />
     <a-alert v-else-if="isGds && data?.available && !data.pnrColumnAvailable" class="state-alert" type="warning" show-icon
-      message="有效PNR字段尚未接入" description="当前页面已展示查询、验价和生单接口指标；在bi_ota_gds_request_day增加pnr_count并完成同步后，查定比自动生效。" />
+      message="有效PNR字段尚未接入" description="当前页面已展示查询、验价和生单接口指标；在bi_ota_gds_request_day增加pnr_num并完成同步后，查定比自动生效。" />
     <a-alert v-else-if="isGds && data?.summary.status === 'pnr_partial'" class="state-alert" type="warning" show-icon
       message="所选范围的有效PNR只完成了部分同步"
-      :description="`仍有 ${integer(data.summary.pnrMissingRowCount)} 条GDS汇总记录缺少pnr_count；为避免分母偏小，当前不计算查定比和超额查询。`" />
+      :description="`仍有 ${integer(data.summary.pnrMissingRowCount)} 条GDS汇总记录缺少pnr_num；为避免分母偏小，当前不计算查定比和超额查询。`" />
     <a-alert v-else-if="isGds && data?.available && data.pnrColumnAvailable && !data.pnrDataAvailable" class="state-alert" type="warning" show-icon
-      message="pnr_count字段已存在，但所选范围尚未同步有效PNR" description="有效PNR显示为—，不会使用order_request_success替代，也不会把缺失数据当成0。" />
+      message="pnr_num字段已存在，但所选范围尚未同步有效PNR" description="有效PNR显示为—，不会使用order_request_success替代，也不会把缺失数据当成0。" />
     <a-alert v-else-if="!isGds && applied.platform && !hasOtaTarget(data?.summary)" class="state-alert" type="info" show-icon
       message="该平台尚未配置接口成功率目标" description="当前继续展示实际成功率，但不会标记达标或异常；配置平台目标后自动生效。" />
 

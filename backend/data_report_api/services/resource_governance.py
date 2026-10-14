@@ -267,12 +267,12 @@ class ResourceGovernanceService:
             if pnr_applicable:
                 cursor.execute(
                     "SELECT COUNT(1) FROM information_schema.COLUMNS "
-                    "WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s AND COLUMN_NAME='pnr_count'",
+                    "WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s AND COLUMN_NAME='pnr_num'",
                     (self.source.database, TABLE_NAME),
                 )
                 pnr_column_available = bool(int((cursor.fetchone() or (0,))[0] or 0))
-            pnr_expression = "SUM(pnr_count)" if pnr_applicable and pnr_column_available else "NULL"
-            pnr_missing_expression = "SUM(CASE WHEN pnr_count IS NULL THEN 1 ELSE 0 END)" if pnr_applicable and pnr_column_available else "NULL"
+            pnr_expression = "SUM(pnr_num)" if pnr_applicable and pnr_column_available else "NULL"
+            pnr_missing_expression = "SUM(CASE WHEN pnr_num IS NULL THEN 1 ELSE 0 END)" if pnr_applicable and pnr_column_available else "NULL"
             metric_select = METRIC_SELECT.format(
                 pnr_expression=pnr_expression,
                 pnr_missing_expression=pnr_missing_expression,

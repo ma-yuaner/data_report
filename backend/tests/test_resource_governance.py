@@ -47,7 +47,7 @@ class ResourceGovernanceTests(unittest.TestCase):
         self.assertEqual(result["dimension"]["rows"][0]["targetRatio"], 4000)
         self.assertEqual(result["trend"][0]["date"], "2026-10-14")
         executed = [call.args for call in self.cursor.execute.call_args_list]
-        self.assertTrue(any("SUM(pnr_count)" in sql for sql, *_ in executed))
+        self.assertTrue(any("SUM(pnr_num)" in sql for sql, *_ in executed))
         self.assertTrue(any(params[:3] == ("20261001", "20261014", 1) for _, params in executed[1:]))
 
     def test_missing_pnr_column_is_explicit_and_does_not_fallback_to_order_success(self):
@@ -59,7 +59,7 @@ class ResourceGovernanceTests(unittest.TestCase):
         self.assertIsNone(result["summary"]["pnrCount"])
         self.assertIsNone(result["summary"]["queryToPnrRatio"])
         executed_sql = "\n".join(call.args[0] for call in self.cursor.execute.call_args_list)
-        self.assertNotIn("SUM(pnr_count)", executed_sql)
+        self.assertNotIn("SUM(pnr_num)", executed_sql)
         self.assertIn(
             "SUM(order_request_count_all), SUM(order_request_success),\nNULL, NULL,\nSUM(search_cache_count)",
             executed_sql,
@@ -95,7 +95,7 @@ class ResourceGovernanceTests(unittest.TestCase):
         self.assertEqual(self.cursor.execute.call_args_list[-1].args[1][2], 0)
         executed_sql = "\n".join(call.args[0] for call in self.cursor.execute.call_args_list)
         self.assertNotIn("information_schema.COLUMNS", executed_sql)
-        self.assertNotIn("SUM(pnr_count)", executed_sql)
+        self.assertNotIn("SUM(pnr_num)", executed_sql)
 
     def test_invalid_inputs_fail_before_connecting(self):
         service = module.ResourceGovernanceService({})

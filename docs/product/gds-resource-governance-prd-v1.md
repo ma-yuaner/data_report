@@ -101,7 +101,7 @@ V1首批MySQL服务表确定为：
 
 | 表名 | 职责 | V1处理方式 |
 |---|---|---|
-| `sibebid.bi_ota_gds_request_day` | 保存OTA/GDS查询、验价、直连生单接口量，以及GDS层实际有效PNR | 复用现有表，新增`pnr_count`且只写GDS行；不加入规则、责任人等流程字段 |
+| `sibebid.bi_ota_gds_request_day` | 保存OTA/GDS查询、验价、直连生单接口量，以及GDS层实际有效PNR | 复用现有表，使用`pnr_num`且只写GDS行；不加入规则、责任人等流程字段 |
 
 该表以`data_source=0/1`纵向区分OTA渠道层与GDS资源层，两个层级分别计算、禁止相加。目标值、规则、责任人和上下线状态必须保存在后续独立配置/流程表中，不能塞入事实表。
 
@@ -114,7 +114,7 @@ GDS查定比 = SUM(查询接口调用次数) / SUM(实际有效PNR数)
 
 V1字段公式：
 SUM(bi_ota_gds_request_day.search_request_count_all)
-÷ SUM(bi_ota_gds_request_day.pnr_count)
+÷ SUM(bi_ota_gds_request_day.pnr_num)
 ```
 
 - 查询次数按接口真实调用事件计数，必须先按请求唯一键去重；
@@ -124,7 +124,7 @@ SUM(bi_ota_gds_request_day.search_request_count_all)
 - 当有效PNR为0且查询量大于0时展示“∞/无有效PNR”，不能展示0；
 - 查定比仅适用于GDS资源层，OTA渠道层不计算PNR与查定比；
 - 页面不得直接平均各明细行已有比率，必须使用汇总后的分子/分母重新计算。
-- `pnr_count`只在`data_source=1`的GDS层聚合；OTA与GDS不得跨层求和。
+- `pnr_num`只在`data_source=1`的GDS层聚合；OTA与GDS不得跨层求和。
 
 ### 5.2 配套指标
 

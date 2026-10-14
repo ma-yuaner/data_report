@@ -35,6 +35,12 @@ SMART_TASK_TABLE = "smart_placement_task"
 SMART_TASK_LOG_TABLE = "smart_placement_operation_log"
 
 SMART_TEMPLATE = "SMART_PLACEMENT_ORDER"
+MANUAL_RULE_TEMPLATES = frozenset({
+    "ORDER_SEGMENT_THRESHOLD",
+    "GDS_QUERY_RATIO_DAILY",
+    "OTA_SUCCESS_RATE_DAILY",
+})
+RESOURCE_RULE_TEMPLATES = frozenset({"GDS_QUERY_RATIO_DAILY", "OTA_SUCCESS_RATE_DAILY"})
 RULE_STATUSES = frozenset({"SCHEDULED", "ACTIVE", "PAUSED", "EXPIRED", "DISABLED"})
 EVENT_STATUSES = frozenset({"OPEN", "ACKNOWLEDGED", "RESOLVED", "IGNORED", "CLOSED"})
 ENDPOINT_STATUSES = frozenset({"ACTIVE", "DISABLED"})
@@ -598,8 +604,8 @@ class MonitoringService:
     def create_rule(self, user: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
         _require(user, "monitor.rule.manage", "当前账号没有监控规则管理权限")
         template_code = str(values.get("templateCode") or "").strip().upper()
-        if template_code != "ORDER_SEGMENT_THRESHOLD":
-            raise ValueError("当前手工配置仅开放订单航段阈值模板；智能投放规则由投放成功自动生成")
+        if template_code not in MANUAL_RULE_TEMPLATES:
+            raise ValueError("当前手工配置仅开放订单航段、GDS查定比和OTA成功率模板；智能投放规则由投放成功自动生成")
         rule_name = str(values.get("ruleName") or "").strip()[:200]
         if not rule_name:
             raise ValueError("规则名称不能为空")
@@ -633,7 +639,8 @@ class MonitoringService:
             "ownerUserName": owner_name,
             "wecomEndpointIds": endpoint_ids,
         }
-        schedule_seconds = max(30, min(int(values.get("scheduleSeconds") or 60), 86400))
+        is_resource_rule = template_code in RESOURCE_RULE_TEMPLATES
+        schedule_seconds = 86400 if is_resource_rule else max(30, min(int(values.get("scheduleSeconds") or 60), 86400))
         connection = cursor = None
         try:
             connection = self.source.connect(); connection.begin(); cursor = connection.cursor()
@@ -654,6 +661,19 @@ class MonitoringService:
                 if found_ids != set(endpoint_ids):
                     raise ValueError("选择的企业微信通知群不存在或已停用")
             conditions = self._validated_conditions(cursor, int(template["id"]), values.get("conditions"))
+            if template_code == "OTA_SUCCESS_RATE_DAILY":
+                present = {str(item["fieldCode"]) for item in conditions}
+                stages = (
+                    ("search_success_rate", "search_request_count_all", "查询"),
+                    ("verify_success_rate", "verify_request_count_all", "验价"),
+                    ("order_success_rate", "order_request_count_all", "生单"),
+                )
+                selected = [(rate, volume, label) for rate, volume, label in stages if rate in present]
+                if not selected:
+                    raise ValueError("OTA成功率规则至少需要选择查询、验价或生单中的一个成功率指标")
+                missing_volume = [label for rate, volume, label in selected if volume not in present]
+                if missing_volume:
+                    raise ValueError(f"{','.join(missing_volume)}成功率规则必须同时填写最小请求量")
             snapshot = {"templateCode": template_code, "conditionRelation": "AND", "conditions": conditions}
             snapshot_text = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, default=_json_value)
             rule_hash = hashlib.sha256(snapshot_text.encode("utf-8")).hexdigest()
@@ -665,7 +685,8 @@ class MonitoringService:
                     schedule_seconds,notify_policy_json,current_version_no,
                     created_by_id,created_by_name,created_at,updated_by_id,updated_by_name,updated_at
                 ) VALUES ({','.join(['%s'] * 20)})""",
-                (rule_code, rule_name, template["id"], template_code, "ORDER_RISK", owner_id, owner_name,
+                (rule_code, rule_name, template["id"], template_code,
+                 "RESOURCE_GOVERNANCE" if is_resource_rule else "ORDER_RISK", owner_id, owner_name,
                  severity, status, effective_start, effective_end, schedule_seconds,
                  json.dumps(notify_policy, ensure_ascii=False), 1, actor_id, actor_name, current,
                  actor_id, actor_name, current),

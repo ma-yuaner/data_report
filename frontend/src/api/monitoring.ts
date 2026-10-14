@@ -107,7 +107,7 @@ export interface MonitorNotifyEndpointInput {
 }
 
 export interface MonitorRuleInput {
-  templateCode: 'ORDER_SEGMENT_THRESHOLD'
+  templateCode: 'ORDER_SEGMENT_THRESHOLD' | 'GDS_QUERY_RATIO_DAILY' | 'OTA_SUCCESS_RATE_DAILY'
   ruleName: string
   severity: string
   effectiveStartAt?: string
