@@ -14,6 +14,7 @@ const router = createRouter({
       redirect: '/home',
       children: [
         { path: 'home', name: 'home', component: () => import('@/views/HomeView.vue'), meta: { title: '工作台', section: '企业数据中心' } },
+        { path: 'resource-governance', name: 'resource-governance', component: () => import('@/views/ResourceGovernanceView.vue'), meta: { title: 'GDS/OTA资源治理', section: '资源治理', menuCode: 'governance.gds_ota' } },
         { path: 'overview', name: 'overview', component: () => import('@/views/OverviewView.vue'), meta: { title: '经营总览', section: '经营总览', menuCode: 'overview' } },
         { path: 'analysis/comprehensive', name: 'comprehensive-analysis', component: () => import('@/views/ComprehensiveAnalysisLiveView.vue'), meta: { title: '综合分析', section: '业务分析', menuCode: 'analysis.comprehensive' } },
         { path: 'analysis/issue', alias: '/analysis/profit', name: 'issue-profit', component: () => import('@/views/ProfitView.vue'), meta: { title: '出票分析', section: '业务分析', menuCode: 'analysis.issue' } },

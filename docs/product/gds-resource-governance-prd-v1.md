@@ -101,10 +101,9 @@ V1首批MySQL服务表确定为：
 
 | 表名 | 职责 | V1处理方式 |
 |---|---|---|
-| `sibebid.bi_ota_gds_request_day` | 保存查询、验价、直连生单接口调用与成功量 | 复用现有表，不加入规则、责任人等流程字段 |
-| `sibebid.bi_ota_gds_valid_pnr_day` | 保存实际有效PNR日汇总，作为正式查定比分母 | 新建，DDL见[`gds-resource-valid-pnr-day-v1.sql`](../sql/gds-resource-valid-pnr-day-v1.sql) |
+| `sibebid.bi_ota_gds_request_day` | 保存OTA/GDS查询、验价、直连生单接口量及实际有效PNR | 复用现有表，新增`pnr_count`；不加入规则、责任人等流程字段 |
 
-两张表都是事实表。目标值、规则、责任人和上下线状态必须保存在后续独立配置/流程表中，不能塞入事实表。
+该表以`data_source=0/1`纵向区分OTA渠道层与GDS资源层，两个层级分别计算、禁止相加。目标值、规则、责任人和上下线状态必须保存在后续独立配置/流程表中，不能塞入事实表。
 
 ## 5. 核心口径
 
@@ -115,7 +114,7 @@ V1首批MySQL服务表确定为：
 
 V1字段公式：
 SUM(bi_ota_gds_request_day.search_request_count_all)
-÷ SUM(bi_ota_gds_valid_pnr_day.valid_pnr_count)
+÷ SUM(bi_ota_gds_request_day.pnr_count)
 ```
 
 - 查询次数按接口真实调用事件计数，必须先按请求唯一键去重；
@@ -125,7 +124,7 @@ SUM(bi_ota_gds_request_day.search_request_count_all)
 - 当有效PNR为0且查询量大于0时展示“∞/无有效PNR”，不能展示0；
 - GDS与OTA链路应分别计算，也可在统一维度下汇总；
 - 页面不得直接平均各明细行已有比率，必须使用汇总后的分子/分母重新计算。
-- 两张事实表关联前必须先按页面所选维度分别聚合，禁止直接明细JOIN后求和，避免重复放大。
+- OTA与GDS的查询和PNR分别在各自`data_source`层内聚合；同一订单可同时服务两种观察视角，但不得跨层求和。
 
 ### 5.2 配套指标
 
@@ -243,7 +242,7 @@ SUM(bi_ota_gds_request_day.search_request_count_all)
 
 ## 9. 数据对象（概念模型）
 
-V1已输出请求事实表与有效PNR日汇总表；后续治理闭环再逐步补充以下对象：
+V1复用统一OTA/GDS日汇总表并增加实际有效PNR字段；后续治理闭环再逐步补充以下对象：
 
 | 对象 | 用途 |
 |---|---|

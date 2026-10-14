@@ -22,6 +22,7 @@ from .services.telemetry import TelemetryService, TelemetryUnavailable
 from .services.smart_analysis import DIMENSIONS as SMART_DIMENSIONS, SmartAnalysisService
 from .services.smart_placement import SmartPlacementService, SmartPlacementUnavailable
 from .services.monitoring import MonitoringService, MonitoringUnavailable
+from .services.resource_governance import ResourceGovernanceService
 
 
 api = Blueprint("api", __name__)
@@ -66,6 +67,23 @@ def meta():
             "disclaimer": f"当前接入{source.engine_label}实际业务数据，利润为业务估算口径，不代表财务结算。" if source else "当前为MVP演示数据，不代表正式经营或财务口径。",
         }
     )
+
+
+@api.get("/v1/resource-governance/overview")
+def resource_governance_overview():
+    try:
+        return ok(ResourceGovernanceService(current_app.config).overview(
+            start_value=request.args.get("startDate"),
+            end_value=request.args.get("endDate"),
+            data_source=request.args.get("dataSource", "gds"),
+            group_by=request.args.get("groupBy"),
+            filters={
+                key: request.args.get(key, "")
+                for key in ("platform", "site", "gds", "pcc", "apiGroup")
+            },
+        ))
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
 
 
 @api.post("/v1/telemetry/visits")

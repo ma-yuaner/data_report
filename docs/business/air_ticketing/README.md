@@ -34,6 +34,7 @@
 - 开发智能投放任务流、政策认领和收单关注：阅读 [smart-placement-mvp.md](smart-placement-mvp.md)
 - 开发通用分钟监控、规则、事件和通知链路：阅读 [monitoring-center-v1.md](monitoring-center-v1.md)
 - 规划GDS/OTA查定比分析、异常规则与上下线闭环：阅读 [GDS/OTA资源治理PRD](../../product/gds-resource-governance-prd-v1.md)
+- 开发或使用GDS/OTA资源治理正式页面：阅读 [gds-resource-governance-live.md](gds-resource-governance-live.md)
 - 追溯综合分析历史界面预览：阅读 [comprehensive-analysis-preview.md](comprehensive-analysis-preview.md)
 - 配置 MySQL 默认查询或临时切回 Hive：阅读 [data-source-switch.md](data-source-switch.md)
 - 开发出票利润分析和检查字段齐全度：阅读 [issue-profit-analysis.md](issue-profit-analysis.md)

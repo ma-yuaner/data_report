@@ -64,7 +64,7 @@ import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   ApartmentOutlined, ArrowRightOutlined, BarChartOutlined, CheckCircleFilled,
-  CompassOutlined, DashboardOutlined, DatabaseOutlined, SafetyCertificateOutlined,
+  CompassOutlined, DashboardOutlined, DatabaseOutlined, DeploymentUnitOutlined, SafetyCertificateOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons-vue'
 import { useAuthStore } from '@/stores/auth'
@@ -80,6 +80,7 @@ const todayText = new Intl.DateTimeFormat('zh-CN', {
 }).format(new Date())
 
 const quickEntries = [
+  { to: '/resource-governance', eyebrow: 'RESOURCE GOVERNANCE', title: '资源治理', description: '分析GDS/OTA查询、验价、生单与查定比', icon: DeploymentUnitOutlined, color: '#267b89', background: '#eaf7f8' },
   { to: '/overview', eyebrow: 'OVERVIEW', title: '经营总览', description: '查看今日出、退、改、增利润全貌', icon: DashboardOutlined, color: '#2f6edb', background: '#edf4ff' },
   { to: '/analysis/comprehensive', eyebrow: 'ANALYSIS', title: '综合分析', description: '按平台、航司、产品和政策员逐层下钻', icon: ApartmentOutlined, color: '#7257c5', background: '#f2efff' },
   { to: '/risk-analysis', eyebrow: 'RISK CONTROL', title: '风控分析', description: '复核亏损结构并定位具体问题订单', icon: SafetyCertificateOutlined, color: '#cc5a5f', background: '#fff0f0' },
@@ -93,6 +94,7 @@ onMounted(() => {
       import('@/views/OverviewView.vue'),
       import('@/views/ComprehensiveAnalysisLiveView.vue'),
       import('@/views/RiskMonthlyAnalysisView.vue'),
+      import('@/views/ResourceGovernanceView.vue'),
     ])
   }, 800)
 })

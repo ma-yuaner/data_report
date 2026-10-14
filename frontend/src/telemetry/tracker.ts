@@ -14,6 +14,7 @@ const MAX_QUEUE = 50
 const MODULE_CODES: Record<string, string> = {
   '企业数据中心': 'data-center',
   '经营总览': 'business-overview',
+  '资源治理': 'resource-governance',
   '业务分析': 'business-analysis',
   '风控分析': 'risk-analysis',
   '智能分析': 'smart-analysis',

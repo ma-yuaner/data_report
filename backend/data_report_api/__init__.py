@@ -16,6 +16,8 @@ SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
 def required_menu_code(path: str) -> str | None:
+    if path.startswith("/api/v1/resource-governance"):
+        return "governance.gds_ota"
     if path.startswith("/api/v1/dashboard/"):
         return "overview"
     if path.startswith("/api/v1/analysis/comprehensive"):

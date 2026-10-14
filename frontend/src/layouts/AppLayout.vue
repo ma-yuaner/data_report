@@ -19,6 +19,11 @@
       <div class="sidebar-menu-scroll">
         <a-menu v-model:openKeys="openKeys" theme="dark" mode="inline" :selected-keys="selectedKeys" @click="handleMenuClick">
           <a-menu-item key="/home"><template #icon><HomeOutlined /></template>工作台</a-menu-item>
+          <a-sub-menu v-if="canSeeGroup('governance')" key="governance">
+            <template #icon><DeploymentUnitOutlined /></template>
+            <template #title>资源治理</template>
+            <a-menu-item v-if="canSeeMenu('governance.gds_ota')" key="/resource-governance">GDS/OTA资源治理</a-menu-item>
+          </a-sub-menu>
           <a-menu-item v-if="canSeeMenu('overview')" key="/overview"><template #icon><DashboardOutlined /></template>经营总览</a-menu-item>
           <a-sub-menu v-if="canSeeGroup('analysis')" key="analysis">
             <template #icon><LineChartOutlined /></template>
@@ -94,7 +99,7 @@
           </a-breadcrumb>
         </div>
         <div class="header-actions">
-          <a-tag color="blue">{{ route.path === '/home' ? '数据工作台' : '业务估算利润' }}</a-tag>
+          <a-tag color="blue">{{ headerTag }}</a-tag>
           <a-dropdown placement="bottomRight">
             <div class="user-entry">
               <a-avatar size="small">{{ userInitial }}</a-avatar>
@@ -122,7 +127,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  BarChartOutlined, CustomerServiceOutlined, DashboardOutlined, DatabaseOutlined, HomeOutlined, LineChartOutlined,
+  BarChartOutlined, CustomerServiceOutlined, DashboardOutlined, DatabaseOutlined, DeploymentUnitOutlined, HomeOutlined, LineChartOutlined,
   LockOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, MonitorOutlined, RobotOutlined,
   RadarChartOutlined, SafetyCertificateOutlined, TeamOutlined, WarningOutlined,
 } from '@ant-design/icons-vue'
@@ -137,11 +142,13 @@ const router = useRouter()
 const loggingOut = ref(false)
 const selectedKeys = computed(() => [route.path === '/analysis/profit' ? '/analysis/issue' : route.path])
 const userInitial = computed(() => (authStore.user?.displayName || authStore.user?.username || '数').slice(0, 1))
+const headerTag = computed(() => route.path === '/home' ? '数据工作台' : route.path.startsWith('/resource-governance') ? '资源调用治理' : '业务估算利润')
 const canSeeMenu = (code: string) => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.menuCodes?.includes(code))
 const canSeeGroup = (code: string) => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.menuCodes?.some(item => item === code || item.startsWith(`${code}.`)))
 const openKeys = ref<string[]>([])
 watch(() => route.path, path => {
   openKeys.value = path.startsWith('/analysis') ? ['analysis']
+    : path.startsWith('/resource-governance') ? ['governance']
     : path.startsWith('/risk-analysis') ? ['risk']
       : path.startsWith('/smart-analysis/placement/') ? ['smart', 'smart-placement']
         : path.startsWith('/smart-analysis') ? ['smart', 'smart-overall']

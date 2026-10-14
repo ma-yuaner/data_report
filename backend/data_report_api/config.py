@@ -79,6 +79,9 @@ class Config:
         "AUTH_BOOTSTRAP_ADMIN_DISPLAY_NAME", "系统管理员"
     )
     PERFORMANCE_SLOW_REQUEST_MS = int(os.getenv("PERFORMANCE_SLOW_REQUEST_MS", "500"))
+    RESOURCE_GOVERNANCE_TARGET_RATIO = int(
+        os.getenv("RESOURCE_GOVERNANCE_TARGET_RATIO", "4000")
+    )
 
 
 class TestConfig(Config):
