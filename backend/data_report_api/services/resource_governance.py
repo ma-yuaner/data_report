@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import json
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
@@ -27,8 +28,10 @@ COUNT(1),
 SUM(search_request_count_all), SUM(search_request_success),
 SUM(verify_request_count_all), SUM(verify_request_success),
 SUM(order_request_count_all), SUM(order_request_success),
-{pnr_expression}, SUM(search_cache_count), SUM(search_execute_time),
-SUM(search_request_count)
+{pnr_expression}, {pnr_missing_expression},
+SUM(search_cache_count), SUM(verify_cache_count), SUM(order_cache_count),
+SUM(search_execute_time), SUM(verify_execute_time), SUM(order_execute_time),
+SUM(search_price_change_count), SUM(verify_price_change_count), SUM(order_price_change_count)
 """.strip()
 
 
@@ -84,11 +87,39 @@ def _parse_gds_targets(raw: Any) -> dict[str, int]:
     return targets
 
 
+def _parse_ota_targets(raw: Any) -> dict[str, dict[str, str]]:
+    if isinstance(raw, dict):
+        values = raw
+    else:
+        try:
+            values = json.loads(str(raw or "{}"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return {}
+    if not isinstance(values, dict):
+        return {}
+    targets: dict[str, dict[str, str]] = {}
+    for platform, stages in values.items():
+        if not isinstance(stages, dict) or not str(platform).strip():
+            continue
+        parsed: dict[str, str] = {}
+        for stage in ("search", "verify", "order"):
+            try:
+                target = Decimal(str(stages.get(stage)))
+            except Exception:
+                continue
+            if Decimal(0) <= target <= Decimal(100):
+                parsed[stage] = str(target.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+        if parsed:
+            targets[str(platform).strip()] = parsed
+    return targets
+
+
 def _metric(
     row: tuple[Any, ...],
     pnr_column_available: bool,
     target_ratio: int | None,
     pnr_applicable: bool = True,
+    success_targets: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     row_count = int(row[0] or 0)
     search_requests = int(row[1] or 0)
@@ -98,9 +129,16 @@ def _metric(
     order_requests = int(row[5] or 0)
     order_success = int(row[6] or 0)
     pnr_count = int(row[7]) if pnr_applicable and row[7] is not None else None
-    search_cache = int(row[8] or 0)
-    search_execute_time = int(row[9] or 0)
-    search_effective_requests = int(row[10] or 0)
+    pnr_missing_rows = int(row[8] or 0) if pnr_applicable and row[8] is not None else None
+    search_cache = int(row[9] or 0)
+    verify_cache = int(row[10] or 0)
+    order_cache = int(row[11] or 0)
+    search_execute_time = int(row[12] or 0)
+    verify_execute_time = int(row[13] or 0)
+    order_execute_time = int(row[14] or 0)
+    search_price_change = int(row[15] or 0)
+    verify_price_change = int(row[16] or 0)
+    order_price_change = int(row[17] or 0)
 
     if row_count == 0:
         status = "no_records"
@@ -110,12 +148,15 @@ def _metric(
         status = "pnr_field_missing"
     elif pnr_count is None:
         status = "pnr_data_missing"
+    elif pnr_missing_rows:
+        status = "pnr_partial"
     elif pnr_count == 0 and search_requests > 0:
         status = "denominator_zero"
     else:
         status = "ready"
 
-    excess = None if not pnr_applicable or pnr_count is None or target_ratio is None else max(search_requests - pnr_count * target_ratio, 0)
+    pnr_complete = status in {"ready", "denominator_zero"}
+    excess = None if not pnr_complete or target_ratio is None else max(search_requests - pnr_count * target_ratio, 0)
     return {
         "rowCount": row_count,
         "searchRequests": search_requests,
@@ -125,15 +166,24 @@ def _metric(
         "orderRequests": order_requests,
         "orderSuccess": order_success,
         "pnrCount": pnr_count,
-        "queryToPnrRatio": _ratio(search_requests, pnr_count or 0),
-        "ratioInfinite": bool(pnr_applicable and search_requests > 0 and pnr_count == 0),
+        "pnrMissingRowCount": pnr_missing_rows,
+        "queryToPnrRatio": _ratio(search_requests, pnr_count or 0) if pnr_complete else None,
+        "ratioInfinite": bool(pnr_complete and search_requests > 0 and pnr_count == 0),
         "searchSuccessRate": _rate(search_success, search_requests),
         "verifySuccessRate": _rate(verify_success, verify_requests),
         "orderSuccessRate": _rate(order_success, order_requests),
         "searchCacheRate": _rate(search_cache, search_requests),
-        "avgSearchExecuteTime": _ratio(search_execute_time, search_effective_requests),
+        "verifyCacheRate": _rate(verify_cache, verify_requests),
+        "orderCacheRate": _rate(order_cache, order_requests),
+        "avgSearchExecuteTime": _ratio(search_execute_time, search_requests),
+        "avgVerifyExecuteTime": _ratio(verify_execute_time, verify_requests),
+        "avgOrderExecuteTime": _ratio(order_execute_time, order_requests),
+        "searchPriceChangeRate": _rate(search_price_change, search_success),
+        "verifyPriceChangeRate": _rate(verify_price_change, verify_success),
+        "orderPriceChangeRate": _rate(order_price_change, order_success),
         "excessQueryCount": excess,
         "targetRatio": target_ratio,
+        "successTargets": success_targets or {},
         "status": status,
     }
 
@@ -144,6 +194,7 @@ class ResourceGovernanceService:
         mysql_config["DATA_MODE"] = "mysql"
         self.source = DataSource(mysql_config)
         self.gds_targets = _parse_gds_targets(config.get("RESOURCE_GOVERNANCE_GDS_TARGETS", "1A:4000"))
+        self.ota_targets = _parse_ota_targets(config.get("RESOURCE_GOVERNANCE_OTA_SUCCESS_TARGETS", "{}"))
 
     def overview(
         self,
@@ -174,6 +225,7 @@ class ResourceGovernanceService:
             key: _clean_filter((filters or {}).get(key)) for key in FILTER_FIELDS
         }
         selected_target = self.gds_targets.get(cleaned_filters["gds"].upper()) if pnr_applicable and cleaned_filters["gds"] else None
+        selected_success_targets = self.ota_targets.get(cleaned_filters["platform"], {}) if not pnr_applicable and cleaned_filters["platform"] else {}
 
         result = {
             "source": self.source.label,
@@ -185,12 +237,13 @@ class ResourceGovernanceService:
             "dataSource": {"key": source_key, **DATA_SOURCES[source_key]},
             "targetRatio": selected_target,
             "gdsTargets": self.gds_targets,
+            "otaSuccessTargets": self.ota_targets,
             "pnrApplicable": pnr_applicable,
             "pnrColumnAvailable": False,
             "pnrDataAvailable": False,
             "filters": cleaned_filters,
             "options": {key: [] for key in FILTER_FIELDS},
-            "summary": _metric((0,) + (None,) * 10, False, selected_target, pnr_applicable),
+            "summary": _metric((0,) + (None,) * 17, False, selected_target, pnr_applicable, selected_success_targets),
             "trend": [],
             "dimension": {"key": dimension_key, "label": DIMENSIONS[dimension_key]["label"], "rows": []},
             "notes": (
@@ -219,7 +272,11 @@ class ResourceGovernanceService:
                 )
                 pnr_column_available = bool(int((cursor.fetchone() or (0,))[0] or 0))
             pnr_expression = "SUM(pnr_count)" if pnr_applicable and pnr_column_available else "NULL"
-            metric_select = METRIC_SELECT.format(pnr_expression=pnr_expression)
+            pnr_missing_expression = "SUM(CASE WHEN pnr_count IS NULL THEN 1 ELSE 0 END)" if pnr_applicable and pnr_column_available else "NULL"
+            metric_select = METRIC_SELECT.format(
+                pnr_expression=pnr_expression,
+                pnr_missing_expression=pnr_missing_expression,
+            )
 
             date_params = [first.strftime("%Y%m%d"), last.strftime("%Y%m%d"), DATA_SOURCES[source_key]["value"]]
             base_where = ["operator_date >= %s", "operator_date <= %s", "data_source = %s"]
@@ -242,9 +299,9 @@ class ResourceGovernanceService:
             table = f"{self.source.database}.{TABLE_NAME}"
 
             cursor.execute(f"SELECT {metric_select}, MAX(create_time) FROM {table} WHERE {where_sql}", tuple(parameters))
-            summary_row = cursor.fetchone() or ((0,) + (None,) * 11)
-            summary = _metric(tuple(summary_row[:11]), pnr_column_available, selected_target, pnr_applicable)
-            summary["sourceUpdatedAt"] = summary_row[11].isoformat(sep=" ", timespec="seconds") if isinstance(summary_row[11], datetime) else (str(summary_row[11]) if summary_row[11] else None)
+            summary_row = cursor.fetchone() or ((0,) + (None,) * 18 + (None,))
+            summary = _metric(tuple(summary_row[:18]), pnr_column_available, selected_target, pnr_applicable, selected_success_targets)
+            summary["sourceUpdatedAt"] = summary_row[18].isoformat(sep=" ", timespec="seconds") if isinstance(summary_row[18], datetime) else (str(summary_row[18]) if summary_row[18] else None)
             result["summary"] = summary
 
             cursor.execute(
@@ -253,7 +310,7 @@ class ResourceGovernanceService:
                 tuple(parameters),
             )
             result["trend"] = [
-                {"date": _date_label(row[0]), **_metric(tuple(row[1:]), pnr_column_available, selected_target, pnr_applicable)}
+                {"date": _date_label(row[0]), **_metric(tuple(row[1:]), pnr_column_available, selected_target, pnr_applicable, selected_success_targets)}
                 for row in cursor.fetchall()
             ]
 
@@ -269,14 +326,15 @@ class ResourceGovernanceService:
             for row in cursor.fetchall():
                 value = str(row[0])
                 row_target = self.gds_targets.get(value.upper()) if pnr_applicable and dimension_key == "gds" else selected_target
+                row_success_targets = self.ota_targets.get(value, {}) if not pnr_applicable and dimension_key == "platform" else selected_success_targets
                 dimension_rows.append({
                     "value": value,
                     "name": value,
-                    **_metric(tuple(row[1:]), pnr_column_available, row_target, pnr_applicable),
+                    **_metric(tuple(row[1:]), pnr_column_available, row_target, pnr_applicable, row_success_targets),
                 })
             result["dimension"]["rows"] = dimension_rows
             result["pnrColumnAvailable"] = pnr_column_available
-            result["pnrDataAvailable"] = pnr_applicable and pnr_column_available and summary["pnrCount"] is not None
+            result["pnrDataAvailable"] = pnr_applicable and pnr_column_available and summary["status"] in {"ready", "denominator_zero"}
             result["available"] = True
         except Exception as error:
             logging.getLogger(__name__).exception("GDS/OTA resource governance query failed")

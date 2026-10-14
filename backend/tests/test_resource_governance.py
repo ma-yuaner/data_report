@@ -18,18 +18,19 @@ class ResourceGovernanceTests(unittest.TestCase):
         self.source_patch.start()
         self.addCleanup(self.source_patch.stop)
 
-    def configure_rows(self, *, pnr_column=True, pnr=20, pnr_applicable=True):
+    def configure_rows(self, *, pnr_column=True, pnr=20, pnr_missing=0, pnr_applicable=True):
         summary = (
             3, 100000, 95000, 2000, 1800, 25, 20, pnr,
-            15000, 500000, 90000, datetime(2026, 10, 14, 8, 30),
+            pnr_missing, 15000, 200, 2, 500000, 40000, 5000,
+            0, 18, 1, datetime(2026, 10, 14, 8, 30),
         )
         self.cursor.fetchone.side_effect = (
             [(1 if pnr_column else 0,), summary] if pnr_applicable else [summary]
         )
         self.cursor.fetchall.side_effect = [
             [("携程", "携程一部", "1A", "HKGH228DF", "SEARCH")],
-            [("20261014",) + summary[:11]],
-            [("1A",) + summary[:11]],
+            [("20261014",) + summary[:18]],
+            [(("1A" if pnr_applicable else "携程"),) + summary[:18]],
         ]
 
     def test_gds_overview_uses_real_pnr_and_keeps_layers_separate(self):
@@ -60,20 +61,35 @@ class ResourceGovernanceTests(unittest.TestCase):
         executed_sql = "\n".join(call.args[0] for call in self.cursor.execute.call_args_list)
         self.assertNotIn("SUM(pnr_count)", executed_sql)
         self.assertIn(
-            "SUM(order_request_count_all), SUM(order_request_success),\nNULL, SUM(search_cache_count)",
+            "SUM(order_request_count_all), SUM(order_request_success),\nNULL, NULL,\nSUM(search_cache_count)",
             executed_sql,
         )
 
+    def test_partial_pnr_sync_blocks_ratio_and_excess_calculation(self):
+        self.configure_rows(pnr=20, pnr_missing=1)
+        result = module.ResourceGovernanceService({"RESOURCE_GOVERNANCE_GDS_TARGETS": "1A:4000"}).overview(
+            "2026-10-14", "2026-10-14", data_source="gds", filters={"gds": "1A"},
+        )
+        self.assertEqual(result["summary"]["status"], "pnr_partial")
+        self.assertEqual(result["summary"]["pnrMissingRowCount"], 1)
+        self.assertIsNone(result["summary"]["queryToPnrRatio"])
+        self.assertIsNone(result["summary"]["excessQueryCount"])
+        self.assertFalse(result["pnrDataAvailable"])
+
     def test_ota_layer_rejects_gds_dimension_by_falling_back_to_platform(self):
         self.configure_rows(pnr=None, pnr_applicable=False)
-        result = module.ResourceGovernanceService({}).overview(
-            "2026-10-14", "2026-10-14", data_source="ota", group_by="pcc",
+        result = module.ResourceGovernanceService({
+            "RESOURCE_GOVERNANCE_OTA_SUCCESS_TARGETS": '{"携程":{"search":96,"verify":95,"order":90}}',
+        }).overview(
+            "2026-10-14", "2026-10-14", data_source="ota", group_by="pcc", filters={"platform": "携程"},
         )
         self.assertEqual(result["dimension"]["key"], "platform")
         self.assertFalse(result["pnrApplicable"])
         self.assertEqual(result["summary"]["status"], "not_applicable")
         self.assertIsNone(result["summary"]["pnrCount"])
         self.assertIsNone(result["summary"]["queryToPnrRatio"])
+        self.assertEqual(result["summary"]["successTargets"]["search"], "96.00")
+        self.assertEqual(result["dimension"]["rows"][0]["successTargets"]["order"], "90.00")
         dimension_sql = self.cursor.execute.call_args_list[-1].args[0]
         self.assertIn("GROUP BY ota_code", dimension_sql)
         self.assertEqual(self.cursor.execute.call_args_list[-1].args[1][2], 0)

@@ -24,16 +24,25 @@ export interface GovernanceMetric {
   orderRequests: number
   orderSuccess: number
   pnrCount: number | null
+  pnrMissingRowCount: number | null
   queryToPnrRatio: string | null
   ratioInfinite: boolean
   searchSuccessRate: string | null
   verifySuccessRate: string | null
   orderSuccessRate: string | null
   searchCacheRate: string | null
+  verifyCacheRate: string | null
+  orderCacheRate: string | null
   avgSearchExecuteTime: string | null
+  avgVerifyExecuteTime: string | null
+  avgOrderExecuteTime: string | null
+  searchPriceChangeRate: string | null
+  verifyPriceChangeRate: string | null
+  orderPriceChangeRate: string | null
   excessQueryCount: number | null
   targetRatio: number | null
-  status: 'no_records' | 'not_applicable' | 'pnr_field_missing' | 'pnr_data_missing' | 'denominator_zero' | 'ready'
+  successTargets: Partial<Record<'search' | 'verify' | 'order', string>>
+  status: 'no_records' | 'not_applicable' | 'pnr_field_missing' | 'pnr_data_missing' | 'pnr_partial' | 'denominator_zero' | 'ready'
   sourceUpdatedAt?: string | null
 }
 
@@ -47,6 +56,7 @@ export interface GovernanceData {
   dataSource: { key: GovernanceLayer; value: number; label: string }
   targetRatio: number | null
   gdsTargets: Record<string, number>
+  otaSuccessTargets: Record<string, Partial<Record<'search' | 'verify' | 'order', string>>>
   pnrApplicable: boolean
   pnrColumnAvailable: boolean
   pnrDataAvailable: boolean

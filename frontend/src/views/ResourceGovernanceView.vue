@@ -10,7 +10,7 @@
 
     <section class="scope-panel">
       <div class="section-heading">
-        <div><h2>统计范围</h2><span>默认本月 · 先选分析层，再按业务维度下钻</span></div>
+        <div><h2>统计范围</h2><span>默认本月 · 当前模块数据层固定，支持按业务维度下钻</span></div>
         <a-tag color="blue">{{ layerLabel(draft.dataSource) }}</a-tag>
       </div>
       <div class="period-line">
@@ -41,8 +41,13 @@
     <a-alert v-if="error || data?.error" class="state-alert" type="error" show-icon :message="error || data?.error" />
     <a-alert v-else-if="isGds && data?.available && !data.pnrColumnAvailable" class="state-alert" type="warning" show-icon
       message="有效PNR字段尚未接入" description="当前页面已展示查询、验价和生单接口指标；在bi_ota_gds_request_day增加pnr_count并完成同步后，查定比自动生效。" />
+    <a-alert v-else-if="isGds && data?.summary.status === 'pnr_partial'" class="state-alert" type="warning" show-icon
+      message="所选范围的有效PNR只完成了部分同步"
+      :description="`仍有 ${integer(data.summary.pnrMissingRowCount)} 条GDS汇总记录缺少pnr_count；为避免分母偏小，当前不计算查定比和超额查询。`" />
     <a-alert v-else-if="isGds && data?.available && data.pnrColumnAvailable && !data.pnrDataAvailable" class="state-alert" type="warning" show-icon
       message="pnr_count字段已存在，但所选范围尚未同步有效PNR" description="有效PNR显示为—，不会使用order_request_success替代，也不会把缺失数据当成0。" />
+    <a-alert v-else-if="!isGds && applied.platform && !hasOtaTarget(data?.summary)" class="state-alert" type="info" show-icon
+      message="该平台尚未配置接口成功率目标" description="当前继续展示实际成功率，但不会标记达标或异常；配置平台目标后自动生效。" />
 
     <a-spin :spinning="loading" tip="正在查询GDS/OTA资源指标">
       <section class="governance-hero">
@@ -74,10 +79,22 @@
           <article><span>查询成功量</span><strong>{{ integer(data?.summary.searchSuccess) }}</strong><small>成功率 {{ percent(data?.summary.searchSuccessRate) }}</small></article>
           <article><span>验价请求量</span><strong>{{ integer(data?.summary.verifyRequests) }}</strong><small>渠道验价接口调用</small></article>
         </template>
-        <article><span>查询成功率</span><strong>{{ percent(data?.summary.searchSuccessRate) }}</strong><small>{{ integer(data?.summary.searchSuccess) }} 次成功</small></article>
-        <article><span>验价成功率</span><strong>{{ percent(data?.summary.verifySuccessRate) }}</strong><small>{{ integer(data?.summary.verifyRequests) }} 次验价调用</small></article>
+        <article><span>查询成功率</span><strong :class="rateClass(data?.summary, 'search')">{{ percent(data?.summary.searchSuccessRate) }}</strong><small>{{ targetLabel(data?.summary, 'search', `${integer(data?.summary.searchSuccess)} 次成功`) }}</small></article>
+        <article><span>验价成功率</span><strong :class="rateClass(data?.summary, 'verify')">{{ percent(data?.summary.verifySuccessRate) }}</strong><small>{{ targetLabel(data?.summary, 'verify', `${integer(data?.summary.verifyRequests)} 次验价调用`) }}</small></article>
         <article><span>生单接口成功</span><strong>{{ integer(data?.summary.orderSuccess) }}</strong><small>{{ isGds ? '接口成功，不等同有效PNR' : `成功率 ${percent(data?.summary.orderSuccessRate)}` }}</small></article>
       </div>
+
+      <section class="quality-strip">
+        <div class="quality-heading"><strong>调用质量指标</strong><span>基于汇总基础量重新计算，不平均源表比率</span></div>
+        <div class="quality-grid">
+          <article><span>查询缓存命中率</span><strong>{{ percent(data?.summary.searchCacheRate) }}</strong></article>
+          <article><span>验价缓存命中率</span><strong>{{ percent(data?.summary.verifyCacheRate) }}</strong></article>
+          <article><span>平均查询耗时</span><strong>{{ milliseconds(data?.summary.avgSearchExecuteTime) }}</strong></article>
+          <article><span>平均验价耗时</span><strong>{{ milliseconds(data?.summary.avgVerifyExecuteTime) }}</strong></article>
+          <article><span>验价变价率</span><strong>{{ percent(data?.summary.verifyPriceChangeRate) }}</strong></article>
+          <article><span>生单变价率</span><strong>{{ percent(data?.summary.orderPriceChangeRate) }}</strong></article>
+        </div>
+      </section>
 
       <div class="charts-grid">
         <a-card :bordered="false" class="analysis-panel">
@@ -86,7 +103,7 @@
           <a-empty v-else description="所选范围暂无趋势数据" />
         </a-card>
         <a-card :bordered="false" class="analysis-panel">
-          <template #title><div class="panel-title"><div><strong>接口链路转化</strong><small>{{ isGds ? '接口成功与实际PNR分开展示' : 'OTA层不计算PNR与查定比' }}</small></div></div></template>
+          <template #title><div class="panel-title"><div><strong>接口调用规模与成功情况</strong><small>各接口独立统计，不作为同一批请求的转化漏斗</small></div></div></template>
           <div class="funnel-list">
             <div v-for="stage in funnel" :key="stage.label" class="funnel-row">
               <div><span>{{ stage.label }}</span><strong>{{ nullableCount(stage.value) }}</strong></div>
@@ -115,10 +132,11 @@
             <template v-else-if="column.key === 'searchSuccess'">{{ integer(record.searchSuccess) }}</template>
             <template v-else-if="column.key === 'pnr'">{{ nullableCount(record.pnrCount) }}</template>
             <template v-else-if="column.key === 'excess'">{{ nullableCount(record.excessQueryCount) }}</template>
-            <template v-else-if="column.key === 'searchRate'">{{ percent(record.searchSuccessRate) }}</template>
-            <template v-else-if="column.key === 'verifyRate'">{{ percent(record.verifySuccessRate) }}</template>
+            <template v-else-if="column.key === 'searchRate'"><strong :class="rateClass(record, 'search')">{{ percent(record.searchSuccessRate) }}</strong></template>
+            <template v-else-if="column.key === 'verifyRate'"><strong :class="rateClass(record, 'verify')">{{ percent(record.verifySuccessRate) }}</strong></template>
             <template v-else-if="column.key === 'verify'">{{ integer(record.verifyRequests) }}</template>
-            <template v-else-if="column.key === 'orderRate'">{{ percent(record.orderSuccessRate) }}</template>
+            <template v-else-if="column.key === 'orderRate'"><strong :class="rateClass(record, 'order')">{{ percent(record.orderSuccessRate) }}</strong></template>
+            <template v-else-if="column.key === 'successTarget'">{{ otaTargetSummary(record) }}</template>
             <template v-else-if="column.key === 'order'">{{ integer(record.orderRequests) }}</template>
             <template v-else-if="column.key === 'action'"><a-button type="link" size="small" @click="openAnalysis(record)">分析此项</a-button></template>
           </template>
@@ -128,10 +146,14 @@
 
     <div class="notes"><InfoCircleOutlined /><div><strong>当前版本边界</strong><p v-for="note in data?.notes || []" :key="note">{{ note }}</p></div></div>
 
-    <a-drawer v-model:open="drawerOpen" width="980" :title="drawerTitle">
+    <a-drawer v-model:open="drawerOpen" width="1080" :title="drawerTitle">
+      <template #extra><a-button v-if="analysisHistory.length > 1" type="link" @click="backAnalysis">返回上一级</a-button></template>
       <a-alert v-if="drawerError" class="state-alert" type="error" show-icon :message="drawerError" />
       <a-spin :spinning="drawerLoading" tip="正在分析该资源">
-        <div class="drawer-scope"><span>{{ analysisData?.period.startDate }} 至 {{ analysisData?.period.endDate }}</span><strong>{{ drawerScope }}</strong></div>
+        <div class="drawer-scope">
+          <span>{{ analysisData?.period.startDate }} 至 {{ analysisData?.period.endDate }}</span>
+          <div><a-tag color="blue">{{ layerLabel(applied.dataSource) }}</a-tag><a-tag v-for="tag in analysisScopeTags" :key="tag">{{ tag }}</a-tag></div>
+        </div>
         <div class="drawer-kpis">
           <article><span>查询量</span><strong>{{ integer(analysisData?.summary.searchRequests) }}</strong></article>
           <template v-if="isGds">
@@ -145,7 +167,34 @@
             <article><span>生单成功</span><strong>{{ integer(analysisData?.summary.orderSuccess) }}</strong></article>
           </template>
         </div>
-        <a-table class="daily-table" :columns="dailyColumns" :data-source="analysisData?.trend || []" row-key="date" :pagination="{ pageSize: 20 }" :scroll="{ x: 880 }" :locale="{ emptyText: '该资源暂无每日数据' }">
+        <div class="analysis-switch"><a-segmented v-model:value="analysisView" :options="[{ label: '定位问题', value: 'dimension' }, { label: '日汇总', value: 'daily' }]" /></div>
+        <template v-if="analysisView === 'dimension'">
+          <div class="analysis-toolbar">
+            <div><strong>继续定位问题维度</strong><small>当前条件会一直保留，选择下一层维度继续下钻</small></div>
+            <a-segmented v-if="analysisDimensionOptions.length" v-model:value="analysisGroup" :options="analysisDimensionOptions" @change="changeAnalysisDimension" />
+            <a-tag v-else color="green">已到当前汇总表最细维度</a-tag>
+          </div>
+          <a-table class="daily-table" :columns="dimensionColumns" :data-source="analysisData?.dimension.rows || []" row-key="value"
+            :pagination="{ pageSize: 20, showTotal: (total: number) => `共 ${total} 项` }" :scroll="{ x: 1120 }" :locale="{ emptyText: '当前条件下暂无可继续分析的数据' }">
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'name'"><div class="resource-name"><strong>{{ record.name }}</strong><small>{{ analysisData?.dimension.label }}</small></div></template>
+              <template v-else-if="column.key === 'ratio'"><strong :class="ratioClass(record)">{{ ratioText(record) }}</strong></template>
+              <template v-else-if="column.key === 'target'">{{ record.targetRatio == null ? '未配置' : `${integer(record.targetRatio)} : 1` }}</template>
+              <template v-else-if="column.key === 'search'">{{ integer(record.searchRequests) }}</template>
+              <template v-else-if="column.key === 'searchSuccess'">{{ integer(record.searchSuccess) }}</template>
+              <template v-else-if="column.key === 'pnr'">{{ nullableCount(record.pnrCount) }}</template>
+              <template v-else-if="column.key === 'excess'">{{ nullableCount(record.excessQueryCount) }}</template>
+              <template v-else-if="column.key === 'searchRate'"><strong :class="rateClass(record, 'search')">{{ percent(record.searchSuccessRate) }}</strong></template>
+              <template v-else-if="column.key === 'verifyRate'"><strong :class="rateClass(record, 'verify')">{{ percent(record.verifySuccessRate) }}</strong></template>
+              <template v-else-if="column.key === 'verify'">{{ integer(record.verifyRequests) }}</template>
+              <template v-else-if="column.key === 'orderRate'"><strong :class="rateClass(record, 'order')">{{ percent(record.orderSuccessRate) }}</strong></template>
+              <template v-else-if="column.key === 'successTarget'">{{ otaTargetSummary(record) }}</template>
+              <template v-else-if="column.key === 'order'">{{ integer(record.orderRequests) }}</template>
+              <template v-else-if="column.key === 'action'"><a-button type="link" size="small" @click="continueAnalysis(record)">{{ hasNextAnalysisDimension ? '继续分析' : '锁定此项' }}</a-button></template>
+            </template>
+          </a-table>
+        </template>
+        <a-table v-else class="daily-table" :columns="dailyColumns" :data-source="analysisData?.trend || []" row-key="date" :pagination="{ pageSize: 20 }" :scroll="{ x: 880 }" :locale="{ emptyText: '该资源暂无每日数据' }">
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'search'">{{ integer(record.searchRequests) }}</template>
             <template v-else-if="column.key === 'searchSuccess'">{{ integer(record.searchSuccess) }} / {{ percent(record.searchSuccessRate) }}</template>
@@ -207,7 +256,21 @@ const integer = (value?: number | null) => value == null ? '—' : new Intl.Numb
 const compact = (value?: number | null) => value == null ? '—' : new Intl.NumberFormat('zh-CN', { notation: 'compact', maximumFractionDigits: 2 }).format(value)
 const nullableCount = (value?: number | null) => value == null ? '—' : integer(value)
 const percent = (value?: string | null) => value == null ? '—' : `${Number(value).toFixed(2)}%`
+const milliseconds = (value?: string | null) => value == null ? '—' : `${new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(Number(value))} ms`
 const ratioText = (metric?: GovernanceMetric) => metric?.ratioInfinite ? '∞' : metric?.queryToPnrRatio == null ? '—' : `${integer(Math.round(Number(metric.queryToPnrRatio)))} : 1`
+type SuccessStage = 'search' | 'verify' | 'order'
+const successRate = (metric: GovernanceMetric | undefined, stage: SuccessStage) => stage === 'search' ? metric?.searchSuccessRate : stage === 'verify' ? metric?.verifySuccessRate : metric?.orderSuccessRate
+const hasOtaTarget = (metric?: GovernanceMetric) => Boolean(metric && Object.keys(metric.successTargets || {}).length)
+const rateClass = (metric: GovernanceMetric | undefined, stage: SuccessStage) => {
+  const target = metric?.successTargets?.[stage]
+  const actual = successRate(metric, stage)
+  return { danger: target != null && actual != null && Number(actual) < Number(target), healthy: target != null && actual != null && Number(actual) >= Number(target) }
+}
+const targetLabel = (metric: GovernanceMetric | undefined, stage: SuccessStage, fallback: string) => metric?.successTargets?.[stage] == null ? fallback : `目标 ≥ ${percent(metric.successTargets[stage])}`
+const otaTargetSummary = (metric: GovernanceMetric) => {
+  if (!hasOtaTarget(metric)) return '未配置'
+  return `查 ${percent(metric.successTargets.search)} · 验 ${percent(metric.successTargets.verify)} · 单 ${percent(metric.successTargets.order)}`
+}
 const ratioClass = (metric?: GovernanceMetric) => {
   const target = metric?.targetRatio ?? data.value?.targetRatio
   return {
@@ -228,6 +291,7 @@ const heroTitle = computed(() => {
   if (!summary || summary.status === 'no_records') return '当前范围暂无资源调用数据'
   if (!isGds.value) return '当前为OTA渠道接口链路分析'
   if (summary.status === 'pnr_field_missing' || summary.status === 'pnr_data_missing') return '查询链路已接入，有效PNR待补齐'
+  if (summary.status === 'pnr_partial') return '有效PNR同步不完整，暂不输出查定比'
   if (summary.ratioInfinite) return '存在查询但没有实际有效PNR'
   if (data.value?.targetRatio == null) return applied.value.gds ? '当前GDS尚未配置治理目标' : '请选择具体GDS查看目标达标情况'
   if (Number(summary.queryToPnrRatio) > data.value.targetRatio) return '当前查定比高于阶段治理目标'
@@ -244,17 +308,11 @@ const heroDescription = computed(() => {
 
 const funnel = computed(() => {
   const summary = data.value?.summary
-  const base = Math.max(summary?.searchRequests || 0, 1)
-  if (!isGds.value) return [
-    { label: '查询调用', value: summary?.searchRequests ?? 0, percent: 100, color: '#3278c8', note: `成功 ${integer(summary?.searchSuccess)} · ${percent(summary?.searchSuccessRate)}` },
-    { label: '验价调用', value: summary?.verifyRequests ?? 0, percent: Math.min(100, Math.round((summary?.verifyRequests || 0) / base * 100)), color: '#e19337', note: `成功 ${integer(summary?.verifySuccess)} · ${percent(summary?.verifySuccessRate)}` },
-    { label: '生单接口调用', value: summary?.orderRequests ?? 0, percent: Math.min(100, Math.round((summary?.orderRequests || 0) / base * 100)), color: '#8067c9', note: `成功 ${integer(summary?.orderSuccess)} · ${percent(summary?.orderSuccessRate)}` },
-  ]
+  const progress = (value?: string | null) => value == null ? 0 : Math.min(100, Math.max(0, Number(value)))
   return [
-    { label: '查询调用', value: summary?.searchRequests ?? 0, percent: 100, color: '#3278c8', note: `成功率 ${percent(summary?.searchSuccessRate)}` },
-    { label: '验价调用', value: summary?.verifyRequests ?? 0, percent: Math.min(100, Math.round((summary?.verifyRequests || 0) / base * 100)), color: '#e19337', note: `成功率 ${percent(summary?.verifySuccessRate)}` },
-    { label: '生单接口调用', value: summary?.orderRequests ?? 0, percent: Math.min(100, Math.round((summary?.orderRequests || 0) / base * 100)), color: '#8067c9', note: `接口成功 ${integer(summary?.orderSuccess)}` },
-    { label: '实际有效PNR', value: summary?.pnrCount, percent: summary?.pnrCount == null ? 0 : Math.min(100, Math.max(1, Math.round(summary.pnrCount / base * 100))), color: '#2a9b78', note: '最终业务结果 · 正式分母' },
+    { label: '查询接口', value: summary?.searchRequests ?? 0, percent: progress(summary?.searchSuccessRate), color: '#3278c8', note: `成功 ${integer(summary?.searchSuccess)} · 成功率 ${percent(summary?.searchSuccessRate)}` },
+    { label: '验价接口', value: summary?.verifyRequests ?? 0, percent: progress(summary?.verifySuccessRate), color: '#e19337', note: `成功 ${integer(summary?.verifySuccess)} · 成功率 ${percent(summary?.verifySuccessRate)}` },
+    { label: '生单接口', value: summary?.orderRequests ?? 0, percent: progress(summary?.orderSuccessRate), color: '#8067c9', note: `成功 ${integer(summary?.orderSuccess)} · 成功率 ${percent(summary?.orderSuccessRate)}` },
   ]
 })
 
@@ -312,6 +370,7 @@ const otaDimensionColumns = [
   { title: '验价成功率', key: 'verifyRate', width: 120 },
   { title: '生单请求量', key: 'order', width: 120 },
   { title: '生单成功率', key: 'orderRate', width: 120 },
+  { title: '平台成功率要求', key: 'successTarget', width: 235 },
   { title: '操作', key: 'action', fixed: 'right' as const, width: 100 },
 ]
 const dimensionColumns = computed(() => isGds.value ? gdsDimensionColumns : otaDimensionColumns)
@@ -364,22 +423,71 @@ const drawerOpen = ref(false)
 const drawerLoading = ref(false)
 const drawerError = ref('')
 const drawerTitle = ref('资源日汇总')
-const drawerScope = ref('')
 const analysisData = ref<GovernanceData>()
+const analysisScope = ref<GovernanceScope>({ ...applied.value })
+const analysisHistory = ref<GovernanceScope[]>([])
+const analysisView = ref<'dimension' | 'daily'>('dimension')
+const analysisGroup = ref<GovernanceDimension>('gds')
 let drawerRequestId = 0
-async function openAnalysis(record: { value: string; name: string }) {
+const dimensionsForLayer = (layer: GovernanceLayer) => layer === 'gds' ? gdsDimensions : otaDimensions
+const nextAnalysisGroup = (scope: GovernanceScope, after?: GovernanceDimension) => {
+  const available = dimensionsForLayer(scope.dataSource).map(item => item.value as GovernanceDimension).filter(key => !scope[key])
+  if (!available.length) return undefined
+  const order = dimensionsForLayer(scope.dataSource).map(item => item.value as GovernanceDimension)
+  const afterIndex = after ? order.indexOf(after) : -1
+  return available.find(key => order.indexOf(key) > afterIndex) || available[0]
+}
+const analysisDimensionOptions = computed(() => dimensionsForLayer(analysisScope.value.dataSource).filter(item => !analysisScope.value[item.value as GovernanceDimension]))
+const hasNextAnalysisDimension = computed(() => analysisDimensionOptions.value.length > 1)
+const analysisScopeTags = computed(() => [
+  analysisScope.value.platform && `平台：${analysisScope.value.platform}`,
+  analysisScope.value.site && `站点：${analysisScope.value.site}`,
+  analysisScope.value.gds && `GDS：${analysisScope.value.gds}`,
+  analysisScope.value.pcc && `PCC：${analysisScope.value.pcc}`,
+  analysisScope.value.apiGroup && `接口组：${analysisScope.value.apiGroup}`,
+].filter(Boolean) as string[])
+
+async function loadAnalysis(scope: GovernanceScope) {
   const id = ++drawerRequestId
-  const dimension = applied.value.groupBy
-  const scope = { ...applied.value, [dimension]: record.value }
-  drawerTitle.value = `${record.name} · ${data.value?.dimension.label || '资源'}分析`
-  drawerScope.value = `${layerLabel(scope.dataSource)} · ${data.value?.dimension.label}：${record.name}`
-  drawerOpen.value = true
+  analysisScope.value = { ...scope }
+  analysisGroup.value = scope.groupBy
   drawerLoading.value = true
   drawerError.value = ''
   analysisData.value = undefined
   try { const result = await fetchResourceGovernance(scope); if (id === drawerRequestId) { analysisData.value = result; drawerError.value = result.error } }
   catch (failure) { if (id === drawerRequestId) drawerError.value = failure instanceof Error ? failure.message : '资源分析失败' }
   finally { if (id === drawerRequestId) drawerLoading.value = false }
+}
+async function openAnalysis(record: { value: string; name: string }) {
+  const dimension = applied.value.groupBy
+  const scope = { ...applied.value, [dimension]: record.value }
+  scope.groupBy = nextAnalysisGroup(scope, dimension) || dimension
+  drawerTitle.value = `${record.name} · ${data.value?.dimension.label || '资源'}分析`
+  drawerOpen.value = true
+  analysisView.value = nextAnalysisGroup(scope) ? 'dimension' : 'daily'
+  analysisHistory.value = [{ ...scope }]
+  await loadAnalysis(scope)
+}
+async function changeAnalysisDimension(value: string | number) {
+  const scope = { ...analysisScope.value, groupBy: String(value) as GovernanceDimension }
+  analysisHistory.value[analysisHistory.value.length - 1] = { ...scope }
+  await loadAnalysis(scope)
+}
+async function continueAnalysis(record: { value: string; name: string }) {
+  const current = analysisData.value?.dimension.key || analysisGroup.value
+  const scope = { ...analysisScope.value, [current]: record.value }
+  const next = nextAnalysisGroup(scope, current)
+  scope.groupBy = next || current
+  analysisHistory.value.push({ ...scope })
+  if (!next) analysisView.value = 'daily'
+  await loadAnalysis(scope)
+}
+async function backAnalysis() {
+  if (analysisHistory.value.length <= 1) return
+  analysisHistory.value.pop()
+  const previous = analysisHistory.value[analysisHistory.value.length - 1]
+  analysisView.value = 'dimension'
+  await loadAnalysis({ ...previous })
 }
 
 onMounted(() => { void load({ ...draft.value }) })
@@ -423,6 +531,13 @@ watch(() => route.meta.governanceLayer, () => {
 .kpi-grid span, .kpi-grid small { display: block; color: #8a96a8; font-size: 10px; }
 .kpi-grid strong { display: block; margin: 12px 0 10px; color: #25364e; font-size: clamp(18px, 1.7vw, 25px); white-space: nowrap; }
 .kpi-grid strong.orange { color: #c8782c; }
+.quality-strip { margin-bottom: 15px; padding: 16px 18px; border: 1px solid #e3e9f1; border-radius: 12px; background: #fff; }
+.quality-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 13px; color: #33465f; }
+.quality-heading span { color: #929dae; font-size: 10px; }
+.quality-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+.quality-grid article { padding: 11px 13px; border-radius: 9px; background: #f6f8fb; }
+.quality-grid span { display: block; color: #8996a8; font-size: 10px; }
+.quality-grid strong { display: block; margin-top: 7px; color: #30425b; font-size: 15px; }
 .charts-grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(320px, .85fr); gap: 15px; margin-bottom: 15px; }
 .analysis-panel { min-width: 0; border: 1px solid #e3e9f1; border-radius: 12px; }
 .analysis-panel :deep(.ant-card-head) { min-height: 58px; border-color: #edf1f5; }
@@ -443,13 +558,17 @@ watch(() => route.meta.governanceLayer, () => {
 .notes { display: flex; gap: 10px; padding: 17px 2px; color: #8291a6; font-size: 11px; line-height: 1.7; }
 .notes p { margin: 4px 0 0; }
 .drawer-scope { display: flex; justify-content: space-between; gap: 14px; margin-bottom: 14px; padding: 13px 15px; border-radius: 9px; color: #728096; background: #f5f8fb; font-size: 11px; }
-.drawer-scope strong { color: #34465f; }
+.drawer-scope > div { display: flex; justify-content: flex-end; gap: 5px; flex-wrap: wrap; }
 .drawer-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 15px; }
 .drawer-kpis article { padding: 15px; border: 1px solid #e3e9f1; border-radius: 10px; }
 .drawer-kpis span { display: block; color: #8b97a8; font-size: 10px; }
 .drawer-kpis strong { display: block; margin-top: 9px; color: #2c3d55; font-size: 20px; }
+.analysis-switch { display: flex; justify-content: center; margin: 4px 0 16px; }
+.analysis-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 12px; }
+.analysis-toolbar > div { display: grid; gap: 4px; color: #34465f; }
+.analysis-toolbar small { color: #8b97a8; font-size: 10px; }
 .daily-table { border: 1px solid #e5eaf1; border-radius: 10px; overflow: hidden; }
-@media (max-width: 1250px) { .kpi-grid { grid-template-columns: repeat(3, 1fr); } .filter-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 1250px) { .kpi-grid { grid-template-columns: repeat(3, 1fr); } .quality-grid { grid-template-columns: repeat(3, 1fr); } .filter-grid { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 900px) { .charts-grid { grid-template-columns: 1fr; } .filter-grid { grid-template-columns: repeat(2, 1fr); } .dimension-header { align-items: flex-start; flex-direction: column; } .governance-hero { grid-template-columns: 1fr; } .hero-ratio { padding: 15px 0 0; border-top: 1px solid rgb(255 255 255 / 20%); border-left: 0; text-align: left; } }
-@media (max-width: 600px) { .scope-panel { padding: 15px 12px; } .section-heading, .scope-actions { align-items: flex-start; flex-direction: column; } .filter-grid, .kpi-grid, .drawer-kpis { grid-template-columns: 1fr 1fr; } .date-fields :deep(.ant-picker) { width: 126px; } }
+@media (max-width: 600px) { .scope-panel { padding: 15px 12px; } .section-heading, .scope-actions, .quality-heading, .analysis-toolbar, .drawer-scope { align-items: flex-start; flex-direction: column; } .filter-grid, .kpi-grid, .quality-grid, .drawer-kpis { grid-template-columns: 1fr 1fr; } .date-fields :deep(.ant-picker) { width: 126px; } }
 </style>
