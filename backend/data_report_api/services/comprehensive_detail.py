@@ -30,6 +30,7 @@ class DetailSpec:
     site_filters: tuple[tuple[str, int], ...]
     airline_field: str
     policy_field: str
+    product_field: str
     columns: tuple[DetailColumn, ...]
     base_condition: str | None = None
 
@@ -56,6 +57,7 @@ DETAIL_SPECS = {
         site_filters=(("src.ota_code", 0), ("src.ota_site_code", 1), ("src.ota_site_cname", 2)),
         airline_field="air_line",
         policy_field="policy_operator",
+        product_field="product_type",
         columns=(
             column("issueDate", "出票日期", "DATE(src.operator_date)", "date", 115, raw=True),
             column("otaOrderNo", "OTA订单号", "ota_order_no", width=150),
@@ -92,6 +94,7 @@ DETAIL_SPECS = {
         site_filters=(("src.ota_code", 0), ("src.ota_site_code", 1), ("src.ota_site_cname", 2)),
         airline_field="air_line",
         policy_field="policy_operator",
+        product_field="ticket_product_raw",
         columns=(
             column("businessDate", "业务日期", "DATE(src.change_issue_time)", "date", 115, raw=True),
             column("otaOrderNo", "OTA订单号", "ota_order_no", width=150),
@@ -117,6 +120,7 @@ DETAIL_SPECS = {
         site_filters=(("src.ota_code", 0), ("src.ota_site_code", 1), ("src.ota_site_cname", 2)),
         airline_field="marketing_airline_s",
         policy_field="policy_operator",
+        product_field="ticket_product_raw",
         columns=(
             column("businessDate", "业务日期", "DATE(src.apply_datetime)", "date", 115, raw=True),
             column("otaOrderNo", "OTA订单号", "ota_order_no", width=150),
@@ -146,6 +150,7 @@ DETAIL_SPECS = {
         site_filters=(("src.ota_code", 0), ("src.ota_site_code", 1), ("src.ota_site_cname", 2)),
         airline_field="air_line",
         policy_field="policy_operator",
+        product_field="ticket_product_raw",
         columns=(
             column("businessDate", "业务日期", "DATE(src.create_time)", "date", 115, raw=True),
             column("entryDate", "进单日期", "create_time", "datetime", 175),
@@ -221,13 +226,13 @@ def build_detail_queries(
         "platform": spec.platform_filters,
         "site": spec.site_filters,
         "airline": ((f"src.{spec.airline_field}", 0),),
-        # The ADS product token carries its OTA namespace plus the normalized
-        # ticket product.  All four MySQL detail tables receive this derived
-        # field from the same Hive rule used by the ADS ETL.
+        # The ADS product token carries its OTA namespace plus the ticket
+        # product. MySQL wide tables expose that value under a business-
+        # specific source field (issue currently uses product_type).
         "product": (
             ("src.ota_code", 0),
             ("src.ota_cname", 1),
-            ("src.ticket_product_raw", 2),
+            (f"src.{spec.product_field}", 2),
         ),
         "policy": ((f"src.{spec.policy_field}", 0),),
     }
@@ -265,9 +270,9 @@ def serialize_value(value: Any, value_type: str) -> str | int | None:
     return str(value)
 
 
-def missing_product_column(error: Exception) -> bool:
+def missing_product_column(error: Exception, product_field: str) -> bool:
     detail = " ".join(str(item) for item in getattr(error, "args", ())).lower()
-    return "ticket_product_raw" in detail and (
+    return product_field.lower() in detail and (
         "unknown column" in detail or "不存在" in detail or "1054" in detail
     )
 
@@ -352,10 +357,12 @@ class ComprehensiveDetailService:
             return response
         except Exception as error:
             logging.getLogger(__name__).exception("MySQL comprehensive detail query failed")
-            if "product" in parsed_filters and missing_product_column(error):
+            if "product" in parsed_filters and missing_product_column(
+                error, spec.product_field
+            ):
                 response["error"] = (
-                    "MySQL宽表尚未完成统一机票产品同步，请先执行字段DDL并回补"
-                    "ticket_product_raw后再按产品下钻。"
+                    f"MySQL宽表缺少产品字段{spec.product_field}，"
+                    "请检查宽表结构与同步任务后再按产品下钻。"
                 )
             else:
                 response["error"] = "宽表明细查询失败，请检查MySQL连接、源表字段与当前筛选条件。"
