@@ -31,6 +31,7 @@
 bi_ota_gds_request_day（日ADS，含GDS航段数seg_num）
   → monitor_resource_governance_daily.py（每天统一检查全部资源规则）
   → monitor_alert_event / monitor_rule_run_stat
+  → monitor_resource_event_lifecycle.py（每10分钟检查处理期限并升级）
   → monitor_notify_outbox
   → 站内事件 / 企业微信
 ```
@@ -47,7 +48,8 @@ bi_ota_gds_request_day（日ADS，含GDS航段数seg_num）
 4. 手工串行执行特征采集、规则匹配、通知发送各一次。
 5. 核实 `monitor_run_log` 三类任务均成功后，再建立一分钟串行调度。
 6. 新链路稳定前保留旧表和旧脚本；迁移完成后关闭旧通知任务，避免群消息重复。
-7. 资源治理日任务在ADS及航段数同步完成后每天运行一次，再串行执行通知发送器；页面运行日志显示`RESOURCE_DAILY`。
+7. 资源治理日任务在ADS及航段数同步完成后每天运行一次；另将资源事件生命周期任务设为每10分钟运行，再串行执行通知发送器；页面运行日志分别显示`RESOURCE_DAILY`和`RESOURCE_LIFECYCLE`。
+8. 已有环境执行[resource-governance-event-lifecycle-v4.sql](../../sql/resource-governance-event-lifecycle-v4.sql)，补齐责任人、处理时限、观察期、升级级别和通知阶段幂等键。
 
 ## 4. 上线前必须确认
 

@@ -26,6 +26,7 @@ RUN_TABLE = "monitor_run_log"
 EVENT_TABLE = "monitor_alert_event"
 OUTBOX_TABLE = "monitor_notify_outbox"
 EVENT_LOG_TABLE = "monitor_event_operation_log"
+EVENT_POLICY_TABLE = "monitor_event_lifecycle_policy"
 FEATURE_TABLE = "rt_order_monitor_feature"
 RULE_STAT_TABLE = "monitor_rule_run_stat"
 NOTIFY_ENDPOINT_TABLE = "monitor_notify_endpoint"
@@ -42,7 +43,16 @@ MANUAL_RULE_TEMPLATES = frozenset({
 })
 RESOURCE_RULE_TEMPLATES = frozenset({"GDS_QUERY_RATIO_DAILY", "OTA_SUCCESS_RATE_DAILY"})
 RULE_STATUSES = frozenset({"SCHEDULED", "ACTIVE", "PAUSED", "EXPIRED", "DISABLED"})
-EVENT_STATUSES = frozenset({"OPEN", "ACKNOWLEDGED", "RESOLVED", "IGNORED", "CLOSED"})
+EVENT_STATUSES = frozenset({
+    "OPEN", "ACKNOWLEDGED", "OBSERVING", "ESCALATED",
+    "RESOLVED", "IGNORED", "CLOSED",
+})
+ACTIVE_EVENT_STATUSES = frozenset({"OPEN", "ACKNOWLEDGED", "OBSERVING", "ESCALATED"})
+TERMINAL_EVENT_STATUSES = frozenset({"RESOLVED", "IGNORED", "CLOSED"})
+EVENT_RESOLUTION_CODES = frozenset({
+    "FIXED", "EXPECTED_TEST", "BUSINESS_ACCEPTED", "FALSE_POSITIVE",
+    "TECH_ACTION_REQUIRED", "OTHER",
+})
 ENDPOINT_STATUSES = frozenset({"ACTIVE", "DISABLED"})
 NOTIFY_EVENT_CODES = frozenset({
     "SMART_ORDER_MATCHED", "SMART_ATTENTION_REMINDER",
@@ -548,13 +558,16 @@ class MonitoringService:
                     FROM {self._table(RULE_TABLE)}"""
             )
             rule_summary = _public_row(_dict_row(cursor, cursor.fetchone()) or {})
+            today_start = datetime.combine(business_now_naive().date(), time.min)
             cursor.execute(
-                f"""SELECT COUNT(1) total_events,
-                           SUM(CASE WHEN event_status='OPEN' THEN 1 ELSE 0 END) open_events,
-                           SUM(CASE WHEN event_status='ACKNOWLEDGED' THEN 1 ELSE 0 END) acknowledged_events
-                    FROM {self._table(EVENT_TABLE)}
-                    WHERE occurred_at >= %s""",
-                (datetime.combine(business_now_naive().date(), time.min),),
+                f"""SELECT SUM(CASE WHEN occurred_at>=%s THEN 1 ELSE 0 END) total_events,
+                           SUM(CASE WHEN occurred_at>=%s AND event_status IN ('OPEN','ESCALATED') THEN 1 ELSE 0 END) open_events,
+                           SUM(CASE WHEN occurred_at>=%s AND event_status IN ('ACKNOWLEDGED','OBSERVING') THEN 1 ELSE 0 END) acknowledged_events,
+                           SUM(CASE WHEN event_status='ESCALATED' THEN 1 ELSE 0 END) escalated_events,
+                           SUM(CASE WHEN event_status IN ('OPEN','ACKNOWLEDGED','OBSERVING','ESCALATED')
+                                      AND due_at IS NOT NULL AND due_at<%s THEN 1 ELSE 0 END) overdue_events
+                    FROM {self._table(EVENT_TABLE)}""",
+                (today_start, today_start, today_start, business_now_naive()),
             )
             event_summary = _public_row(_dict_row(cursor, cursor.fetchone()) or {})
             cursor.execute(
@@ -1136,6 +1149,8 @@ class MonitoringService:
     def list_events(
         self, user: dict[str, Any], *, status: str = "", template: str = "",
         start_date: str = "", end_date: str = "", keyword: str = "",
+        assignee_user_id: int | None = None, only_mine: bool = False,
+        overdue_only: bool = False,
         page: int = 1, page_size: int = 30,
     ) -> dict[str, Any]:
         _require(user, "monitor.event.view", "当前账号没有监控事件查看权限")
@@ -1158,6 +1173,13 @@ class MonitoringService:
             token = f"%{keyword.strip()[:100]}%"
             where.append("(event_no LIKE %s OR rule_code LIKE %s OR entity_key LIKE %s OR event_title LIKE %s)")
             params.extend([token, token, token, token])
+        if only_mine:
+            where.append("assignee_user_id=%s"); params.append(int(user.get("id") or 0))
+        elif assignee_user_id:
+            where.append("assignee_user_id=%s"); params.append(int(assignee_user_id))
+        if overdue_only:
+            where.append("event_status IN ('OPEN','ACKNOWLEDGED','OBSERVING','ESCALATED')")
+            where.append("due_at IS NOT NULL AND due_at<%s"); params.append(business_now_naive())
         condition = " AND ".join(where)
         connection = cursor = None
         try:
@@ -1176,14 +1198,73 @@ class MonitoringService:
             if cursor is not None: cursor.close()
             if connection is not None: connection.close()
 
+    def list_event_assignees(self, user: dict[str, Any]) -> list[dict[str, Any]]:
+        _require(user, "monitor.event.view", "当前账号没有监控事件查看权限")
+        connection = cursor = None
+        try:
+            connection = self.source.connect(); cursor = connection.cursor()
+            cursor.execute(
+                f"""SELECT id,username,full_name
+                    FROM {self._table('sys_user')}
+                    WHERE is_active=1
+                    ORDER BY full_name,username,id"""
+            )
+            return [
+                {
+                    "id": int(row["id"]),
+                    "username": str(row.get("username") or ""),
+                    "displayName": str(row.get("full_name") or row.get("username") or ""),
+                }
+                for row in _dict_rows(cursor, list(cursor.fetchall()))
+            ]
+        except Exception as error:
+            raise self._unavailable(error, "监控事件责任人查询失败") from error
+        finally:
+            if cursor is not None: cursor.close()
+            if connection is not None: connection.close()
+
+    def event_detail(self, user: dict[str, Any], event_id: int) -> dict[str, Any]:
+        _require(user, "monitor.event.view", "当前账号没有监控事件查看权限")
+        connection = cursor = None
+        try:
+            connection = self.source.connect(); cursor = connection.cursor()
+            cursor.execute(f"SELECT * FROM {self._table(EVENT_TABLE)} WHERE id=%s", (event_id,))
+            event = _dict_row(cursor, cursor.fetchone())
+            if not event:
+                raise ValueError("监控事件不存在")
+            cursor.execute(
+                f"SELECT * FROM {self._table(EVENT_LOG_TABLE)} WHERE event_id=%s ORDER BY created_at DESC,id DESC",
+                (event_id,),
+            )
+            return {
+                "event": _public_row(event, scope=_event_scope(event)),
+                "logs": [_public_row(row) for row in _dict_rows(cursor, list(cursor.fetchall()))],
+            }
+        except ValueError:
+            raise
+        except Exception as error:
+            raise self._unavailable(error, "监控事件详情查询失败") from error
+        finally:
+            if cursor is not None: cursor.close()
+            if connection is not None: connection.close()
+
     def update_event_status(self, user: dict[str, Any], event_id: int, values: dict[str, Any]) -> dict[str, Any]:
         _require(user, "monitor.event.manage", "当前账号没有监控事件处理权限")
         target = str(values.get("status") or "").strip().upper()
-        if target not in {"ACKNOWLEDGED", "RESOLVED", "IGNORED", "CLOSED"}:
+        if target not in {"ACKNOWLEDGED", "OBSERVING", "RESOLVED", "IGNORED", "CLOSED"}:
             raise ValueError("事件目标状态不支持")
         note = str(values.get("note") or "").strip()[:1000]
-        if target in {"RESOLVED", "IGNORED", "CLOSED"} and not note:
+        if target in TERMINAL_EVENT_STATUSES and not note:
             raise ValueError("解决、忽略或关闭事件必须填写处理说明")
+        if target == "OBSERVING" and not note:
+            raise ValueError("延后观察必须填写观察原因")
+        observe_until = _parse_datetime(values.get("observeUntil"), "观察截止时间")
+        if target == "OBSERVING" and observe_until is None:
+            raise ValueError("延后观察必须填写观察截止时间")
+        resolution_code = str(values.get("resolutionCode") or "").strip().upper() or None
+        if target in TERMINAL_EVENT_STATUSES and resolution_code not in EVENT_RESOLUTION_CODES:
+            raise ValueError("请选择处理结论")
+        assignee_user_id = int(values.get("assigneeUserId") or 0) or None
         actor_id = int(user.get("id") or 0)
         actor_name = str(user.get("display_name") or user.get("username") or "SYSTEM")[:100]
         current = business_now_naive()
@@ -1195,15 +1276,73 @@ class MonitoringService:
             if not event:
                 raise ValueError("监控事件不存在")
             old = str(event["event_status"])
+            if old in TERMINAL_EVENT_STATUSES:
+                raise ValueError("已结束的事件不能再次处理")
+            if assignee_user_id:
+                cursor.execute(
+                    f"SELECT id,full_name,username FROM {self._table('sys_user')} WHERE id=%s AND is_active=1",
+                    (assignee_user_id,),
+                )
+                assignee = _dict_row(cursor, cursor.fetchone())
+                if not assignee:
+                    raise ValueError("选择的责任人不存在或已停用")
+                assignee_name = str(assignee.get("full_name") or assignee.get("username") or "")[:100]
+            else:
+                assignee_user_id = int(event.get("assignee_user_id") or actor_id)
+                assignee_name = str(event.get("assignee_user_name") or actor_name)[:100]
             cursor.execute(
-                f"UPDATE {self._table(EVENT_TABLE)} SET event_status=%s,resolved_at=%s WHERE id=%s",
-                (target, current if target in {"RESOLVED", "IGNORED", "CLOSED"} else None, event_id),
+                f"""SELECT initial_due_minutes,max_observe_hours
+                    FROM {self._table(EVENT_POLICY_TABLE)}
+                    WHERE business_type=%s AND severity=%s AND status='ACTIVE'""",
+                (str(event.get("business_type") or ""), str(event.get("severity") or "P2")),
+            )
+            policy = _dict_row(cursor, cursor.fetchone()) or {}
+            max_observe_hours = max(1, int(policy.get("max_observe_hours") or 168))
+            if target == "OBSERVING" and observe_until:
+                if observe_until <= current:
+                    raise ValueError("观察截止时间必须晚于当前时间")
+                if observe_until > current + timedelta(hours=max_observe_hours):
+                    raise ValueError(f"单次观察时间不能超过{max_observe_hours}小时")
+            if target == "OBSERVING":
+                due_at = observe_until
+            elif target in TERMINAL_EVENT_STATUSES:
+                due_at = None
+            else:
+                due_at = event.get("due_at") or current + timedelta(
+                    minutes=max(1, int(policy.get("initial_due_minutes") or 1440))
+                )
+            action_code = {
+                "ACKNOWLEDGED": "ACKNOWLEDGE", "OBSERVING": "OBSERVE",
+                "RESOLVED": "RESOLVE", "IGNORED": "IGNORE", "CLOSED": "CLOSE",
+            }[target]
+            detail = {
+                "assigneeUserId": assignee_user_id,
+                "assigneeUserName": assignee_name,
+                "observeUntil": _json_value(observe_until),
+                "resolutionCode": resolution_code,
+                "dueAt": _json_value(due_at),
+            }
+            cursor.execute(
+                f"""UPDATE {self._table(EVENT_TABLE)}
+                    SET event_status=%s,assignee_user_id=%s,assignee_user_name=%s,
+                        due_at=%s,observe_until=%s,resolution_code=%s,resolved_at=%s
+                    WHERE id=%s""",
+                (
+                    target, assignee_user_id, assignee_name, due_at,
+                    observe_until if target == "OBSERVING" else None,
+                    resolution_code if target in TERMINAL_EVENT_STATUSES else None,
+                    current if target in TERMINAL_EVENT_STATUSES else None, event_id,
+                ),
             )
             cursor.execute(
                 f"""INSERT INTO {self._table(EVENT_LOG_TABLE)}
-                    (event_id,from_status,to_status,operator_id,operator_name,operation_note,created_at)
-                    VALUES ({','.join(['%s'] * 7)})""",
-                (event_id, old, target, actor_id, actor_name, note or "确认关注事件", current),
+                    (event_id,action_code,from_status,to_status,operator_id,operator_name,
+                     operation_note,operation_detail_json,created_at)
+                    VALUES ({','.join(['%s'] * 9)})""",
+                (
+                    event_id, action_code, old, target, actor_id, actor_name,
+                    note or "确认关注事件", json.dumps(detail, ensure_ascii=False), current,
+                ),
             )
             connection.commit()
             return {"id": event_id, "status": target}

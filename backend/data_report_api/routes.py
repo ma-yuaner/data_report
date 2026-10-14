@@ -696,6 +696,9 @@ def monitoring_events():
             start_date=request.args.get("startDate", ""),
             end_date=request.args.get("endDate", ""),
             keyword=request.args.get("keyword", ""),
+            assignee_user_id=int(request.args.get("assigneeUserId", "0") or 0) or None,
+            only_mine=str(request.args.get("onlyMine") or "").strip().lower() in {"1", "true", "yes"},
+            overdue_only=str(request.args.get("overdueOnly") or "").strip().lower() in {"1", "true", "yes"},
             page=int(request.args.get("page", "1")),
             page_size=int(request.args.get("pageSize", "30")),
         ))
@@ -703,6 +706,28 @@ def monitoring_events():
         return jsonify({"success": False, "message": str(error), "data": None}), 403
     except ValueError as error:
         return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except MonitoringUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.get("/v1/monitoring/event-assignees")
+def monitoring_event_assignees():
+    try:
+        return ok(MonitoringService(current_app.config).list_event_assignees(g.current_user))
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except MonitoringUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.get("/v1/monitoring/events/<int:event_id>")
+def monitoring_event_detail(event_id: int):
+    try:
+        return ok(MonitoringService(current_app.config).event_detail(g.current_user, event_id))
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 404
     except MonitoringUnavailable as error:
         return jsonify({"success": False, "message": str(error), "data": None}), 503
 

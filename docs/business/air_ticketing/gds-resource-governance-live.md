@@ -54,10 +54,11 @@ OTA成功率目标按平台配置，通过`RESOURCE_GOVERNANCE_OTA_SUCCESS_TARGE
 - OTA规则按平台及可选站点、接口组设置查询、验价或生单成功率下限；
 - 每天ADS与航段数同步完成后，由一份调度脚本检查全部规则；
 - GDS的`seg_num`存在未同步行时记录运行诊断但不产生异常，防止误报；
-- 命中后生成待处理事件，可在监控中心确认、解决、忽略或关闭，并保留审计日志；
+- 命中后生成待处理事件并按规则负责人自动分派，可在监控中心确认、延后观察、解决、忽略或关闭，并保留审计日志；
+- P0/P1/P2按生命周期策略生成处理期限，逾期任务自动升级、再次通知并显示当前升级等级；
 - 选择企业微信群后，异常先可靠写入发件箱，再由通知任务发送，失败不丢事件且可以重试；
 - 同一规则、同一业务日和同一范围只生成一个事件，重复运行只刷新证据，不重复轰炸。
 
-部署前依次执行[resource-governance-daily-monitor-v1.sql](../../sql/resource-governance-daily-monitor-v1.sql)、[resource-governance-analysis-grain-v2.sql](../../sql/resource-governance-analysis-grain-v2.sql)和[resource-governance-segment-denominator-v3.sql](../../sql/resource-governance-segment-denominator-v3.sql)，调度说明见`data-team-repo/etl_scripts/automation/monitoring/README.md`。
+部署前依次执行[resource-governance-daily-monitor-v1.sql](../../sql/resource-governance-daily-monitor-v1.sql)、[resource-governance-analysis-grain-v2.sql](../../sql/resource-governance-analysis-grain-v2.sql)、[resource-governance-segment-denominator-v3.sql](../../sql/resource-governance-segment-denominator-v3.sql)和[resource-governance-event-lifecycle-v4.sql](../../sql/resource-governance-event-lifecycle-v4.sql)，调度说明见`data-team-repo/etl_scripts/automation/monitoring/README.md`。
 
-责任人自动分派、分级限流/下线工单与月度治理复盘仍属于后续版本；V1先完成“日规则→异常事件→人工处理→通知”的最小闭环。
+当前已完成“日规则→异常事件→责任人→观察/处理→逾期升级→通知”的处理闭环。自动限流/下线工单、技术执行回执与月度治理复盘仍属于后续版本。

@@ -73,13 +73,38 @@ export interface MonitorEvent {
   businessRefType?: string
   businessRefId?: number
   scope?: Record<string, string>
+  assigneeUserId?: number | null
+  assigneeUserName?: string | null
+  dueAt?: string | null
+  observeUntil?: string | null
+  escalationLevel?: number
+  lastEscalatedAt?: string | null
+  resolutionCode?: string | null
+}
+
+export interface MonitorEventAssignee { id: number; username: string; displayName: string }
+
+export interface MonitorEventDetail {
+  event: MonitorEvent
+  logs: Array<Record<string, unknown> & {
+    id: number; actionCode?: string; fromStatus?: string; toStatus: string
+    operatorName: string; operationNote?: string; createdAt: string
+  }>
+}
+
+export interface MonitorEventActionInput {
+  status: 'ACKNOWLEDGED' | 'OBSERVING' | 'RESOLVED' | 'IGNORED' | 'CLOSED'
+  assigneeUserId?: number
+  observeUntil?: string
+  resolutionCode?: 'FIXED' | 'EXPECTED_TEST' | 'BUSINESS_ACCEPTED' | 'FALSE_POSITIVE' | 'TECH_ACTION_REQUIRED' | 'OTHER'
+  note?: string
 }
 
 export interface MonitorOverview {
   available: boolean
   source: string
   ruleSummary: { totalRules?: number; activeRules?: number; scheduledRules?: number; pausedRules?: number }
-  eventSummary: { totalEvents?: number; openEvents?: number; acknowledgedEvents?: number }
+  eventSummary: { totalEvents?: number; openEvents?: number; acknowledgedEvents?: number; escalatedEvents?: number; overdueEvents?: number }
   pendingNotifications: number
   recentRuns: MonitorRun[]
 }
@@ -194,7 +219,9 @@ export const monitoringApi = {
   diagnoseRule: (id: number, otaOrderNo: string) => http.get<ApiEnvelope<MonitorDiagnostic>>(`/v1/monitoring/rules/${id}/diagnose`, { params: { otaOrderNo } }).then(response => response.data.data),
   updateRuleStatus: (id: number, payload: { status: string; note?: string }) => http.patch<ApiEnvelope<{ id: number; status: string }>>(`/v1/monitoring/rules/${id}/status`, payload).then(response => response.data.data),
   events: (params: Record<string, unknown>) => http.get<ApiEnvelope<PagedResult<MonitorEvent>>>('/v1/monitoring/events', { params }).then(response => response.data.data),
-  updateEventStatus: (id: number, payload: { status: string; note?: string }) => http.patch<ApiEnvelope<{ id: number; status: string }>>(`/v1/monitoring/events/${id}/status`, payload).then(response => response.data.data),
+  eventAssignees: () => http.get<ApiEnvelope<MonitorEventAssignee[]>>('/v1/monitoring/event-assignees').then(response => response.data.data),
+  eventDetail: (id: number) => http.get<ApiEnvelope<MonitorEventDetail>>(`/v1/monitoring/events/${id}`).then(response => response.data.data),
+  updateEventStatus: (id: number, payload: MonitorEventActionInput) => http.patch<ApiEnvelope<{ id: number; status: string }>>(`/v1/monitoring/events/${id}/status`, payload).then(response => response.data.data),
   runs: (params: Record<string, unknown> = {}) => http.get<ApiEnvelope<MonitorRun[]>>('/v1/monitoring/runs', { params }).then(response => response.data.data),
   notifyEndpoints: () => http.get<ApiEnvelope<MonitorNotifyEndpoint[]>>('/v1/monitoring/notify-endpoints').then(response => response.data.data),
   createNotifyEndpoint: (payload: MonitorNotifyEndpointInput) => http.post<ApiEnvelope<{ id: number }>>('/v1/monitoring/notify-endpoints', payload).then(response => response.data.data),

@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock
 
@@ -466,11 +466,39 @@ def test_event_resolution_requires_note_and_writes_audit_log():
     result = service.update_event_status(
         {"id": 1, "display_name": "管理员", "is_admin": True},
         9,
-        {"status": "RESOLVED", "note": "订单已由业务关注"},
+        {"status": "RESOLVED", "resolutionCode": "FIXED", "note": "订单已由业务关注"},
     )
     assert result == {"id": 9, "status": "RESOLVED"}
     connection.commit.assert_called_once()
     assert any("monitor_event_operation_log" in call.args[0] for call in cursor.execute.call_args_list)
+
+
+def test_event_observation_requires_future_deadline_and_writes_assignment():
+    source, connection, cursor = source_with_cursor()
+    cursor.fetchone.side_effect = [
+        {
+            "id": 9, "event_status": "OPEN", "business_type": "RESOURCE_GOVERNANCE",
+            "severity": "P1", "due_at": None,
+        },
+        {"id": 8, "full_name": "资源负责人", "username": "owner"},
+        {"initial_due_minutes": 240, "max_observe_hours": 120},
+    ]
+    service = MonitoringService({}, source=source)
+    observe_until = (datetime.now() + timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
+
+    result = service.update_event_status(
+        {"id": 1, "display_name": "管理员", "is_admin": True},
+        9,
+        {
+            "status": "OBSERVING", "assigneeUserId": 8,
+            "observeUntil": observe_until, "note": "测试流量，继续观察",
+        },
+    )
+
+    assert result == {"id": 9, "status": "OBSERVING"}
+    update_call = next(call for call in cursor.execute.call_args_list if "SET event_status=%s" in call.args[0])
+    assert update_call.args[1][1:3] == (8, "资源负责人")
+    connection.commit.assert_called_once()
 
 
 def test_wecom_endpoint_helpers_mask_validate_and_build_real_mentions():
