@@ -612,7 +612,22 @@ async function saveEventStatus() {
   if (form.status === 'OBSERVING') payload.observeUntil = form.observeUntil
   if (terminalEventStatuses.includes(form.status)) payload.resolutionCode = form.resolutionCode
   saving.value = true
-  try { await monitoringApi.updateEventStatus(activeEvent.value.id, payload); message.success('事件处理结果已保存'); eventStatusOpen.value = false; await Promise.all([loadOverview(), loadEvents()]) }
+  try {
+    const eventId = activeEvent.value.id
+    const result = await monitoringApi.updateEventStatus(eventId, payload)
+    const refreshed = await monitoringApi.eventDetail(eventId)
+    eventDetail.value = refreshed
+    activeEvent.value = refreshed.event
+    message.success('事件处理结果已保存，处理记录已更新')
+    await Promise.all([loadOverview(), loadEvents()])
+    if (!terminalEventStatuses.includes(result.status as MonitorEventActionInput['status'])) {
+      eventStatusForm.value = {
+        status: result.status === 'ACKNOWLEDGED' ? 'RESOLVED' : 'ACKNOWLEDGED',
+        assigneeUserId: refreshed.event.assigneeUserId || undefined,
+        note: '',
+      }
+    }
+  }
   catch (failure) { message.error(failure instanceof Error ? failure.message : '事件处理失败') }
   finally { saving.value = false }
 }
