@@ -1,6 +1,9 @@
 import unittest
 from datetime import datetime
+from io import BytesIO
 from unittest.mock import MagicMock, patch
+
+from openpyxl import load_workbook
 
 from data_report_api import create_app
 from data_report_api.config import TestConfig
@@ -220,6 +223,57 @@ class ResourceGovernanceTests(unittest.TestCase):
             client = app.test_client()
             client.get("/api/v1/resource-governance/gds/overview?breachOnly=true")
             self.assertTrue(service_class.return_value.overview.call_args.kwargs["breach_only"])
+
+    def test_gds_report_export_contains_current_summary_and_analysis_sheets(self):
+        self.configure_gds()
+        content, filename = module.ResourceGovernanceService(
+            {"RESOURCE_GOVERNANCE_GDS_TARGETS": "1A:4000"}
+        ).export_report(
+            start_value="2026-10-01", end_value="2026-10-14", data_source="gds",
+            group_by="gds", filters={"gds": "1A"},
+        )
+
+        workbook = load_workbook(content, read_only=True, data_only=True)
+        self.assertEqual(
+            workbook.sheetnames,
+            ["管理摘要", "日趋势", "维度对比", "接口分组质量"],
+        )
+        summary = dict(workbook["管理摘要"].iter_rows(min_row=2, values_only=True))
+        self.assertEqual(summary["MP查询量"], 100000)
+        self.assertEqual(summary["航段数"], 20)
+        self.assertEqual(summary["查定比"], "5000.00:1")
+        self.assertEqual(summary["治理目标"], "4000:1")
+        self.assertIn("GDS资源治理分析_2026-10-01_2026-10-14", filename)
+
+    def test_ota_report_keeps_query_volume_and_has_no_gds_group_sheet(self):
+        self.configure_ota()
+        content, filename = module.ResourceGovernanceService({}).export_report(
+            start_value="2026-10-14", end_value="2026-10-14", data_source="ota",
+            group_by="platform", filters={"platform": "携程"},
+        )
+
+        workbook = load_workbook(content, read_only=True, data_only=True)
+        self.assertEqual(workbook.sheetnames, ["管理摘要", "日趋势", "维度对比"])
+        headers = next(workbook["日趋势"].iter_rows(values_only=True))
+        self.assertIn("查询请求量", headers)
+        self.assertIn("OTA资源治理分析_2026-10-14_2026-10-14", filename)
+
+    def test_export_route_downloads_workbook_for_fixed_layer(self):
+        app = create_app(TestConfig)
+        with patch("data_report_api.routes.ResourceGovernanceService") as service_class:
+            service_class.return_value.export_report.return_value = (
+                BytesIO(b"report"), "GDS资源治理分析.xlsx"
+            )
+            response = app.test_client().get(
+                "/api/v1/resource-governance/gds/export?startDate=2026-10-14&endDate=2026-10-14"
+            )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.data, b"report")
+            self.assertEqual(
+                service_class.return_value.export_report.call_args.kwargs["data_source"],
+                "gds",
+            )
 
 
 if __name__ == "__main__":

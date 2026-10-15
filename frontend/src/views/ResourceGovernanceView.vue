@@ -32,7 +32,9 @@
         <span>{{ pending ? '筛选条件已变更，点击查询后生效' : `当前为${layerLabel(applied.dataSource)}分析层` }}</span>
         <div>
           <a-switch v-model:checked="draft.breachOnly" checked-children="只看异常对象" un-checked-children="全部对象" :disabled="loading" @change="applyFilters" />
-          <a-button :disabled="loading" @click="resetFilters">重置</a-button><a-button type="primary" :loading="loading" data-telemetry-code="governance-query" @click="applyFilters">查询</a-button>
+          <a-button :disabled="loading" @click="resetFilters">重置</a-button>
+          <a-button :disabled="loading || !data?.available" :loading="exporting" data-telemetry-code="governance-export" @click="exportReport"><DownloadOutlined />导出汇报</a-button>
+          <a-button type="primary" :loading="loading" data-telemetry-code="governance-query" @click="applyFilters">查询</a-button>
         </div>
       </div>
     </section>
@@ -260,12 +262,14 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import dateLocale from 'ant-design-vue/es/date-picker/locale/zh_CN'
-import { InfoCircleOutlined } from '@ant-design/icons-vue'
+import { message } from 'ant-design-vue'
+import { DownloadOutlined, InfoCircleOutlined } from '@ant-design/icons-vue'
 import type { EChartsCoreOption } from 'echarts/core'
 import BaseChart from '@/components/BaseChart.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import {
   fetchResourceGovernance,
+  exportResourceGovernance,
   type GovernanceData,
   type GovernanceDimension,
   type GovernanceLayer,
@@ -285,6 +289,7 @@ const preset = ref('month')
 const draftGroup = ref<GovernanceDimension>('gds')
 const data = ref<GovernanceData>()
 const loading = ref(false)
+const exporting = ref(false)
 const error = ref('')
 let requestId = 0
 
@@ -491,6 +496,17 @@ function applyPreset(value: string | number) {
 }
 function resetFilters() { const layer = draft.value.dataSource; draft.value = { ...emptyScope(), dataSource: layer, groupBy: layer === 'gds' ? 'gds' : 'platform' }; draftGroup.value = draft.value.groupBy; preset.value = 'month' }
 function applyFilters() { draft.value.groupBy = draftGroup.value; void load({ ...draft.value }) }
+async function exportReport() {
+  exporting.value = true
+  try {
+    await exportResourceGovernance({ ...applied.value })
+    message.success('资源治理汇报已开始下载')
+  } catch (failure) {
+    message.error(failure instanceof Error ? failure.message : '资源治理汇报导出失败')
+  } finally {
+    exporting.value = false
+  }
+}
 function changeDimension(value: string | number) { draft.value.groupBy = String(value) as GovernanceDimension; void load({ ...draft.value }) }
 async function load(scope: GovernanceScope) {
   const id = ++requestId

@@ -97,6 +97,34 @@ def ota_resource_governance_overview():
     return _resource_governance_overview("ota")
 
 
+def _resource_governance_export(data_source: str):
+    breach_only = str(request.args.get("breachOnly") or "").strip().lower() in {"1", "true", "yes"}
+    try:
+        return smart_excel_response(ResourceGovernanceService(current_app.config).export_report(
+            start_value=request.args.get("startDate"),
+            end_value=request.args.get("endDate"),
+            data_source=data_source,
+            group_by=request.args.get("groupBy"),
+            filters={
+                key: request.args.get(key, "")
+                for key in ("platform", "site", "gds", "pcc", "apiGroup")
+            },
+            breach_only=breach_only,
+        ))
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+
+
+@api.get("/v1/resource-governance/gds/export")
+def gds_resource_governance_export():
+    return _resource_governance_export("gds")
+
+
+@api.get("/v1/resource-governance/ota/export")
+def ota_resource_governance_export():
+    return _resource_governance_export("ota")
+
+
 @api.post("/v1/telemetry/visits")
 def start_telemetry_visit():
     try:

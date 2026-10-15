@@ -5,7 +5,12 @@ import json
 import re
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Any
+from tempfile import SpooledTemporaryFile
+from typing import Any, BinaryIO
+
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 
 from ..time_utils import business_now
 from .data_source import DataSource
@@ -37,6 +42,146 @@ SUM(search_cache_count), SUM(verify_cache_count), SUM(order_cache_count),
 SUM(search_execute_time), SUM(verify_execute_time), SUM(order_execute_time),
 SUM(search_price_change_count), SUM(verify_price_change_count), SUM(order_price_change_count)
 """.strip()
+
+REPORT_COLUMNS = (
+    ("查询请求量", "searchRequests"),
+    ("查询成功量", "searchSuccess"),
+    ("查询失败量", "searchFailure"),
+    ("查询成功率", "searchSuccessRate"),
+    ("查询失败率", "searchFailureRate"),
+    ("验价请求量", "verifyRequests"),
+    ("验价成功量", "verifySuccess"),
+    ("验价失败量", "verifyFailure"),
+    ("验价成功率", "verifySuccessRate"),
+    ("验价失败率", "verifyFailureRate"),
+    ("生单请求量", "orderRequests"),
+    ("生单成功量", "orderSuccess"),
+    ("生单失败量", "orderFailure"),
+    ("生单成功率", "orderSuccessRate"),
+    ("生单失败率", "orderFailureRate"),
+)
+REPORT_MEMORY_LIMIT_BYTES = 8 * 1024 * 1024
+
+
+def _report_metric_value(metric: dict[str, Any], key: str) -> Any:
+    value = metric.get(key)
+    if key.endswith("Rate"):
+        return None if value is None else f"{value}%"
+    return value
+
+
+def _append_report_sheet(
+    workbook: Workbook, title: str, headers: list[str], rows: list[list[Any]]
+) -> None:
+    sheet = workbook.create_sheet(title)
+    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{max(len(rows) + 1, 1)}"
+    header_fill = PatternFill("solid", fgColor="17375F")
+    for index, value in enumerate(headers, 1):
+        cell = sheet.cell(row=1, column=index, value=value)
+        cell.font = Font(color="FFFFFF", bold=True)
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    for row in rows:
+        sheet.append(row)
+    for index, header in enumerate(headers, 1):
+        max_length = max(
+            [len(str(header))]
+            + [len(str(row[index - 1])) for row in rows if row[index - 1] is not None]
+        )
+        sheet.column_dimensions[get_column_letter(index)].width = min(max(max_length + 2, 12), 34)
+
+
+def _governance_workbook(result: dict[str, Any]) -> BinaryIO:
+    workbook = Workbook()
+    workbook.remove(workbook.active)
+    summary = result["summary"]
+    filters = result["filters"]
+    layer = result["dataSource"]["label"]
+    filter_label = "；".join(
+        f"{DIMENSIONS[key]['label']}={value}" for key, value in filters.items() if value
+    ) or "全部"
+    summary_rows = [
+        ["数据层", layer],
+        ["统计期间", f"{result['period']['startDate']} 至 {result['period']['endDate']}"],
+        ["筛选条件", filter_label],
+        ["数据来源", result["table"]],
+        ["数据更新时间", summary.get("sourceUpdatedAt") or "—"],
+        ["生成时间", result["generatedAt"]],
+    ]
+    if result.get("ratioApplicable"):
+        ratio = "∞" if summary.get("ratioInfinite") else summary.get("queryToSegmentRatio")
+        summary_rows.extend([
+            ["MP查询量", summary.get("searchRequests")],
+            ["航段数", summary.get("segmentCount")],
+            ["查定比", "—" if ratio is None else f"{ratio}:1"],
+            ["治理目标", "未配置" if summary.get("targetRatio") is None else f"{summary['targetRatio']}:1"],
+            ["超额查询量", summary.get("excessQueryCount")],
+        ])
+    summary_rows.extend(
+        [[label, _report_metric_value(summary, key)] for label, key in REPORT_COLUMNS]
+    )
+    summary_rows.extend([
+        ["异常判定", "异常" if summary.get("breach") else "正常/未配置目标"],
+        ["异常原因", "；".join(summary.get("breachReasons") or []) or "—"],
+    ])
+    _append_report_sheet(workbook, "管理摘要", ["项目", "数值"], summary_rows)
+
+    trend_headers = ["日期"]
+    if result.get("ratioApplicable"):
+        trend_headers.extend(["MP查询量", "航段数", "查定比", "治理目标", "超额查询量"])
+    trend_metric_columns = REPORT_COLUMNS[1:] if result.get("ratioApplicable") else REPORT_COLUMNS
+    trend_headers.extend(label for label, _ in trend_metric_columns)
+    trend_rows: list[list[Any]] = []
+    for metric in result.get("trend", []):
+        row: list[Any] = [metric.get("date")]
+        if result.get("ratioApplicable"):
+            ratio = "∞" if metric.get("ratioInfinite") else metric.get("queryToSegmentRatio")
+            row.extend([
+                metric.get("searchRequests"), metric.get("segmentCount"), ratio,
+                metric.get("targetRatio"), metric.get("excessQueryCount"),
+            ])
+        row.extend(_report_metric_value(metric, key) for _, key in trend_metric_columns)
+        trend_rows.append(row)
+    _append_report_sheet(workbook, "日趋势", trend_headers, trend_rows)
+
+    dimension_headers = [result["dimension"]["label"]]
+    if result.get("ratioApplicable"):
+        dimension_headers.extend(["MP查询量", "航段数", "查定比", "治理目标", "超额查询量"])
+    dimension_metric_columns = REPORT_COLUMNS[1:] if result.get("ratioApplicable") else REPORT_COLUMNS
+    dimension_headers.extend(label for label, _ in dimension_metric_columns)
+    dimension_headers.extend(["是否异常", "异常原因"])
+    dimension_rows: list[list[Any]] = []
+    for metric in result["dimension"].get("rows", []):
+        row = [metric.get("name") or metric.get("value")]
+        if result.get("ratioApplicable"):
+            ratio = "∞" if metric.get("ratioInfinite") else metric.get("queryToSegmentRatio")
+            row.extend([
+                metric.get("searchRequests"), metric.get("segmentCount"), ratio,
+                metric.get("targetRatio"), metric.get("excessQueryCount"),
+            ])
+        row.extend(_report_metric_value(metric, key) for _, key in dimension_metric_columns)
+        row.extend([
+            "是" if metric.get("breach") else "否",
+            "；".join(metric.get("breachReasons") or []),
+        ])
+        dimension_rows.append(row)
+    _append_report_sheet(workbook, "维度对比", dimension_headers, dimension_rows)
+
+    if result["dataSource"]["key"] == "gds":
+        group_headers = ["接口分组", *(label for label, _ in REPORT_COLUMNS)]
+        group_rows = [
+            [metric.get("name") or metric.get("value"), *(
+                _report_metric_value(metric, key) for _, key in REPORT_COLUMNS
+            )]
+            for metric in result.get("apiGroups", [])
+        ]
+        _append_report_sheet(workbook, "接口分组质量", group_headers, group_rows)
+
+    output = SpooledTemporaryFile(max_size=REPORT_MEMORY_LIMIT_BYTES, mode="w+b")
+    workbook.save(output)
+    output.seek(0)
+    return output
 
 
 def _parse_date(value: str | None, fallback: date) -> date:
@@ -623,3 +768,11 @@ class ResourceGovernanceService:
             if connection is not None:
                 connection.close()
         return result
+
+    def export_report(self, **kwargs: Any) -> tuple[BinaryIO, str]:
+        result = self.overview(**kwargs)
+        if not result["available"]:
+            raise ValueError(result["error"] or "当前范围暂无可导出的资源治理数据")
+        layer = result["dataSource"]["label"]
+        period = f"{result['period']['startDate']}_{result['period']['endDate']}"
+        return _governance_workbook(result), f"{layer}资源治理分析_{period}.xlsx"
