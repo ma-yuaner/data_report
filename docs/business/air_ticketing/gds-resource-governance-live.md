@@ -64,3 +64,5 @@ OTA成功率目标按平台配置，通过`RESOURCE_GOVERNANCE_OTA_SUCCESS_TARGE
 当前已完成“日规则→异常事件→责任人→观察/处理→逾期升级→限流/下线工单→技术回执→到期待恢复→通知”的执行闭环。系统只生成控制指令和记录回执，不直接操作生产交易系统。业务恢复申请审批、治理前后效果快照与月度治理复盘仍属于后续版本。
 
 技术工单部署需执行[resource-governance-action-work-order-v5.sql](../../sql/resource-governance-action-work-order-v5.sql)。数据部从事件生成工单，技术人员在“监控中心→技术工单”接单并回写变更单号和结果；同一事件存在未结束工单时禁止重复创建。
+
+完整部署顺序、库表字典、页面操作、自动打标口径、技术系统消费协议和验收清单见[GDS/OTA资源治理上线、使用与技术对接说明](gds-resource-governance-operation-guide.md)。部署后可执行[资源治理部署验收脚本](../../sql/resource-governance-deployment-acceptance.sql)进行只读核查。
