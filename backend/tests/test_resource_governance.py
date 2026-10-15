@@ -12,6 +12,11 @@ from data_report_api.services import resource_governance as module
 
 class ResourceGovernanceTests(unittest.TestCase):
     def setUp(self):
+        self.now_patch = patch.object(
+            module, "business_now", return_value=datetime(2026, 10, 15, 12, 0, 0)
+        )
+        self.now_patch.start()
+        self.addCleanup(self.now_patch.stop)
         self.source = MagicMock()
         self.source.database = "sibebid"
         self.source.label = "MySQL · sibebid"
@@ -142,6 +147,19 @@ class ResourceGovernanceTests(unittest.TestCase):
         self.assertIsNone(result["summary"]["queryToSegmentRatio"])
         self.assertIsNone(result["summary"]["excessQueryCount"])
         self.assertFalse(result["segmentDataAvailable"])
+
+    def test_daily_page_defaults_to_yesterday_and_rejects_today(self):
+        self.configure_gds()
+        service = module.ResourceGovernanceService({})
+
+        result = service.overview(data_source="gds")
+
+        self.assertEqual(
+            result["period"],
+            {"startDate": "2026-10-01", "endDate": "2026-10-14"},
+        )
+        with self.assertRaisesRegex(ValueError, "最多查询至2026-10-14"):
+            service.overview("2026-10-15", "2026-10-15", data_source="gds")
 
     def test_ota_keeps_request_fact_table_and_does_not_query_segments(self):
         self.configure_ota()

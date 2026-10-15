@@ -10,15 +10,15 @@
 
     <section class="scope-panel">
       <div class="section-heading">
-        <div><h2>统计范围</h2><span>默认本月 · 当前模块数据层固定，支持按业务维度下钻</span></div>
+        <div><h2>统计范围</h2><span>默认本月至昨日 · 今日数据待小时表接入</span></div>
         <a-tag color="blue">{{ layerLabel(draft.dataSource) }}</a-tag>
       </div>
       <div class="period-line">
         <a-segmented v-model:value="preset" :options="periodOptions" :disabled="loading" @change="applyPreset" />
         <div class="date-fields">
-          <a-date-picker v-model:value="draft.startDate" :locale="dateLocale" value-format="YYYY-MM-DD" :allow-clear="false" @change="preset = 'custom'" />
+          <a-date-picker v-model:value="draft.startDate" :locale="dateLocale" value-format="YYYY-MM-DD" :allow-clear="false" :disabled-date="disabledDailyDate" @change="preset = 'custom'" />
           <span>至</span>
-          <a-date-picker v-model:value="draft.endDate" :locale="dateLocale" value-format="YYYY-MM-DD" :allow-clear="false" @change="preset = 'custom'" />
+          <a-date-picker v-model:value="draft.endDate" :locale="dateLocale" value-format="YYYY-MM-DD" :allow-clear="false" :disabled-date="disabledDailyDate" @change="preset = 'custom'" />
         </div>
       </div>
       <div class="filter-grid">
@@ -281,8 +281,11 @@ const shanghaiDate = (value = new Date()) => value.toLocaleDateString('sv-SE', {
 const route = useRoute()
 const routeLayer = (): GovernanceLayer => route.meta.governanceLayer === 'ota' ? 'ota' : 'gds'
 const today = shanghaiDate()
-const monthStart = `${today.slice(0, 7)}-01`
-const emptyScope = (layer: GovernanceLayer = routeLayer()): GovernanceScope => ({ startDate: monthStart, endDate: today, dataSource: layer, groupBy: layer === 'gds' ? 'gds' : 'platform', platform: '', site: '', gds: '', pcc: '', apiGroup: '', breachOnly: false })
+const reportingCutoffValue = new Date(`${today}T12:00:00+08:00`)
+reportingCutoffValue.setDate(reportingCutoffValue.getDate() - 1)
+const reportingCutoff = shanghaiDate(reportingCutoffValue)
+const monthStart = `${reportingCutoff.slice(0, 7)}-01`
+const emptyScope = (layer: GovernanceLayer = routeLayer()): GovernanceScope => ({ startDate: monthStart, endDate: reportingCutoff, dataSource: layer, groupBy: layer === 'gds' ? 'gds' : 'platform', platform: '', site: '', gds: '', pcc: '', apiGroup: '', breachOnly: false })
 const draft = ref<GovernanceScope>(emptyScope())
 const applied = ref<GovernanceScope>({ ...draft.value })
 const preset = ref('month')
@@ -293,7 +296,7 @@ const exporting = ref(false)
 const error = ref('')
 let requestId = 0
 
-const periodOptions = [{ label: '今日', value: 'today' }, { label: '近7天', value: 'seven' }, { label: '本月', value: 'month' }, { label: '自定义', value: 'custom' }]
+const periodOptions = [{ label: '昨日', value: 'yesterday' }, { label: '近7个完整日', value: 'seven' }, { label: '本月至昨日', value: 'month' }, { label: '自定义', value: 'custom' }]
 const gdsDimensions = [{ label: 'GDS', value: 'gds' }, { label: 'PCC', value: 'pcc' }, { label: '平台', value: 'platform' }, { label: '站点', value: 'site' }]
 const otaDimensions = [{ label: '平台', value: 'platform' }, { label: '站点', value: 'site' }, { label: '接口分组', value: 'apiGroup' }]
 const dimensionOptions = computed(() => draft.value.dataSource === 'gds' ? gdsDimensions : otaDimensions)
@@ -304,6 +307,7 @@ const pageTitle = computed(() => isGds.value ? 'GDS资源治理' : 'OTA渠道质
 const pageDescription = computed(() => isGds.value ? '按GDS与PCC分析查询量、航段数和查定比' : '按平台与站点分析查询、验价和生单接口成功率')
 const layerLabel = (layer: GovernanceLayer) => layer === 'gds' ? 'GDS资源层' : 'OTA渠道层'
 const selectOptions = (values?: string[]) => (values || []).map(value => ({ label: value, value }))
+const disabledDailyDate = (value: { format?: (format: string) => string } | null) => Boolean(value?.format && value.format('YYYY-MM-DD') > reportingCutoff)
 const integer = (value?: number | null) => value == null ? '—' : new Intl.NumberFormat('zh-CN').format(value)
 const compact = (value?: number | null) => value == null ? '—' : new Intl.NumberFormat('zh-CN', { notation: 'compact', maximumFractionDigits: 2 }).format(value)
 const nullableCount = (value?: number | null) => value == null ? '—' : integer(value)
@@ -488,11 +492,11 @@ const otaDailyColumns = [
 function applyPreset(value: string | number) {
   const selected = String(value)
   if (selected === 'custom') return
-  const end = new Date(`${today}T12:00:00+08:00`)
-  if (selected === 'today') draft.value.startDate = today
+  const end = new Date(`${reportingCutoff}T12:00:00+08:00`)
+  if (selected === 'yesterday') draft.value.startDate = reportingCutoff
   if (selected === 'seven') { const start = new Date(end); start.setDate(start.getDate() - 6); draft.value.startDate = shanghaiDate(start) }
   if (selected === 'month') draft.value.startDate = monthStart
-  draft.value.endDate = today
+  draft.value.endDate = reportingCutoff
 }
 function resetFilters() { const layer = draft.value.dataSource; draft.value = { ...emptyScope(), dataSource: layer, groupBy: layer === 'gds' ? 'gds' : 'platform' }; draftGroup.value = draft.value.groupBy; preset.value = 'month' }
 function applyFilters() { draft.value.groupBy = draftGroup.value; void load({ ...draft.value }) }

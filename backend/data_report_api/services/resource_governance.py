@@ -687,11 +687,15 @@ class ResourceGovernanceService:
         filters: dict[str, Any] | None = None,
         breach_only: bool = False,
     ) -> dict[str, Any]:
-        today = business_now().date()
-        first = _parse_date(start_value, today.replace(day=1))
-        last = _parse_date(end_value, today)
+        complete_day = business_now().date() - timedelta(days=1)
+        first = _parse_date(start_value, complete_day.replace(day=1))
+        last = _parse_date(end_value, complete_day)
         if first > last:
             raise ValueError("开始日期不能晚于结束日期")
+        if last > complete_day:
+            raise ValueError(
+                f"日级资源数据最多查询至{complete_day.isoformat()}，今日数据待小时表接入"
+            )
         if (last - first).days > 366:
             raise ValueError("单次最多查询367天")
         source_key = str(data_source or "gds").strip().lower()

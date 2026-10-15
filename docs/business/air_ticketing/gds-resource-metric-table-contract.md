@@ -27,7 +27,8 @@ GDS查定比 = MP查询量 / SUM(seg_num)
 - `1A`、`1A_NDC`计入MP查询量；`1A_MPIS`不计入；1G等其他GDS使用相同规则。
 - 分母固定来自`bi_issue_segment_pnr_year.seg_num`。
 - `pnr_num`、`iss_num`、`order_num`和接口`order_request_success`不作为查定比分母。
-- 航段缺失必须保留为NULL并将`segment_missing_flag=1`，不能转为0。
+- 同一完整业务日内，某个细分组合没有航段记录表示该组合航段数为0，不是“未同步”。
+- 只有整个业务日都没有航段源数据时，才保留NULL并将`segment_missing_flag=1`。
 - 查询量大于0且已确认航段数为0时，页面显示无穷大；数据未同步时显示“—”。
 
 ## 3. 必须字段
@@ -86,8 +87,11 @@ CREATE TABLE sibebid.bi_gds_resource_metric_day (
 3. `MP_TOTAL`在同样业务维度下过滤掉`source_api_group LIKE '%_MPIS'`后汇总请求基础量。
 4. 航段表先独立按日期、平台、站点、GDS、PCC汇总，再与`MP_TOTAL`一对一关联。
 5. 两个上游的空维度统一为相同空串后再关联，不能一边NULL、一边空串。
-6. 每次ETL必须覆盖完整业务日；不要对累计表重复追加同一天。
-7. 同一天同一业务键只能有一行，重跑结果必须幂等。
+6. 日表只处理截至昨日的完整业务日；今天的数据未来由小时表提供。
+7. 默认清洗区间取两张源表的重叠日期，并且结束日期不晚于昨日。
+8. 航段表当日存在数据时，细分键未关联到航段的`seg_num`写0，`segment_missing_flag=0`。
+9. 每次ETL必须覆盖完整业务日；不要对累计表重复追加同一天。
+10. 同一天同一业务键只能有一行，重跑结果必须幂等。
 
 ## 5. 页面字段来源
 
