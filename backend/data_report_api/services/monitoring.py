@@ -69,6 +69,7 @@ ENDPOINT_STATUSES = frozenset({"ACTIVE", "DISABLED"})
 NOTIFY_EVENT_CODES = frozenset({
     "SMART_ORDER_MATCHED", "SMART_ATTENTION_REMINDER",
     "SMART_ATTENTION_ESCALATED", "SMART_POLICY_EXPIRED",
+    "RESOURCE_GOVERNANCE_DAILY_ALERT",
 })
 ANALYSIS_GRAIN_FIELD = "analysis_grain"
 ANALYSIS_GRAIN_OPTION_PREFIX = "RESOURCE_GOVERNANCE_GRAIN:"
@@ -2037,7 +2038,7 @@ class MonitoringService:
         except (TypeError, ValueError) as error:
             raise ValueError("通知模板、通知群或优先级格式不正确") from error
         if not endpoint_id and not use_defaults:
-            raise ValueError("请选择通知群，或启用智能投放默认通知群")
+            raise ValueError("请选择通知群，或启用全部默认通知群")
         actor_id = int(user.get("id") or 0)
         actor_name = str(user.get("display_name") or user.get("username") or "SYSTEM")[:100]
         current = business_now_naive()

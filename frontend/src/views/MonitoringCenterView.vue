@@ -90,7 +90,7 @@
               <template v-else-if="column.key === 'occurredAt'">{{ displayTime(record.occurredAt) }}</template>
               <template v-else-if="column.key === 'action'">
                 <a-space>
-                  <a-button size="small" @click="openEventStatus(record)">{{ canManageEvents ? '处理' : '详情' }}</a-button>
+                  <a-button size="small" @click="openEventStatus(record)">{{ canProcessEvent(record) ? '处理' : '详情' }}</a-button>
                   <a-button v-if="canCreateActionOrder(record)" size="small" type="link" @click="openCreateActionOrder(record)">技术工单</a-button>
                 </a-space>
               </template>
@@ -140,14 +140,14 @@
           </a-table>
         </a-tab-pane>
 
-        <a-tab-pane key="notifications" tab="智能通知">
+        <a-tab-pane key="notifications" tab="通知配置">
           <a-alert v-if="!canManageRules" class="endpoint-tip" type="warning" show-icon message="当前账号只能查看监控结果" description="智能通知包含Webhook和消息模板等敏感配置，请联系系统管理员授予监控规则管理权限。" />
           <div v-else>
           <div class="run-toolbar">
-            <div><h3>智能投放通知</h3><p>配置是否启用企业微信、发送到哪个群、使用什么消息结构；订单匹配仍由五分钟调度执行。</p></div>
+            <div><h3>统一通知配置</h3><p>检测规则只负责识别异常；通知群、消息模板和发送路由在这里独立调整，不需要删除或重建规则。</p></div>
             <a-space><a-button :loading="endpointLoading" @click="loadNotificationModel"><ReloadOutlined />刷新</a-button><a-button type="primary" @click="openEndpoint()">新增通知群</a-button></a-space>
           </div>
-          <a-alert class="endpoint-tip" type="success" show-icon message="智能收单发送链路" description="订单宽表 → 特征ETL → 规则匹配 → 命中事件 → 发件箱 → 企业微信；本页面负责群、模板和路由配置，不直接扫描订单。" />
+          <a-alert class="endpoint-tip" type="success" show-icon message="统一事件发送链路" description="业务数据 → 规则检测 → 命中事件 → 发件箱 → 企业微信；本页面负责群、模板和路由配置，不直接扫描业务数据。" />
           <a-alert class="endpoint-tip" type="info" show-icon message="@人员配置说明" description="企业微信机器人只有使用企业微信用户ID或手机号才能真正@到人员；群名称仅用于本系统识别，不参与发送。" />
           <a-table row-key="id" :columns="endpointColumns" :data-source="notifyEndpoints" :loading="endpointLoading" :pagination="false" :scroll="{ x: 980 }">
             <template #emptyText><a-empty description="尚未配置企业微信群机器人" /></template>
@@ -155,7 +155,7 @@
               <template v-if="column.key === 'endpoint'"><div class="two-line"><strong>{{ record.endpointName }}</strong><span>{{ record.endpointCode }}</span></div></template>
               <template v-else-if="column.key === 'webhook'"><code>{{ record.webhookMasked || '未配置' }}</code></template>
               <template v-else-if="column.key === 'mentions'"><div class="two-line"><strong>用户ID {{ record.mentionedUserIds.length }} 人</strong><span>手机号 {{ record.mentionedMobiles.length }} 人</span></div></template>
-              <template v-else-if="column.key === 'scope'"><a-tag :color="record.smartPlacementEnabled ? 'green' : 'default'">{{ record.smartPlacementEnabled ? '智能收单自动通知' : '仅规则手工选择' }}</a-tag></template>
+              <template v-else-if="column.key === 'scope'"><a-tag :color="record.smartPlacementEnabled ? 'green' : 'default'">{{ record.smartPlacementEnabled ? '系统默认通知群' : '仅路由指定使用' }}</a-tag></template>
               <template v-else-if="column.key === 'status'"><a-tag :color="record.status === 'ACTIVE' ? 'green' : 'default'">{{ record.status === 'ACTIVE' ? '启用' : '停用' }}</a-tag></template>
               <template v-else-if="column.key === 'updatedAt'">{{ displayTime(record.updatedAt) }}</template>
               <template v-else-if="column.key === 'action'"><a-space><a-button size="small" @click="openEndpoint(record)">编辑</a-button><a-button size="small" type="link" :disabled="record.status !== 'ACTIVE'" :loading="testingEndpointId === record.id" @click="testEndpoint(record)">测试发送</a-button></a-space></template>
@@ -163,7 +163,7 @@
           </a-table>
           <div class="notification-model-grid">
             <section class="notification-model-card">
-              <header><div><h3>消息模板</h3><p>从授权字段中编排智能收单消息；实际发送内容会保存快照，便于追溯。</p></div></header>
+              <header><div><h3>消息模板</h3><p>从授权字段中编排不同监控事件消息；实际发送内容会保存快照，便于追溯。</p></div></header>
               <a-table row-key="id" size="small" :columns="messageTemplateColumns" :data-source="messageTemplates" :pagination="false">
                 <template #bodyCell="{ column, record }">
                   <template v-if="column.key === 'template'"><div class="two-line"><strong>{{ record.templateName }}</strong><span>{{ record.eventCode }} · V{{ record.versionNo }}</span></div></template>
@@ -177,7 +177,7 @@
               <a-table row-key="id" size="small" :columns="notifyRouteColumns" :data-source="notifyRoutes" :pagination="false" :scroll="{ x: 820 }">
                 <template #bodyCell="{ column, record }">
                   <template v-if="column.key === 'route'"><div class="two-line"><strong>{{ record.routeName }}</strong><span>{{ record.eventCode }}</span></div></template>
-                  <template v-else-if="column.key === 'target'"><div class="two-line"><strong>{{ record.endpointName || (record.useSmartDefaultEndpoints ? '全部智能默认群' : '—') }}</strong><span>{{ recipientStrategyLabel(record.recipientStrategy) }}</span></div></template>
+                  <template v-else-if="column.key === 'target'"><div class="two-line"><strong>{{ record.endpointName || (record.useSmartDefaultEndpoints ? '全部默认通知群' : '—') }}</strong><span>{{ recipientStrategyLabel(record.recipientStrategy) }}</span></div></template>
                   <template v-else-if="column.key === 'status'"><a-tag :color="record.status === 'ACTIVE' ? 'green' : 'default'">{{ record.status === 'ACTIVE' ? '启用' : '停用' }}</a-tag></template>
                   <template v-else-if="column.key === 'action'"><a-button size="small" @click="openNotifyRoute(record)">编辑</a-button></template>
                 </template>
@@ -268,7 +268,7 @@
           <a-form-item label="失效时间"><a-date-picker v-model:value="ruleForm.effectiveEndAt" :locale="dateLocale" show-time value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" /></a-form-item>
           <a-form-item label="负责人姓名"><a-input v-model:value="ruleForm.ownerUserName" placeholder="默认当前用户" /></a-form-item>
           <a-form-item label="创建原因"><a-input v-model:value="ruleForm.changeReason" placeholder="说明为什么需要该监控" /></a-form-item>
-          <a-form-item label="企业微信通知群" class="span-2"><a-select v-model:value="ruleForm.notifyEndpointIds" mode="multiple" :options="notifyEndpointOptions" allow-clear placeholder="留空只发送站内通知" /></a-form-item>
+          <a-form-item class="span-2"><a-alert type="info" show-icon message="命中通知在“通知配置”中统一管理" description="规则只负责识别异常；消息格式、通知群和动态@人员可随时调整，无需删除或重建规则。" /></a-form-item>
         </div>
       </a-form>
       <div class="dialog-actions"><a-button @click="createRuleOpen=false">取消</a-button><a-button type="primary" :loading="saving" @click="saveNewRule">{{ ruleForm.templateCode === 'ORDER_SEGMENT_THRESHOLD' ? '创建并生效' : '创建日检查规则' }}</a-button></div>
@@ -276,6 +276,7 @@
 
     <a-modal v-model:open="eventStatusOpen" title="处理监控事件" :footer="null" :mask-closable="false" width="min(720px, 94vw)">
       <a-alert v-if="activeEvent" type="info" show-icon :message="activeEvent.eventTitle" :description="activeEvent.entityKey" />
+      <a-alert v-if="activeEvent && !canProcessActiveEvent" class="terminal-event-tip" type="success" show-icon message="该事项已完成当前处理流程" :description="`当前状态：${eventStatusMeta[activeEvent.eventStatus]?.label || activeEvent.eventStatus}。以下保留完整处理记录供追溯。`" />
       <a-form v-if="canProcessActiveEvent" layout="vertical" class="status-form">
         <div class="event-action-grid">
           <a-form-item label="处理动作" required><a-select v-model:value="eventStatusForm.status" :options="eventActionOptions" /></a-form-item>
@@ -330,7 +331,7 @@
         <a-form-item :label="endpointForm.id ? '企业微信Webhook（留空不修改）' : '企业微信Webhook'" :required="!endpointForm.id"><a-input-password v-model:value="endpointForm.webhookUrl" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..." /></a-form-item>
         <a-form-item label="@企业微信用户ID" extra="多个用户ID用逗号分隔，可在企业微信通讯录中确认"><a-textarea v-model:value="endpointForm.mentionedUserIdsText" :rows="2" placeholder="zhangsan,lisi" /></a-form-item>
         <a-form-item label="@手机号" extra="多个手机号用逗号分隔；用户ID和手机号可同时配置"><a-textarea v-model:value="endpointForm.mentionedMobilesText" :rows="2" placeholder="13800000000,13900000000" /></a-form-item>
-        <div class="endpoint-switches"><a-form-item label="自动用于智能投放收单"><a-switch v-model:checked="endpointForm.smartPlacementEnabled" /></a-form-item><a-form-item label="状态"><a-select v-model:value="endpointForm.status" :options="endpointStatusOptions" /></a-form-item></div>
+        <div class="endpoint-switches"><a-form-item label="设为系统默认通知群"><a-switch v-model:checked="endpointForm.smartPlacementEnabled" /></a-form-item><a-form-item label="状态"><a-select v-model:value="endpointForm.status" :options="endpointStatusOptions" /></a-form-item></div>
       </a-form>
       <div class="dialog-actions"><a-button @click="endpointOpen=false">取消</a-button><a-button type="primary" :loading="saving" @click="saveEndpoint">保存配置</a-button></div>
     </a-modal>
@@ -350,7 +351,7 @@
     </a-modal>
 
     <a-modal v-model:open="notifyRouteOpen" :title="notifyRouteForm.id ? '编辑通知路由' : '新增通知路由'" :footer="null" :mask-closable="false" width="min(760px, 94vw)">
-      <a-form layout="vertical" class="endpoint-form"><a-form-item label="路由名称" required><a-input v-model:value="notifyRouteForm.routeName" /></a-form-item><div class="route-form-grid"><a-form-item label="事件类型" required><a-select v-model:value="notifyRouteForm.eventCode" :options="notificationEventOptions" @change="syncRouteTemplate" /></a-form-item><a-form-item label="消息模板" required><a-select v-model:value="notifyRouteForm.templateId" :options="routeTemplateOptions" /></a-form-item><a-form-item label="动态@人员" required><a-select v-model:value="notifyRouteForm.recipientStrategy" :options="recipientStrategyOptions" /></a-form-item><a-form-item label="指定通知群"><a-select v-model:value="notifyRouteForm.endpointId" :options="notifyEndpointOptions" allow-clear placeholder="可使用全部智能默认群" /></a-form-item><a-form-item label="使用全部智能默认群"><a-switch v-model:checked="notifyRouteForm.useSmartDefaultEndpoints" /></a-form-item><a-form-item label="状态"><a-select v-model:value="notifyRouteForm.status" :options="endpointStatusOptions" /></a-form-item></div></a-form>
+      <a-form layout="vertical" class="endpoint-form"><a-form-item label="路由名称" required><a-input v-model:value="notifyRouteForm.routeName" /></a-form-item><div class="route-form-grid"><a-form-item label="事件类型" required><a-select v-model:value="notifyRouteForm.eventCode" :options="notificationEventOptions" @change="syncRouteTemplate" /></a-form-item><a-form-item label="消息模板" required><a-select v-model:value="notifyRouteForm.templateId" :options="routeTemplateOptions" /></a-form-item><a-form-item label="动态@人员" required><a-select v-model:value="notifyRouteForm.recipientStrategy" :options="recipientStrategyOptions" /></a-form-item><a-form-item label="指定通知群"><a-select v-model:value="notifyRouteForm.endpointId" :options="notifyEndpointOptions" allow-clear placeholder="也可选择全部默认通知群" /></a-form-item><a-form-item label="使用全部默认通知群"><a-switch v-model:checked="notifyRouteForm.useSmartDefaultEndpoints" /></a-form-item><a-form-item label="状态"><a-select v-model:value="notifyRouteForm.status" :options="endpointStatusOptions" /></a-form-item></div></a-form>
       <div class="dialog-actions"><a-button @click="notifyRouteOpen=false">取消</a-button><a-button type="primary" :loading="saving" @click="saveNotifyRoute">保存路由</a-button></div>
     </a-modal>
   </div>
@@ -394,7 +395,7 @@ const defaultRuleForm = () => ({
   gdsCode: '1A', pccCode: '', platformCode: '', siteCode: '', apiGroup: '', minRequests: 100,
   maxQueryRatio: 4000, successStage: 'search', minSuccessRate: 95, groupDimensions: [] as ResourceGrainDimension[],
   effectiveStartAt: '', effectiveEndAt: '', ownerUserName: authStore.user?.displayName || '',
-  changeReason: '', notifyEndpointIds: [] as number[],
+  changeReason: '',
 })
 const ruleForm = ref(defaultRuleForm())
 const notifyEndpoints = ref<MonitorNotifyEndpoint[]>([]); const endpointLoading = ref(false); const endpointOpen = ref(false); const testingEndpointId = ref<number>()
@@ -451,6 +452,7 @@ const eventPagination = computed(() => ({ current: eventPage.value, pageSize: ev
 const actionPagination = computed(() => ({ current: actionPage.value, pageSize: actionPageSize.value, total: actionOrders.value?.total || 0, showSizeChanger: true, showTotal: (total: number) => `共 ${number(total)} 条` }))
 const eventAssigneeOptions = computed(() => eventAssignees.value.map(item => ({ value: item.id, label: `${item.displayName}（${item.username}）` })))
 const canProcessActiveEvent = computed(() => canManageEvents.value && Boolean(activeEvent.value) && !['RESOLVED', 'IGNORED', 'CLOSED', 'ACTION_PENDING', 'ACTION_IN_PROGRESS', 'ACTION_APPLIED'].includes(String(activeEvent.value?.eventStatus || '')))
+const canProcessEvent = (record: MonitorEvent) => canManageEvents.value && !['RESOLVED', 'IGNORED', 'CLOSED', 'ACTION_PENDING', 'ACTION_IN_PROGRESS', 'ACTION_APPLIED'].includes(String(record.eventStatus || ''))
 const eventHistoryItems = computed(() => (eventDetail.value?.logs || []).map(item => ({
   color: item.actionCode === 'ESCALATE' ? 'red' : item.toStatus === 'RESOLVED' ? 'green' : 'blue',
   children: `${displayTime(item.createdAt)} · ${eventActionName(item.actionCode || item.toStatus)} · ${item.operatorName || '系统'} · ${item.operationNote || '未填写说明'}`,
@@ -474,7 +476,7 @@ const createRuleMeta = computed(() => ({
   OTA_SUCCESS_RATE_DAILY: { title: '新建OTA成功率日规则', message: '每日接口质量检查', description: '每日按平台及可选站点、接口分组检查查询、验价或生单成功率。' },
 }[ruleForm.value.templateCode]))
 const notifyEndpointOptions = computed(() => notifyEndpoints.value.filter(item => item.status === 'ACTIVE').map(item => ({ value: item.id, label: item.endpointName })))
-const notificationEventOptions = [{ value: 'SMART_ORDER_MATCHED', label: '智能收单命中' }, { value: 'SMART_ATTENTION_REMINDER', label: '关注首次催办' }, { value: 'SMART_ATTENTION_ESCALATED', label: '关注升级提醒' }, { value: 'SMART_POLICY_EXPIRED', label: '政策到期' }]
+const notificationEventOptions = [{ value: 'SMART_ORDER_MATCHED', label: '智能收单命中' }, { value: 'SMART_ATTENTION_REMINDER', label: '关注首次催办' }, { value: 'SMART_ATTENTION_ESCALATED', label: '关注升级提醒' }, { value: 'SMART_POLICY_EXPIRED', label: '政策到期' }, { value: 'RESOURCE_GOVERNANCE_DAILY_ALERT', label: 'GDS/OTA资源日异常' }]
 const recipientStrategyOptions = [{ value: 'TASK_ASSIGNEE', label: '投放任务负责人' }, { value: 'ATTENTION_OWNER', label: '订单关注负责人' }, { value: 'RULE_OWNER', label: '监控规则负责人' }, { value: 'NONE', label: '不动态@人员' }]
 const routeTemplateOptions = computed(() => messageTemplates.value.filter(item => item.eventCode === notifyRouteForm.value.eventCode && item.status === 'ACTIVE').map(item => ({ value: item.id, label: item.templateName })))
 const activeTemplate = computed(() => messageTemplates.value.find(item => item.id === messageTemplateForm.value.id))
@@ -488,6 +490,9 @@ const templatePreviewSamples: Record<string, string> = {
   estimatedProfit: '-52.19', orderTime: '2026-10-13 11:49:03', ticketTime: '2026-10-13 12:04:04',
   otaLatestTicketTime: '2026-10-13 11:49:02', holdTimeResult: '出票时间大于最晚出票时间', ruleCode: 'SPM-6-3',
   externalPolicyId: '6848075', remark: '请及时排查原因处理，并在群中回复信息。',
+  eventNo: 'EVT202610150001', resourceType: 'GDS', businessDate: '2026-10-14', scope: 'GDS:1A',
+  queryToSegmentRatio: '4949.67', searchRequests: '64381562', segmentCount: '13007',
+  searchSuccessRate: '99.10', verifySuccessRate: '98.60', orderSuccessRate: '97.80', title: 'GDS:1A查定比日异常',
 }
 const messageTemplatePreview = computed(() => `${messageTemplateForm.value.titleTemplate}\n${messageTemplateForm.value.bodyTemplate}`.replace(
   /\{([A-Za-z][A-Za-z0-9_]*)\}/g,
@@ -548,7 +553,7 @@ async function openRuleById(id: number) { const record = rules.value?.rows.find(
 function openStatus(record: MonitorRule) { statusRule.value = record; statusForm.value = { status: record.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE', note: '' }; statusOpen.value = true }
 async function saveStatus() { if (!statusRule.value) return; saving.value = true; try { await monitoringApi.updateRuleStatus(statusRule.value.id, statusForm.value); message.success('规则状态已更新'); statusOpen.value = false; await Promise.all([loadOverview(), loadRules()]) } catch (failure) { message.error(failure instanceof Error ? failure.message : '规则状态更新失败') } finally { saving.value = false } }
 const splitValues = (value: string) => value.replace(/，/g, ',').split(',').map(item => item.trim().toUpperCase()).filter(Boolean)
-async function openCreateRule() { if (!notifyEndpoints.value.length) await loadNotifyEndpoints(); ruleForm.value = defaultRuleForm(); createRuleOpen.value = true }
+function openCreateRule() { ruleForm.value = defaultRuleForm(); createRuleOpen.value = true }
 async function saveNewRule() {
   if (!ruleForm.value.ruleName.trim()) { message.warning('请填写规则名称'); return }
   if (ruleForm.value.effectiveStartAt && ruleForm.value.effectiveEndAt && ruleForm.value.effectiveEndAt <= ruleForm.value.effectiveStartAt) { message.warning('失效时间必须晚于生效时间'); return }
@@ -585,9 +590,8 @@ async function saveNewRule() {
     if (ruleForm.value.siteCode.trim()) conditions.push({ fieldCode: 'ota_site_code', operatorCode: 'EQ', value: ruleForm.value.siteCode.trim().toUpperCase() })
     if (ruleForm.value.apiGroup.trim()) conditions.push({ fieldCode: 'source_api_group', operatorCode: 'EQ', value: ruleForm.value.apiGroup.trim() })
   }
-  const endpointIds = ruleForm.value.notifyEndpointIds
   const groupDimensions = ruleForm.value.templateCode === 'ORDER_SEGMENT_THRESHOLD' ? [] : ruleForm.value.groupDimensions
-  const payload: MonitorRuleInput = { templateCode: ruleForm.value.templateCode, ruleName: ruleForm.value.ruleName.trim(), severity: ruleForm.value.severity, effectiveStartAt: ruleForm.value.effectiveStartAt || undefined, effectiveEndAt: ruleForm.value.effectiveEndAt || undefined, ownerUserName: ruleForm.value.ownerUserName.trim() || undefined, scheduleSeconds: ruleForm.value.templateCode === 'ORDER_SEGMENT_THRESHOLD' ? 60 : 86400, changeReason: ruleForm.value.changeReason.trim() || undefined, notifyPolicy: { channels: endpointIds.length ? ['IN_APP', 'WECOM'] : ['IN_APP'], wecomEndpointIds: endpointIds }, groupDimensions, conditions }
+  const payload: MonitorRuleInput = { templateCode: ruleForm.value.templateCode, ruleName: ruleForm.value.ruleName.trim(), severity: ruleForm.value.severity, effectiveStartAt: ruleForm.value.effectiveStartAt || undefined, effectiveEndAt: ruleForm.value.effectiveEndAt || undefined, ownerUserName: ruleForm.value.ownerUserName.trim() || undefined, scheduleSeconds: ruleForm.value.templateCode === 'ORDER_SEGMENT_THRESHOLD' ? 60 : 86400, changeReason: ruleForm.value.changeReason.trim() || undefined, notifyPolicy: { channels: ['IN_APP'], wecomEndpointIds: [] }, groupDimensions, conditions }
   saving.value = true
   try { const result = await monitoringApi.createRule(payload); message.success(`规则 ${result.ruleCode} 已创建`); createRuleOpen.value = false; await Promise.all([loadOverview(), loadRules(1)]) } catch (failure) { message.error(failure instanceof Error ? failure.message : '规则创建失败') } finally { saving.value = false }
 }

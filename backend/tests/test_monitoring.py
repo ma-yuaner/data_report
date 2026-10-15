@@ -632,6 +632,32 @@ def test_notification_route_links_event_template_group_and_dynamic_recipient_str
     assert insert_params[4:9] == (12, 3, "TASK_ASSIGNEE", 0, 10)
 
 
+def test_resource_governance_notification_route_is_configurable_without_rebuilding_rule():
+    source, connection, cursor = source_with_cursor()
+    cursor.fetchone.side_effect = [
+        {"id": 13, "event_code": "RESOURCE_GOVERNANCE_DAILY_ALERT", "channel": "WECOM"},
+        {"id": 7},
+    ]
+    cursor.lastrowid = 32
+    service = MonitoringService({}, source=source)
+
+    result = service.save_notify_route(
+        {"id": 1, "display_name": "系统管理员", "is_admin": True},
+        {
+            "routeName": "资源治理日异常通知",
+            "eventCode": "RESOURCE_GOVERNANCE_DAILY_ALERT",
+            "endpointId": 7,
+            "templateId": 13,
+            "recipientStrategy": "RULE_OWNER",
+            "priorityNo": 20,
+            "status": "ACTIVE",
+        },
+    )
+
+    assert result == {"id": 32, "eventCode": "RESOURCE_GOVERNANCE_DAILY_ALERT", "status": "ACTIVE"}
+    connection.commit.assert_called_once()
+
+
 def test_external_message_template_rejects_unapproved_order_fields():
     source, connection, cursor = source_with_cursor()
     cursor.fetchone.return_value = {
