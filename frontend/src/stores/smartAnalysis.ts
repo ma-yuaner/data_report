@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { reactive, ref } from 'vue'
-import type { SmartFilters, SmartStage, SmartTrendDate, SmartType } from '@/api/smartAnalysis'
+import type { SmartDimensionPath, SmartFilters, SmartStage, SmartTrendDate, SmartType } from '@/api/smartAnalysis'
 
 export type SmartPage = 'comprehensive' | 'overview' | 'dimension' | 'detail'
 
@@ -44,6 +44,14 @@ export const useSmartAnalysisStore = defineStore('smart-analysis', () => {
     groups: ['airline', 'platform'] as string[],
     metrics: ['ticketCount', 'totalProfit', 'smartParticipated', 'smartSucceeded', 'smartUsed', 'smartUseRate', 'smartProfit', 'smartAverageProfit'] as string[],
     sortBy: 'smartProfit', direction: 'desc' as 'asc' | 'desc', page: 1, pageSize: 20,
+  })
+  const comprehensiveState = reactive({
+    path: [] as SmartDimensionPath[],
+    groupBy: 'platform',
+    sortBy: 'smartProfit',
+    direction: 'desc' as 'asc' | 'desc',
+    page: 1,
+    pageSize: 20,
   })
   const drillContext = ref<null | {
     sourcePath: string
@@ -117,7 +125,7 @@ export const useSmartAnalysisStore = defineStore('smart-analysis', () => {
   function clearDrill() { drillContext.value = null }
 
   return {
-    pages, trendDate, dimensionState, drillContext,
+    pages, trendDate, dimensionState, comprehensiveState, drillContext,
     apply, reset, setPreset, applyDimensionPath, beginDrill, restoreDrillSource, clearDrill,
   }
 })

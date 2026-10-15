@@ -710,21 +710,25 @@ class SmartPlacementService:
             "airline": "t.airline_code", "productType": "t.product_type",
             "orderSource": "t.order_source",
         }
+        wildcard_fields = {"site", "productType", "orderSource"}
         for key, column in field_map.items():
             value = cleaned.get(key, "")
             if not value:
                 continue
             if value == "__NULL__":
                 where.append(f"NULLIF(TRIM({column}),'') IS NULL")
+            elif key in wildcard_fields:
+                where.append(f"(NULLIF(TRIM({column}),'') IS NULL OR {column}=%s)")
+                params.append(value)
             else:
                 where.append(f"{column}=%s")
                 params.append(value)
         route = cleaned.get("route", "")
         if route:
             if route == "__NULL__":
-                where.append("NULLIF(TRIM(t.route_text),'') IS NULL AND (NULLIF(TRIM(t.departure_code),'') IS NULL OR NULLIF(TRIM(t.arrival_code),'') IS NULL)")
+                where.append("NULLIF(TRIM(t.route_text),'') IS NULL AND NULLIF(TRIM(t.departure_code),'') IS NULL AND NULLIF(TRIM(t.arrival_code),'') IS NULL")
             else:
-                where.append("(t.route_text=%s OR CONCAT_WS('-',NULLIF(t.departure_code,''),NULLIF(t.arrival_code,''))=%s)")
+                where.append("((NULLIF(TRIM(t.route_text),'') IS NULL AND NULLIF(TRIM(t.departure_code),'') IS NULL AND NULLIF(TRIM(t.arrival_code),'') IS NULL) OR t.route_text=%s OR CONCAT_WS('-',NULLIF(t.departure_code,''),NULLIF(t.arrival_code,''))=%s)")
                 params.extend([route, route])
 
         condition = " AND ".join(where)

@@ -592,9 +592,28 @@ def test_analysis_coverage_applies_business_filters_and_returns_real_workflow_st
     assert "t.platform_name=%s" in query
     assert "t.airline_code=%s" in query
     assert "CONCAT_WS" in query
-    assert "t.order_source=%s" in query
+    assert "NULLIF(TRIM(t.order_source),'') IS NULL OR t.order_source=%s" in query
+    assert "NULLIF(TRIM(t.route_text),'') IS NULL" in query
     assert params[:-1] == (date(2026, 10, 15), date(2026, 10, 1), "携程", "EK", "直连订单", "HKG-DXB", "HKG-DXB")
     assert params[-1] == 1001
+
+
+def test_analysis_coverage_treats_unrestricted_optional_task_fields_as_wildcards():
+    service, _connection, cursor = service_with_cursor()
+    cursor.fetchall.return_value = []
+
+    service.analysis_coverage(
+        user={"id": 1, "is_admin": True},
+        start_value="2026-10-01", end_value="2026-10-15",
+        filters={"site": "乐游携程一部", "productType": "公布转私有"},
+    )
+
+    query, params = cursor.execute.call_args.args
+    assert "(NULLIF(TRIM(t.site_name),'') IS NULL OR t.site_name=%s)" in query
+    assert "(NULLIF(TRIM(t.product_type),'') IS NULL OR t.product_type=%s)" in query
+    assert params[:-1] == (
+        date(2026, 10, 15), date(2026, 10, 1), "乐游携程一部", "公布转私有",
+    )
 
 
 def test_cancel_permission_can_see_all_active_pre_claim_tasks():
