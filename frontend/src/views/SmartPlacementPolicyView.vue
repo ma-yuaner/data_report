@@ -432,7 +432,7 @@ import {
 } from 'ant-design-vue'
 import dateLocale from 'ant-design-vue/es/date-picker/locale/zh_CN'
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons-vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '@/components/PageHeader.vue'
 import PlacementField from '@/components/PlacementField.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -446,6 +446,7 @@ import {
 } from '@/api/smartPlacement'
 
 const router = useRouter()
+const route = useRoute()
 const authStore = useAuthStore()
 const data = ref<PlacementTaskList>()
 const loading = ref(false)
@@ -688,6 +689,32 @@ function selectWorkScope(value: string) {
 }
 function changePage(value: { current?: number; pageSize?: number }) { const size = value.pageSize || pageSize.value; page.value = size === pageSize.value ? value.current || 1 : 1; pageSize.value = size; void load(page.value) }
 function openCreate() { editingTaskId.value = undefined; taskForm.value = blankTask(); createOpen.value = true; void loadDimensions() }
+function queryText(key: string) {
+  const value = route.query[key]
+  return Array.isArray(value) ? String(value[0] || '') : String(value || '')
+}
+function openCreateFromAnalysis() {
+  const form = blankTask()
+  form.opportunityName = queryText('opportunityName') || '智能分析投放机会'
+  form.opportunitySource = queryText('opportunitySource') || 'AUTO_ANALYSIS'
+  form.analysisRuleCode = queryText('analysisRuleCode') || 'SMART_COMPREHENSIVE_V1'
+  form.analysisStartDate = queryText('analysisStartDate') || form.analysisStartDate
+  form.analysisEndDate = queryText('analysisEndDate') || form.analysisEndDate
+  form.platformName = queryText('platformName')
+  form.siteName = queryText('siteName')
+  form.airlineCode = queryText('airlineCode')
+  form.departureCode = queryText('departureCode')
+  form.arrivalCode = queryText('arrivalCode')
+  form.productType = queryText('productType')
+  form.orderSource = queryText('orderSource')
+  form.historicalTicketCount = optionalNumber(queryText('historicalTicketCount'))
+  form.historicalProfitCny = optionalNumber(queryText('historicalProfitCny'))
+  form.analysisConclusion = '来源于智能综合分析，请结合维度表现、样本范围和投放风险完成评估。'
+  editingTaskId.value = undefined
+  taskForm.value = form
+  createOpen.value = true
+  void loadDimensions()
+}
 async function openCopy(row: PlacementTaskRow) {
   saving.value = true
   try {
@@ -915,6 +942,9 @@ onMounted(() => {
   filters.value.scope = workScope.value === 'all' ? '' : workScope.value
   void load(1)
   if (canCreate.value || canExecuteTasks.value) void loadDimensions()
+  if (route.query.create === '1' && canCreate.value) openCreateFromAnalysis()
+  const taskId = Number(queryText('taskId'))
+  if (Number.isInteger(taskId) && taskId > 0) void openDetail({ id: taskId } as PlacementTaskRow)
 })
 </script>
 

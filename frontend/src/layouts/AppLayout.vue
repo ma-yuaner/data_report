@@ -56,8 +56,9 @@
           <a-sub-menu v-if="canSeeGroup('smart')" key="smart">
             <template #icon><RobotOutlined /></template>
             <template #title>智能分析</template>
-            <a-sub-menu v-if="canSeeMenu('smart.overview') || canSeeMenu('smart.dimensions') || canSeeMenu('smart.details')" key="smart-overall">
+            <a-sub-menu v-if="canSeeMenu('smart.comprehensive') || canSeeMenu('smart.overview') || canSeeMenu('smart.dimensions') || canSeeMenu('smart.details')" key="smart-overall">
               <template #title>智能整体分析</template>
+              <a-menu-item v-if="canSeeMenu('smart.comprehensive')" key="/smart-analysis/comprehensive">综合分析</a-menu-item>
               <a-menu-item v-if="canSeeMenu('smart.overview')" key="/smart-analysis/overview">智能总览</a-menu-item>
               <a-menu-item v-if="canSeeMenu('smart.dimensions')" key="/smart-analysis/dimensions">维度分析</a-menu-item>
               <a-menu-item v-if="canSeeMenu('smart.details')" key="/smart-analysis/details">出票明细</a-menu-item>

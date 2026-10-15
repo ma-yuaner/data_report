@@ -194,7 +194,7 @@ def test_admin_can_manage_users_and_ordinary_user_cannot(auth_client):
     )
     assert menu_assigned.status_code == 200
     assert menu_assigned.get_json()["data"]["menuCodes"] == [
-        "smart", "smart.details", "smart.dimensions", "smart.overview",
+        "smart", "smart.comprehensive", "smart.details", "smart.dimensions", "smart.overview",
         "smart.placement.orders", "smart.placement.policies",
     ]
 
@@ -497,6 +497,7 @@ def test_admin_can_apply_personal_permission_overrides(auth_client):
 
 
 def test_page_level_menu_mapping_protects_smart_policy_and_order_pages_separately():
+    assert required_menu_code("/api/v1/smart-analysis/comprehensive") == "smart.comprehensive"
     assert required_menu_code("/api/v1/smart-analysis/overview") == "smart.overview"
     assert required_menu_code("/api/v1/smart-analysis/dimensions") == "smart.dimensions"
     assert required_menu_code("/api/v1/smart-analysis/details") == "smart.details"

@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { reactive, ref } from 'vue'
 import type { SmartFilters, SmartStage, SmartTrendDate, SmartType } from '@/api/smartAnalysis'
 
-export type SmartPage = 'overview' | 'dimension' | 'detail'
+export type SmartPage = 'comprehensive' | 'overview' | 'dimension' | 'detail'
 
 interface SmartPageState {
   draft: SmartFilters
@@ -34,6 +34,7 @@ function pageState(): SmartPageState {
 
 export const useSmartAnalysisStore = defineStore('smart-analysis', () => {
   const pages = reactive<Record<SmartPage, SmartPageState>>({
+    comprehensive: pageState(),
     overview: pageState(),
     dimension: pageState(),
     detail: pageState(),

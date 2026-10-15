@@ -275,6 +275,51 @@ def smart_period_args() -> dict[str, str | None]:
     }
 
 
+@api.get("/v1/smart-analysis/comprehensive")
+def smart_analysis_comprehensive():
+    try:
+        period_args = smart_period_args()
+        filters = smart_filters()
+        analysis = SmartAnalysisService(current_app.config)
+        overview = analysis.overview(**period_args, filters=filters, trend_date="issue")
+        dimensions = analysis.dimensions(
+            **period_args, filters=filters,
+            group_by=request.args.get("groupBy", "platform"),
+            smart_type=request.args.get("smartType", "all"),
+            sort_by=request.args.get("sortBy", "smartProfit"),
+            direction=request.args.get("direction", "desc"),
+            page_value=request.args.get("page", "1"),
+            page_size_value=request.args.get("pageSize", "20"),
+        )
+        coverage_start = (
+            period_args["start_value"] or period_args["order_start"]
+            or period_args["first_dep_start"]
+        )
+        coverage_end = (
+            period_args["end_value"] or period_args["order_end"]
+            or period_args["first_dep_end"]
+        )
+        try:
+            placement = SmartPlacementService(current_app.config).analysis_coverage(
+                user=g.current_user, start_value=coverage_start,
+                end_value=coverage_end, filters=filters,
+            )
+        except (SmartPlacementUnavailable, PermissionError) as error:
+            placement = {
+                "available": False, "error": str(error), "truncated": False,
+                "period": {"startDate": coverage_start or "", "endDate": coverage_end or ""},
+                "summary": {
+                    "taskCount": 0, "monitoringTaskCount": 0,
+                    "workflowTaskCount": 0, "matchedOrderCount": 0,
+                    "statusCounts": {},
+                },
+                "rows": [],
+            }
+        return ok({"overview": overview, "dimensions": dimensions, "placement": placement})
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+
+
 @api.get("/v1/smart-analysis/overview")
 def smart_analysis_overview():
     try:

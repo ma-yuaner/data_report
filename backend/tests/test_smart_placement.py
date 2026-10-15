@@ -563,6 +563,40 @@ def test_list_tasks_work_scope_adds_real_server_side_conditions():
     assert count_params == (8, 8, 8)
 
 
+def test_analysis_coverage_applies_business_filters_and_returns_real_workflow_state():
+    service, _connection, cursor = service_with_cursor()
+    cursor.fetchall.return_value = [{
+        "id": 31, "task_no": "SP31", "opportunity_name": "EK携程投放",
+        "status": "MONITORING", "priority": "HIGH", "platform_name": "携程",
+        "site_name": None, "airline_code": "EK", "departure_code": "HKG",
+        "arrival_code": "DXB", "route_text": "HKG-DXB", "product_type": None,
+        "order_source": "直连订单", "analysis_start_date": date(2026, 10, 1),
+        "analysis_end_date": date(2026, 10, 31), "current_assignee_name": "政策员",
+        "monitoring_started_at": None, "updated_at": None,
+        "external_policy_id": "POL31", "matched_order_count": 7,
+    }]
+
+    result = service.analysis_coverage(
+        user={"id": 1, "is_admin": True},
+        start_value="2026-10-01", end_value="2026-10-15",
+        filters={"platform": "携程", "airline": "EK", "route": "HKG-DXB", "orderSource": "直连订单"},
+    )
+
+    assert result["summary"] == {
+        "taskCount": 1, "monitoringTaskCount": 1,
+        "workflowTaskCount": 0, "matchedOrderCount": 7,
+        "statusCounts": {status: (1 if status == "MONITORING" else 0) for status in smart_placement_module.TASK_STATUSES},
+    }
+    assert result["rows"][0]["externalPolicyId"] == "POL31"
+    query, params = cursor.execute.call_args.args
+    assert "t.platform_name=%s" in query
+    assert "t.airline_code=%s" in query
+    assert "CONCAT_WS" in query
+    assert "t.order_source=%s" in query
+    assert params[:-1] == (date(2026, 10, 15), date(2026, 10, 1), "携程", "EK", "直连订单", "HKG-DXB", "HKG-DXB")
+    assert params[-1] == 1001
+
+
 def test_cancel_permission_can_see_all_active_pre_claim_tasks():
     service, _connection, cursor = service_with_cursor()
     cursor.fetchall.side_effect = [[], []]

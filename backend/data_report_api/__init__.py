@@ -39,6 +39,10 @@ def required_menu_code(path: str) -> str | None:
     if path.startswith("/api/v1/risk-uploads"):
         return "risk.upload"
     if path.startswith((
+        "/api/v1/smart-analysis/comprehensive",
+    )):
+        return "smart.comprehensive"
+    if path.startswith((
         "/api/v1/smart-analysis/overview",
         "/api/v1/smart-analysis/trends",
         "/api/v1/smart-analysis/exports/trend",

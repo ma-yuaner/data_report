@@ -309,6 +309,30 @@ def test_smart_routes_validate_inputs_and_return_contract(source):
         assert bad.status_code == 400
 
 
+def test_comprehensive_route_combines_metrics_dimensions_and_visible_placement_tasks():
+    overview = {"available": True, "hasData": True, "metrics": {"ticketCount": 8}}
+    dimensions = {"available": True, "hasData": True, "rows": [{"key": "携程"}]}
+    placement = {"available": True, "rows": [{"id": 7}], "summary": {"taskCount": 1}}
+    with patch("data_report_api.routes.SmartAnalysisService") as analysis_class, patch(
+        "data_report_api.routes.SmartPlacementService"
+    ) as placement_class:
+        analysis_class.return_value.overview.return_value = overview
+        analysis_class.return_value.dimensions.return_value = dimensions
+        placement_class.return_value.analysis_coverage.return_value = placement
+        client = create_app(TestConfig).test_client()
+        response = client.get(
+            "/api/v1/smart-analysis/comprehensive?startDate=2026-10-09&endDate=2026-10-09"
+            "&groupBy=platform&smartType=all"
+        )
+
+    assert response.status_code == 200
+    assert response.json["data"] == {
+        "overview": overview, "dimensions": dimensions, "placement": placement,
+    }
+    assert analysis_class.return_value.dimensions.call_args.kwargs["group_by"] == "platform"
+    assert placement_class.return_value.analysis_coverage.call_args.kwargs["filters"]["platform"] is None
+
+
 def test_mysql_override_does_not_mutate_global_config():
     with patch.object(module, "DataSource") as source_class:
         config = {"DATA_MODE": "hive", "MYSQL_DATABASE": "another"}

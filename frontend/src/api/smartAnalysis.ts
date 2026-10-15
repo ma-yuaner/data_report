@@ -107,6 +107,50 @@ export interface SmartDimensionData {
   updatedAt: string
 }
 
+export interface SmartPlacementCoverageTask {
+  id: number
+  taskNo: string
+  opportunityName: string
+  status: string
+  priority: string
+  platformName: string
+  siteName: string | null
+  airlineCode: string
+  departureCode: string | null
+  arrivalCode: string | null
+  routeText: string | null
+  productType: string | null
+  orderSource: string | null
+  analysisStartDate: string
+  analysisEndDate: string
+  currentAssigneeName: string | null
+  monitoringStartedAt: string | null
+  externalPolicyId: string | null
+  matchedOrderCount: number
+  updatedAt: string
+}
+
+export interface SmartPlacementCoverage {
+  available: boolean
+  error: string
+  truncated: boolean
+  period: { startDate: string; endDate: string }
+  summary: {
+    taskCount: number
+    monitoringTaskCount: number
+    workflowTaskCount: number
+    matchedOrderCount: number
+    statusCounts: Record<string, number>
+  }
+  rows: SmartPlacementCoverageTask[]
+}
+
+export interface SmartComprehensiveData {
+  overview: SmartOverviewData
+  dimensions: SmartDimensionData
+  placement: SmartPlacementCoverage
+}
+
 export type SmartDetailValueType = 'text' | 'date' | 'datetime' | 'count' | 'money' | 'boolean'
 export interface SmartDetailColumn {
   key: string
@@ -174,6 +218,7 @@ function downloadResponse(response: { data: Blob; headers: Record<string, unknow
 }
 
 export const smartAnalysisApi = {
+  comprehensive: (filters: SmartFilters, params: { groupBy: string; smartType: SmartType; sortBy: string; direction: 'asc' | 'desc'; page: number; pageSize: number }) => http.get<ApiEnvelope<SmartComprehensiveData>>('/v1/smart-analysis/comprehensive', { params: { ...cleanFilters(filters), ...params } }).then(response => response.data.data),
   overview: (filters: SmartFilters, trendDate: SmartTrendDate) => http.get<ApiEnvelope<SmartOverviewData>>('/v1/smart-analysis/overview', { params: { ...cleanFilters(filters), trendDate } }).then(response => response.data.data),
   trends: (filters: SmartFilters, trendDate: SmartTrendDate) => http.get<ApiEnvelope<SmartOverviewData>>('/v1/smart-analysis/trends', { params: { ...cleanFilters(filters), trendDate } }).then(response => response.data.data),
   dimensions: (filters: SmartFilters, params: { groupBy: string[]; smartType: SmartType; sortBy: string; direction: 'asc' | 'desc'; page: number; pageSize: number }) => http.get<ApiEnvelope<SmartDimensionData>>('/v1/smart-analysis/dimensions', { params: { ...cleanFilters(filters), ...params, groupBy: params.groupBy.join(',') } }).then(response => response.data.data),

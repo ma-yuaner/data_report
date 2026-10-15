@@ -653,7 +653,7 @@ class SmartPlacementService:
                 SELECT id, task_no, opportunity_name, opportunity_source,
                        platform_name, site_name, airline_code, departure_code,
                        arrival_code, route_text, include_cabins, exclude_cabins,
-                       product_type, placement_method, estimated_month_ticket_count,
+                       product_type, order_source, placement_method, estimated_month_ticket_count,
                        estimated_month_profit_cny, priority, status,
                        current_assignee_id, current_assignee_name, expected_complete_at,
                        created_by_id, created_by_name,
@@ -680,6 +680,117 @@ class SmartPlacementService:
         finally:
             if cursor is not None: cursor.close()
             if connection is not None: connection.close()
+
+    def analysis_coverage(
+        self, *, user: dict[str, Any], start_value: Any, end_value: Any,
+        filters: dict[str, Any] | None = None, limit: int = 1000,
+    ) -> dict[str, Any]:
+        """Return placement tasks that can explain the current smart-analysis slice.
+
+        The smart ADS remains the source of business metrics.  This query only adds
+        workflow coverage and matched-order evidence, and always applies the same
+        task visibility rules as the placement workbench.
+        """
+        first = _date_value(start_value, "开始日期", required=True)
+        last = _date_value(end_value, "结束日期", required=True)
+        if first is None or last is None or first > last:
+            raise ValueError("智能综合分析日期范围不正确")
+        limit = max(1, min(int(limit), 2000))
+        visibility, visibility_params = self._visibility_condition(user)
+        where = [
+            "t.is_deleted=0", visibility,
+            "(t.analysis_start_date IS NULL OR t.analysis_start_date<=%s)",
+            "(t.analysis_end_date IS NULL OR t.analysis_end_date>=%s)",
+        ]
+        params: list[Any] = [*visibility_params, last, first]
+        cleaned = {key: str(value or "").strip() for key, value in (filters or {}).items()}
+
+        field_map = {
+            "platform": "t.platform_name", "site": "t.site_name",
+            "airline": "t.airline_code", "productType": "t.product_type",
+            "orderSource": "t.order_source",
+        }
+        for key, column in field_map.items():
+            value = cleaned.get(key, "")
+            if not value:
+                continue
+            if value == "__NULL__":
+                where.append(f"NULLIF(TRIM({column}),'') IS NULL")
+            else:
+                where.append(f"{column}=%s")
+                params.append(value)
+        route = cleaned.get("route", "")
+        if route:
+            if route == "__NULL__":
+                where.append("NULLIF(TRIM(t.route_text),'') IS NULL AND (NULLIF(TRIM(t.departure_code),'') IS NULL OR NULLIF(TRIM(t.arrival_code),'') IS NULL)")
+            else:
+                where.append("(t.route_text=%s OR CONCAT_WS('-',NULLIF(t.departure_code,''),NULLIF(t.arrival_code,''))=%s)")
+                params.extend([route, route])
+
+        condition = " AND ".join(where)
+        connection = cursor = None
+        try:
+            connection = self.source.connect()
+            cursor = connection.cursor()
+            cursor.execute(
+                f"""
+                SELECT t.id,t.task_no,t.opportunity_name,t.status,t.priority,
+                       t.platform_name,t.site_name,t.airline_code,t.departure_code,
+                       t.arrival_code,t.route_text,t.product_type,t.order_source,
+                       t.analysis_start_date,t.analysis_end_date,
+                       t.current_assignee_name,t.monitoring_started_at,t.updated_at,
+                       (SELECT e.external_policy_id FROM {self._table(EXECUTION_TABLE)} e
+                        WHERE e.task_id=t.id AND e.execution_result='SUCCESS'
+                        ORDER BY e.id DESC LIMIT 1) AS external_policy_id,
+                       (SELECT COUNT(1) FROM {self._table(MATCH_TABLE)} m
+                        WHERE m.task_id=t.id) AS matched_order_count
+                FROM {self._table(TASK_TABLE)} t
+                WHERE {condition}
+                ORDER BY CASE t.status WHEN 'MONITORING' THEN 0 WHEN 'IN_PROGRESS' THEN 1
+                         WHEN 'CLAIMABLE' THEN 2 WHEN 'PENDING_POLICY_REVIEW' THEN 3
+                         WHEN 'PENDING_DATA_REVIEW' THEN 4 WHEN 'DRAFT' THEN 5 ELSE 6 END,
+                         t.updated_at DESC,t.id DESC
+                LIMIT %s
+                """,
+                tuple([*params, limit + 1]),
+            )
+            raw_rows = _dict_rows(cursor, list(cursor.fetchall()))
+            truncated = len(raw_rows) > limit
+            raw_rows = raw_rows[:limit]
+            status_counts = {status: 0 for status in TASK_STATUSES}
+            matched_order_count = 0
+            for row in raw_rows:
+                status = str(row.get("status") or "")
+                if status in status_counts:
+                    status_counts[status] += 1
+                matched_order_count += int(row.get("matched_order_count") or 0)
+            return {
+                "available": True, "error": "", "truncated": truncated,
+                "period": {"startDate": first.isoformat(), "endDate": last.isoformat()},
+                "summary": {
+                    "taskCount": len(raw_rows),
+                    "monitoringTaskCount": status_counts["MONITORING"],
+                    "workflowTaskCount": sum(status_counts[key] for key in (
+                        "PENDING_DATA_REVIEW", "PENDING_POLICY_REVIEW", "CLAIMABLE", "IN_PROGRESS",
+                    )),
+                    "matchedOrderCount": matched_order_count,
+                    "statusCounts": status_counts,
+                },
+                "rows": [_public_row(row) for row in raw_rows],
+            }
+        except (PermissionError, ValueError):
+            raise
+        except Exception as error:
+            LOGGER.exception("Smart placement analysis coverage failed")
+            if _is_missing_table(error):
+                raise SmartPlacementUnavailable("智能投放表尚未创建，综合分析暂时只能展示智能指标") from error
+            raise SmartPlacementUnavailable("投放覆盖查询失败，综合分析暂时只能展示智能指标") from error
+        finally:
+            if cursor is not None:
+                cursor.close()
+            if connection is not None:
+                connection.close()
+
     def task_detail(self, user: dict[str, Any], task_id: int) -> dict[str, Any]:
         connection = cursor = None
         try:
