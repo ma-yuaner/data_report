@@ -6,27 +6,29 @@
 - OTA页面：`/resource-governance/ota`
 - GDS API：`GET /api/v1/resource-governance/gds/overview`
 - OTA API：`GET /api/v1/resource-governance/ota/overview`
-- MySQL来源：`sibebid.bi_ota_gds_request_day`
+- OTA来源：`sibebid.bi_ota_gds_request_day`
+- GDS来源：`sibebid.bi_gds_resource_metric_day`
 
 ## 数据粒度
 
-页面只使用一张统一日汇总事实表：
+OTA继续使用接口日汇总表；GDS使用由请求事实与航段事实生成的指标服务表：
 
 ```text
-日期 + data_source + 平台 + 站点 + GDS + PCC + 接口分组
+MP_TOTAL：日期 + 平台 + 站点 + GDS + PCC
+API_GROUP：日期 + 平台 + 站点 + GDS + PCC + 接口分组
 ```
 
-`data_source=0`为OTA渠道层，`data_source=1`为GDS资源层。虽然复用同一事实表和查询服务，但前端菜单、路由、权限、指标口径完全分开，两个层级不能相加。
+`bi_ota_gds_request_day.data_source=0`为OTA渠道层。GDS服务表的`MP_TOTAL`用于正式查定比，`API_GROUP`用于接口组质量；两个层级不能相加。
 
 ## 指标口径
 
 只有GDS资源层计算查定比：
 
 ```text
-GDS查定比 = SUM(search_request_count_all) / SUM(seg_num)
+GDS查定比 = SUM(MP查询量) / SUM(seg_num)
 ```
 
-用户于2026-10-14确认，“定”使用`seg_num`航段数。`pnr_num`与`order_request_success`均不参与正式查定比。`seg_num`字段不存在、所选范围全部未同步或仅部分记录同步时，页面显示“—”并停止计算查定比和超额查询，避免用不完整分母产生错误结论；查询量大于0且完整同步后的航段数为0时显示“∞”。OTA渠道层不展示航段查定比、目标值与超额查询。
+用户于2026-10-15确认，MP查询量包含`1A`、`1A_NDC`等非`*_MPIS`接口组，分母使用`bi_issue_segment_pnr_year.seg_num`。`pnr_num`与`order_request_success`均不参与正式查定比。航段未同步或部分缺失时页面显示“—”并停止计算；查询量大于0且完整同步后的航段数为0时显示“∞”。OTA渠道层不展示航段查定比。
 
 GDS目标按资源分别配置。首版通过`RESOURCE_GOVERNANCE_GDS_TARGETS`配置，格式如`1A:4000,1G:3000`；默认只配置`1A:4000`。汇总多个GDS时不套用统一目标，筛选具体GDS或查看GDS维度行时才判断达标并计算超额查询。
 
@@ -38,6 +40,7 @@ OTA成功率目标按平台配置，通过`RESOURCE_GOVERNANCE_OTA_SUCCESS_TARGE
 - 支持今日、近7天、本月和自定义日期；
 - 支持平台、站点、GDS、PCC和接口分组筛选；
 - GDS层展示查询量、航段数、查定比、超额查询和接口成功率；
+- GDS层独立展示各`source_api_group`的查询、验价、生单请求量、成功量、失败量和成功率；
 - OTA层展示查询、验价、生单的请求量、成功量与成功率；
 - 展示查询/验价缓存命中率、平均耗时及验价/生单变价率；
 - 查询、验价、生单属于独立接口统计，不伪装成同一批请求的转化漏斗；
@@ -45,6 +48,8 @@ OTA成功率目标按平台配置，通过`RESOURCE_GOVERNANCE_OTA_SUCCESS_TARGE
 - GDS层支持GDS、PCC、平台、站点和接口分组对比；
 - OTA层支持平台、站点和接口分组对比；
 - “分析此项”会保留日期和已选条件，在右侧工作区继续按GDS、PCC、平台、站点、接口组逐层定位，并可随时切换查看当前条件的日汇总。
+
+GDS服务表字段与ETL约束见[GDS资源指标服务表数据契约](gds-resource-metric-table-contract.md)。当前页面和API已经按该契约开发；正式数据出现前需由数据团队完成建表与同步。
 
 ## 日异常闭环 V1
 

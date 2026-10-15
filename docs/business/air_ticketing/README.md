@@ -37,6 +37,7 @@
 - 后续功能变更与技术表接口统一基于 [GDS/OTA资源治理与技术上下线协同PRD V2](../../product/gds-resource-governance-prd-v2.md)
 - 部署资源治理、验收规则/事件/工单并对接技术上下线：阅读 [GDS/OTA资源治理上线、使用与技术对接说明](gds-resource-governance-operation-guide.md)
 - 开发或使用GDS/OTA资源治理正式页面：阅读 [gds-resource-governance-live.md](gds-resource-governance-live.md)
+- 建设GDS查询/航段服务表：阅读 [GDS资源指标服务表数据契约](gds-resource-metric-table-contract.md)
 - 追溯综合分析历史界面预览：阅读 [comprehensive-analysis-preview.md](comprehensive-analysis-preview.md)
 - 配置 MySQL 默认查询或临时切回 Hive：阅读 [data-source-switch.md](data-source-switch.md)
 - 开发出票利润分析和检查字段齐全度：阅读 [issue-profit-analysis.md](issue-profit-analysis.md)

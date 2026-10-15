@@ -2,7 +2,8 @@
 
 - 更新日期：2026-10-15
 - 页面：`/resource-governance/gds`、`/resource-governance/ota`、`/monitoring`
-- 业务事实表：`sibebid.bi_ota_gds_request_day`
+- OTA业务事实表：`sibebid.bi_ota_gds_request_day`
+- GDS指标服务表：`sibebid.bi_gds_resource_metric_day`
 - 适用版本：资源治理日规则 V1 至技术工单 V5
 
 ## 1. 当前是否已经闭环
@@ -11,7 +12,7 @@
 
 | 环节 | 当前状态 | 说明 |
 |---|---|---|
-| OTA/GDS经营分析 | 已完成 | 页面读取一张日事实表，OTA与GDS分开计算 |
+| OTA/GDS经营分析 | 已完成 | OTA读取接口日事实，GDS读取MP总体/API分组指标服务表 |
 | 规则页面配置 | 已完成 | 可配置GDS查定比、OTA接口成功率、范围、粒度、负责人和通知 |
 | 日级自动检查 | 已完成 | 调度读取全部启用规则，不需要一条规则写一份ETL |
 | 异常打标与派单 | 已完成 | 命中后生成异常事件，保存条件、实际值、范围和责任人 |
@@ -26,9 +27,9 @@
 
 所以，第一版可以正式用于“发现异常、配置规则、生成标签、派技术工单、追踪执行、到期恢复”；要实现无人值守自动上下线，还需技术部接入第7节的工单协议。
 
-## 2. 一张业务表为什么够用
+## 2. 页面业务数据如何分层
 
-业务指标只需要一张事实表：`bi_ota_gds_request_day`。规则、异常、流程和通知不能继续塞进事实表，而应存放在独立的监控表中。
+OTA页面继续使用`bi_ota_gds_request_day`。GDS页面不能直接把按接口组拆分的请求事实与航段事实关联，因此使用`bi_gds_resource_metric_day`作为统一消费层。规则、异常、流程和通知仍存放在独立监控表中。
 
 必须保证事实表稳定提供：
 
@@ -39,15 +40,15 @@
 | 查询 | `search_request_count_all`、`search_request_success` |
 | 验价 | `verify_request_count_all`、`verify_request_success` |
 | 生单 | `order_request_count_all`、`order_request_success` |
-| GDS查定比分母 | `seg_num` |
+| GDS查定比分母 | `bi_gds_resource_metric_day`中`metric_scope='MP_TOTAL'`的`seg_num` |
 
 口径固定为：
 
 ```text
-GDS查定比 = SUM(search_request_count_all) / SUM(seg_num)
+GDS查定比 = SUM(非MPIS查询量) / SUM(seg_num)
 ```
 
-`pnr_num`、`iss_num`和`order_num`只作为辅助指标，不参与正式查定比。OTA不计算查定比，只检查查询、验价、生单成功率。
+`API_GROUP`记录只分析各接口组的请求、成功、失败和成功率，不携带航段。`pnr_num`、`iss_num`和`order_num`只作为辅助指标，不参与正式查定比。详细契约见[GDS资源指标服务表数据契约](gds-resource-metric-table-contract.md)。
 
 ## 3. 数据库表用途
 
@@ -115,7 +116,7 @@ GDS查定比 = SUM(search_request_count_all) / SUM(seg_num)
 
 ## 5. 自动打标是怎么形成的
 
-1. `monitor_resource_governance_daily.py`按业务日读取事实表；
+1. `monitor_resource_governance_daily.py`按业务日读取OTA事实表或GDS服务表；
 2. 一次性加载全部启用规则；
 3. 按规则范围和分析粒度重新汇总分子、分母；
 4. 命中后写入`monitor_alert_event`；

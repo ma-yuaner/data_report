@@ -8,6 +8,8 @@ SELECT required.table_name,
        IF(actual.table_name IS NULL,'MISSING','EXISTS') AS check_status
 FROM (
   SELECT 'bi_ota_gds_request_day' table_name
+  UNION ALL SELECT 'bi_issue_segment_pnr_year'
+  UNION ALL SELECT 'bi_gds_resource_metric_day'
   UNION ALL SELECT 'monitor_rule_template'
   UNION ALL SELECT 'monitor_rule_template_field'
   UNION ALL SELECT 'monitor_rule'
@@ -28,7 +30,7 @@ LEFT JOIN information_schema.TABLES actual
   ON actual.TABLE_SCHEMA=DATABASE() AND actual.TABLE_NAME=required.table_name
 ORDER BY required.table_name;
 
--- 2. 日事实表必需字段。所有结果都应为EXISTS。
+-- 2. OTA/请求事实表必需字段。所有结果都应为EXISTS。
 SELECT required.column_name,
        IF(actual.column_name IS NULL,'MISSING','EXISTS') AS check_status,
        actual.column_type
@@ -46,13 +48,52 @@ FROM (
   UNION ALL SELECT 'verify_request_success'
   UNION ALL SELECT 'order_request_count_all'
   UNION ALL SELECT 'order_request_success'
-  UNION ALL SELECT 'seg_num'
 ) required
 LEFT JOIN information_schema.COLUMNS actual
   ON actual.TABLE_SCHEMA=DATABASE()
  AND actual.TABLE_NAME='bi_ota_gds_request_day'
  AND actual.COLUMN_NAME=required.column_name
 ORDER BY required.column_name;
+
+-- 2.1 GDS服务表必需字段。所有结果都应为EXISTS。
+SELECT required.column_name,
+       IF(actual.column_name IS NULL,'MISSING','EXISTS') AS check_status,
+       actual.column_type
+FROM (
+  SELECT 'operator_date' column_name
+  UNION ALL SELECT 'metric_scope'
+  UNION ALL SELECT 'ota_code'
+  UNION ALL SELECT 'ota_site_code'
+  UNION ALL SELECT 'gds_code'
+  UNION ALL SELECT 'pcc_code'
+  UNION ALL SELECT 'source_api_group'
+  UNION ALL SELECT 'search_request_count_all'
+  UNION ALL SELECT 'search_request_success'
+  UNION ALL SELECT 'verify_request_count_all'
+  UNION ALL SELECT 'verify_request_success'
+  UNION ALL SELECT 'order_request_count_all'
+  UNION ALL SELECT 'order_request_success'
+  UNION ALL SELECT 'seg_num'
+  UNION ALL SELECT 'segment_missing_flag'
+  UNION ALL SELECT 'etl_updated_at'
+) required
+LEFT JOIN information_schema.COLUMNS actual
+  ON actual.TABLE_SCHEMA=DATABASE()
+ AND actual.TABLE_NAME='bi_gds_resource_metric_day'
+ AND actual.COLUMN_NAME=required.column_name
+ORDER BY required.column_name;
+
+-- 2.2 服务表必须同时存在MP_TOTAL和API_GROUP；API_GROUP不能携带航段。
+SELECT metric_scope,COUNT(1) row_count,
+       SUM(seg_num IS NOT NULL) segment_value_rows,
+       MIN(operator_date) min_date,MAX(operator_date) max_date
+FROM bi_gds_resource_metric_day
+GROUP BY metric_scope
+ORDER BY metric_scope;
+
+SELECT COUNT(1) api_group_with_segment_count
+FROM bi_gds_resource_metric_day
+WHERE metric_scope='API_GROUP' AND seg_num IS NOT NULL;
 
 -- 3. 规则模板与正式查定比字段。
 SELECT t.template_code,t.template_name,t.status,

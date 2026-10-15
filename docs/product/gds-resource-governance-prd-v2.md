@@ -70,15 +70,22 @@ DWD负责JSON拆列、去重、状态统一和短期明细追溯。
 
 ### 3.3 页面与监控事实表
 
-Hive汇总后同步到：
+OTA接口指标同步到：
 
 ```text
 sibebid.bi_ota_gds_request_day
 ```
 
-该表是页面和日规则唯一的业务指标来源：
+GDS请求与航段先分别汇总，再形成：
 
-- `data_source=1`：GDS资源层；
+```text
+sibebid.bi_gds_resource_metric_day
+```
+
+GDS服务表包含`MP_TOTAL`与`API_GROUP`两类记录，避免接口分组与航段表直接关联造成分母重复。完整契约见`gds-resource-metric-table-contract.md`。
+
+原请求表：
+
 - `data_source=0`：OTA渠道层；
 - OTA与GDS不能混合汇总；
 - 航线等高基数明细不常驻MySQL，需要时按短时间范围查询Hive。
@@ -92,17 +99,18 @@ sibebid.bi_ota_gds_request_day
 | 查询 | `search_request_count_all`、`search_request_success` |
 | 验价 | `verify_request_count_all`、`verify_request_success` |
 | 生单 | `order_request_count_all`、`order_request_success` |
-| GDS正式分母 | `seg_num` |
+| GDS正式分母 | 来自`bi_issue_segment_pnr_year.seg_num`，落入GDS服务表`MP_TOTAL`记录 |
 
 ## 4. 指标口径
 
 ### 4.1 GDS查定比
 
 ```text
-GDS查定比 = SUM(search_request_count_all) / SUM(seg_num)
+GDS查定比 = SUM(非MPIS查询量) / SUM(seg_num)
 ```
 
 - “定”固定使用航段数`seg_num`；
+- `source_api_group`不以`_MPIS`结尾的查询计入MP查询量；
 - `pnr_num`、`iss_num`、`order_num`不作为正式分母；
 - 航段数为空时不告警，防止同步不完整造成误判；
 - 航段数为0且查询量大于0时记为无穷大；
@@ -201,7 +209,7 @@ OTA不计算查定比，分别计算：
 ODS接口日志
   → DWD五分钟明细
   → Hive日汇总
-  → MySQL日事实表
+  → MySQL OTA日事实表 + GDS指标服务表
   → 页面分析
   → 日规则检查
   → 异常事件
@@ -358,7 +366,9 @@ monitor_resource_action_receipt_sync.py
 
 | 表 | 职责 |
 |---|---|
-| `bi_ota_gds_request_day` | 唯一业务指标事实表 |
+| `bi_ota_gds_request_day` | OTA接口指标与GDS请求上游事实 |
+| `bi_issue_segment_pnr_year` | GDS航段、PNR、出票和订单辅助事实 |
+| `bi_gds_resource_metric_day` | GDS页面与规则统一服务表，区分MP_TOTAL/API_GROUP |
 | `monitor_rule_template` | 规则模板 |
 | `monitor_rule_template_field` | 模板字段白名单 |
 | `monitor_rule` | 规则主表 |
@@ -393,6 +403,12 @@ monitor_resource_action_receipt_sync.py
 14. 所有时间按Asia/Shanghai记录和展示。
 
 ## 14. 后续需求修改方式
+
+### 14.1 原1A监控日报迁移边界
+
+当前版本先完成MP正式查定比、接口组查询/验价/生单成功失败和基础维度下钻。原`gds_1a_search_rate_monitor.py`中的MPIS规则命中、失败原因TOP、航线及去回程间隔覆盖属于第二层诊断数据，后续通过独立诊断数据集接入，不加入`bi_gds_resource_metric_day`主表，避免高基数数据拖慢总览。
+
+完全替代旧日报的目标页面结构为：资源总览、接口分组质量、MPIS质量、失败原因、航线/时段诊断、统一导出与通知。现阶段前三项中的主指标已具备接口，MPIS质量及后续诊断仍需补数据表。
 
 后续需求统一基于本PRD描述，建议按以下格式提出：
 

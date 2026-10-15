@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import json
+import re
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
@@ -10,7 +11,10 @@ from ..time_utils import business_now
 from .data_source import DataSource
 
 
-TABLE_NAME = "bi_ota_gds_request_day"
+REQUEST_TABLE_NAME = "bi_ota_gds_request_day"
+DEFAULT_GDS_METRIC_TABLE = "bi_gds_resource_metric_day"
+GDS_MP_SCOPE = "MP_TOTAL"
+GDS_API_GROUP_SCOPE = "API_GROUP"
 DATA_SOURCES = {
     "ota": {"value": 0, "label": "OTA"},
     "gds": {"value": 1, "label": "GDS"},
@@ -49,6 +53,13 @@ def _clean_filter(value: Any) -> str:
     if len(cleaned) > 100:
         raise ValueError("筛选值长度不能超过100个字符")
     return cleaned
+
+
+def _safe_table_name(value: Any, fallback: str) -> str:
+    table = str(value or fallback).strip()
+    if not re.fullmatch(r"[A-Za-z0-9_]+", table):
+        raise ValueError("资源治理表名配置不合法")
+    return table
 
 
 def _rate(numerator: int, denominator: int) -> str | None:
@@ -128,6 +139,9 @@ def _metric(
     verify_success = int(row[4] or 0)
     order_requests = int(row[5] or 0)
     order_success = int(row[6] or 0)
+    search_failure = max(search_requests - search_success, 0)
+    verify_failure = max(verify_requests - verify_success, 0)
+    order_failure = max(order_requests - order_success, 0)
     segment_count = int(row[7]) if ratio_applicable and row[7] is not None else None
     segment_missing_rows = int(row[8] or 0) if ratio_applicable and row[8] is not None else None
     search_cache = int(row[9] or 0)
@@ -179,17 +193,23 @@ def _metric(
         "rowCount": row_count,
         "searchRequests": search_requests,
         "searchSuccess": search_success,
+        "searchFailure": search_failure,
         "verifyRequests": verify_requests,
         "verifySuccess": verify_success,
+        "verifyFailure": verify_failure,
         "orderRequests": order_requests,
         "orderSuccess": order_success,
+        "orderFailure": order_failure,
         "segmentCount": segment_count,
         "segmentMissingRowCount": segment_missing_rows,
         "queryToSegmentRatio": _ratio(search_requests, segment_count or 0) if segment_complete else None,
         "ratioInfinite": bool(segment_complete and search_requests > 0 and segment_count == 0),
         "searchSuccessRate": _rate(search_success, search_requests),
+        "searchFailureRate": _rate(search_failure, search_requests),
         "verifySuccessRate": _rate(verify_success, verify_requests),
+        "verifyFailureRate": _rate(verify_failure, verify_requests),
         "orderSuccessRate": _rate(order_success, order_requests),
+        "orderFailureRate": _rate(order_failure, order_requests),
         "searchCacheRate": _rate(search_cache, search_requests),
         "verifyCacheRate": _rate(verify_cache, verify_requests),
         "orderCacheRate": _rate(order_cache, order_requests),
@@ -213,8 +233,305 @@ class ResourceGovernanceService:
         mysql_config = dict(config)
         mysql_config["DATA_MODE"] = "mysql"
         self.source = DataSource(mysql_config)
+        self.request_table = REQUEST_TABLE_NAME
+        self.gds_metric_table = _safe_table_name(
+            config.get("RESOURCE_GOVERNANCE_GDS_TABLE"), DEFAULT_GDS_METRIC_TABLE
+        )
         self.gds_targets = _parse_gds_targets(config.get("RESOURCE_GOVERNANCE_GDS_TARGETS", "1A:4000"))
         self.ota_targets = _parse_ota_targets(config.get("RESOURCE_GOVERNANCE_OTA_SUCCESS_TARGETS", "{}"))
+
+    @staticmethod
+    def _where(
+        first: date,
+        last: date,
+        cleaned_filters: dict[str, str],
+        *,
+        source_value: int | None = None,
+        metric_scope: str | None = None,
+        include_api_group: bool = True,
+        iso_dates: bool = False,
+    ) -> tuple[str, list[Any]]:
+        clauses = ["operator_date >= %s", "operator_date <= %s"]
+        parameters: list[Any] = [
+            first.isoformat() if iso_dates else first.strftime("%Y%m%d"),
+            last.isoformat() if iso_dates else last.strftime("%Y%m%d"),
+        ]
+        if source_value is not None:
+            clauses.append("data_source = %s")
+            parameters.append(source_value)
+        if metric_scope:
+            clauses.append("metric_scope = %s")
+            parameters.append(metric_scope)
+        for key, value in cleaned_filters.items():
+            if value and (key != "apiGroup" or include_api_group):
+                clauses.append(f"{FILTER_FIELDS[key]} = %s")
+                parameters.append(value)
+        return " AND ".join(clauses), parameters
+
+    def _populate_gds(
+        self,
+        cursor: Any,
+        result: dict[str, Any],
+        first: date,
+        last: date,
+        dimension_key: str,
+        cleaned_filters: dict[str, str],
+        selected_target: int | None,
+        breach_only: bool,
+    ) -> None:
+        table = f"{self.source.database}.{self.gds_metric_table}"
+        result["table"] = table
+        result["apiGroups"] = []
+
+        # MP_TOTAL是唯一允许携带航段分母的口径；选择接口组后只分析该组接口质量。
+        summary_scope = GDS_API_GROUP_SCOPE if cleaned_filters["apiGroup"] else GDS_MP_SCOPE
+        summary_ratio_applicable = summary_scope == GDS_MP_SCOPE
+        summary_select = METRIC_SELECT.format(
+            segment_expression="SUM(seg_num)" if summary_ratio_applicable else "NULL",
+            segment_missing_expression=(
+                "SUM(CASE WHEN segment_missing_flag = 1 OR seg_num IS NULL THEN 1 ELSE 0 END)"
+                if summary_ratio_applicable
+                else "NULL"
+            ),
+        )
+        summary_where, summary_params = self._where(
+            first,
+            last,
+            cleaned_filters,
+            metric_scope=summary_scope,
+            include_api_group=not summary_ratio_applicable,
+            iso_dates=True,
+        )
+
+        option_where, option_params = self._where(
+            first, last, {key: "" for key in FILTER_FIELDS}, iso_dates=True
+        )
+        cursor.execute(
+            "SELECT DISTINCT ota_code, ota_site_code, gds_code, pcc_code, source_api_group "
+            f"FROM {table} WHERE {option_where} LIMIT 5000",
+            tuple(option_params),
+        )
+        option_rows = cursor.fetchall()
+        for index, key in enumerate(("platform", "site", "gds", "pcc", "apiGroup")):
+            values = {
+                str(row[index]).strip()
+                for row in option_rows
+                if row[index] is not None and str(row[index]).strip()
+            }
+            if key == "apiGroup":
+                values.discard(GDS_MP_SCOPE)
+            result["options"][key] = sorted(values)
+
+        cursor.execute(
+            f"SELECT {summary_select}, MAX(etl_updated_at) FROM {table} WHERE {summary_where}",
+            tuple(summary_params),
+        )
+        summary_row = cursor.fetchone() or ((0,) + (None,) * 17 + (None,))
+        summary = _metric(
+            tuple(summary_row[:18]),
+            True,
+            selected_target if summary_ratio_applicable else None,
+            summary_ratio_applicable,
+        )
+        summary["sourceUpdatedAt"] = (
+            summary_row[18].isoformat(sep=" ", timespec="seconds")
+            if isinstance(summary_row[18], datetime)
+            else (str(summary_row[18]) if summary_row[18] else None)
+        )
+        result["summary"] = summary
+        result["ratioApplicable"] = summary_ratio_applicable
+
+        cursor.execute(
+            f"SELECT operator_date, {summary_select} FROM {table} WHERE {summary_where} "
+            "GROUP BY operator_date ORDER BY operator_date",
+            tuple(summary_params),
+        )
+        result["trend"] = [
+            {
+                "date": _date_label(row[0]),
+                **_metric(
+                    tuple(row[1:]),
+                    True,
+                    selected_target if summary_ratio_applicable else None,
+                    summary_ratio_applicable,
+                ),
+            }
+            for row in cursor.fetchall()
+        ]
+
+        dimension_scope = (
+            GDS_API_GROUP_SCOPE
+            if dimension_key == "apiGroup" or cleaned_filters["apiGroup"]
+            else GDS_MP_SCOPE
+        )
+        dimension_ratio_applicable = dimension_scope == GDS_MP_SCOPE
+        dimension_select = METRIC_SELECT.format(
+            segment_expression="SUM(seg_num)" if dimension_ratio_applicable else "NULL",
+            segment_missing_expression=(
+                "SUM(CASE WHEN segment_missing_flag = 1 OR seg_num IS NULL THEN 1 ELSE 0 END)"
+                if dimension_ratio_applicable
+                else "NULL"
+            ),
+        )
+        dimension_where, dimension_params = self._where(
+            first,
+            last,
+            cleaned_filters,
+            metric_scope=dimension_scope,
+            include_api_group=dimension_scope == GDS_API_GROUP_SCOPE,
+            iso_dates=True,
+        )
+        dimension = DIMENSIONS[dimension_key]
+        dimension_field = dimension["field"]
+        cursor.execute(
+            f"SELECT {dimension_field}, {dimension_select} FROM {table} WHERE {dimension_where} "
+            f"AND {dimension_field} IS NOT NULL AND {dimension_field} <> '' GROUP BY {dimension_field} "
+            "ORDER BY SUM(search_request_count_all) DESC LIMIT 500",
+            tuple(dimension_params),
+        )
+        dimension_rows = []
+        for row in cursor.fetchall():
+            value = str(row[0])
+            row_target = (
+                self.gds_targets.get(value.upper())
+                if dimension_ratio_applicable and dimension_key == "gds"
+                else selected_target if dimension_ratio_applicable else None
+            )
+            dimension_rows.append(
+                {
+                    "value": value,
+                    "name": value,
+                    **_metric(tuple(row[1:]), True, row_target, dimension_ratio_applicable),
+                }
+            )
+        breach_rows = [row for row in dimension_rows if row.get("breach")]
+        result["breachObjectCount"] = len(breach_rows)
+        result["dimension"]["rows"] = breach_rows if breach_only else dimension_rows
+
+        group_where, group_params = self._where(
+            first,
+            last,
+            cleaned_filters,
+            metric_scope=GDS_API_GROUP_SCOPE,
+            include_api_group=True,
+            iso_dates=True,
+        )
+        group_select = METRIC_SELECT.format(
+            segment_expression="NULL", segment_missing_expression="NULL"
+        )
+        cursor.execute(
+            f"SELECT source_api_group, {group_select} FROM {table} WHERE {group_where} "
+            "AND source_api_group IS NOT NULL AND source_api_group <> '' "
+            "GROUP BY source_api_group ORDER BY SUM(search_request_count_all) DESC LIMIT 500",
+            tuple(group_params),
+        )
+        result["apiGroups"] = [
+            {
+                "value": str(row[0]),
+                "name": str(row[0]),
+                **_metric(tuple(row[1:]), True, None, False),
+            }
+            for row in cursor.fetchall()
+        ]
+        result["segmentColumnAvailable"] = True
+        result["segmentDataAvailable"] = (
+            summary_ratio_applicable and summary["status"] in {"ready", "denominator_zero"}
+        )
+        result["available"] = True
+
+    def _populate_ota(
+        self,
+        cursor: Any,
+        result: dict[str, Any],
+        first: date,
+        last: date,
+        dimension_key: str,
+        cleaned_filters: dict[str, str],
+        selected_success_targets: dict[str, str],
+        breach_only: bool,
+    ) -> None:
+        table = f"{self.source.database}.{self.request_table}"
+        result["table"] = table
+        result["apiGroups"] = []
+        metric_select = METRIC_SELECT.format(
+            segment_expression="NULL", segment_missing_expression="NULL"
+        )
+        base_where, base_params = self._where(
+            first,
+            last,
+            cleaned_filters,
+            source_value=DATA_SOURCES["ota"]["value"],
+        )
+        option_where, option_params = self._where(
+            first,
+            last,
+            {key: "" for key in FILTER_FIELDS},
+            source_value=DATA_SOURCES["ota"]["value"],
+        )
+        cursor.execute(
+            "SELECT DISTINCT ota_code, ota_site_code, gds_code, pcc_code, source_api_group "
+            f"FROM {table} WHERE {option_where} LIMIT 5000",
+            tuple(option_params),
+        )
+        option_rows = cursor.fetchall()
+        for index, key in enumerate(("platform", "site", "gds", "pcc", "apiGroup")):
+            result["options"][key] = sorted(
+                {
+                    str(row[index]).strip()
+                    for row in option_rows
+                    if row[index] is not None and str(row[index]).strip()
+                }
+            )
+
+        cursor.execute(
+            f"SELECT {metric_select} FROM {table} WHERE {base_where}", tuple(base_params)
+        )
+        summary_row = cursor.fetchone() or ((0,) + (None,) * 17)
+        summary = _metric(
+            tuple(summary_row[:18]), False, None, False, selected_success_targets
+        )
+        summary["sourceUpdatedAt"] = None
+        result["summary"] = summary
+        cursor.execute(
+            f"SELECT operator_date, {metric_select} FROM {table} WHERE {base_where} "
+            "GROUP BY operator_date ORDER BY operator_date",
+            tuple(base_params),
+        )
+        result["trend"] = [
+            {
+                "date": _date_label(row[0]),
+                **_metric(tuple(row[1:]), False, None, False, selected_success_targets),
+            }
+            for row in cursor.fetchall()
+        ]
+
+        dimension = DIMENSIONS[dimension_key]
+        dimension_field = dimension["field"]
+        cursor.execute(
+            f"SELECT {dimension_field}, {metric_select} FROM {table} WHERE {base_where} "
+            f"AND {dimension_field} IS NOT NULL AND {dimension_field} <> '' GROUP BY {dimension_field} "
+            "ORDER BY SUM(search_request_count_all) DESC LIMIT 500",
+            tuple(base_params),
+        )
+        dimension_rows = []
+        for row in cursor.fetchall():
+            value = str(row[0])
+            row_targets = (
+                self.ota_targets.get(value, {})
+                if dimension_key == "platform"
+                else selected_success_targets
+            )
+            dimension_rows.append(
+                {
+                    "value": value,
+                    "name": value,
+                    **_metric(tuple(row[1:]), False, None, False, row_targets),
+                }
+            )
+        breach_rows = [row for row in dimension_rows if row.get("breach")]
+        result["breachObjectCount"] = len(breach_rows)
+        result["dimension"]["rows"] = breach_rows if breach_only else dimension_rows
+        result["available"] = True
 
     def overview(
         self,
@@ -241,16 +558,16 @@ class ResourceGovernanceService:
             raise ValueError("不支持的分析维度")
         if source_key == "ota" and dimension_key in {"gds", "pcc"}:
             dimension_key = "platform"
-        ratio_applicable = source_key == "gds"
         cleaned_filters = {
             key: _clean_filter((filters or {}).get(key)) for key in FILTER_FIELDS
         }
-        selected_target = self.gds_targets.get(cleaned_filters["gds"].upper()) if ratio_applicable and cleaned_filters["gds"] else None
-        selected_success_targets = self.ota_targets.get(cleaned_filters["platform"], {}) if not ratio_applicable and cleaned_filters["platform"] else {}
+        ratio_applicable = source_key == "gds" and not cleaned_filters["apiGroup"]
+        selected_target = self.gds_targets.get(cleaned_filters["gds"].upper()) if source_key == "gds" and cleaned_filters["gds"] else None
+        selected_success_targets = self.ota_targets.get(cleaned_filters["platform"], {}) if source_key == "ota" and cleaned_filters["platform"] else {}
 
         result = {
             "source": self.source.label,
-            "table": f"{self.source.database}.{TABLE_NAME}",
+            "table": f"{self.source.database}.{self.gds_metric_table if source_key == 'gds' else self.request_table}",
             "available": False,
             "error": "",
             "generatedAt": datetime.now(timezone(timedelta(hours=8))).isoformat(timespec="seconds"),
@@ -268,14 +585,15 @@ class ResourceGovernanceService:
             "options": {key: [] for key in FILTER_FIELDS},
             "summary": _metric((0,) + (None,) * 17, False, selected_target, ratio_applicable, selected_success_targets),
             "trend": [],
+            "apiGroups": [],
             "dimension": {"key": dimension_key, "label": DIMENSIONS[dimension_key]["label"], "rows": []},
             "notes": (
                 [
-                    "GDS资源层查定比按查询总量÷航段数重算。",
-                    "查定比分母固定使用seg_num，不使用pnr_num或直连生单接口成功量。",
-                    "无航段显示为∞，航段未同步显示为—，二者不会混为0。",
+                    "正式GDS查定比按非MPIS查询量÷航段数重算，分母固定使用seg_num。",
+                    "MP_TOTAL承载正式查定比；API_GROUP承载1A、1A_NDC、1A_MPIS等分组接口质量，两者不会重复累计航段。",
+                    "选择具体接口分组后只分析该组查询、验价和生单成功/失败，查定比显示为不适用。",
                 ]
-                if ratio_applicable
+                if source_key == "gds"
                 else [
                     "OTA渠道层只分析查询、验价和生单接口表现，不计算航段查定比。",
                     "OTA与GDS是两个独立分析层，页面不跨层相加。",
@@ -286,83 +604,16 @@ class ResourceGovernanceService:
         try:
             connection = self.source.connect()
             cursor = connection.cursor()
-            segment_column_available = False
-            if ratio_applicable:
-                cursor.execute(
-                    "SELECT COUNT(1) FROM information_schema.COLUMNS "
-                    "WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s AND COLUMN_NAME='seg_num'",
-                    (self.source.database, TABLE_NAME),
+            if source_key == "gds":
+                self._populate_gds(
+                    cursor, result, first, last, dimension_key, cleaned_filters,
+                    selected_target, bool(breach_only),
                 )
-                segment_column_available = bool(int((cursor.fetchone() or (0,))[0] or 0))
-            segment_expression = "SUM(seg_num)" if ratio_applicable and segment_column_available else "NULL"
-            segment_missing_expression = "SUM(CASE WHEN seg_num IS NULL THEN 1 ELSE 0 END)" if ratio_applicable and segment_column_available else "NULL"
-            metric_select = METRIC_SELECT.format(
-                segment_expression=segment_expression,
-                segment_missing_expression=segment_missing_expression,
-            )
-
-            date_params = [first.strftime("%Y%m%d"), last.strftime("%Y%m%d"), DATA_SOURCES[source_key]["value"]]
-            base_where = ["operator_date >= %s", "operator_date <= %s", "data_source = %s"]
-            option_sql = (
-                "SELECT DISTINCT ota_code, ota_site_code, gds_code, pcc_code, source_api_group "
-                f"FROM {self.source.database}.{TABLE_NAME} WHERE " + " AND ".join(base_where) + " LIMIT 5000"
-            )
-            cursor.execute(option_sql, tuple(date_params))
-            option_rows = cursor.fetchall()
-            for index, key in enumerate(("platform", "site", "gds", "pcc", "apiGroup")):
-                result["options"][key] = sorted({str(row[index]).strip() for row in option_rows if row[index] is not None and str(row[index]).strip()})
-
-            where = list(base_where)
-            parameters: list[Any] = list(date_params)
-            for key, value in cleaned_filters.items():
-                if value:
-                    where.append(f"{FILTER_FIELDS[key]} = %s")
-                    parameters.append(value)
-            where_sql = " AND ".join(where)
-            table = f"{self.source.database}.{TABLE_NAME}"
-
-            cursor.execute(f"SELECT {metric_select}, MAX(create_time) FROM {table} WHERE {where_sql}", tuple(parameters))
-            summary_row = cursor.fetchone() or ((0,) + (None,) * 18 + (None,))
-            summary = _metric(tuple(summary_row[:18]), segment_column_available, selected_target, ratio_applicable, selected_success_targets)
-            summary["sourceUpdatedAt"] = summary_row[18].isoformat(sep=" ", timespec="seconds") if isinstance(summary_row[18], datetime) else (str(summary_row[18]) if summary_row[18] else None)
-            result["summary"] = summary
-
-            cursor.execute(
-                f"SELECT operator_date, {metric_select} FROM {table} WHERE {where_sql} "
-                "GROUP BY operator_date ORDER BY operator_date",
-                tuple(parameters),
-            )
-            result["trend"] = [
-                {"date": _date_label(row[0]), **_metric(tuple(row[1:]), segment_column_available, selected_target, ratio_applicable, selected_success_targets)}
-                for row in cursor.fetchall()
-            ]
-
-            dimension = DIMENSIONS[dimension_key]
-            dimension_field = dimension["field"]
-            cursor.execute(
-                f"SELECT {dimension_field}, {metric_select} FROM {table} WHERE {where_sql} "
-                f"AND {dimension_field} <> '' GROUP BY {dimension_field} "
-                "ORDER BY SUM(search_request_count_all) DESC LIMIT 500",
-                tuple(parameters),
-            )
-            dimension_rows = []
-            for row in cursor.fetchall():
-                value = str(row[0])
-                row_target = self.gds_targets.get(value.upper()) if ratio_applicable and dimension_key == "gds" else selected_target
-                row_success_targets = self.ota_targets.get(value, {}) if not ratio_applicable and dimension_key == "platform" else selected_success_targets
-                dimension_rows.append({
-                    "value": value,
-                    "name": value,
-                    **_metric(tuple(row[1:]), segment_column_available, row_target, ratio_applicable, row_success_targets),
-                })
-            # “只看异常对象”在服务端完成筛选，避免被 500 行截断掉真正超标的对象。
-            breach_rows = [row for row in dimension_rows if row.get("breach")]
-            result["breachObjectCount"] = len(breach_rows)
-            result["breachOnly"] = bool(breach_only)
-            result["dimension"]["rows"] = breach_rows if breach_only else dimension_rows
-            result["segmentColumnAvailable"] = segment_column_available
-            result["segmentDataAvailable"] = ratio_applicable and segment_column_available and summary["status"] in {"ready", "denominator_zero"}
-            result["available"] = True
+            else:
+                self._populate_ota(
+                    cursor, result, first, last, dimension_key, cleaned_filters,
+                    selected_success_targets, bool(breach_only),
+                )
         except Exception as error:
             logging.getLogger(__name__).exception("GDS/OTA resource governance query failed")
             result["error"] = "GDS/OTA资源汇总查询失败，请检查MySQL连接、表结构与同步批次。"

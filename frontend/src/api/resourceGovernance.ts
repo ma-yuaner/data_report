@@ -20,17 +20,23 @@ export interface GovernanceMetric {
   rowCount: number
   searchRequests: number
   searchSuccess: number
+  searchFailure: number
   verifyRequests: number
   verifySuccess: number
+  verifyFailure: number
   orderRequests: number
   orderSuccess: number
+  orderFailure: number
   segmentCount: number | null
   segmentMissingRowCount: number | null
   queryToSegmentRatio: string | null
   ratioInfinite: boolean
   searchSuccessRate: string | null
+  searchFailureRate: string | null
   verifySuccessRate: string | null
+  verifyFailureRate: string | null
   orderSuccessRate: string | null
+  orderFailureRate: string | null
   searchCacheRate: string | null
   verifyCacheRate: string | null
   orderCacheRate: string | null
@@ -69,6 +75,7 @@ export interface GovernanceData {
   options: Record<GovernanceDimension, string[]>
   summary: GovernanceMetric
   trend: Array<{ date: string } & GovernanceMetric>
+  apiGroups: Array<{ value: string; name: string } & GovernanceMetric>
   dimension: { key: GovernanceDimension; label: string; rows: Array<{ value: string; name: string } & GovernanceMetric> }
   notes: string[]
 }

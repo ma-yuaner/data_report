@@ -11,7 +11,7 @@
 
 智能投放成功是首个接入场景。成功登记和规则生成使用同一个 MySQL 事务，任一步失败都会整体回滚；草稿、审核、认领和失败投放不会生成生效规则。
 
-手工配置已开放“订单航段阈值”“GDS查定比日异常”“OTA接口成功率日异常”。订单规则使用分钟级特征；资源规则统一读取`bi_ota_gds_request_day`并按业务日检查，不为每条规则新增ETL。其他经营指标和状态超时模板仍只登记目录，待数据采集器上线后再开放创建。
+手工配置已开放“订单航段阈值”“GDS查定比日异常”“OTA接口成功率日异常”。订单规则使用分钟级特征；OTA资源规则读取`bi_ota_gds_request_day`，GDS规则读取`bi_gds_resource_metric_day`的MP总体或API分组记录并按业务日检查，不为每条规则新增ETL。其他经营指标和状态超时模板仍只登记目录，待数据采集器上线后再开放创建。
 
 ## 2. 运行链路
 
@@ -28,7 +28,8 @@
 资源治理使用并行的日链路：
 
 ```text
-bi_ota_gds_request_day（日ADS，含GDS航段数seg_num）
+bi_ota_gds_request_day（OTA接口日事实）
+bi_gds_resource_metric_day（GDS MP总体/API分组服务表）
   → monitor_resource_governance_daily.py（每天统一检查全部资源规则）
   → monitor_alert_event / monitor_rule_run_stat
   → monitor_resource_event_lifecycle.py（每10分钟检查处理期限并升级）

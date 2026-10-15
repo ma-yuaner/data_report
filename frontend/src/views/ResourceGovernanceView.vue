@@ -5,7 +5,7 @@
     </PageHeader>
 
     <a-alert class="source-banner" type="info" show-icon
-      :message="`${data?.source || 'MySQL · sibebid'} · ${data?.table || 'bi_ota_gds_request_day'}`"
+      :message="`${data?.source || 'MySQL · sibebid'} · ${data?.table || (isGds ? 'bi_gds_resource_metric_day' : 'bi_ota_gds_request_day')}`"
       :description="`OTA与GDS独立计算，不跨层相加。${data?.summary.sourceUpdatedAt ? ' 数据更新：' + data.summary.sourceUpdatedAt : ''}`" />
 
     <section class="scope-panel">
@@ -42,13 +42,13 @@
       <div><a-tag color="blue">{{ layerLabel(applied.dataSource) }}</a-tag><a-tag v-for="tag in appliedTags" :key="tag">{{ tag }}</a-tag></div>
     </div>
     <a-alert v-if="error || data?.error" class="state-alert" type="error" show-icon :message="error || data?.error" />
-    <a-alert v-else-if="isGds && data?.available && !data.segmentColumnAvailable" class="state-alert" type="warning" show-icon
-      message="航段数字段尚未接入" description="当前页面已展示查询、验价和生单接口指标；在bi_ota_gds_request_day增加seg_num并完成同步后，查定比自动生效。" />
-    <a-alert v-else-if="isGds && data?.summary.status === 'segment_partial'" class="state-alert" type="warning" show-icon
+    <a-alert v-else-if="isGds && data?.ratioApplicable && data?.summary.status === 'segment_partial'" class="state-alert" type="warning" show-icon
       message="所选范围的航段数只完成了部分同步"
-      :description="`仍有 ${integer(data.summary.segmentMissingRowCount)} 条GDS汇总记录缺少seg_num；为避免分母偏小，当前不计算查定比和超额查询。`" />
-    <a-alert v-else-if="isGds && data?.available && data.segmentColumnAvailable && !data.segmentDataAvailable" class="state-alert" type="warning" show-icon
-      message="seg_num字段已存在，但所选范围尚未同步航段数" description="航段数显示为—，不会使用pnr_num或order_request_success替代，也不会把缺失数据当成0。" />
+      :description="`仍有 ${integer(data.summary.segmentMissingRowCount)} 条MP总体记录缺少航段数；为避免分母偏小，当前不计算查定比和超额查询。`" />
+    <a-alert v-else-if="isGds && data?.ratioApplicable && data?.available && !data.segmentDataAvailable" class="state-alert" type="warning" show-icon
+      message="MP总体航段数尚未完成同步" description="请检查bi_gds_resource_metric_day的MP_TOTAL记录；系统不会用PNR数或接口生单成功量替代航段数。" />
+    <a-alert v-else-if="isGds && data?.available && !data.ratioApplicable" class="state-alert" type="info" show-icon
+      message="当前为接口分组质量分析" description="接口组只展示查询、验价、生单的请求、成功、失败和成功率；正式查定比只在MP总体口径计算。" />
     <a-alert v-else-if="!isGds && applied.platform && !hasOtaTarget(data?.summary)" class="state-alert" type="info" show-icon
       message="该平台尚未配置接口成功率目标" description="当前继续展示实际成功率，但不会标记达标或异常；配置平台目标后自动生效。" />
 
@@ -59,11 +59,16 @@
           <h2>{{ heroTitle }}</h2>
           <p>{{ heroDescription }}</p>
         </div>
-        <div v-if="isGds" class="hero-ratio">
+        <div v-if="isGdsRatioScope" class="hero-ratio">
           <small>当前查定比</small>
           <strong :class="ratioTone">{{ ratioText(data?.summary) }}</strong>
           <span v-if="data?.targetRatio">目标 ≤ {{ integer(data.targetRatio) }} : 1</span>
           <span v-else>不同GDS按独立目标评估</span>
+        </div>
+        <div v-else-if="isGds" class="hero-ratio">
+          <small>当前接口分组</small>
+          <strong>{{ applied.apiGroup || '分组质量' }}</strong>
+          <span>不重复分摊MP总体航段</span>
         </div>
         <div v-else class="hero-ratio">
           <small>渠道分析重点</small>
@@ -73,10 +78,14 @@
       </section>
 
       <div class="kpi-grid">
-        <article><span>查询请求量</span><strong>{{ compact(data?.summary.searchRequests) }}</strong><small>不区分白名单的查询调用</small></article>
-        <template v-if="isGds">
+        <article><span>{{ isGdsRatioScope ? 'MP查询量' : '查询请求量' }}</span><strong>{{ compact(data?.summary.searchRequests) }}</strong><small>{{ isGdsRatioScope ? '已排除MPIS接口分组' : '当前范围的接口调用' }}</small></article>
+        <template v-if="isGdsRatioScope">
           <article><span>航段数</span><strong>{{ nullableCount(data?.summary.segmentCount) }}</strong><small>GDS查定比分母</small></article>
           <article><span>超额查询量</span><strong class="orange">{{ nullableCount(data?.summary.excessQueryCount) }}</strong><small>{{ data?.targetRatio ? '查询量 − 航段数 × 目标值' : '选择已配置目标的GDS后计算' }}</small></article>
+        </template>
+        <template v-else-if="isGds">
+          <article><span>查询失败量</span><strong>{{ integer(data?.summary.searchFailure) }}</strong><small>请求量 − 成功量</small></article>
+          <article><span>验价请求量</span><strong>{{ integer(data?.summary.verifyRequests) }}</strong><small>当前接口组验价调用</small></article>
         </template>
         <template v-else>
           <article><span>查询成功量</span><strong>{{ integer(data?.summary.searchSuccess) }}</strong><small>成功率 {{ percent(data?.summary.searchSuccessRate) }}</small></article>
@@ -99,10 +108,42 @@
         </div>
       </section>
 
+      <a-card v-if="isGds" :bordered="false" class="analysis-panel api-group-panel">
+        <template #title>
+          <div class="panel-title">
+            <div><strong>接口分组调用质量</strong><small>1A、1A_NDC、1A_MPIS等分组独立展示；成功与失败均由基础量重算</small></div>
+            <a-tag color="purple">API GROUP</a-tag>
+          </div>
+        </template>
+        <a-table :columns="apiGroupColumns" :data-source="data?.apiGroups || []" row-key="value"
+          :pagination="{ pageSize: 20, showTotal: (total: number) => `共 ${total} 个接口组` }"
+          :scroll="{ x: 1900 }" :locale="{ emptyText: '当前范围暂无接口分组数据' }">
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'name'"><div class="resource-name"><strong>{{ record.name }}</strong><small>接口分组</small></div></template>
+            <template v-else-if="column.key === 'searchRequest'">{{ integer(record.searchRequests) }}</template>
+            <template v-else-if="column.key === 'searchSuccess'">{{ integer(record.searchSuccess) }}</template>
+            <template v-else-if="column.key === 'searchFailure'">{{ integer(record.searchFailure) }}</template>
+            <template v-else-if="column.key === 'searchRate'">{{ percent(record.searchSuccessRate) }}</template>
+            <template v-else-if="column.key === 'searchFailureRate'">{{ percent(record.searchFailureRate) }}</template>
+            <template v-else-if="column.key === 'verifyRequest'">{{ integer(record.verifyRequests) }}</template>
+            <template v-else-if="column.key === 'verifySuccess'">{{ integer(record.verifySuccess) }}</template>
+            <template v-else-if="column.key === 'verifyFailure'">{{ integer(record.verifyFailure) }}</template>
+            <template v-else-if="column.key === 'verifyRate'">{{ percent(record.verifySuccessRate) }}</template>
+            <template v-else-if="column.key === 'verifyFailureRate'">{{ percent(record.verifyFailureRate) }}</template>
+            <template v-else-if="column.key === 'orderRequest'">{{ integer(record.orderRequests) }}</template>
+            <template v-else-if="column.key === 'orderSuccess'">{{ integer(record.orderSuccess) }}</template>
+            <template v-else-if="column.key === 'orderFailure'">{{ integer(record.orderFailure) }}</template>
+            <template v-else-if="column.key === 'orderRate'">{{ percent(record.orderSuccessRate) }}</template>
+            <template v-else-if="column.key === 'orderFailureRate'">{{ percent(record.orderFailureRate) }}</template>
+            <template v-else-if="column.key === 'action'"><a-button type="link" size="small" @click="openApiGroupAnalysis(record)">分析此项</a-button></template>
+          </template>
+        </a-table>
+      </a-card>
+
       <div class="charts-grid">
         <a-card :bordered="false" class="analysis-panel">
-          <template #title><div class="panel-title"><div><strong>{{ isGds ? '请求量与查定比趋势' : '请求量与接口成功率趋势' }}</strong><small>{{ isGds ? '按日汇总基础数量后重新计算' : '按日观察渠道接口调用质量' }}</small></div><a-tag>{{ layerLabel(applied.dataSource) }}</a-tag></div></template>
-          <BaseChart v-if="data?.available && data.trend.length" :option="trendOption" :chart-label="isGds ? 'GDS请求量与查定比日趋势' : 'OTA请求量与接口成功率日趋势'" />
+          <template #title><div class="panel-title"><div><strong>{{ isGdsRatioScope ? 'MP查询量与查定比趋势' : '请求量与接口成功率趋势' }}</strong><small>{{ isGdsRatioScope ? '按日汇总基础数量后重新计算' : '按日观察接口调用质量' }}</small></div><a-tag>{{ layerLabel(applied.dataSource) }}</a-tag></div></template>
+          <BaseChart v-if="data?.available && data.trend.length" :option="trendOption" :chart-label="isGdsRatioScope ? 'GDS MP查询量与查定比日趋势' : '接口请求量与成功率日趋势'" />
           <a-empty v-else description="所选范围暂无趋势数据" />
         </a-card>
         <a-card :bordered="false" class="analysis-panel">
@@ -160,7 +201,7 @@
         </div>
         <div class="drawer-kpis">
           <article><span>查询量</span><strong>{{ integer(analysisData?.summary.searchRequests) }}</strong></article>
-          <template v-if="isGds">
+          <template v-if="analysisIsGdsRatioScope">
             <article><span>航段数</span><strong>{{ nullableCount(analysisData?.summary.segmentCount) }}</strong></article>
             <article><span>查定比</span><strong :class="ratioClass(analysisData?.summary)">{{ ratioText(analysisData?.summary) }}</strong></article>
             <article><span>超额查询</span><strong>{{ nullableCount(analysisData?.summary.excessQueryCount) }}</strong></article>
@@ -178,7 +219,7 @@
             <a-segmented v-if="analysisDimensionOptions.length" v-model:value="analysisGroup" :options="analysisDimensionOptions" @change="changeAnalysisDimension" />
             <a-tag v-else color="green">已到当前汇总表最细维度</a-tag>
           </div>
-          <a-table class="daily-table" :columns="dimensionColumns" :data-source="analysisData?.dimension.rows || []" row-key="value"
+          <a-table class="daily-table" :columns="analysisDimensionColumns" :data-source="analysisData?.dimension.rows || []" row-key="value"
             :pagination="{ pageSize: 20, showTotal: (total: number) => `共 ${total} 项` }" :scroll="{ x: 1120 }" :locale="{ emptyText: '当前条件下暂无可继续分析的数据' }">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'name'"><div class="resource-name"><strong>{{ record.name }}</strong><small>{{ analysisData?.dimension.label }}</small></div></template>
@@ -199,7 +240,7 @@
             </template>
           </a-table>
         </template>
-        <a-table v-else class="daily-table" :columns="dailyColumns" :data-source="analysisData?.trend || []" row-key="date" :pagination="{ pageSize: 20 }" :scroll="{ x: 880 }" :locale="{ emptyText: '该资源暂无每日数据' }">
+        <a-table v-else class="daily-table" :columns="analysisDailyColumns" :data-source="analysisData?.trend || []" row-key="date" :pagination="{ pageSize: 20 }" :scroll="{ x: 880 }" :locale="{ emptyText: '该资源暂无每日数据' }">
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'search'">{{ integer(record.searchRequests) }}</template>
             <template v-else-if="column.key === 'searchSuccess'">{{ integer(record.searchSuccess) }} / {{ percent(record.searchSuccessRate) }}</template>
@@ -248,11 +289,12 @@ const error = ref('')
 let requestId = 0
 
 const periodOptions = [{ label: '今日', value: 'today' }, { label: '近7天', value: 'seven' }, { label: '本月', value: 'month' }, { label: '自定义', value: 'custom' }]
-const gdsDimensions = [{ label: 'GDS', value: 'gds' }, { label: 'PCC', value: 'pcc' }, { label: '平台', value: 'platform' }, { label: '站点', value: 'site' }, { label: '接口分组', value: 'apiGroup' }]
+const gdsDimensions = [{ label: 'GDS', value: 'gds' }, { label: 'PCC', value: 'pcc' }, { label: '平台', value: 'platform' }, { label: '站点', value: 'site' }]
 const otaDimensions = [{ label: '平台', value: 'platform' }, { label: '站点', value: 'site' }, { label: '接口分组', value: 'apiGroup' }]
 const dimensionOptions = computed(() => draft.value.dataSource === 'gds' ? gdsDimensions : otaDimensions)
 const pending = computed(() => JSON.stringify(draft.value) !== JSON.stringify(applied.value))
 const isGds = computed(() => applied.value.dataSource === 'gds')
+const isGdsRatioScope = computed(() => isGds.value && data.value?.ratioApplicable !== false)
 const pageTitle = computed(() => isGds.value ? 'GDS资源治理' : 'OTA渠道质量')
 const pageDescription = computed(() => isGds.value ? '按GDS与PCC分析查询量、航段数和查定比' : '按平台与站点分析查询、验价和生单接口成功率')
 const layerLabel = (layer: GovernanceLayer) => layer === 'gds' ? 'GDS资源层' : 'OTA渠道层'
@@ -304,6 +346,7 @@ const heroTitle = computed(() => {
   const summary = data.value?.summary
   if (!summary || summary.status === 'no_records') return '当前范围暂无资源调用数据'
   if (!isGds.value) return '当前为OTA渠道接口链路分析'
+  if (!data.value?.ratioApplicable) return `${applied.value.apiGroup || '接口分组'}调用质量分析`
   if (summary.status === 'segment_field_missing' || summary.status === 'segment_data_missing') return '查询链路已接入，航段数待补齐'
   if (summary.status === 'segment_partial') return '航段数同步不完整，暂不输出查定比'
   if (summary.ratioInfinite) return '存在查询但没有航段数'
@@ -314,6 +357,7 @@ const heroTitle = computed(() => {
 const heroDescription = computed(() => {
   const summary = data.value?.summary
   if (!isGds.value) return 'OTA渠道层只分析查询、验价与生单接口表现，不计算航段查定比。'
+  if (!data.value?.ratioApplicable) return '当前只分析接口分组的请求、成功与失败；正式MP查定比返回总体口径后查看。'
   if (!summary?.queryToSegmentRatio) return '页面不会使用PNR数或直连生单接口成功量替代航段数。'
   if (data.value?.targetRatio == null) return '不同GDS目标不同；首版已配置1A目标为4000:1，筛选具体GDS后判断是否达标。'
   const gap = Math.round(Number(summary.queryToSegmentRatio) - data.value.targetRatio)
@@ -324,13 +368,13 @@ const funnel = computed(() => {
   const summary = data.value?.summary
   const progress = (value?: string | null) => value == null ? 0 : Math.min(100, Math.max(0, Number(value)))
   return [
-    { label: '查询接口', value: summary?.searchRequests ?? 0, percent: progress(summary?.searchSuccessRate), color: '#3278c8', note: `成功 ${integer(summary?.searchSuccess)} · 成功率 ${percent(summary?.searchSuccessRate)}` },
-    { label: '验价接口', value: summary?.verifyRequests ?? 0, percent: progress(summary?.verifySuccessRate), color: '#e19337', note: `成功 ${integer(summary?.verifySuccess)} · 成功率 ${percent(summary?.verifySuccessRate)}` },
-    { label: '生单接口', value: summary?.orderRequests ?? 0, percent: progress(summary?.orderSuccessRate), color: '#8067c9', note: `成功 ${integer(summary?.orderSuccess)} · 成功率 ${percent(summary?.orderSuccessRate)}` },
+    { label: '查询接口', value: summary?.searchRequests ?? 0, percent: progress(summary?.searchSuccessRate), color: '#3278c8', note: `成功 ${integer(summary?.searchSuccess)} · 失败 ${integer(summary?.searchFailure)} · 成功率 ${percent(summary?.searchSuccessRate)}` },
+    { label: '验价接口', value: summary?.verifyRequests ?? 0, percent: progress(summary?.verifySuccessRate), color: '#e19337', note: `成功 ${integer(summary?.verifySuccess)} · 失败 ${integer(summary?.verifyFailure)} · 成功率 ${percent(summary?.verifySuccessRate)}` },
+    { label: '生单接口', value: summary?.orderRequests ?? 0, percent: progress(summary?.orderSuccessRate), color: '#8067c9', note: `成功 ${integer(summary?.orderSuccess)} · 失败 ${integer(summary?.orderFailure)} · 成功率 ${percent(summary?.orderSuccessRate)}` },
   ]
 })
 
-const trendOption = computed<EChartsCoreOption>(() => isGds.value ? ({
+const trendOption = computed<EChartsCoreOption>(() => isGdsRatioScope.value ? ({
   color: ['#4b85d1', '#d66a67', '#2a9b78'],
   tooltip: { trigger: 'axis', valueFormatter: (value: unknown) => integer(Number(value)) },
   legend: { top: 2, data: data.value?.targetRatio == null ? ['查询请求量', '查定比'] : ['查询请求量', '查定比', '目标值'] },
@@ -389,7 +433,37 @@ const otaDimensionColumns = [
   { title: '异常判定', key: 'breach', width: 210 },
   { title: '操作', key: 'action', fixed: 'right' as const, width: 100 },
 ]
-const dimensionColumns = computed(() => isGds.value ? gdsDimensionColumns : otaDimensionColumns)
+const interfaceDimensionColumns = [
+  { title: '资源', key: 'name', fixed: 'left' as const, width: 170 },
+  { title: '查询请求量', key: 'search', width: 125, sorter: (a: GovernanceMetric, b: GovernanceMetric) => a.searchRequests - b.searchRequests },
+  { title: '查询成功量', key: 'searchSuccess', width: 120 },
+  { title: '查询成功率', key: 'searchRate', width: 120 },
+  { title: '验价请求量', key: 'verify', width: 120 },
+  { title: '验价成功率', key: 'verifyRate', width: 120 },
+  { title: '生单请求量', key: 'order', width: 120 },
+  { title: '生单成功率', key: 'orderRate', width: 120 },
+  { title: '操作', key: 'action', fixed: 'right' as const, width: 100 },
+]
+const dimensionColumns = computed(() => isGdsRatioScope.value ? gdsDimensionColumns : isGds.value ? interfaceDimensionColumns : otaDimensionColumns)
+const apiGroupColumns = [
+  { title: '接口分组', key: 'name', fixed: 'left' as const, width: 150 },
+  { title: '查询请求', key: 'searchRequest', width: 110 },
+  { title: '查询成功', key: 'searchSuccess', width: 110 },
+  { title: '查询失败', key: 'searchFailure', width: 110 },
+  { title: '查询成功率', key: 'searchRate', width: 115 },
+  { title: '查询失败率', key: 'searchFailureRate', width: 115 },
+  { title: '验价请求', key: 'verifyRequest', width: 110 },
+  { title: '验价成功', key: 'verifySuccess', width: 110 },
+  { title: '验价失败', key: 'verifyFailure', width: 110 },
+  { title: '验价成功率', key: 'verifyRate', width: 115 },
+  { title: '验价失败率', key: 'verifyFailureRate', width: 115 },
+  { title: '生单请求', key: 'orderRequest', width: 110 },
+  { title: '生单成功', key: 'orderSuccess', width: 110 },
+  { title: '生单失败', key: 'orderFailure', width: 110 },
+  { title: '生单成功率', key: 'orderRate', width: 115 },
+  { title: '生单失败率', key: 'orderFailureRate', width: 115 },
+  { title: '操作', key: 'action', fixed: 'right' as const, width: 100 },
+]
 const gdsDailyColumns = [
   { title: '日期', dataIndex: 'date', width: 120, fixed: 'left' as const },
   { title: '查询请求量', key: 'search', width: 130 },
@@ -406,8 +480,6 @@ const otaDailyColumns = [
   { title: '验价量 / 成功率', key: 'verify', width: 160 },
   { title: '生单成功 / 成功率', key: 'order', width: 170 },
 ]
-const dailyColumns = computed(() => isGds.value ? gdsDailyColumns : otaDailyColumns)
-
 function applyPreset(value: string | number) {
   const selected = String(value)
   if (selected === 'custom') return
@@ -444,6 +516,9 @@ const analysisScope = ref<GovernanceScope>({ ...applied.value })
 const analysisHistory = ref<GovernanceScope[]>([])
 const analysisView = ref<'dimension' | 'daily'>('dimension')
 const analysisGroup = ref<GovernanceDimension>('gds')
+const analysisIsGdsRatioScope = computed(() => analysisScope.value.dataSource === 'gds' && analysisData.value?.ratioApplicable !== false)
+const analysisDimensionColumns = computed(() => analysisIsGdsRatioScope.value ? gdsDimensionColumns : analysisScope.value.dataSource === 'gds' ? interfaceDimensionColumns : otaDimensionColumns)
+const analysisDailyColumns = computed(() => analysisIsGdsRatioScope.value ? gdsDailyColumns : otaDailyColumns)
 let drawerRequestId = 0
 const dimensionsForLayer = (layer: GovernanceLayer) => layer === 'gds' ? gdsDimensions : otaDimensions
 const nextAnalysisGroup = (scope: GovernanceScope, after?: GovernanceDimension) => {
@@ -454,7 +529,7 @@ const nextAnalysisGroup = (scope: GovernanceScope, after?: GovernanceDimension) 
   return available.find(key => order.indexOf(key) > afterIndex) || available[0]
 }
 const analysisDimensionOptions = computed(() => dimensionsForLayer(analysisScope.value.dataSource).filter(item => !analysisScope.value[item.value as GovernanceDimension]))
-const hasNextAnalysisDimension = computed(() => analysisDimensionOptions.value.length > 1)
+const hasNextAnalysisDimension = computed(() => analysisDimensionOptions.value.length > 0)
 const analysisScopeTags = computed(() => [
   analysisScope.value.platform && `平台：${analysisScope.value.platform}`,
   analysisScope.value.site && `站点：${analysisScope.value.site}`,
@@ -481,6 +556,15 @@ async function openAnalysis(record: { value: string; name: string }) {
   drawerTitle.value = `${record.name} · ${data.value?.dimension.label || '资源'}分析`
   drawerOpen.value = true
   analysisView.value = nextAnalysisGroup(scope) ? 'dimension' : 'daily'
+  analysisHistory.value = [{ ...scope }]
+  await loadAnalysis(scope)
+}
+async function openApiGroupAnalysis(record: { value: string; name: string }) {
+  const scope = { ...applied.value, apiGroup: record.value }
+  scope.groupBy = nextAnalysisGroup(scope) || 'gds'
+  drawerTitle.value = `${record.name} · 接口分组分析`
+  drawerOpen.value = true
+  analysisView.value = 'dimension'
   analysisHistory.value = [{ ...scope }]
   await loadAnalysis(scope)
 }
@@ -556,6 +640,7 @@ watch(() => route.meta.governanceLayer, () => {
 .quality-grid strong { display: block; margin-top: 7px; color: #30425b; font-size: 15px; }
 .charts-grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(320px, .85fr); gap: 15px; margin-bottom: 15px; }
 .analysis-panel { min-width: 0; border: 1px solid #e3e9f1; border-radius: 12px; }
+.api-group-panel { margin-bottom: 15px; }
 .analysis-panel :deep(.ant-card-head) { min-height: 58px; border-color: #edf1f5; }
 .analysis-panel :deep(.ant-card-body) { padding: 18px 20px; }
 .panel-title > div, .dimension-header > div { display: grid; gap: 4px; }
