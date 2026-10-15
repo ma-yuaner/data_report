@@ -34,6 +34,7 @@
 - 开发智能投放任务流、政策认领和收单关注：阅读 [smart-placement-mvp.md](smart-placement-mvp.md)
 - 开发通用分钟监控、规则、事件和通知链路：阅读 [monitoring-center-v1.md](monitoring-center-v1.md)
 - 规划GDS/OTA查定比分析、异常规则与上下线闭环：阅读 [GDS/OTA资源治理PRD](../../product/gds-resource-governance-prd-v1.md)
+- 后续功能变更与技术表接口统一基于 [GDS/OTA资源治理与技术上下线协同PRD V2](../../product/gds-resource-governance-prd-v2.md)
 - 部署资源治理、验收规则/事件/工单并对接技术上下线：阅读 [GDS/OTA资源治理上线、使用与技术对接说明](gds-resource-governance-operation-guide.md)
 - 开发或使用GDS/OTA资源治理正式页面：阅读 [gds-resource-governance-live.md](gds-resource-governance-live.md)
 - 追溯综合分析历史界面预览：阅读 [comprehensive-analysis-preview.md](comprehensive-analysis-preview.md)
