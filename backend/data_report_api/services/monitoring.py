@@ -27,6 +27,8 @@ EVENT_TABLE = "monitor_alert_event"
 OUTBOX_TABLE = "monitor_notify_outbox"
 EVENT_LOG_TABLE = "monitor_event_operation_log"
 EVENT_POLICY_TABLE = "monitor_event_lifecycle_policy"
+ACTION_ORDER_TABLE = "monitor_resource_action_order"
+ACTION_LOG_TABLE = "monitor_resource_action_operation_log"
 FEATURE_TABLE = "rt_order_monitor_feature"
 RULE_STAT_TABLE = "monitor_rule_run_stat"
 NOTIFY_ENDPOINT_TABLE = "monitor_notify_endpoint"
@@ -45,10 +47,20 @@ RESOURCE_RULE_TEMPLATES = frozenset({"GDS_QUERY_RATIO_DAILY", "OTA_SUCCESS_RATE_
 RULE_STATUSES = frozenset({"SCHEDULED", "ACTIVE", "PAUSED", "EXPIRED", "DISABLED"})
 EVENT_STATUSES = frozenset({
     "OPEN", "ACKNOWLEDGED", "OBSERVING", "ESCALATED",
+    "ACTION_PENDING", "ACTION_IN_PROGRESS", "ACTION_APPLIED",
     "RESOLVED", "IGNORED", "CLOSED",
 })
-ACTIVE_EVENT_STATUSES = frozenset({"OPEN", "ACKNOWLEDGED", "OBSERVING", "ESCALATED"})
+ACTIVE_EVENT_STATUSES = frozenset({
+    "OPEN", "ACKNOWLEDGED", "OBSERVING", "ESCALATED",
+    "ACTION_PENDING", "ACTION_IN_PROGRESS", "ACTION_APPLIED",
+})
 TERMINAL_EVENT_STATUSES = frozenset({"RESOLVED", "IGNORED", "CLOSED"})
+ACTION_TYPES = frozenset({"RATE_LIMIT", "DISABLE", "EXTEND_DISABLE", "RESTORE"})
+ACTION_STATUSES = frozenset({
+    "PENDING", "ACCEPTED", "EXECUTING", "SUCCEEDED", "FAILED",
+    "CANCELLED", "RECOVERY_PENDING", "RECOVERED",
+})
+ACTIVE_ACTION_STATUSES = frozenset({"PENDING", "ACCEPTED", "EXECUTING", "SUCCEEDED", "RECOVERY_PENDING"})
 EVENT_RESOLUTION_CODES = frozenset({
     "FIXED", "EXPECTED_TEST", "BUSINESS_ACCEPTED", "FALSE_POSITIVE",
     "TECH_ACTION_REQUIRED", "OTHER",
@@ -139,6 +151,35 @@ def _event_scope(row: dict[str, Any]) -> dict[str, Any]:
     snapshot = _json_dict(row.get("match_snapshot_json"))
     raw = snapshot.get("scope")
     return dict(raw) if isinstance(raw, dict) else {}
+
+
+def _action_target(row: dict[str, Any]) -> dict[str, Any]:
+    snapshot = _json_dict(row.get("target_snapshot_json"))
+    raw = snapshot.get("scope")
+    return dict(raw) if isinstance(raw, dict) else {}
+
+
+def _resource_target_key(row: dict[str, Any]) -> str:
+    scope = _event_scope(row)
+    parts = [f"{key}={scope[key]}" for key in sorted(scope) if scope.get(key) not in (None, "")]
+    return "|".join(parts)[:200] or str(row.get("rule_code") or row.get("entity_key") or "RESOURCE")[:200]
+
+
+def _positive_minutes(value: Any, default: list[int] | None = None) -> list[int]:
+    try:
+        parsed = json.loads(value or "[]")
+    except (TypeError, json.JSONDecodeError):
+        parsed = []
+    result: list[int] = []
+    if isinstance(parsed, list):
+        for item in parsed:
+            try:
+                minutes = int(item)
+            except (TypeError, ValueError):
+                continue
+            if minutes > 0:
+                result.append(minutes)
+    return result or list(default or [60, 240, 1440])
 
 
 def _scope_field_label(field_code: str) -> str:
@@ -561,10 +602,10 @@ class MonitoringService:
             today_start = datetime.combine(business_now_naive().date(), time.min)
             cursor.execute(
                 f"""SELECT SUM(CASE WHEN occurred_at>=%s THEN 1 ELSE 0 END) total_events,
-                           SUM(CASE WHEN occurred_at>=%s AND event_status IN ('OPEN','ESCALATED') THEN 1 ELSE 0 END) open_events,
-                           SUM(CASE WHEN occurred_at>=%s AND event_status IN ('ACKNOWLEDGED','OBSERVING') THEN 1 ELSE 0 END) acknowledged_events,
+                           SUM(CASE WHEN occurred_at>=%s AND event_status IN ('OPEN','ESCALATED','ACTION_PENDING') THEN 1 ELSE 0 END) open_events,
+                           SUM(CASE WHEN occurred_at>=%s AND event_status IN ('ACKNOWLEDGED','OBSERVING','ACTION_IN_PROGRESS','ACTION_APPLIED') THEN 1 ELSE 0 END) acknowledged_events,
                            SUM(CASE WHEN event_status='ESCALATED' THEN 1 ELSE 0 END) escalated_events,
-                           SUM(CASE WHEN event_status IN ('OPEN','ACKNOWLEDGED','OBSERVING','ESCALATED')
+                           SUM(CASE WHEN event_status IN ('OPEN','ACKNOWLEDGED','OBSERVING','ESCALATED','ACTION_PENDING','ACTION_IN_PROGRESS')
                                       AND due_at IS NOT NULL AND due_at<%s THEN 1 ELSE 0 END) overdue_events
                     FROM {self._table(EVENT_TABLE)}""",
                 (today_start, today_start, today_start, business_now_naive()),
@@ -1178,7 +1219,7 @@ class MonitoringService:
         elif assignee_user_id:
             where.append("assignee_user_id=%s"); params.append(int(assignee_user_id))
         if overdue_only:
-            where.append("event_status IN ('OPEN','ACKNOWLEDGED','OBSERVING','ESCALATED')")
+            where.append("event_status IN ('OPEN','ACKNOWLEDGED','OBSERVING','ESCALATED','ACTION_PENDING','ACTION_IN_PROGRESS')")
             where.append("due_at IS NOT NULL AND due_at<%s"); params.append(business_now_naive())
         condition = " AND ".join(where)
         connection = cursor = None
@@ -1278,6 +1319,8 @@ class MonitoringService:
             old = str(event["event_status"])
             if old in TERMINAL_EVENT_STATUSES:
                 raise ValueError("已结束的事件不能再次处理")
+            if old in {"ACTION_PENDING", "ACTION_IN_PROGRESS", "ACTION_APPLIED"}:
+                raise ValueError("事件已进入技术工单阶段，请在技术工单中回写执行结果")
             if assignee_user_id:
                 cursor.execute(
                     f"SELECT id,full_name,username FROM {self._table('sys_user')} WHERE id=%s AND is_active=1",
@@ -1352,6 +1395,335 @@ class MonitoringService:
         except Exception as error:
             if connection is not None: connection.rollback()
             raise self._unavailable(error, "监控事件状态更新失败") from error
+        finally:
+            if cursor is not None: cursor.close()
+            if connection is not None: connection.close()
+
+    def list_action_orders(
+        self, user: dict[str, Any], *, status: str = "", action_type: str = "",
+        assignee_user_id: int | None = None, only_mine: bool = False,
+        keyword: str = "", page: int = 1, page_size: int = 30,
+    ) -> dict[str, Any]:
+        _require(user, "monitor.action.view", "当前账号没有技术工单查看权限")
+        page = max(1, int(page)); page_size = max(1, min(int(page_size), 100))
+        where = ["1=1"]
+        params: list[Any] = []
+        if status:
+            normalized = status.strip().upper()
+            if normalized not in ACTION_STATUSES:
+                raise ValueError("技术工单状态不支持")
+            where.append("a.action_status=%s"); params.append(normalized)
+        if action_type:
+            normalized = action_type.strip().upper()
+            if normalized not in ACTION_TYPES:
+                raise ValueError("技术动作类型不支持")
+            where.append("a.action_type=%s"); params.append(normalized)
+        if only_mine:
+            where.append("a.assignee_user_id=%s"); params.append(int(user.get("id") or 0))
+        elif assignee_user_id:
+            where.append("a.assignee_user_id=%s"); params.append(int(assignee_user_id))
+        if keyword:
+            token = f"%{keyword.strip()[:100]}%"
+            where.append("(a.action_no LIKE %s OR a.rule_code LIKE %s OR a.target_key LIKE %s OR e.event_title LIKE %s)")
+            params.extend([token, token, token, token])
+        condition = " AND ".join(where)
+        connection = cursor = None
+        try:
+            connection = self.source.connect(); cursor = connection.cursor()
+            cursor.execute(
+                f"""SELECT COUNT(1)
+                    FROM {self._table(ACTION_ORDER_TABLE)} a
+                    JOIN {self._table(EVENT_TABLE)} e ON e.id=a.event_id
+                    WHERE {condition}""",
+                tuple(params),
+            )
+            total = int(_first_value(cursor.fetchone()) or 0)
+            cursor.execute(
+                f"""SELECT a.*,e.event_no,e.event_title,e.event_status
+                    FROM {self._table(ACTION_ORDER_TABLE)} a
+                    JOIN {self._table(EVENT_TABLE)} e ON e.id=a.event_id
+                    WHERE {condition}
+                    ORDER BY a.created_at DESC,a.id DESC LIMIT %s OFFSET %s""",
+                tuple([*params, page_size, (page - 1) * page_size]),
+            )
+            rows = [_public_row(row, target=_action_target(row)) for row in _dict_rows(cursor, list(cursor.fetchall()))]
+            return {"rows": rows, "total": total, "page": page, "pageSize": page_size}
+        except (ValueError, PermissionError):
+            raise
+        except Exception as error:
+            if _is_missing_table(error):
+                raise MonitoringUnavailable("技术工单表尚未创建，请先执行resource-governance-action-work-order-v5.sql") from error
+            raise self._unavailable(error, "技术工单查询失败") from error
+        finally:
+            if cursor is not None: cursor.close()
+            if connection is not None: connection.close()
+
+    def action_order_detail(self, user: dict[str, Any], action_order_id: int) -> dict[str, Any]:
+        _require(user, "monitor.action.view", "当前账号没有技术工单查看权限")
+        connection = cursor = None
+        try:
+            connection = self.source.connect(); cursor = connection.cursor()
+            cursor.execute(
+                f"""SELECT a.*,e.event_no,e.event_title,e.event_status
+                    FROM {self._table(ACTION_ORDER_TABLE)} a
+                    JOIN {self._table(EVENT_TABLE)} e ON e.id=a.event_id
+                    WHERE a.id=%s""",
+                (action_order_id,),
+            )
+            action_order = _dict_row(cursor, cursor.fetchone())
+            if not action_order:
+                raise ValueError("技术工单不存在")
+            cursor.execute(
+                f"SELECT * FROM {self._table(ACTION_LOG_TABLE)} WHERE action_order_id=%s ORDER BY created_at DESC,id DESC",
+                (action_order_id,),
+            )
+            return {
+                "order": _public_row(action_order, target=_action_target(action_order)),
+                "logs": [_public_row(row) for row in _dict_rows(cursor, list(cursor.fetchall()))],
+            }
+        except (ValueError, PermissionError):
+            raise
+        except Exception as error:
+            if _is_missing_table(error):
+                raise MonitoringUnavailable("技术工单表尚未创建，请先执行resource-governance-action-work-order-v5.sql") from error
+            raise self._unavailable(error, "技术工单详情查询失败") from error
+        finally:
+            if cursor is not None: cursor.close()
+            if connection is not None: connection.close()
+
+    def create_action_order(self, user: dict[str, Any], event_id: int, values: dict[str, Any]) -> dict[str, Any]:
+        _require(user, "monitor.event.manage", "当前账号没有生成技术工单权限")
+        action_type = str(values.get("actionType") or "").strip().upper()
+        if action_type not in ACTION_TYPES - {"RESTORE"}:
+            raise ValueError("请选择限流、下线或延长下线动作")
+        assignee_user_id = int(values.get("assigneeUserId") or 0)
+        if assignee_user_id <= 0:
+            raise ValueError("请选择技术执行人")
+        request_note = _clean_text(values.get("requestNote"))[:1000]
+        if not request_note:
+            raise ValueError("请填写技术执行要求")
+        requested_by_id = int(user.get("id") or 0)
+        requested_by_name = str(user.get("display_name") or user.get("username") or "SYSTEM")[:100]
+        current = business_now_naive()
+        planned_start_at = _parse_datetime(values.get("plannedStartAt"), "计划执行时间") or current
+        connection = cursor = None
+        try:
+            connection = self.source.connect(); connection.begin(); cursor = connection.cursor()
+            cursor.execute(f"SELECT * FROM {self._table(EVENT_TABLE)} WHERE id=%s FOR UPDATE", (event_id,))
+            event = _dict_row(cursor, cursor.fetchone())
+            if not event:
+                raise ValueError("监控事件不存在")
+            if str(event.get("business_type") or "") != "RESOURCE_GOVERNANCE":
+                raise ValueError("当前只有GDS/OTA资源治理事件支持生成技术工单")
+            if str(event.get("event_status") or "") in TERMINAL_EVENT_STATUSES:
+                raise ValueError("已结束事件不能生成技术工单")
+            cursor.execute(
+                f"""SELECT id,action_no FROM {self._table(ACTION_ORDER_TABLE)}
+                    WHERE event_id=%s AND action_status IN ('PENDING','ACCEPTED','EXECUTING','SUCCEEDED','RECOVERY_PENDING')
+                    ORDER BY id DESC LIMIT 1""",
+                (event_id,),
+            )
+            active_order = _dict_row(cursor, cursor.fetchone())
+            if active_order:
+                raise ValueError(f"事件已有未结束技术工单{active_order.get('action_no')}，不能重复创建")
+            cursor.execute(
+                f"SELECT id,full_name,username FROM {self._table('sys_user')} WHERE id=%s AND is_active=1",
+                (assignee_user_id,),
+            )
+            assignee = _dict_row(cursor, cursor.fetchone())
+            if not assignee:
+                raise ValueError("选择的技术执行人不存在或已停用")
+            assignee_name = str(assignee.get("full_name") or assignee.get("username") or "")[:100]
+            cursor.execute(
+                f"""SELECT action_durations_json,permanent_after_count
+                    FROM {self._table(EVENT_POLICY_TABLE)}
+                    WHERE business_type=%s AND severity=%s AND status='ACTIVE'""",
+                (str(event.get("business_type") or ""), str(event.get("severity") or "P2")),
+            )
+            policy = _dict_row(cursor, cursor.fetchone()) or {}
+            target_key = _resource_target_key(event)
+            cursor.execute(
+                f"""SELECT COUNT(1) FROM {self._table(ACTION_ORDER_TABLE)}
+                    WHERE resource_type=%s AND target_key=%s
+                      AND action_type<>'RESTORE' AND action_status IN ('SUCCEEDED','RECOVERY_PENDING','RECOVERED')""",
+                ("GDS" if str(event.get("template_code") or "") == "GDS_QUERY_RATIO_DAILY" else "OTA", target_key),
+            )
+            occurrence_no = int(_first_value(cursor.fetchone()) or 0) + 1
+            permanent_after_count = max(1, int(policy.get("permanent_after_count") or 4))
+            permanent_flag = occurrence_no >= permanent_after_count
+            durations = _positive_minutes(policy.get("action_durations_json"))
+            duration_minutes = durations[min(occurrence_no - 1, len(durations) - 1)]
+            planned_end_at = None if permanent_flag else planned_start_at + timedelta(minutes=duration_minutes)
+            action_no = f"RWO-{current:%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:8].upper()}"
+            resource_type = "GDS" if str(event.get("template_code") or "") == "GDS_QUERY_RATIO_DAILY" else "OTA"
+            target_snapshot_json = str(event.get("match_snapshot_json") or "{}")
+            cursor.execute(
+                f"""INSERT INTO {self._table(ACTION_ORDER_TABLE)} (
+                    action_no,event_id,rule_id,rule_code,resource_type,target_key,target_snapshot_json,
+                    action_type,occurrence_no,permanent_flag,request_note,requested_by_id,requested_by_name,
+                    assignee_user_id,assignee_user_name,action_status,planned_start_at,planned_end_at,created_at,updated_at
+                ) VALUES ({','.join(['%s'] * 20)})""",
+                (
+                    action_no,event_id,event.get("rule_id"),event.get("rule_code"),resource_type,target_key,target_snapshot_json,
+                    action_type,occurrence_no,1 if permanent_flag else 0,request_note,requested_by_id,requested_by_name,
+                    assignee_user_id,assignee_name,"PENDING",planned_start_at,planned_end_at,current,current,
+                ),
+            )
+            action_order_id = int(cursor.lastrowid)
+            detail = {
+                "actionType": action_type, "occurrenceNo": occurrence_no,
+                "permanent": permanent_flag, "plannedStartAt": planned_start_at,
+                "plannedEndAt": planned_end_at, "assigneeUserId": assignee_user_id,
+            }
+            cursor.execute(
+                f"""INSERT INTO {self._table(ACTION_LOG_TABLE)}
+                    (action_order_id,action_code,from_status,to_status,operator_id,operator_name,operation_note,operation_detail_json,created_at)
+                    VALUES (%s,'CREATE',NULL,'PENDING',%s,%s,%s,%s,%s)""",
+                (action_order_id, requested_by_id, requested_by_name, request_note, json.dumps(detail, ensure_ascii=False, default=_json_value), current),
+            )
+            snapshot = _json_dict(target_snapshot_json)
+            payload = {
+                "eventNo": event.get("event_no"), "eventCode": "RESOURCE_ACTION_ORDER_CREATED",
+                "title": f"[待接单] {event.get('event_title') or '资源治理技术工单'}",
+                "ruleCode": event.get("rule_code"), "resourceType": resource_type,
+                "businessDate": snapshot.get("businessDate"),
+                "scope": " / ".join(f"{key}:{value}" for key, value in _event_scope(event).items() if value not in (None, "")) or target_key,
+                "actionNo": action_no, "actionType": action_type,
+                "assigneeUserName": assignee_name, "recipientUserIds": [assignee_user_id],
+            }
+            cursor.execute(
+                f"""INSERT IGNORE INTO {self._table(OUTBOX_TABLE)}
+                    (event_id,notification_key,channel,target_type,target_id,target_name,payload_json,status,next_retry_at)
+                    VALUES (%s,%s,'IN_APP','USER',%s,%s,%s,'PENDING',%s)""",
+                (
+                    event_id, f"ACTION_CREATE:{action_order_id}", str(assignee_user_id), assignee_name,
+                    json.dumps(payload, ensure_ascii=False, default=_json_value), current,
+                ),
+            )
+            old_event_status = str(event.get("event_status") or "OPEN")
+            cursor.execute(
+                f"UPDATE {self._table(EVENT_TABLE)} SET event_status='ACTION_PENDING',action_order_id=%s,due_at=%s,observe_until=NULL WHERE id=%s",
+                (action_order_id, planned_start_at, event_id),
+            )
+            cursor.execute(
+                f"""INSERT INTO {self._table(EVENT_LOG_TABLE)}
+                    (event_id,action_code,from_status,to_status,operator_id,operator_name,operation_note,operation_detail_json,created_at)
+                    VALUES (%s,'CREATE_ACTION_ORDER',%s,'ACTION_PENDING',%s,%s,%s,%s,%s)""",
+                (event_id, old_event_status, requested_by_id, requested_by_name, request_note, json.dumps({"actionOrderId": action_order_id, "actionNo": action_no}, ensure_ascii=False), current),
+            )
+            connection.commit()
+            return {
+                "id": action_order_id, "actionNo": action_no, "status": "PENDING",
+                "occurrenceNo": occurrence_no, "permanent": permanent_flag,
+                "plannedStartAt": _json_value(planned_start_at), "plannedEndAt": _json_value(planned_end_at),
+            }
+        except (ValueError, PermissionError):
+            if connection is not None: connection.rollback()
+            raise
+        except Exception as error:
+            if connection is not None: connection.rollback()
+            if _is_missing_table(error):
+                raise MonitoringUnavailable("技术工单表尚未创建，请先执行resource-governance-action-work-order-v5.sql") from error
+            raise self._unavailable(error, "技术工单创建失败") from error
+        finally:
+            if cursor is not None: cursor.close()
+            if connection is not None: connection.close()
+
+    def update_action_order(self, user: dict[str, Any], action_order_id: int, values: dict[str, Any]) -> dict[str, Any]:
+        _require(user, "monitor.action.manage", "当前账号没有技术工单处理权限")
+        action = str(values.get("action") or "").strip().upper()
+        transitions = {
+            "ACCEPT": ({"PENDING"}, "ACCEPTED"),
+            "START": ({"PENDING", "ACCEPTED"}, "EXECUTING"),
+            "SUCCESS": ({"ACCEPTED", "EXECUTING"}, "SUCCEEDED"),
+            "FAIL": ({"PENDING", "ACCEPTED", "EXECUTING", "RECOVERY_PENDING"}, "FAILED"),
+            "CANCEL": ({"PENDING", "ACCEPTED"}, "CANCELLED"),
+            "RECOVER": ({"RECOVERY_PENDING"}, "RECOVERED"),
+        }
+        if action not in transitions:
+            raise ValueError("技术工单动作不支持")
+        note = _clean_text(values.get("note"))[:1000]
+        if action in {"SUCCESS", "FAIL", "CANCEL", "RECOVER"} and not note:
+            raise ValueError("执行成功、失败、取消或恢复必须填写回执说明")
+        execution_reference = _clean_text(values.get("executionReference"))[:200] or None
+        actor_id = int(user.get("id") or 0)
+        actor_name = str(user.get("display_name") or user.get("username") or "SYSTEM")[:100]
+        current = business_now_naive()
+        connection = cursor = None
+        try:
+            connection = self.source.connect(); connection.begin(); cursor = connection.cursor()
+            cursor.execute(f"SELECT * FROM {self._table(ACTION_ORDER_TABLE)} WHERE id=%s FOR UPDATE", (action_order_id,))
+            order = _dict_row(cursor, cursor.fetchone())
+            if not order:
+                raise ValueError("技术工单不存在")
+            old = str(order.get("action_status") or "")
+            allowed, target = transitions[action]
+            if old not in allowed:
+                raise ValueError(f"当前工单状态{old}不能执行{action}动作")
+            accepted_at = current if target == "ACCEPTED" else order.get("accepted_at")
+            executed_at = current if target in {"SUCCEEDED", "FAILED"} else order.get("executed_at")
+            recovered_at = current if target == "RECOVERED" else order.get("recovered_at")
+            failure_reason = note if target == "FAILED" else order.get("failure_reason")
+            cursor.execute(
+                f"""UPDATE {self._table(ACTION_ORDER_TABLE)}
+                    SET action_status=%s,accepted_at=%s,executed_at=%s,recovered_at=%s,
+                        execution_reference=COALESCE(%s,execution_reference),execution_note=%s,
+                        failure_reason=%s,updated_at=%s WHERE id=%s""",
+                (target, accepted_at, executed_at, recovered_at, execution_reference, note or order.get("execution_note"), failure_reason, current, action_order_id),
+            )
+            cursor.execute(
+                f"""INSERT INTO {self._table(ACTION_LOG_TABLE)}
+                    (action_order_id,action_code,from_status,to_status,operator_id,operator_name,operation_note,operation_detail_json,created_at)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (action_order_id, action, old, target, actor_id, actor_name, note or action, json.dumps({"executionReference": execution_reference}, ensure_ascii=False), current),
+            )
+            event_status = {
+                "ACCEPTED": "ACTION_IN_PROGRESS", "EXECUTING": "ACTION_IN_PROGRESS",
+                "SUCCEEDED": "ACTION_APPLIED", "FAILED": "ESCALATED",
+                "CANCELLED": "ACKNOWLEDGED", "RECOVERED": "RESOLVED",
+            }[target]
+            if target == "SUCCEEDED":
+                due_at = order.get("planned_end_at")
+            elif target == "FAILED":
+                due_at = current
+            elif target == "RECOVERED":
+                due_at = None
+            else:
+                due_at = order.get("planned_start_at")
+            event_action_order_id = None if target in {"FAILED", "CANCELLED"} else action_order_id
+            cursor.execute(f"SELECT event_status FROM {self._table(EVENT_TABLE)} WHERE id=%s FOR UPDATE", (order["event_id"],))
+            event = _dict_row(cursor, cursor.fetchone()) or {}
+            cursor.execute(
+                f"""UPDATE {self._table(EVENT_TABLE)}
+                    SET event_status=%s,action_order_id=%s,due_at=%s,observe_until=NULL,
+                        resolution_code=%s,resolved_at=%s WHERE id=%s""",
+                (
+                    event_status, event_action_order_id, due_at,
+                    "FIXED" if target == "RECOVERED" else None,
+                    current if target == "RECOVERED" else None,
+                    order["event_id"],
+                ),
+            )
+            cursor.execute(
+                f"""INSERT INTO {self._table(EVENT_LOG_TABLE)}
+                    (event_id,action_code,from_status,to_status,operator_id,operator_name,operation_note,operation_detail_json,created_at)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (
+                    order["event_id"], f"ACTION_{action}", str(event.get("event_status") or ""), event_status,
+                    actor_id, actor_name, note or action,
+                    json.dumps({"actionOrderId": action_order_id, "actionStatus": target, "executionReference": execution_reference}, ensure_ascii=False), current,
+                ),
+            )
+            connection.commit()
+            return {"id": action_order_id, "status": target, "eventStatus": event_status}
+        except (ValueError, PermissionError):
+            if connection is not None: connection.rollback()
+            raise
+        except Exception as error:
+            if connection is not None: connection.rollback()
+            if _is_missing_table(error):
+                raise MonitoringUnavailable("技术工单表尚未创建，请先执行resource-governance-action-work-order-v5.sql") from error
+            raise self._unavailable(error, "技术工单状态更新失败") from error
         finally:
             if cursor is not None: cursor.close()
             if connection is not None: connection.close()

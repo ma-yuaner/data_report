@@ -88,7 +88,39 @@
               <template v-else-if="column.key === 'deadline'"><div class="two-line"><strong :class="{ 'overdue-text': isEventOverdue(record) }">{{ displayTime(record.observeUntil || record.dueAt) }}</strong><span>{{ record.observeUntil ? '观察截止' : '处理截止' }}</span></div></template>
               <template v-else-if="column.key === 'escalation'"><a-tag :color="record.escalationLevel ? 'volcano' : 'default'">{{ record.escalationLevel ? `L${record.escalationLevel}` : '未升级' }}</a-tag></template>
               <template v-else-if="column.key === 'occurredAt'">{{ displayTime(record.occurredAt) }}</template>
-              <template v-else-if="column.key === 'action'"><a-button size="small" @click="openEventStatus(record)">{{ canManageEvents ? '处理' : '详情' }}</a-button></template>
+              <template v-else-if="column.key === 'action'">
+                <a-space>
+                  <a-button size="small" @click="openEventStatus(record)">{{ canManageEvents ? '处理' : '详情' }}</a-button>
+                  <a-button v-if="canCreateActionOrder(record)" size="small" type="link" @click="openCreateActionOrder(record)">技术工单</a-button>
+                </a-space>
+              </template>
+            </template>
+          </a-table>
+        </a-tab-pane>
+
+        <a-tab-pane v-if="canViewActions" key="actions" tab="技术工单">
+          <div class="filter-grid action-filters">
+            <a-input v-model:value="actionFilters.keyword" allow-clear placeholder="工单 / 事件 / 规则 / 资源" @press-enter="loadActionOrders(1)" />
+            <a-select v-model:value="actionFilters.status" :options="actionStatusOptions" />
+            <a-select v-model:value="actionFilters.actionType" :options="actionTypeOptionsWithAll" />
+            <a-select v-model:value="actionFilters.assigneeUserId" allow-clear :options="eventAssigneeOptions" placeholder="全部执行人" />
+            <a-checkbox v-model:checked="actionFilters.onlyMine">只看我的</a-checkbox>
+            <a-button type="primary" @click="loadActionOrders(1)">查询</a-button>
+            <a-button @click="resetActionFilters">重置</a-button>
+          </div>
+          <a-alert class="endpoint-tip" type="info" show-icon message="数据部发起，技术人员回执" description="工单只记录限流、下线与恢复指令；生产系统的实际执行必须由技术人员接单并回写结果，未回执前事件不会显示为已处置。" />
+          <a-table row-key="id" :columns="actionColumns" :data-source="actionOrders?.rows || []" :loading="actionLoading" :pagination="actionPagination" :scroll="{ x: 1560 }" @change="changeActionPage">
+            <template #emptyText><a-empty description="暂无技术执行工单" /></template>
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'order'"><button class="link-cell" type="button" @click="openActionOrder(record)"><strong>{{ record.actionNo }}</strong><small>{{ record.eventTitle }}</small></button></template>
+              <template v-else-if="column.key === 'target'"><div class="two-line"><strong>{{ actionTargetText(record) || record.targetKey }}</strong><span>{{ record.resourceType }} · {{ record.ruleCode }}</span></div></template>
+              <template v-else-if="column.key === 'actionType'"><div class="two-line"><strong>{{ actionTypeName(record.actionType) }}</strong><span>第 {{ record.occurrenceNo }} 次 · {{ record.permanentFlag ? '长期关闭' : '临时处置' }}</span></div></template>
+              <template v-else-if="column.key === 'status'"><a-tag :color="actionStatusMeta[record.actionStatus]?.color || 'default'">{{ actionStatusMeta[record.actionStatus]?.label || record.actionStatus }}</a-tag></template>
+              <template v-else-if="column.key === 'assignee'"><div class="two-line"><strong>{{ record.assigneeUserName }}</strong><span>{{ record.requestedByName }} 发起</span></div></template>
+              <template v-else-if="column.key === 'window'"><div class="two-line"><strong>{{ displayTime(record.plannedStartAt) }}</strong><span>{{ record.plannedEndAt ? `至 ${displayTime(record.plannedEndAt)}` : '长期关闭，无自动到期' }}</span></div></template>
+              <template v-else-if="column.key === 'result'"><div class="two-line"><strong>{{ record.executionReference || '—' }}</strong><span>{{ record.failureReason || record.executionNote || '等待技术回执' }}</span></div></template>
+              <template v-else-if="column.key === 'createdAt'">{{ displayTime(record.createdAt) }}</template>
+              <template v-else-if="column.key === 'action'"><a-button size="small" @click="openActionOrder(record)">{{ canManageActions ? '处理' : '详情' }}</a-button></template>
             </template>
           </a-table>
         </a-tab-pane>
@@ -263,6 +295,34 @@
       <div class="dialog-actions"><a-button @click="eventStatusOpen=false">关闭</a-button><a-button v-if="canProcessActiveEvent" type="primary" :loading="saving" @click="saveEventStatus">确认处理</a-button></div>
     </a-modal>
 
+    <a-modal v-model:open="actionCreateOpen" title="生成技术执行工单" :footer="null" :mask-closable="false" width="min(720px, 94vw)">
+      <a-alert v-if="activeEvent" type="warning" show-icon :message="activeEvent.eventTitle" :description="`${anomalyScopeText(activeEvent) || activeEvent.entityKey} · ${activeEvent.eventNo}`" />
+      <a-form layout="vertical" class="status-form">
+        <div class="event-action-grid">
+          <a-form-item label="技术动作" required><a-select v-model:value="actionCreateForm.actionType" :options="actionTypeOptions" /></a-form-item>
+          <a-form-item label="技术执行人" required><a-select v-model:value="actionCreateForm.assigneeUserId" show-search option-filter-prop="label" :options="eventAssigneeOptions" placeholder="请选择接单人员" /></a-form-item>
+          <a-form-item label="计划执行时间"><a-date-picker v-model:value="actionCreateForm.plannedStartAt" :locale="dateLocale" show-time value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" /></a-form-item>
+        </div>
+        <a-form-item label="执行要求" required><a-textarea v-model:value="actionCreateForm.requestNote" :rows="4" placeholder="说明限制对象、动作和注意事项；处置时长由违规次数和生命周期策略自动计算" /></a-form-item>
+      </a-form>
+      <div class="dialog-actions"><a-button @click="actionCreateOpen=false">取消</a-button><a-button type="primary" :loading="saving" @click="saveActionOrder">生成工单</a-button></div>
+    </a-modal>
+
+    <a-modal v-model:open="actionDetailOpen" title="技术执行工单" :footer="null" :mask-closable="false" width="min(820px, 96vw)">
+      <a-spin :spinning="actionDetailLoading">
+        <template v-if="actionDetail?.order">
+          <div class="detail-hero"><span>{{ actionDetail.order.actionNo }}</span><h2>{{ actionDetail.order.eventTitle }}</h2><div><a-tag :color="actionStatusMeta[actionDetail.order.actionStatus]?.color || 'default'">{{ actionStatusMeta[actionDetail.order.actionStatus]?.label || actionDetail.order.actionStatus }}</a-tag><a-tag>{{ actionTypeName(actionDetail.order.actionType) }}</a-tag><a-tag v-if="actionDetail.order.permanentFlag" color="red">长期关闭</a-tag></div></div>
+          <section class="detail-section"><h3>执行要求</h3><div class="detail-grid"><div><label>资源对象</label><span>{{ actionTargetText(actionDetail.order) || actionDetail.order.targetKey }}</span></div><div><label>技术执行人</label><span>{{ actionDetail.order.assigneeUserName }}</span></div><div><label>计划开始</label><span>{{ displayTime(actionDetail.order.plannedStartAt) }}</span></div><div><label>计划结束</label><span>{{ actionDetail.order.plannedEndAt ? displayTime(actionDetail.order.plannedEndAt) : '长期关闭' }}</span></div></div><p class="action-note">{{ actionDetail.order.requestNote }}</p></section>
+          <a-form v-if="canUpdateActiveAction" layout="vertical" class="status-form">
+            <div class="event-action-grid"><a-form-item label="处理动作" required><a-select v-model:value="actionUpdateForm.action" :options="availableActionTransitions" /></a-form-item><a-form-item label="技术回执号"><a-input v-model:value="actionUpdateForm.executionReference" placeholder="变更单号、接口回执号或发布编号" /></a-form-item></div>
+            <a-form-item label="回执说明" :required="['SUCCESS','FAIL','CANCEL','RECOVER'].includes(actionUpdateForm.action)"><a-textarea v-model:value="actionUpdateForm.note" :rows="3" placeholder="执行成功、失败、取消或恢复时必须填写" /></a-form-item>
+          </a-form>
+          <section class="event-history"><h3>工单记录</h3><a-empty v-if="!actionDetail.logs.length" description="暂无工单记录" /><a-timeline v-else :items="actionHistoryItems" /></section>
+        </template>
+      </a-spin>
+      <div class="dialog-actions"><a-button @click="actionDetailOpen=false">关闭</a-button><a-button v-if="canUpdateActiveAction" type="primary" :loading="saving" @click="saveActionOrderStatus">确认处理</a-button></div>
+    </a-modal>
+
     <a-modal v-model:open="endpointOpen" :title="endpointForm.id ? '编辑企业微信通知群' : '新增企业微信通知群'" :footer="null" :mask-closable="false" width="min(680px, 94vw)">
       <a-alert type="warning" show-icon message="Webhook属于敏感凭据" description="保存后只展示掩码；编辑时留空表示继续使用原Webhook，不会把明文返回到浏览器。" />
       <a-form layout="vertical" class="endpoint-form">
@@ -303,13 +363,13 @@ import dateLocale from 'ant-design-vue/es/date-picker/locale/zh_CN'
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { useAuthStore } from '@/stores/auth'
-import { monitoringApi, type MonitorDiagnostic, type MonitorEvent, type MonitorEventActionInput, type MonitorEventAssignee, type MonitorEventDetail, type MonitorMessageTemplate, type MonitorNotifyEndpoint, type MonitorNotifyEndpointInput, type MonitorNotifyRoute, type MonitorNotifyRouteInput, type MonitorOverview, type MonitorRule, type MonitorRuleDetail, type MonitorRuleInput, type MonitorRun, type PagedResult, type ResourceGrainDimension } from '@/api/monitoring'
+import { monitoringApi, type MonitorActionOrder, type MonitorActionOrderCreateInput, type MonitorActionOrderDetail, type MonitorActionOrderUpdateInput, type MonitorDiagnostic, type MonitorEvent, type MonitorEventActionInput, type MonitorEventAssignee, type MonitorEventDetail, type MonitorMessageTemplate, type MonitorNotifyEndpoint, type MonitorNotifyEndpointInput, type MonitorNotifyRoute, type MonitorNotifyRouteInput, type MonitorOverview, type MonitorRule, type MonitorRuleDetail, type MonitorRuleInput, type MonitorRun, type PagedResult, type ResourceGrainDimension } from '@/api/monitoring'
 
 const authStore = useAuthStore()
 const loading = ref(false); const error = ref(''); const activeTab = ref('rules')
-const overview = ref<MonitorOverview>(); const rules = ref<PagedResult<MonitorRule>>(); const events = ref<PagedResult<MonitorEvent>>(); const runs = ref<MonitorRun[]>([])
-const ruleLoading = ref(false); const eventLoading = ref(false); const runLoading = ref(false)
-const rulePage = ref(1); const rulePageSize = ref(30); const eventPage = ref(1); const eventPageSize = ref(30)
+const overview = ref<MonitorOverview>(); const rules = ref<PagedResult<MonitorRule>>(); const events = ref<PagedResult<MonitorEvent>>(); const actionOrders = ref<PagedResult<MonitorActionOrder>>(); const runs = ref<MonitorRun[]>([])
+const ruleLoading = ref(false); const eventLoading = ref(false); const actionLoading = ref(false); const runLoading = ref(false)
+const rulePage = ref(1); const rulePageSize = ref(30); const eventPage = ref(1); const eventPageSize = ref(30); const actionPage = ref(1); const actionPageSize = ref(30)
 const ruleFilters = ref({ keyword: '', status: '', template: '' })
 const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
 const monthStart = `${today.slice(0, 7)}-01`
@@ -319,9 +379,15 @@ const diagnostic = ref<MonitorDiagnostic>(); const diagnosticLoading = ref(false
 const statusForm = ref({ status: 'PAUSED', note: '' })
 const canManageRules = computed(() => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.permissions?.includes('monitor.rule.manage')))
 const canManageEvents = computed(() => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.permissions?.includes('monitor.event.manage')))
+const canViewActions = computed(() => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.permissions?.includes('monitor.action.view')))
+const canManageActions = computed(() => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.permissions?.includes('monitor.action.manage')))
 const createRuleOpen = ref(false)
 const eventStatusOpen = ref(false); const activeEvent = ref<MonitorEvent>(); const eventAssignees = ref<MonitorEventAssignee[]>([]); const eventDetail = ref<MonitorEventDetail>(); const eventDetailLoading = ref(false)
 const eventStatusForm = ref<MonitorEventActionInput & { status: MonitorEventActionInput['status']; observeUntil?: string; resolutionCode?: MonitorEventActionInput['resolutionCode'] }>({ status: 'ACKNOWLEDGED', note: '' })
+const actionFilters = ref<{ keyword: string; status: string; actionType: string; assigneeUserId?: number; onlyMine: boolean }>({ keyword: '', status: '', actionType: '', onlyMine: false })
+const actionCreateOpen = ref(false); const actionCreateForm = ref<MonitorActionOrderCreateInput>({ actionType: 'RATE_LIMIT', assigneeUserId: 0, requestNote: '' })
+const actionDetailOpen = ref(false); const actionDetail = ref<MonitorActionOrderDetail>(); const actionDetailLoading = ref(false)
+const actionUpdateForm = ref<MonitorActionOrderUpdateInput>({ action: 'ACCEPT', note: '' })
 const defaultRuleForm = () => ({
   templateCode: 'ORDER_SEGMENT_THRESHOLD' as MonitorRuleInput['templateCode'], ruleName: '', severity: 'P2',
   segmentOperator: 'GTE', segmentCount: 6, platformName: '', siteName: '', airlineCode: '', productType: '',
@@ -340,7 +406,8 @@ const emptyNotifyRouteForm = () => ({ id: undefined as number | undefined, route
 const notifyRouteForm = ref(emptyNotifyRouteForm())
 
 const ruleStatusMeta: Record<string, { label: string; color: string }> = { ACTIVE: { label: '运行中', color: 'green' }, SCHEDULED: { label: '待生效', color: 'blue' }, PAUSED: { label: '已暂停', color: 'orange' }, EXPIRED: { label: '已过期', color: 'default' }, DISABLED: { label: '已停用', color: 'red' } }
-const eventStatusMeta: Record<string, { label: string; color: string }> = { OPEN: { label: '待处理', color: 'red' }, ACKNOWLEDGED: { label: '已关注', color: 'blue' }, OBSERVING: { label: '观察中', color: 'purple' }, ESCALATED: { label: '已升级', color: 'volcano' }, RESOLVED: { label: '已解决', color: 'green' }, IGNORED: { label: '已忽略', color: 'default' }, CLOSED: { label: '已关闭', color: 'default' } }
+const eventStatusMeta: Record<string, { label: string; color: string }> = { OPEN: { label: '待处理', color: 'red' }, ACKNOWLEDGED: { label: '已关注', color: 'blue' }, OBSERVING: { label: '观察中', color: 'purple' }, ESCALATED: { label: '已升级', color: 'volcano' }, ACTION_PENDING: { label: '待技术执行', color: 'orange' }, ACTION_IN_PROGRESS: { label: '技术执行中', color: 'processing' }, ACTION_APPLIED: { label: '控制已生效', color: 'cyan' }, RESOLVED: { label: '已解决', color: 'green' }, IGNORED: { label: '已忽略', color: 'default' }, CLOSED: { label: '已关闭', color: 'default' } }
+const actionStatusMeta: Record<string, { label: string; color: string }> = { PENDING: { label: '待接单', color: 'orange' }, ACCEPTED: { label: '已接单', color: 'blue' }, EXECUTING: { label: '执行中', color: 'processing' }, SUCCEEDED: { label: '控制已生效', color: 'cyan' }, FAILED: { label: '执行失败', color: 'red' }, CANCELLED: { label: '已取消', color: 'default' }, RECOVERY_PENDING: { label: '待恢复', color: 'purple' }, RECOVERED: { label: '已恢复', color: 'green' } }
 const runStatusMeta: Record<string, { label: string; color: string }> = { RUNNING: { label: '运行中', color: 'processing' }, SUCCESS: { label: '成功', color: 'green' }, FAILED: { label: '失败', color: 'red' }, SKIPPED: { label: '跳过', color: 'default' } }
 const severityMeta: Record<string, string> = { P0: 'red', P1: 'orange', P2: 'blue', P3: 'default' }
 const templates = [{ value: 'SMART_PLACEMENT_ORDER', label: '智能投放收单匹配' }, { value: 'ORDER_SEGMENT_THRESHOLD', label: '订单航段阈值监控' }, { value: 'GDS_QUERY_RATIO_DAILY', label: 'GDS查定比日异常' }, { value: 'OTA_SUCCESS_RATE_DAILY', label: 'OTA成功率日异常' }, { value: 'METRIC_THRESHOLD', label: '经营指标阈值监控' }, { value: 'STATE_TIMEOUT', label: '业务状态超时监控' }]
@@ -348,6 +415,9 @@ const templateOptions = [{ value: '', label: '全部模板' }, ...templates]
 const manualTemplateOptions = [{ value: 'ORDER_SEGMENT_THRESHOLD', label: '订单航段' }, { value: 'GDS_QUERY_RATIO_DAILY', label: 'GDS查定比（日）' }, { value: 'OTA_SUCCESS_RATE_DAILY', label: 'OTA成功率（日）' }]
 const ruleStatusOptions = [{ value: '', label: '全部状态' }, ...Object.entries(ruleStatusMeta).map(([value, meta]) => ({ value, label: meta.label }))]
 const eventStatusOptions = [{ value: '', label: '全部事件状态' }, ...Object.entries(eventStatusMeta).map(([value, meta]) => ({ value, label: meta.label }))]
+const actionStatusOptions = [{ value: '', label: '全部工单状态' }, ...Object.entries(actionStatusMeta).map(([value, meta]) => ({ value, label: meta.label }))]
+const actionTypeOptions = [{ value: 'RATE_LIMIT', label: '限流' }, { value: 'DISABLE', label: '临时下线' }, { value: 'EXTEND_DISABLE', label: '延长下线' }]
+const actionTypeOptionsWithAll = [{ value: '', label: '全部技术动作' }, ...actionTypeOptions]
 const statusActionOptions = [{ value: 'ACTIVE', label: '启用' }, { value: 'PAUSED', label: '暂停' }, { value: 'DISABLED', label: '停用' }]
 const severityOptions = ['P0', 'P1', 'P2', 'P3'].map(value => ({ value, label: value }))
 const segmentOperatorOptions = [{ value: 'GTE', label: '大于等于' }, { value: 'GT', label: '大于' }, { value: 'EQ', label: '等于' }, { value: 'LTE', label: '小于等于' }, { value: 'LT', label: '小于' }]
@@ -371,18 +441,32 @@ const endpointStatusOptions = [{ value: 'ACTIVE', label: '启用' }, { value: 'D
 const summaryCards = [{ key: 'activeRules', label: '运行规则', note: '当前生效规则', tone: 'green' }, { key: 'scheduledRules', label: '待生效', note: '等待有效期开始', tone: 'blue' }, { key: 'openEvents', label: '今日待处理', note: '尚未完成的命中事件', tone: 'orange' }, { key: 'overdueEvents', label: '处理逾期', note: '已超过当前处理期限', tone: 'red' }, { key: 'escalatedEvents', label: '已升级', note: '自动催办升级事件', tone: 'orange' }, { key: 'totalEvents', label: '今日命中', note: '今日全部事件', tone: 'violet' }, { key: 'pendingNotifications', label: '待发通知', note: '待发送及待重试', tone: 'red' }] as const
 const ruleColumns = [{ title: '规则', key: 'rule', width: 260, fixed: 'left' as const }, { title: '模板 / 业务', key: 'template', width: 190 }, { title: '异常粒度', key: 'grain', width: 120 }, { title: '状态', key: 'status', width: 100 }, { title: '生效区间', key: 'period', width: 175 }, { title: '命中', key: 'hit', width: 150 }, { title: '负责人', key: 'owner', width: 110 }, { title: '更新时间', key: 'updatedAt', width: 150 }, { title: '操作', key: 'action', width: 130, fixed: 'right' as const }]
 const eventColumns = [{ title: '事件', key: 'event', width: 280 }, { title: '业务对象', key: 'entity', width: 210 }, { title: '规则', key: 'rule', width: 150 }, { title: '等级', key: 'severity', width: 70 }, { title: '状态', key: 'status', width: 100 }, { title: '责任人', key: 'assignee', width: 140 }, { title: '处理期限', key: 'deadline', width: 150 }, { title: '升级', key: 'escalation', width: 80 }, { title: '命中次数', dataIndex: 'hitCount', width: 90 }, { title: '发生时间', key: 'occurredAt', width: 150 }, { title: '操作', key: 'action', width: 90, fixed: 'right' as const }]
+const actionColumns = [{ title: '工单 / 事件', key: 'order', width: 270, fixed: 'left' as const }, { title: '资源对象', key: 'target', width: 220 }, { title: '处置动作', key: 'actionType', width: 150 }, { title: '状态', key: 'status', width: 110 }, { title: '执行人', key: 'assignee', width: 150 }, { title: '计划区间', key: 'window', width: 190 }, { title: '技术回执', key: 'result', width: 250 }, { title: '创建时间', key: 'createdAt', width: 150 }, { title: '操作', key: 'action', width: 90, fixed: 'right' as const }]
 const runColumns = [{ title: '任务 / 运行号', key: 'run', width: 250 }, { title: '状态', key: 'status', width: 100 }, { title: '数据量', key: 'volume', width: 270 }, { title: '耗时', key: 'duration', width: 100 }, { title: '开始时间', key: 'startedAt', width: 160 }, { title: '错误信息', key: 'error', width: 280 }]
 const endpointColumns = [{ title: '通知群', key: 'endpoint', width: 220 }, { title: 'Webhook', key: 'webhook', width: 300 }, { title: '@人员', key: 'mentions', width: 140 }, { title: '使用范围', key: 'scope', width: 170 }, { title: '状态', key: 'status', width: 80 }, { title: '更新时间', key: 'updatedAt', width: 150 }, { title: '操作', key: 'action', width: 150, fixed: 'right' as const }]
 const messageTemplateColumns = [{ title: '模板', key: 'template' }, { title: '状态', key: 'status', width: 80 }, { title: '操作', key: 'action', width: 80 }]
 const notifyRouteColumns = [{ title: '路由', key: 'route', width: 220 }, { title: '模板', dataIndex: 'templateName', width: 170 }, { title: '群与收件人', key: 'target', width: 220 }, { title: '状态', key: 'status', width: 80 }, { title: '操作', key: 'action', width: 80 }]
 const rulePagination = computed(() => ({ current: rulePage.value, pageSize: rulePageSize.value, total: rules.value?.total || 0, showSizeChanger: true, showTotal: (total: number) => `共 ${number(total)} 条` }))
 const eventPagination = computed(() => ({ current: eventPage.value, pageSize: eventPageSize.value, total: events.value?.total || 0, showSizeChanger: true, showTotal: (total: number) => `共 ${number(total)} 条` }))
+const actionPagination = computed(() => ({ current: actionPage.value, pageSize: actionPageSize.value, total: actionOrders.value?.total || 0, showSizeChanger: true, showTotal: (total: number) => `共 ${number(total)} 条` }))
 const eventAssigneeOptions = computed(() => eventAssignees.value.map(item => ({ value: item.id, label: `${item.displayName}（${item.username}）` })))
-const canProcessActiveEvent = computed(() => canManageEvents.value && Boolean(activeEvent.value) && !['RESOLVED', 'IGNORED', 'CLOSED'].includes(String(activeEvent.value?.eventStatus || '')))
+const canProcessActiveEvent = computed(() => canManageEvents.value && Boolean(activeEvent.value) && !['RESOLVED', 'IGNORED', 'CLOSED', 'ACTION_PENDING', 'ACTION_IN_PROGRESS', 'ACTION_APPLIED'].includes(String(activeEvent.value?.eventStatus || '')))
 const eventHistoryItems = computed(() => (eventDetail.value?.logs || []).map(item => ({
   color: item.actionCode === 'ESCALATE' ? 'red' : item.toStatus === 'RESOLVED' ? 'green' : 'blue',
   children: `${displayTime(item.createdAt)} · ${eventActionName(item.actionCode || item.toStatus)} · ${item.operatorName || '系统'} · ${item.operationNote || '未填写说明'}`,
 })))
+const actionHistoryItems = computed(() => (actionDetail.value?.logs || []).map(item => ({
+  color: item.toStatus === 'FAILED' ? 'red' : item.toStatus === 'RECOVERED' ? 'green' : 'blue',
+  children: `${displayTime(item.createdAt)} · ${actionTransitionName(item.actionCode)} · ${item.operatorName || '系统'} · ${item.operationNote || '未填写说明'}`,
+})))
+const actionTransitions: Record<string, Array<{ value: MonitorActionOrderUpdateInput['action']; label: string }>> = {
+  PENDING: [{ value: 'ACCEPT', label: '接单' }, { value: 'START', label: '直接开始执行' }, { value: 'FAIL', label: '执行失败' }, { value: 'CANCEL', label: '取消工单' }],
+  ACCEPTED: [{ value: 'START', label: '开始执行' }, { value: 'SUCCESS', label: '执行成功' }, { value: 'FAIL', label: '执行失败' }, { value: 'CANCEL', label: '取消工单' }],
+  EXECUTING: [{ value: 'SUCCESS', label: '执行成功' }, { value: 'FAIL', label: '执行失败' }],
+  RECOVERY_PENDING: [{ value: 'RECOVER', label: '确认已恢复' }, { value: 'FAIL', label: '恢复失败' }],
+}
+const availableActionTransitions = computed(() => actionTransitions[actionDetail.value?.order.actionStatus || ''] || [])
+const canUpdateActiveAction = computed(() => canManageActions.value && availableActionTransitions.value.length > 0)
 const diagnosticRuleOptions = computed(() => (rules.value?.rows || []).filter(item => ['SMART_PLACEMENT_ORDER', 'ORDER_SEGMENT_THRESHOLD'].includes(item.templateCode)).map(item => ({ value: item.id, label: `${item.ruleCode} · ${item.ruleName}` })))
 const createRuleMeta = computed(() => ({
   ORDER_SEGMENT_THRESHOLD: { title: '新建订单航段监控', message: '分钟级增量规则', description: '只检查新进或发生变化的订单，不扫描全部历史数据。' },
@@ -415,6 +499,15 @@ const number = (value: unknown) => new Intl.NumberFormat('zh-CN').format(Number(
 const displayTime = (value: unknown) => value ? String(value).replace('T', ' ').slice(0, 16) : '—'
 const duration = (value?: number) => value == null ? '—' : value < 1000 ? `${value} ms` : `${(value / 1000).toFixed(1)} s`
 const templateName = (code: string) => templates.find(item => item.value === code)?.label || code
+const actionTypeName = (value: string) => ({ RATE_LIMIT: '限流', DISABLE: '临时下线', EXTEND_DISABLE: '延长下线', RESTORE: '恢复上线' }[value] || value)
+const actionTransitionName = (value: string) => ({ CREATE: '创建工单', ACCEPT: '技术接单', START: '开始执行', SUCCESS: '执行成功', FAIL: '执行失败', CANCEL: '取消工单', RECOVERY_DUE: '到期待恢复', RECOVER: '确认恢复' }[value] || value)
+const actionTargetText = (record?: MonitorActionOrder) => {
+  const target = record?.target || {}
+  return (['gds_code', 'pcc_code', 'ota_code', 'ota_site_code', 'source_api_group'] as const)
+    .filter(field => target[field])
+    .map(field => `${grainLabels[field]}：${target[field]}`)
+    .join(' · ')
+}
 const jobTypeName = (value: string) => ({ FEATURE_ETL: '订单特征采集', RULE_MATCH: '规则匹配', RESOURCE_DAILY: '资源治理日检查', RESOURCE_LIFECYCLE: '资源异常升级', SMART_LIFECYCLE: '智能收单闭环', NOTIFY: '通知发送' }[value] || value)
 const eventActionName = (value: string) => ({ ASSIGN: '分配责任人', ACKNOWLEDGE: '确认关注', OBSERVE: '延后观察', ESCALATE: '逾期升级', RESOLVE: '已解决', IGNORE: '已忽略', CLOSE: '已关闭', STATUS_CHANGE: '状态变更', ACKNOWLEDGED: '确认关注', OBSERVING: '延后观察', ESCALATED: '逾期升级', RESOLVED: '已解决', IGNORED: '已忽略', CLOSED: '已关闭' }[value] || value)
 const isEventOverdue = (record: MonitorEvent) => !['RESOLVED', 'IGNORED', 'CLOSED'].includes(record.eventStatus) && Boolean(record.observeUntil || record.dueAt) && new Date(String(record.observeUntil || record.dueAt).replace(' ', 'T')).getTime() < Date.now()
@@ -428,16 +521,19 @@ function diagnosticValue(value: unknown) { if (value === null || value === undef
 async function loadOverview() { overview.value = await monitoringApi.overview() }
 async function loadRules(target = rulePage.value) { ruleLoading.value = true; rulePage.value = target; try { rules.value = await monitoringApi.rules({ ...ruleFilters.value, page: target, pageSize: rulePageSize.value }) } finally { ruleLoading.value = false } }
 async function loadEvents(target = eventPage.value) { eventLoading.value = true; eventPage.value = target; try { events.value = await monitoringApi.events({ ...eventFilters.value, startDate: eventRange.value[0], endDate: eventRange.value[1], page: target, pageSize: eventPageSize.value }) } finally { eventLoading.value = false } }
+async function loadActionOrders(target = actionPage.value) { if (!canViewActions.value) return; actionLoading.value = true; actionPage.value = target; try { actionOrders.value = await monitoringApi.actionOrders({ ...actionFilters.value, page: target, pageSize: actionPageSize.value }) } catch (failure) { message.error(failure instanceof Error ? failure.message : '技术工单加载失败') } finally { actionLoading.value = false } }
 async function loadEventAssignees() { eventAssignees.value = await monitoringApi.eventAssignees() }
 async function loadRuns() { runLoading.value = true; try { runs.value = await monitoringApi.runs({ limit: 100 }) } finally { runLoading.value = false } }
 async function loadNotifyEndpoints() { endpointLoading.value = true; try { notifyEndpoints.value = await monitoringApi.notifyEndpoints() } catch (failure) { message.error(failure instanceof Error ? failure.message : '通知群配置加载失败') } finally { endpointLoading.value = false } }
 async function loadNotificationModel() { if (!canManageRules.value) return; endpointLoading.value = true; try { ;[notifyEndpoints.value, messageTemplates.value, notifyRoutes.value] = await Promise.all([monitoringApi.notifyEndpoints(), monitoringApi.messageTemplates(), monitoringApi.notifyRoutes()]) } catch (failure) { message.error(failure instanceof Error ? failure.message : '通知模型加载失败') } finally { endpointLoading.value = false } }
 async function reloadAll() { loading.value = true; error.value = ''; try { await Promise.all([loadOverview(), loadRules(), loadEvents(), loadRuns(), loadEventAssignees()]) } catch (failure) { error.value = failure instanceof Error ? failure.message : '监控中心加载失败' } finally { loading.value = false } }
-function changeTab(key: string) { if (key === 'runs' && !runs.value.length) void loadRuns(); if (key === 'notifications' && canManageRules.value) void loadNotificationModel() }
+function changeTab(key: string) { if (key === 'actions' && !actionOrders.value) void loadActionOrders(); if (key === 'runs' && !runs.value.length) void loadRuns(); if (key === 'notifications' && canManageRules.value) void loadNotificationModel() }
 function resetRuleFilters() { ruleFilters.value = { keyword: '', status: '', template: '' }; void loadRules(1) }
 function resetEventFilters() { eventRange.value = [monthStart, today]; eventFilters.value = { keyword: '', status: '', onlyMine: false, overdueOnly: false }; void loadEvents(1) }
+function resetActionFilters() { actionFilters.value = { keyword: '', status: '', actionType: '', onlyMine: false }; void loadActionOrders(1) }
 function changeRulePage(value: { current?: number; pageSize?: number }) { const size = value.pageSize || rulePageSize.value; rulePage.value = size === rulePageSize.value ? value.current || 1 : 1; rulePageSize.value = size; void loadRules(rulePage.value) }
 function changeEventPage(value: { current?: number; pageSize?: number }) { const size = value.pageSize || eventPageSize.value; eventPage.value = size === eventPageSize.value ? value.current || 1 : 1; eventPageSize.value = size; void loadEvents(eventPage.value) }
+function changeActionPage(value: { current?: number; pageSize?: number }) { const size = value.pageSize || actionPageSize.value; actionPage.value = size === actionPageSize.value ? value.current || 1 : 1; actionPageSize.value = size; void loadActionOrders(actionPage.value) }
 async function openRule(record: MonitorRule) { ruleDetailOpen.value = true; ruleDetail.value = undefined; try { ruleDetail.value = await monitoringApi.ruleDetail(record.id) } catch (failure) { message.error(failure instanceof Error ? failure.message : '规则详情查询失败') } }
 function openDiagnostic(record: MonitorRule) { diagnosticForm.value.ruleId = record.id; diagnostic.value = undefined; activeTab.value = 'diagnostic' }
 async function runDiagnostic() {
@@ -521,6 +617,62 @@ async function saveEventStatus() {
   finally { saving.value = false }
 }
 
+function canCreateActionOrder(record: MonitorEvent) {
+  return canManageEvents.value
+    && record.businessType === 'RESOURCE_GOVERNANCE'
+    && !record.actionOrderId
+    && !['RESOLVED', 'IGNORED', 'CLOSED', 'ACTION_PENDING', 'ACTION_IN_PROGRESS', 'ACTION_APPLIED'].includes(record.eventStatus)
+}
+function openCreateActionOrder(record: MonitorEvent) {
+  activeEvent.value = record
+  actionCreateForm.value = {
+    actionType: Number(record.escalationLevel || 0) > 0 ? 'DISABLE' : 'RATE_LIMIT',
+    assigneeUserId: record.assigneeUserId || 0,
+    requestNote: `请按${anomalyScopeText(record) || record.entityKey}执行资源控制，并回写实际执行结果。`,
+  }
+  actionCreateOpen.value = true
+}
+async function saveActionOrder() {
+  if (!activeEvent.value) return
+  if (!actionCreateForm.value.assigneeUserId) { message.warning('请选择技术执行人'); return }
+  if (!actionCreateForm.value.requestNote.trim()) { message.warning('请填写执行要求'); return }
+  saving.value = true
+  try {
+    const result = await monitoringApi.createActionOrder(activeEvent.value.id, actionCreateForm.value)
+    message.success(`技术工单 ${result.actionNo} 已生成`)
+    actionCreateOpen.value = false
+    activeTab.value = 'actions'
+    await Promise.all([loadOverview(), loadEvents(), loadActionOrders(1)])
+  } catch (failure) { message.error(failure instanceof Error ? failure.message : '技术工单创建失败') }
+  finally { saving.value = false }
+}
+async function openActionOrder(record: MonitorActionOrder) {
+  actionDetailOpen.value = true
+  actionDetail.value = undefined
+  actionDetailLoading.value = true
+  try {
+    actionDetail.value = await monitoringApi.actionOrderDetail(record.id)
+    const first = actionTransitions[actionDetail.value.order.actionStatus]?.[0]?.value || 'ACCEPT'
+    actionUpdateForm.value = { action: first, executionReference: actionDetail.value.order.executionReference || '', note: '' }
+  } catch (failure) { message.error(failure instanceof Error ? failure.message : '技术工单详情加载失败') }
+  finally { actionDetailLoading.value = false }
+}
+async function saveActionOrderStatus() {
+  if (!actionDetail.value?.order || !actionUpdateForm.value.action) return
+  if (['SUCCESS', 'FAIL', 'CANCEL', 'RECOVER'].includes(actionUpdateForm.value.action) && !String(actionUpdateForm.value.note || '').trim()) { message.warning('请填写技术回执说明'); return }
+  saving.value = true
+  try {
+    await monitoringApi.updateActionOrder(actionDetail.value.order.id, { ...actionUpdateForm.value, note: String(actionUpdateForm.value.note || '').trim() || undefined })
+    message.success('技术工单状态已更新')
+    const refreshed = await monitoringApi.actionOrderDetail(actionDetail.value.order.id)
+    actionDetail.value = refreshed
+    const first = actionTransitions[refreshed.order.actionStatus]?.[0]?.value
+    if (first) actionUpdateForm.value = { action: first, executionReference: refreshed.order.executionReference || '', note: '' }
+    await Promise.all([loadOverview(), loadEvents(), loadActionOrders()])
+  } catch (failure) { message.error(failure instanceof Error ? failure.message : '技术工单处理失败') }
+  finally { saving.value = false }
+}
+
 function openEndpoint(record?: MonitorNotifyEndpoint) {
   endpointForm.value = record ? { id: record.id, endpointName: record.endpointName, webhookUrl: '', mentionedUserIdsText: record.mentionedUserIds.join(','), mentionedMobilesText: record.mentionedMobiles.join(','), smartPlacementEnabled: record.smartPlacementEnabled, status: record.status } : emptyEndpointForm()
   endpointOpen.value = true
@@ -556,13 +708,14 @@ onMounted(() => { void reloadAll() })
 .monitoring-page { padding-bottom: 34px; }.page-alert { margin-bottom: 14px; border-radius: 10px; }
 .monitor-hero { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 138px; margin-bottom: 16px; padding: 26px 30px; overflow: hidden; border-radius: 16px; color: #fff; background: radial-gradient(circle at 88% 10%,rgba(56,189,248,.3),transparent 30%),linear-gradient(115deg,#182a4d,#174f77 58%,#087d83); box-shadow: 0 14px 34px rgba(23,47,84,.16); }.hero-kicker { color: #8fd9f4; font-size: 11px; font-weight: 800; letter-spacing: .14em; }.monitor-hero h2 { margin: 5px 0 7px; color: #fff; font-size: 22px; }.monitor-hero p { max-width: 760px; margin: 0; color: #d5e9f4; }.hero-state { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; min-width: 320px; padding: 14px 16px; border: 1px solid rgba(255,255,255,.2); border-radius: 12px; background: rgba(255,255,255,.09); backdrop-filter: blur(8px); }.hero-state strong,.hero-state small { display: block; }.hero-state small { margin-top: 2px; color: #c8dce8; font-size: 11px; }.state-dot { width: 10px; height: 10px; border-radius: 50%; background: #f59e0b; box-shadow: 0 0 0 5px rgba(245,158,11,.15); }.state-dot.online { background: #34d399; box-shadow: 0 0 0 5px rgba(52,211,153,.15); }
 .summary-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(145px,1fr)); gap: 12px; margin-bottom: 14px; }.summary-card { padding: 17px 18px; border: 1px solid #e6ecf3; border-radius: 12px; background: #fff; box-shadow: 0 5px 18px rgba(28,48,78,.045); }.summary-card span,.summary-card small { display: block; color: #7b8798; font-size: 11px; }.summary-card strong { display: block; margin: 7px 0 3px; color: #25334a; font-size: 24px; }.summary-card .green { color: #059669; }.summary-card .blue { color: #2563eb; }.summary-card .orange { color: #ea580c; }.summary-card .violet { color: #7c3aed; }.summary-card .red { color: #dc2626; }
-.monitor-panel { border: 1px solid #e5ebf2 !important; border-radius: 14px; box-shadow: 0 7px 24px rgba(25,43,71,.05); }.monitor-panel :deep(.ant-card-body) { padding: 0 20px 20px; }.monitor-panel :deep(.ant-tabs-nav) { margin-bottom: 18px; }.filter-grid { display: grid; gap: 10px; margin-bottom: 16px; align-items: center; }.rule-filters { grid-template-columns: minmax(240px,1fr) 140px 205px auto auto auto; }.event-filters { grid-template-columns: 230px minmax(210px,1fr) 145px 190px auto auto auto auto; }.link-cell,.inline-link { padding: 0; border: 0; text-align: left; background: transparent; cursor: pointer; }.link-cell strong,.link-cell small,.two-line strong,.two-line span { display: block; }.link-cell strong,.inline-link { color: #2462ad; }.link-cell small,.two-line span { margin-top: 3px; color: #8591a3; font-size: 11px; }.numeric strong { font-size: 16px; }.run-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }.run-toolbar p { margin: 0; color: #667085; }.run-volume { display: flex; gap: 14px; }.error-text,.overdue-text { color: #b42318 !important; }
+.monitor-panel { border: 1px solid #e5ebf2 !important; border-radius: 14px; box-shadow: 0 7px 24px rgba(25,43,71,.05); }.monitor-panel :deep(.ant-card-body) { padding: 0 20px 20px; }.monitor-panel :deep(.ant-tabs-nav) { margin-bottom: 18px; }.filter-grid { display: grid; gap: 10px; margin-bottom: 16px; align-items: center; }.rule-filters { grid-template-columns: minmax(240px,1fr) 140px 205px auto auto auto; }.event-filters { grid-template-columns: 230px minmax(210px,1fr) 145px 190px auto auto auto auto; }.action-filters { grid-template-columns: minmax(220px,1fr) 145px 145px 190px auto auto auto; }.link-cell,.inline-link { padding: 0; border: 0; text-align: left; background: transparent; cursor: pointer; }.link-cell strong,.link-cell small,.two-line strong,.two-line span { display: block; }.link-cell strong,.inline-link { color: #2462ad; }.link-cell small,.two-line span { margin-top: 3px; color: #8591a3; font-size: 11px; }.numeric strong { font-size: 16px; }.run-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }.run-toolbar p { margin: 0; color: #667085; }.run-volume { display: flex; gap: 14px; }.error-text,.overdue-text { color: #b42318 !important; }
 .event-action-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0 14px; }.event-history { margin-top: 8px; padding: 14px 16px 2px; border: 1px solid #e6ebf2; border-radius: 12px; background: #fafcff; }.event-history h3 { margin: 0 0 14px; font-size: 15px; }.event-history-row { display: flex; justify-content: space-between; gap: 16px; }.event-history-row span,.event-history p { color: #667085; }.event-history p { margin: 4px 0 0; }
+.action-note { margin: 12px 0 0; padding: 12px; border-radius: 8px; color: #475467; background: #f7f9fc; white-space: pre-wrap; }
 .detail-hero { margin: -8px 0 18px; padding: 20px; border: 1px solid #d9e4f2; border-radius: 13px; background: linear-gradient(135deg,#f3f7fd,#fff); }.detail-hero > span { color: #718198; font-size: 11px; }.detail-hero h2 { margin: 4px 0 10px; color: #253a58; font-size: 20px; }.detail-section { margin-bottom: 15px; padding: 16px; border: 1px solid #e4e9f0; border-radius: 11px; }.detail-section h3 { margin: 0 0 12px; color: #31445f; font-size: 14px; }.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }.detail-grid > div { padding: 10px 12px; border-radius: 8px; background: #f7f9fc; }.detail-grid label,.detail-grid span { display: block; }.detail-grid label { color: #8a95a8; font-size: 11px; }.detail-grid span { margin-top: 3px; color: #344054; }.condition-list { display: grid; gap: 8px; }.condition-list article { display: grid; grid-template-columns: 120px 90px minmax(0,1fr) auto; align-items: center; gap: 9px; padding: 10px 12px; border-radius: 8px; background: #f7f9fc; }.condition-list code { overflow: hidden; color: #344054; text-overflow: ellipsis; white-space: nowrap; }.status-form { margin-top: 18px; }.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin: 18px -24px -24px; padding: 14px 24px; border-top: 1px solid #e5eaf1; }
 .rule-form { margin-top: 18px; }.grain-hint { display: block; color: #7c8798; font-size: 11px; line-height: 1.6; }.muted-text { color: #98a2b3; font-size: 12px; }.rule-form-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0 14px; }.rule-form-grid .span-2 { grid-column: span 2; }.compact-fields { display: grid; grid-template-columns: 48% 52%; }.compact-fields > :first-child { border-radius: 6px 0 0 6px; }.compact-fields > :last-child { width: 100%; margin-left: -1px; border-radius: 0 6px 6px 0; }
 .endpoint-tip { margin-bottom: 14px; }.endpoint-form { margin-top: 16px; }.endpoint-switches,.route-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }.monitor-panel code { color: #526276; font-size: 12px; }.notification-model-grid { display: grid; grid-template-columns: .9fr 1.1fr; gap: 14px; margin-top: 18px; }.notification-model-card { min-width: 0; padding: 15px; border: 1px solid #e3e9f0; border-radius: 11px; background: #fbfcfe; }.notification-model-card > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }.notification-model-card h3,.notification-model-card p { margin: 0; }.notification-model-card p { margin-top: 4px; color: #7e8a9d; font-size: 11px; line-height: 1.5; }
 .template-field-list { display: flex; flex-wrap: wrap; gap: 8px; }.template-field-list button { display: inline-flex; align-items: center; gap: 7px; padding: 6px 9px; border: 1px solid #d9e4f0; border-radius: 7px; color: #344054; background: #f8fbff; cursor: pointer; }.template-field-list button:hover { border-color: #69a5df; background: #eef6ff; }.template-field-list code { color: #4f6f95; }.message-preview { min-height: 180px; max-height: 340px; margin: 0; padding: 16px; overflow: auto; border: 1px solid #dce5ef; border-radius: 9px; color: #26384f; font: 13px/1.75 ui-monospace,SFMono-Regular,Consolas,monospace; white-space: pre-wrap; background: #f7f9fc; }
 .diagnostic-panel { min-height: 420px; padding: 4px 2px 12px; }.diagnostic-panel > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 16px; }.diagnostic-panel h3,.diagnostic-panel p { margin: 0; }.diagnostic-panel h3 { color: #263b57; font-size: 17px; }.diagnostic-panel p { margin-top: 5px; color: #78869a; }.diagnostic-query { display: grid; grid-template-columns: minmax(280px,.9fr) minmax(280px,1.1fr) auto; gap: 10px; margin-bottom: 18px; }.diagnostic-result { margin-bottom: 14px; border-radius: 10px; }.diagnostic-stages { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; margin-bottom: 16px; }.diagnostic-stages article { display: flex; gap: 10px; min-height: 78px; padding: 13px; border: 1px solid #fed7aa; border-radius: 10px; background: #fff9f2; }.diagnostic-stages article.passed { border-color: #bbf7d0; background: #f3fcf6; }.diagnostic-stages article > span { display: grid; place-items: center; flex: 0 0 24px; height: 24px; border-radius: 50%; color: #fff; background: #f97316; }.diagnostic-stages article.passed > span { background: #10b981; }.diagnostic-stages strong,.diagnostic-stages small { display: block; }.diagnostic-stages small { margin-top: 5px; color: #69788d; line-height: 1.45; }.diagnostic-conditions { overflow: hidden; border: 1px solid #e3eaf2; border-radius: 11px; }.diagnostic-conditions h4 { margin: 0; padding: 13px 15px; color: #34465f; background: #f7f9fc; }.diagnostic-condition-head,.diagnostic-conditions article { display: grid; grid-template-columns: 1.1fr 1.2fr 1.2fr 90px; align-items: center; gap: 12px; padding: 10px 15px; }.diagnostic-condition-head { color: #8490a2; font-size: 11px; border-top: 1px solid #e8edf3; border-bottom: 1px solid #e8edf3; }.diagnostic-conditions article + article { border-top: 1px solid #edf1f5; }.diagnostic-conditions article strong,.diagnostic-conditions article small { display: block; }.diagnostic-conditions article small { margin-top: 2px; color: #8793a4; }.diagnostic-conditions code { overflow: hidden; color: #344054; text-overflow: ellipsis; white-space: nowrap; }
-@media (max-width: 1180px) { .summary-grid { grid-template-columns: repeat(3,1fr); }.rule-filters,.event-filters,.notification-model-grid { grid-template-columns: repeat(1,1fr); }.monitor-hero { align-items: flex-start; flex-direction: column; }.hero-state { width: 100%; } }
-@media (max-width: 700px) { .summary-grid,.rule-filters,.event-filters,.detail-grid,.rule-form-grid,.diagnostic-query,.diagnostic-stages,.event-action-grid { grid-template-columns: 1fr; }.rule-form-grid .span-2 { grid-column: auto; }.hero-state { grid-template-columns: auto 1fr; min-width: 0; }.hero-state .ant-btn { grid-column: 1 / -1; }.condition-list article,.diagnostic-condition-head,.diagnostic-conditions article { grid-template-columns: 1fr; } }
+@media (max-width: 1180px) { .summary-grid { grid-template-columns: repeat(3,1fr); }.rule-filters,.event-filters,.action-filters,.notification-model-grid { grid-template-columns: repeat(1,1fr); }.monitor-hero { align-items: flex-start; flex-direction: column; }.hero-state { width: 100%; } }
+@media (max-width: 700px) { .summary-grid,.rule-filters,.event-filters,.action-filters,.detail-grid,.rule-form-grid,.diagnostic-query,.diagnostic-stages,.event-action-grid { grid-template-columns: 1fr; }.rule-form-grid .span-2 { grid-column: auto; }.hero-state { grid-template-columns: auto 1fr; min-width: 0; }.hero-state .ant-btn { grid-column: 1 / -1; }.condition-list article,.diagnostic-condition-head,.diagnostic-conditions article { grid-template-columns: 1fr; } }
 </style>

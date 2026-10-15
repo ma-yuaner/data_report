@@ -84,6 +84,8 @@ PERMISSION_CATALOG = (
     {"code": "monitor.rule.manage", "name": "管理监控规则", "description": "新建、启用、暂停或停用监控规则", "menuCode": "monitor.center"},
     {"code": "monitor.event.view", "name": "查看监控事件", "description": "查看全部监控命中事件及业务关联", "menuCode": "monitor.center"},
     {"code": "monitor.event.manage", "name": "处理监控事件", "description": "确认、解决或忽略监控命中事件", "menuCode": "monitor.center"},
+    {"code": "monitor.action.view", "name": "查看技术工单", "description": "查看资源限流、下线与恢复工单及技术回执", "menuCode": "monitor.center"},
+    {"code": "monitor.action.manage", "name": "处理技术工单", "description": "接单、执行并回写资源限流、下线与恢复结果", "menuCode": "monitor.center"},
     {"code": "monitor.run.view", "name": "查看监控运行日志", "description": "查看采集、匹配和通知任务运行情况", "menuCode": "monitor.center"},
 )
 MENU_CATALOG = (

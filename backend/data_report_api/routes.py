@@ -720,6 +720,69 @@ def monitoring_event_assignees():
         return jsonify({"success": False, "message": str(error), "data": None}), 503
 
 
+@api.get("/v1/monitoring/action-orders")
+def monitoring_action_orders():
+    try:
+        return ok(MonitoringService(current_app.config).list_action_orders(
+            g.current_user,
+            status=request.args.get("status", ""),
+            action_type=request.args.get("actionType", ""),
+            assignee_user_id=int(request.args.get("assigneeUserId", "0") or 0) or None,
+            only_mine=str(request.args.get("onlyMine") or "").strip().lower() in {"1", "true", "yes"},
+            keyword=request.args.get("keyword", ""),
+            page=int(request.args.get("page", "1")),
+            page_size=int(request.args.get("pageSize", "30")),
+        ))
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except MonitoringUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.get("/v1/monitoring/action-orders/<int:action_order_id>")
+def monitoring_action_order_detail(action_order_id: int):
+    try:
+        return ok(MonitoringService(current_app.config).action_order_detail(g.current_user, action_order_id))
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 404
+    except MonitoringUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.post("/v1/monitoring/events/<int:event_id>/action-orders")
+def create_monitoring_action_order(event_id: int):
+    try:
+        return ok(
+            MonitoringService(current_app.config).create_action_order(g.current_user, event_id, json_body()),
+            "技术执行工单已创建",
+        ), 201
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except MonitoringUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.patch("/v1/monitoring/action-orders/<int:action_order_id>/status")
+def update_monitoring_action_order(action_order_id: int):
+    try:
+        return ok(
+            MonitoringService(current_app.config).update_action_order(g.current_user, action_order_id, json_body()),
+            "技术工单状态已更新",
+        )
+    except PermissionError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except MonitoringUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
 @api.get("/v1/monitoring/events/<int:event_id>")
 def monitoring_event_detail(event_id: int):
     try:

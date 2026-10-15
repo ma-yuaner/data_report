@@ -61,4 +61,6 @@ OTA成功率目标按平台配置，通过`RESOURCE_GOVERNANCE_OTA_SUCCESS_TARGE
 
 部署前依次执行[resource-governance-daily-monitor-v1.sql](../../sql/resource-governance-daily-monitor-v1.sql)、[resource-governance-analysis-grain-v2.sql](../../sql/resource-governance-analysis-grain-v2.sql)、[resource-governance-segment-denominator-v3.sql](../../sql/resource-governance-segment-denominator-v3.sql)和[resource-governance-event-lifecycle-v4.sql](../../sql/resource-governance-event-lifecycle-v4.sql)，调度说明见`data-team-repo/etl_scripts/automation/monitoring/README.md`。
 
-当前已完成“日规则→异常事件→责任人→观察/处理→逾期升级→通知”的处理闭环。自动限流/下线工单、技术执行回执与月度治理复盘仍属于后续版本。
+当前已完成“日规则→异常事件→责任人→观察/处理→逾期升级→限流/下线工单→技术回执→到期待恢复→通知”的执行闭环。系统只生成控制指令和记录回执，不直接操作生产交易系统。业务恢复申请审批、治理前后效果快照与月度治理复盘仍属于后续版本。
+
+技术工单部署需执行[resource-governance-action-work-order-v5.sql](../../sql/resource-governance-action-work-order-v5.sql)。数据部从事件生成工单，技术人员在“监控中心→技术工单”接单并回写变更单号和结果；同一事件存在未结束工单时禁止重复创建。

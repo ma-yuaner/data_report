@@ -50,6 +50,7 @@ bi_ota_gds_request_day（日ADS，含GDS航段数seg_num）
 6. 新链路稳定前保留旧表和旧脚本；迁移完成后关闭旧通知任务，避免群消息重复。
 7. 资源治理日任务在ADS及航段数同步完成后每天运行一次；另将资源事件生命周期任务设为每10分钟运行，再串行执行通知发送器；页面运行日志分别显示`RESOURCE_DAILY`和`RESOURCE_LIFECYCLE`。
 8. 已有环境执行[resource-governance-event-lifecycle-v4.sql](../../sql/resource-governance-event-lifecycle-v4.sql)，补齐责任人、处理时限、观察期、升级级别和通知阶段幂等键。
+9. 执行[resource-governance-action-work-order-v5.sql](../../sql/resource-governance-action-work-order-v5.sql)，补齐限流/下线/恢复技术工单、回执审计、阶梯时长与工单权限；原资源生命周期任务继续每10分钟运行，并负责将已到期临时控制转入待恢复。
 
 ## 4. 上线前必须确认
 
@@ -61,6 +62,12 @@ bi_ota_gds_request_day（日ADS，含GDS航段数seg_num）
 - 三段任务必须串行，不允许并行，也不要每条规则分别建立调度；
 - 首次默认只回看 24 小时。历史回补必须单独执行并记录范围。
 - 新激活规则首次运行自动回看近24小时已采集特征；之后仍只走全局增量水位。
+
+## 5. 资源治理技术工单
+
+资源异常确认需要技术执行时，不再把“待技术执行”当作已解决。数据部在事件中生成工单，系统按同一资源历史处置次数计算本次时长；技术执行人依次接单、开始、成功或失败回执。执行成功后事件进入“控制已生效”，临时控制到期由生命周期任务自动转为“待恢复”，技术确认恢复后事件重新进入复核状态。长期关闭没有自动到期时间，后续需通过恢复申请审批链路处理。
+
+工单权限拆为`monitor.action.view`与`monitor.action.manage`。升级SQL只让已有事件查看角色继承工单查看权限；技术执行角色必须在账号管理中明确授予`monitor.action.manage`，避免数据经理代替技术人员回写执行结果。管理员始终拥有全部权限。
 
 调度脚本的具体命令和参数见 `data-team-repo/etl_scripts/automation/monitoring/README.md`。
 ## 通知模型与花名册（2026-10-13）

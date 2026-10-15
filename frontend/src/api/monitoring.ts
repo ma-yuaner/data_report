@@ -80,6 +80,7 @@ export interface MonitorEvent {
   escalationLevel?: number
   lastEscalatedAt?: string | null
   resolutionCode?: string | null
+  actionOrderId?: number | null
 }
 
 export interface MonitorEventAssignee { id: number; username: string; displayName: string }
@@ -97,6 +98,62 @@ export interface MonitorEventActionInput {
   assigneeUserId?: number
   observeUntil?: string
   resolutionCode?: 'FIXED' | 'EXPECTED_TEST' | 'BUSINESS_ACCEPTED' | 'FALSE_POSITIVE' | 'TECH_ACTION_REQUIRED' | 'OTHER'
+  note?: string
+}
+
+export type MonitorActionType = 'RATE_LIMIT' | 'DISABLE' | 'EXTEND_DISABLE' | 'RESTORE'
+export type MonitorActionStatus = 'PENDING' | 'ACCEPTED' | 'EXECUTING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED' | 'RECOVERY_PENDING' | 'RECOVERED'
+
+export interface MonitorActionOrder {
+  id: number
+  actionNo: string
+  eventId: number
+  eventNo: string
+  eventTitle: string
+  eventStatus: string
+  ruleId: number
+  ruleCode: string
+  resourceType: 'GDS' | 'OTA'
+  targetKey: string
+  target?: Record<string, string>
+  actionType: MonitorActionType
+  occurrenceNo: number
+  permanentFlag: boolean | number
+  requestNote: string
+  requestedByName: string
+  assigneeUserId: number
+  assigneeUserName: string
+  actionStatus: MonitorActionStatus
+  plannedStartAt: string
+  plannedEndAt?: string | null
+  acceptedAt?: string | null
+  executedAt?: string | null
+  recoveredAt?: string | null
+  executionReference?: string | null
+  executionNote?: string | null
+  failureReason?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface MonitorActionOrderDetail {
+  order: MonitorActionOrder
+  logs: Array<Record<string, unknown> & {
+    id: number; actionCode: string; fromStatus?: string; toStatus: string
+    operatorName: string; operationNote?: string; createdAt: string
+  }>
+}
+
+export interface MonitorActionOrderCreateInput {
+  actionType: Exclude<MonitorActionType, 'RESTORE'>
+  assigneeUserId: number
+  plannedStartAt?: string
+  requestNote: string
+}
+
+export interface MonitorActionOrderUpdateInput {
+  action: 'ACCEPT' | 'START' | 'SUCCESS' | 'FAIL' | 'CANCEL' | 'RECOVER'
+  executionReference?: string
   note?: string
 }
 
@@ -222,6 +279,10 @@ export const monitoringApi = {
   eventAssignees: () => http.get<ApiEnvelope<MonitorEventAssignee[]>>('/v1/monitoring/event-assignees').then(response => response.data.data),
   eventDetail: (id: number) => http.get<ApiEnvelope<MonitorEventDetail>>(`/v1/monitoring/events/${id}`).then(response => response.data.data),
   updateEventStatus: (id: number, payload: MonitorEventActionInput) => http.patch<ApiEnvelope<{ id: number; status: string }>>(`/v1/monitoring/events/${id}/status`, payload).then(response => response.data.data),
+  actionOrders: (params: Record<string, unknown>) => http.get<ApiEnvelope<PagedResult<MonitorActionOrder>>>('/v1/monitoring/action-orders', { params }).then(response => response.data.data),
+  actionOrderDetail: (id: number) => http.get<ApiEnvelope<MonitorActionOrderDetail>>(`/v1/monitoring/action-orders/${id}`).then(response => response.data.data),
+  createActionOrder: (eventId: number, payload: MonitorActionOrderCreateInput) => http.post<ApiEnvelope<{ id: number; actionNo: string; status: string; occurrenceNo: number; permanent: boolean; plannedStartAt: string; plannedEndAt?: string }>>(`/v1/monitoring/events/${eventId}/action-orders`, payload).then(response => response.data.data),
+  updateActionOrder: (id: number, payload: MonitorActionOrderUpdateInput) => http.patch<ApiEnvelope<{ id: number; status: string; eventStatus: string }>>(`/v1/monitoring/action-orders/${id}/status`, payload).then(response => response.data.data),
   runs: (params: Record<string, unknown> = {}) => http.get<ApiEnvelope<MonitorRun[]>>('/v1/monitoring/runs', { params }).then(response => response.data.data),
   notifyEndpoints: () => http.get<ApiEnvelope<MonitorNotifyEndpoint[]>>('/v1/monitoring/notify-endpoints').then(response => response.data.data),
   createNotifyEndpoint: (payload: MonitorNotifyEndpointInput) => http.post<ApiEnvelope<{ id: number }>>('/v1/monitoring/notify-endpoints', payload).then(response => response.data.data),

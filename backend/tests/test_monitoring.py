@@ -501,6 +501,72 @@ def test_event_observation_requires_future_deadline_and_writes_assignment():
     connection.commit.assert_called_once()
 
 
+def test_resource_event_creates_versioned_technical_action_order():
+    source, connection, cursor = source_with_cursor()
+    cursor.fetchone.side_effect = [
+        {
+            "id": 9, "event_status": "ACKNOWLEDGED", "business_type": "RESOURCE_GOVERNANCE",
+            "severity": "P1", "template_code": "GDS_QUERY_RATIO_DAILY", "rule_id": 7,
+            "rule_code": "MON-GDS-1", "entity_key": "2026-10-14|GDS:1A / PCC:ABC",
+            "match_snapshot_json": '{"scope":{"gds_code":"1A","pcc_code":"ABC"}}',
+        },
+        None,
+        {"id": 8, "full_name": "技术负责人", "username": "tech"},
+        {"action_durations_json": "[60,240,1440]", "permanent_after_count": 4},
+        (1,),
+    ]
+    cursor.lastrowid = 55
+    service = MonitoringService({}, source=source)
+
+    result = service.create_action_order(
+        {"id": 1, "display_name": "数据经理", "is_admin": True},
+        9,
+        {"actionType": "DISABLE", "assigneeUserId": 8, "requestNote": "临时下线并回写结果"},
+    )
+
+    assert result["id"] == 55
+    assert result["occurrenceNo"] == 2
+    assert result["permanent"] is False
+    insert_call = next(call for call in cursor.execute.call_args_list if "INSERT INTO sibebid.monitor_resource_action_order" in call.args[0])
+    assert insert_call.args[1][7:10] == ("DISABLE", 2, 0)
+    assert any("event_status='ACTION_PENDING'" in call.args[0] for call in cursor.execute.call_args_list)
+    connection.commit.assert_called_once()
+
+
+def test_technical_action_success_updates_order_and_event_with_audit():
+    source, connection, cursor = source_with_cursor()
+    cursor.fetchone.side_effect = [
+        {
+            "id": 55, "event_id": 9, "action_status": "EXECUTING",
+            "planned_start_at": datetime(2026, 10, 15, 9),
+            "planned_end_at": datetime(2026, 10, 15, 13),
+        },
+        {"event_status": "ACTION_IN_PROGRESS"},
+    ]
+    service = MonitoringService({}, source=source)
+
+    result = service.update_action_order(
+        {"id": 8, "display_name": "技术负责人", "is_admin": True},
+        55,
+        {"action": "SUCCESS", "executionReference": "CHANGE-1001", "note": "已完成下线"},
+    )
+
+    assert result == {"id": 55, "status": "SUCCEEDED", "eventStatus": "ACTION_APPLIED"}
+    assert any("monitor_resource_action_operation_log" in call.args[0] for call in cursor.execute.call_args_list)
+    event_update = next(call for call in cursor.execute.call_args_list if "SET event_status=%s,action_order_id=%s,due_at=%s" in call.args[0])
+    assert event_update.args[1][:2] == ("ACTION_APPLIED", 55)
+    connection.commit.assert_called_once()
+
+
+def test_technical_action_requires_explicit_permission():
+    source, _connection, _cursor = source_with_cursor()
+    service = MonitoringService({}, source=source)
+
+    with pytest.raises(PermissionError, match="没有技术工单查看权限"):
+        service.list_action_orders({"id": 3, "is_admin": False, "permissions": []})
+    source.connect.assert_not_called()
+
+
 def test_wecom_endpoint_helpers_mask_validate_and_build_real_mentions():
     webhook = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abcDEF_123456"
     assert _validate_wecom_webhook(webhook, required=True) == webhook
