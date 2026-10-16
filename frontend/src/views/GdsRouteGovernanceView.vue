@@ -1,6 +1,6 @@
 <template>
   <div class="page-wrap route-governance-page">
-    <PageHeader eyebrow="GDS ROUTE GOVERNANCE" :title="pageMeta.title" :description="pageMeta.description">
+    <PageHeader eyebrow="RESOURCE GOVERNANCE" :title="pageMeta.title" :description="pageMeta.description">
       <a-space>
         <a-tag color="orange">验收演示 · 假数据</a-tag>
         <a-button @click="resetDemo"><ReloadOutlined />重置演示</a-button>
@@ -8,13 +8,22 @@
     </PageHeader>
 
     <a-alert class="preview-banner" type="warning" show-icon
-      message="本模块与原GDS资源治理、OTA渠道质量、监控中心完全独立"
-      description="当前用于验收页面结构和业务闭环，不读取、不修改正式数据库，也不会触发真实上下线。后续接入最新白名单、航线配置和接口指标API后替换假数据。" />
+      message="统一资源治理流程 · 当前明细治理页使用假数据"
+      description="GDS总览与接口质量继续使用原正式看板；本页只承接航线/配置诊断、白名单、治理执行和效果复盘，不会触发真实上下线。" />
 
     <section class="module-nav">
       <button v-for="item in modulePages" :key="item.path" type="button" :class="{ active: page === item.key }" @click="router.push(item.path)">
         <component :is="item.icon" /><span>{{ item.label }}</span><small>{{ item.hint }}</small>
       </button>
+    </section>
+
+    <section v-if="page === 'routes'" class="workbench-switch">
+      <div><strong>诊断视图</strong><span>先定位航线，再下钻到具体配置组合</span></div>
+      <a-segmented v-model:value="diagnosisView" :options="[{ label: '航线视图', value: 'route' }, { label: '配置视图', value: 'configuration' }]" />
+    </section>
+    <section v-if="page === 'execution'" class="workbench-switch">
+      <div><strong>治理工作台</strong><span>异常确认与技术执行使用同一条状态链</span></div>
+      <a-segmented v-model:value="executionTab" :options="[{ label: '异常处置', value: 'events' }, { label: '上下线任务', value: 'actions' }]" />
     </section>
 
     <template v-if="page === 'overview'">
@@ -65,7 +74,7 @@
         <label><span>白名单状态</span><a-select v-model:value="filters.whitelist" allow-clear placeholder="全部状态" :options="whitelistOptions" /></label>
         <label><span>航线/航司</span><a-input v-model:value="filters.keyword" allow-clear placeholder="例如 HKG-ICN / 7C" /></label>
       </FilterPanel>
-      <a-card class="panel-card" :bordered="false">
+      <a-card v-if="diagnosisView === 'route'" class="panel-card" :bordered="false">
         <div class="section-title"><div><span>ROUTE PERFORMANCE</span><h2>航线效率明细</h2><p>先看航线问题，再进入具体配置组合定位原因。</p></div><a-tag color="blue">{{ filteredRoutes.length }} 条航线</a-tag></div>
         <a-table :data-source="filteredRoutes" :pagination="{ pageSize: 6 }" row-key="id" :scroll="{ x: 1450 }">
           <a-table-column title="航线" fixed="left" :width="150"><template #default="{ record }"><button class="link-cell" @click="openRoute(record)"><strong>{{ record.route }}</strong><small>{{ record.depCity }} → {{ record.arrCity }}</small></button></template></a-table-column>
@@ -81,25 +90,24 @@
           <a-table-column title="操作" fixed="right" :width="100"><template #default="{ record }"><a-button type="link" @click="openRoute(record)">分析此项</a-button></template></a-table-column>
         </a-table>
       </a-card>
-    </template>
-
-    <template v-else-if="page === 'configurations'">
-      <a-alert class="context-tip" type="info" show-icon message="配置治理粒度" description="同一航线按乘客人数、行程类型、去程提前天数、回程停留天数和MP/MPIS/NDC拆分，避免整条航线被粗暴下线。" />
-      <a-card class="panel-card" :bordered="false">
-        <div class="section-title"><div><span>CONFIGURATION UNIT</span><h2>航线配置效率</h2></div><a-radio-group v-model:value="configView" button-style="solid"><a-radio-button value="all">全部</a-radio-button><a-radio-button value="异常">只看异常</a-radio-button></a-radio-group></div>
-        <a-table :data-source="visibleConfigurations" :pagination="false" row-key="id" :scroll="{ x: 1450 }">
-          <a-table-column title="配置 / 航线" fixed="left" :width="170"><template #default="{ record }"><strong>{{ record.id }}</strong><div class="cell-sub">{{ record.route }} · {{ record.platform }}</div></template></a-table-column>
-          <a-table-column title="乘客 / 行程" :width="140"><template #default="{ record }">{{ record.passengerScope }}<div class="cell-sub">{{ record.tripType }}</div></template></a-table-column>
-          <a-table-column title="去程 / 回程" :width="150"><template #default="{ record }">{{ record.outboundDays }}<div class="cell-sub">停留 {{ record.returnDays }}</div></template></a-table-column>
-          <a-table-column title="通道" data-index="channel" :width="90"><template #default="{ text }"><a-tag :color="text === 'MPIS' ? 'green' : text === 'NDC' ? 'blue' : 'orange'">{{ text }}</a-tag></template></a-table-column>
-          <a-table-column title="查询量" data-index="queryCount" :width="120" align="right"><template #default="{ text }">{{ formatInteger(text) }}</template></a-table-column>
-          <a-table-column title="航段数" data-index="segmentCount" :width="100" align="right"><template #default="{ text }">{{ formatInteger(text) }}</template></a-table-column>
-          <a-table-column title="查定比" :width="125" align="right"><template #default="{ record }"><strong :class="{ danger: record.ratio > 4000 }">{{ formatInteger(record.ratio) }} : 1</strong></template></a-table-column>
-          <a-table-column title="成功率" :width="100" align="right"><template #default="{ record }">{{ record.successRate.toFixed(1) }}%</template></a-table-column>
-          <a-table-column title="建议动作" data-index="suggestion" :width="260" />
-          <a-table-column title="结论" fixed="right" :width="90"><template #default="{ record }"><a-tag :color="record.status === '达标' ? 'green' : record.status === '异常' ? 'red' : 'orange'">{{ record.status }}</a-tag></template></a-table-column>
-        </a-table>
-      </a-card>
+      <template v-else>
+        <a-alert class="context-tip" type="info" show-icon message="配置治理粒度" description="同一航线按乘客人数、行程类型、去程提前天数、回程停留天数和MP/MPIS/NDC拆分，避免整条航线被粗暴下线。" />
+        <a-card class="panel-card" :bordered="false">
+          <div class="section-title"><div><span>CONFIGURATION UNIT</span><h2>航线配置效率</h2></div><a-radio-group v-model:value="configView" button-style="solid"><a-radio-button value="all">全部</a-radio-button><a-radio-button value="异常">只看异常</a-radio-button></a-radio-group></div>
+          <a-table :data-source="visibleConfigurations" :pagination="false" row-key="id" :scroll="{ x: 1450 }">
+            <a-table-column title="配置 / 航线" fixed="left" :width="170"><template #default="{ record }"><strong>{{ record.id }}</strong><div class="cell-sub">{{ record.route }} · {{ record.platform }}</div></template></a-table-column>
+            <a-table-column title="乘客 / 行程" :width="140"><template #default="{ record }">{{ record.passengerScope }}<div class="cell-sub">{{ record.tripType }}</div></template></a-table-column>
+            <a-table-column title="去程 / 回程" :width="150"><template #default="{ record }">{{ record.outboundDays }}<div class="cell-sub">停留 {{ record.returnDays }}</div></template></a-table-column>
+            <a-table-column title="通道" data-index="channel" :width="90"><template #default="{ text }"><a-tag :color="text === 'MPIS' ? 'green' : text === 'NDC' ? 'blue' : 'orange'">{{ text }}</a-tag></template></a-table-column>
+            <a-table-column title="查询量" data-index="queryCount" :width="120" align="right"><template #default="{ text }">{{ formatInteger(text) }}</template></a-table-column>
+            <a-table-column title="航段数" data-index="segmentCount" :width="100" align="right"><template #default="{ text }">{{ formatInteger(text) }}</template></a-table-column>
+            <a-table-column title="查定比" :width="125" align="right"><template #default="{ record }"><strong :class="{ danger: record.ratio > 4000 }">{{ formatInteger(record.ratio) }} : 1</strong></template></a-table-column>
+            <a-table-column title="成功率" :width="100" align="right"><template #default="{ record }">{{ record.successRate.toFixed(1) }}%</template></a-table-column>
+            <a-table-column title="建议动作" data-index="suggestion" :width="260" />
+            <a-table-column title="结论" fixed="right" :width="90"><template #default="{ record }"><a-tag :color="record.status === '达标' ? 'green' : record.status === '异常' ? 'red' : 'orange'">{{ record.status }}</a-tag></template></a-table-column>
+          </a-table>
+        </a-card>
+      </template>
     </template>
 
     <template v-else-if="page === 'quality'">
@@ -143,7 +151,7 @@
       </a-card>
     </template>
 
-    <template v-else-if="page === 'events'">
+    <template v-else-if="page === 'execution' && executionTab === 'events'">
       <a-card class="panel-card" :bordered="false">
         <div class="section-title"><div><span>EXCEPTION WORKBENCH</span><h2>异常处置台</h2><p>异常只代表发现问题；数据部确认后生成正式上下线任务。</p></div><a-tag color="orange">待处理 {{ store.openEventCount }}</a-tag></div>
         <a-table :data-source="store.events" :pagination="false" row-key="id" :scroll="{ x: 1500 }">
@@ -158,13 +166,13 @@
             <a-button v-if="record.status === 'OPEN'" size="small" @click="acknowledge(record.id)">确认</a-button>
             <a-button v-if="['OPEN','ACKNOWLEDGED'].includes(record.status)" size="small" @click="observe(record.id)">观察</a-button>
             <a-button v-if="['ACKNOWLEDGED','OBSERVING'].includes(record.status)" size="small" type="primary" danger @click="createAction(record.id)">生成任务</a-button>
-            <a-button v-if="record.status === 'ACTION_PENDING'" size="small" type="link" @click="router.push('/gds-route-governance/actions')">查看任务</a-button>
+            <a-button v-if="record.status === 'ACTION_PENDING'" size="small" type="link" @click="executionTab = 'actions'">查看任务</a-button>
           </a-space></template></a-table-column>
         </a-table>
       </a-card>
     </template>
 
-    <template v-else-if="page === 'actions'">
+    <template v-else-if="page === 'execution' && executionTab === 'actions'">
       <a-alert class="context-tip" type="success" show-icon message="技术执行边界清晰" description="本页演示数据部发出控制指令、技术接单、执行、成功、到期恢复和回执归档。验收操作不会触发生产系统。" />
       <a-card class="panel-card" :bordered="false">
         <div class="section-title"><div><span>ACTION ORDERS</span><h2>上下线任务</h2><p>按按钮依次模拟：接单 → 执行 → 生效 → 到期 → 恢复。</p></div><a-tag color="blue">{{ store.actions.length }} 个任务</a-tag></div>
@@ -218,7 +226,7 @@
         </a-descriptions>
         <div class="drawer-section-title"><strong>高风险配置</strong><span>按该航线继续下钻</span></div>
         <div class="drawer-configs"><article v-for="item in routeConfigurations" :key="item.id"><span><strong>{{ item.id }} · {{ item.channel }}</strong><small>{{ item.passengerScope }} · {{ item.tripType }} · 去程{{ item.outboundDays }}</small></span><span><b :class="{ danger: item.ratio > 4000 }">{{ formatInteger(item.ratio) }} : 1</b><small>{{ item.status }}</small></span></article><a-empty v-if="!routeConfigurations.length" description="当前假数据暂无配置记录" /></div>
-        <div class="drawer-actions"><a-button @click="routeDrawerOpen = false">关闭</a-button><a-button type="primary" @click="router.push('/gds-route-governance/configurations')">进入配置分析</a-button></div>
+        <div class="drawer-actions"><a-button @click="routeDrawerOpen = false">关闭</a-button><a-button type="primary" @click="openConfigurationView">进入配置分析</a-button></div>
       </template>
     </a-drawer>
   </div>
@@ -238,7 +246,7 @@ import PageHeader from '@/components/PageHeader.vue'
 import FilterPanel from '@/components/FilterPanel.vue'
 import { useGdsRouteGovernanceStore, type GovernanceActionStatus, type GovernanceEventStatus, type RouteMetric, type RouteRiskStatus } from '@/stores/gdsRouteGovernance'
 
-type PageKey = 'overview' | 'routes' | 'configurations' | 'quality' | 'whitelist' | 'events' | 'actions' | 'review'
+type PageKey = 'overview' | 'routes' | 'configurations' | 'quality' | 'whitelist' | 'events' | 'actions' | 'execution' | 'review'
 
 const route = useRoute()
 const router = useRouter()
@@ -246,30 +254,31 @@ const store = useGdsRouteGovernanceStore()
 const page = computed(() => String(route.meta.gdsRoutePage || 'overview') as PageKey)
 const routeDrawerOpen = ref(false)
 const selectedRoute = ref<RouteMetric | null>(null)
+const diagnosisView = ref<'route' | 'configuration'>(route.query.view === 'configuration' ? 'configuration' : 'route')
+const executionTab = ref<'events' | 'actions'>(route.query.tab === 'actions' ? 'actions' : 'events')
 const configView = ref<'all' | '异常'>('all')
 const dateRange = ref<[Dayjs, Dayjs] | string[] | null>(null)
 const filters = reactive({ gds: undefined as string | undefined, platform: undefined as string | undefined, whitelist: undefined as string | undefined, keyword: '' })
 
 const pageDefinitions: Record<PageKey, { title: string; description: string }> = {
   overview: { title: 'GDS航线治理', description: '从最新白名单、航线效率和接口质量发现问题，形成可审计的上下线闭环。' },
-  routes: { title: '航线分析', description: '按GDS、PCC、平台、航司和航线逐层定位查询资源浪费。' },
+  routes: { title: '航线配置诊断', description: '先按GDS、PCC、平台、航司和航线定位问题，再下钻具体配置组合。' },
   configurations: { title: '配置分析', description: '在航线下面继续识别乘客、行程、日期区间和接口通道的低效组合。' },
   quality: { title: '接口质量', description: '分别监控查询、验价、生单成功率、超时率和失败原因。' },
   whitelist: { title: '白名单管理', description: '查看最新有效白名单、即将到期配置及历史版本，不直接修改生产配置。' },
   events: { title: '异常处置', description: '确认规则命中证据，选择观察或生成正式治理任务。' },
   actions: { title: '上下线任务', description: '管理技术接单、执行、控制生效、到期恢复及回执记录。' },
+  execution: { title: '治理执行', description: '在同一工作台完成异常确认、任务生成、技术执行、恢复和回执归档。' },
   review: { title: '治理复盘', description: '对比治理前后查定比、无效查询、MPIS迁移和异常复发情况。' },
 }
 const pageMeta = computed(() => pageDefinitions[page.value])
 const modulePages = [
-  { key: 'overview', label: '治理总览', hint: '全局状态', path: '/gds-route-governance/overview', icon: ApartmentOutlined },
-  { key: 'routes', label: '航线分析', hint: '定位航线', path: '/gds-route-governance/routes', icon: BranchesOutlined },
-  { key: 'configurations', label: '配置分析', hint: '细分组合', path: '/gds-route-governance/configurations', icon: ProfileOutlined },
-  { key: 'quality', label: '接口质量', hint: '成功与失败', path: '/gds-route-governance/quality', icon: ThunderboltOutlined },
-  { key: 'whitelist', label: '白名单', hint: '准入范围', path: '/gds-route-governance/whitelist', icon: FileProtectOutlined },
-  { key: 'events', label: '异常处置', hint: '人工确认', path: '/gds-route-governance/events', icon: AlertOutlined },
-  { key: 'actions', label: '上下线任务', hint: '技术执行', path: '/gds-route-governance/actions', icon: AuditOutlined },
-  { key: 'review', label: '治理复盘', hint: '效果追踪', path: '/gds-route-governance/review', icon: SafetyCertificateOutlined },
+  { key: 'gds', label: 'GDS资源治理', hint: '总览与接口质量', path: '/resource-governance/gds', icon: ApartmentOutlined },
+  { key: 'ota', label: 'OTA渠道质量', hint: '平台接口质量', path: '/resource-governance/ota', icon: ThunderboltOutlined },
+  { key: 'routes', label: '航线配置诊断', hint: '航线到配置', path: '/resource-governance/route-diagnosis', icon: BranchesOutlined },
+  { key: 'whitelist', label: '白名单管理', hint: '准入范围', path: '/resource-governance/whitelist', icon: FileProtectOutlined },
+  { key: 'execution', label: '治理执行', hint: '异常到回执', path: '/resource-governance/execution', icon: AuditOutlined },
+  { key: 'review', label: '治理复盘', hint: '效果追踪', path: '/resource-governance/review', icon: SafetyCertificateOutlined },
 ] as const
 const flowSteps = [
   { title: '白名单同步', text: '确定有效航线和配置版本', path: '/gds-route-governance/whitelist' },
@@ -321,22 +330,35 @@ const resetFilters = () => { filters.gds = undefined; filters.platform = undefin
 const resetDemo = () => { store.resetReview(); message.success('演示流程已恢复到初始状态') }
 const acknowledge = (id: string) => { store.acknowledgeEvent(id); message.success('异常已确认，操作日志将在正式接口中留痕') }
 const observe = (id: string) => { store.observeEvent(id); message.info('已进入观察状态') }
-const createAction = (id: string) => { const created = store.createAction(id); if (created) { message.success('已生成上下线任务'); void router.push('/gds-route-governance/actions') } else message.warning('该事件已有未结束任务') }
+const createAction = (id: string) => { const created = store.createAction(id); if (created) { executionTab.value = 'actions'; message.success('已生成上下线任务') } else message.warning('该事件已有未结束任务') }
 const advanceAction = (id: string) => { store.advanceAction(id); message.success('任务状态已更新，可继续点击完成下一步流转') }
+const openConfigurationView = () => { diagnosisView.value = 'configuration'; routeDrawerOpen.value = false }
 
-onMounted(() => store.hydrate())
+onMounted(() => {
+  store.hydrate()
+  const queryValue = (key: string) => typeof route.query[key] === 'string' ? String(route.query[key]) : ''
+  filters.gds = queryValue('gds') || undefined
+  filters.platform = queryValue('platform') || undefined
+  const startDate = queryValue('startDate')
+  const endDate = queryValue('endDate')
+  if (startDate && endDate) dateRange.value = [startDate, endDate]
+})
 </script>
 
 <style scoped>
 .route-governance-page { --ink: #1d2a3d; --muted: #758196; --line: #e5eaf0; --blue: #2f6fde; }
 .preview-banner, .context-tip { margin-bottom: 16px; border-radius: 12px; }
-.module-nav { margin-bottom: 18px; padding: 8px; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px; border: 1px solid #e4e9ef; border-radius: 16px; background: #fff; box-shadow: 0 8px 30px rgba(33, 52, 78, .04); }
+.module-nav { margin-bottom: 18px; padding: 8px; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; border: 1px solid #e4e9ef; border-radius: 16px; background: #fff; box-shadow: 0 8px 30px rgba(33, 52, 78, .04); }
 .module-nav button { min-width: 0; padding: 12px 8px; display: grid; grid-template-columns: 25px minmax(0, 1fr); grid-template-rows: auto auto; align-items: center; gap: 2px 7px; border: 0; border-radius: 11px; color: #526076; background: transparent; text-align: left; cursor: pointer; }
 .module-nav button:hover { background: #f4f7fb; }
 .module-nav button.active { color: #245eb8; background: #edf4ff; box-shadow: inset 0 0 0 1px #d8e6fb; }
 .module-nav button :deep(.anticon) { grid-row: 1 / 3; font-size: 17px; }
 .module-nav strong, .module-nav span { overflow: hidden; font-size: 12px; font-weight: 650; white-space: nowrap; text-overflow: ellipsis; }
 .module-nav small { overflow: hidden; color: #98a3b2; font-size: 9px; white-space: nowrap; text-overflow: ellipsis; }
+.workbench-switch { margin: -2px 0 16px; padding: 13px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border: 1px solid #dfe7f1; border-radius: 12px; background: #f8fafd; }
+.workbench-switch > div { display: grid; gap: 3px; }
+.workbench-switch strong { color: #24354d; font-size: 13px; }
+.workbench-switch span { color: #7c899b; font-size: 10px; }
 .metric-grid { margin-bottom: 16px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .metric-card { position: relative; overflow: hidden; min-height: 132px; padding: 20px; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 14px; background: #fff; box-shadow: 0 7px 24px rgba(31, 49, 73, .045); }
 .metric-card::before { content: ''; width: 4px; position: absolute; inset: 0 auto 0 0; background: var(--tone); }

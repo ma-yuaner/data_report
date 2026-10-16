@@ -91,14 +91,10 @@ PERMISSION_CATALOG = (
 MENU_CATALOG = (
     {"code": "governance.gds", "name": "GDS资源治理", "description": "GDS、PCC查询量、航段数与查定比分析", "groupCode": "governance", "groupName": "资源治理"},
     {"code": "governance.ota", "name": "OTA渠道质量", "description": "平台查询、验价与生单接口成功率分析", "groupCode": "governance", "groupName": "资源治理"},
-    {"code": "gds_route.overview", "name": "治理总览", "description": "GDS航线治理闭环总览", "groupCode": "gds_route", "groupName": "GDS航线治理"},
-    {"code": "gds_route.routes", "name": "航线分析", "description": "按航线定位GDS资源效率问题", "groupCode": "gds_route", "groupName": "GDS航线治理"},
-    {"code": "gds_route.configurations", "name": "配置分析", "description": "按乘客、行程和日期区间分析配置组合", "groupCode": "gds_route", "groupName": "GDS航线治理"},
-    {"code": "gds_route.quality", "name": "接口质量", "description": "查询、验价和生单成功率分析", "groupCode": "gds_route", "groupName": "GDS航线治理"},
-    {"code": "gds_route.whitelist", "name": "白名单管理", "description": "查看有效航线白名单及版本", "groupCode": "gds_route", "groupName": "GDS航线治理"},
-    {"code": "gds_route.events", "name": "异常处置", "description": "确认航线、配置和接口异常", "groupCode": "gds_route", "groupName": "GDS航线治理"},
-    {"code": "gds_route.actions", "name": "上下线任务", "description": "管理限流、下线、迁移和恢复任务", "groupCode": "gds_route", "groupName": "GDS航线治理"},
-    {"code": "gds_route.review", "name": "治理复盘", "description": "分析治理前后效果与复发情况", "groupCode": "gds_route", "groupName": "GDS航线治理"},
+    {"code": "gds_route.diagnosis", "name": "航线配置诊断", "description": "从航线下钻到乘客、行程和日期区间配置组合", "groupCode": "gds_route", "groupName": "资源治理"},
+    {"code": "gds_route.whitelist", "name": "白名单管理", "description": "查看有效航线白名单及版本", "groupCode": "gds_route", "groupName": "资源治理"},
+    {"code": "gds_route.execution", "name": "治理执行", "description": "确认异常并管理限流、下线、迁移和恢复任务", "groupCode": "gds_route", "groupName": "资源治理"},
+    {"code": "gds_route.review", "name": "治理复盘", "description": "分析治理前后效果与复发情况", "groupCode": "gds_route", "groupName": "资源治理"},
     {"code": "overview", "name": "经营总览", "description": "经营总览页面", "groupCode": "overview", "groupName": "经营总览"},
     {"code": "analysis.comprehensive", "name": "综合分析", "description": "出退改增综合经营分析", "groupCode": "analysis", "groupName": "业务分析"},
     {"code": "analysis.issue", "name": "出票分析", "description": "出票利润分析", "groupCode": "analysis", "groupName": "业务分析"},
@@ -133,6 +129,14 @@ LEGACY_MENU_EXPANSIONS = {
 LEGACY_MENU_EXPANSIONS["smart.home"] = (
     "smart.comprehensive", "smart.overview", "smart.dimensions", "smart.details",
 )
+LEGACY_MENU_EXPANSIONS.update({
+    "gds_route.overview": ("governance.gds",),
+    "gds_route.routes": ("gds_route.diagnosis",),
+    "gds_route.configurations": ("gds_route.diagnosis",),
+    "gds_route.quality": ("governance.gds",),
+    "gds_route.events": ("gds_route.execution",),
+    "gds_route.actions": ("gds_route.execution",),
+})
 MENU_CODES = {item["code"] for item in MENU_CATALOG}
 MENU_GROUP_BY_CODE = {item["code"]: item["groupCode"] for item in MENU_CATALOG}
 
