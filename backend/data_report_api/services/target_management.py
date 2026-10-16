@@ -9,11 +9,12 @@ import hashlib
 import logging
 import re
 from calendar import monthrange
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
 from .data_source import DataSource
+from ..time_utils import business_now
 
 
 LOGGER = logging.getLogger(__name__)
@@ -21,6 +22,7 @@ SCENES = frozenset({"PLATFORM", "GDS", "POLICY"})
 EDIT_STATUSES = frozenset({"DRAFT", "ACTIVE", "PAUSED"})
 VIEW_PERMISSION = "business_config.targets.view"
 MANAGE_PERMISSION = "business_config.targets.manage"
+PROGRESS_PERMISSION = "business_config.target_progress.view"
 
 
 class TargetManagementUnavailable(RuntimeError):
@@ -33,6 +35,12 @@ def _permissions(user: dict[str, Any]) -> set[str]:
 
 def _require(user: dict[str, Any], permission: str, message: str) -> None:
     if bool(user.get("is_admin")) or permission in _permissions(user):
+        return
+    raise PermissionError(message)
+
+
+def _require_any(user: dict[str, Any], permissions: set[str], message: str) -> None:
+    if bool(user.get("is_admin")) or permissions.intersection(_permissions(user)):
         return
     raise PermissionError(message)
 
@@ -96,9 +104,36 @@ class TargetManagementService:
         mysql_config["DATA_MODE"] = "mysql"
         self.source = source or DataSource(mysql_config)
         self.database = self.source.database
+        self.roster_database = str(config.get("ERP_ROSTER_DATABASE", "sibebd")).strip()
+        self.roster_user_table = str(config.get("ERP_ROSTER_USER_TABLE", "rbac_user")).strip()
+        self.roster_org_table = str(config.get("ERP_ROSTER_ORG_TABLE", "rbac_organization")).strip()
+        self.platform_database = str(config.get("ERP_PLATFORM_DATABASE", "sibelog")).strip()
+        self.platform_table = str(config.get("ERP_PLATFORM_TABLE", "sibe_ota")).strip()
+        for value in (
+            self.roster_database, self.roster_user_table, self.roster_org_table,
+            self.platform_database, self.platform_table,
+        ):
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value):
+                raise RuntimeError("目标管理ERP基础表配置不合法")
 
     def _table(self, name: str) -> str:
         return f"{self.database}.{name}"
+
+    @staticmethod
+    def _qualified(database: str, table: str) -> str:
+        return f"{database}.{table}"
+
+    @property
+    def _roster_users(self) -> str:
+        return self._qualified(self.roster_database, self.roster_user_table)
+
+    @property
+    def _roster_orgs(self) -> str:
+        return self._qualified(self.roster_database, self.roster_org_table)
+
+    @property
+    def _platforms(self) -> str:
+        return self._qualified(self.platform_database, self.platform_table)
 
     def metrics(self, user: dict[str, Any]) -> dict[str, Any]:
         _require(user, VIEW_PERMISSION, "当前账号没有目标管理查看权限")
@@ -148,23 +183,57 @@ class TargetManagementService:
             connection = self.source.connect()
             with connection.cursor(pymysql.cursors.DictCursor) as cursor:
                 cursor.execute(
-                    f"""SELECT ota_code AS code, max(ota_cname) AS name
-                        FROM {self._table('bi_gds_resource_metric_day')}
-                        WHERE coalesce(ota_code, '') <> ''
-                        GROUP BY ota_code ORDER BY name, code"""
+                    f"""SELECT ota_code AS code, ota_cname AS name, ota_full_cname AS full_name
+                        FROM {self._platforms}
+                        WHERE status=1
+                          AND (start_time IS NULL OR start_time<=NOW())
+                          AND (end_time IS NULL OR end_time>=NOW())
+                        ORDER BY sort_seq, ota_cname, ota_code"""
                 )
-                platforms = [{"code": str(row["code"]), "name": str(row["name"] or row["code"])} for row in cursor.fetchall()]
+                platforms = [{
+                    "code": str(row["code"]), "name": str(row["name"] or row["code"]),
+                    "fullName": str(row["full_name"] or row["name"] or row["code"]),
+                    "source": f"{self.platform_database}.{self.platform_table}",
+                } for row in cursor.fetchall()]
                 cursor.execute(
                     f"""SELECT gds_code AS code
                         FROM {self._table('bi_gds_resource_metric_day')}
                         WHERE coalesce(gds_code, '') <> '' GROUP BY gds_code ORDER BY gds_code"""
                 )
                 gds = [{"code": str(row["code"]), "name": str(row["code"])} for row in cursor.fetchall()]
-                cursor.execute(
-                    f"""SELECT id, username, coalesce(nullif(full_name, ''), username) AS name
-                        FROM {self._table('sys_user')} WHERE is_active=1 ORDER BY name, id"""
-                )
-                users = [{"id": int(row["id"]), "username": row["username"], "name": row["name"]} for row in cursor.fetchall()]
+                roster_available = True
+                roster_message = ""
+                employees: list[dict[str, Any]] = []
+                roster_departments: list[dict[str, Any]] = []
+                try:
+                    cursor.execute(
+                        f"""SELECT ru.id, '' AS username,
+                                   ru.cname AS name, coalesce(ru.wechat_id, '') AS wechat_id,
+                                   coalesce(ro.org_code, '') AS department_code,
+                                   coalesce(ro.org_cname, '') AS department_name
+                            FROM {self._roster_users} ru
+                            LEFT JOIN {self._roster_orgs} ro ON ro.id=ru.org_id
+                            WHERE ru.enabled=1 AND coalesce(ru.cname, '')<>''
+                            ORDER BY ro.org_cname, ru.cname, ru.id"""
+                    )
+                    employees = [{
+                        "id": int(row["id"]), "username": str(row["username"] or ""),
+                        "name": str(row["name"]), "wechatId": str(row["wechat_id"] or ""),
+                        "hasNotificationIdentity": bool(row["wechat_id"]),
+                        "departmentCode": str(row["department_code"] or ""),
+                        "departmentName": str(row["department_name"] or ""),
+                        "source": f"{self.roster_database}.{self.roster_user_table}",
+                    } for row in cursor.fetchall()]
+                    seen_departments: set[str] = set()
+                    for employee in employees:
+                        code = employee["departmentCode"]
+                        if code and code not in seen_departments:
+                            seen_departments.add(code)
+                            roster_departments.append({"code": code, "name": employee["departmentName"] or code})
+                except Exception as roster_error:
+                    roster_available = False
+                    roster_message = "ERP花名册暂不可读，请为应用数据库账号授予rbac_user和rbac_organization只读权限"
+                    LOGGER.warning("ERP roster unavailable for target options: %s", roster_error)
                 cursor.execute(
                     f"""SELECT department_code AS code, max(department_name_snapshot) AS name
                         FROM (
@@ -174,7 +243,10 @@ class TargetManagementService:
                         ) d WHERE coalesce(department_code, '') <> ''
                         GROUP BY department_code ORDER BY name, code"""
                 )
-                departments = [{"code": row["code"], "name": row["name"] or row["code"]} for row in cursor.fetchall()]
+                configured_departments = [{"code": row["code"], "name": row["name"] or row["code"]} for row in cursor.fetchall()]
+                departments_by_code = {str(item["code"]): item for item in configured_departments}
+                departments_by_code.update({str(item["code"]): item for item in roster_departments})
+                departments = sorted(departments_by_code.values(), key=lambda item: (str(item["name"]), str(item["code"])))
                 cursor.execute(
                     f"""SELECT policy_group_code AS code, max(policy_group_name_snapshot) AS name
                         FROM {self._table('biz_target_item')}
@@ -182,8 +254,17 @@ class TargetManagementService:
                         GROUP BY policy_group_code ORDER BY name, code"""
                 )
                 policies = [{"code": row["code"], "name": row["name"] or row["code"]} for row in cursor.fetchall()]
-            return {"available": True, "platforms": platforms, "gds": gds, "users": users,
-                    "departments": departments, "policyGroups": policies}
+            return {
+                "available": True, "platforms": platforms, "gds": gds,
+                "users": employees, "employees": employees, "departments": departments,
+                "policyGroups": policies, "rosterAvailable": roster_available,
+                "rosterMessage": roster_message,
+                "sources": {
+                    "platform": f"{self.platform_database}.{self.platform_table}",
+                    "employee": f"{self.roster_database}.{self.roster_user_table}",
+                    "department": f"{self.roster_database}.{self.roster_org_table}",
+                },
+            }
         except PermissionError:
             raise
         except Exception as error:
@@ -267,6 +348,283 @@ class TargetManagementService:
         finally:
             if connection is not None:
                 connection.close()
+
+    def progress_dashboard(self, user: dict[str, Any], *, scene_value: Any, period_value: Any,
+                           keyword_value: Any = "") -> dict[str, Any]:
+        """Return a read-only monthly dashboard without inventing missing ETL values.
+
+        PLATFORM deliberately starts from the ERP platform master, so an active OTA remains
+        visible even when no target has been configured. GDS and POLICY currently start from
+        configured, active targets because neither scene has a complete master roster yet.
+        """
+        _require_any(
+            user,
+            {VIEW_PERMISSION, PROGRESS_PERMISSION},
+            "当前账号没有目标进度查看权限",
+        )
+        scene = _scene(scene_value)
+        period, start, end = _month(period_value)
+        keyword = str(keyword_value or "").strip().lower()
+        import pymysql
+
+        connection = None
+        try:
+            connection = self.source.connect()
+            with connection.cursor(pymysql.cursors.DictCursor) as cursor:
+                configured = self._dashboard_target_rows(cursor, scene, start, end)
+                public_targets = self._public_rows(scene, period, configured)
+                metric_rows = self._dashboard_metric_rows(cursor, scene, start, end)
+                roster = self._dashboard_roster(cursor)
+
+                if scene == "PLATFORM":
+                    cursor.execute(
+                        f"""SELECT ota_code AS code, ota_cname AS name, ota_full_cname AS full_name
+                            FROM {self._platforms}
+                            WHERE status=1
+                              AND (start_time IS NULL OR start_time<=NOW())
+                              AND (end_time IS NULL OR end_time>=NOW())
+                            ORDER BY sort_seq, ota_cname, ota_code"""
+                    )
+                    masters = [dict(row) for row in cursor.fetchall()]
+                    rows = self._platform_progress_rows(period, start, end, masters, public_targets, metric_rows, roster)
+                    total_scope_count = len(masters)
+                else:
+                    rows = self._configured_progress_rows(scene, period, start, end, public_targets, metric_rows, roster)
+                    total_scope_count = len(rows)
+
+            if keyword:
+                rows = [row for row in rows if keyword in " ".join(str(row.get(key) or "").lower() for key in (
+                    "platformCode", "platform", "gds", "policyCode", "policy", "department", "owner",
+                ))]
+            progress_rows = [row for row in rows if row["actual"] is not None]
+            configured_rows = [row for row in rows if row["configured"]]
+            target_total = sum(float(row["target"] or 0) for row in configured_rows)
+            actual_total = sum(float(row["actual"] or 0) for row in progress_rows) if progress_rows else None
+            profits = [float(row["profit"]) for row in rows if row["profit"] is not None]
+            losses = [float(row["lossAmount"]) for row in rows if row["lossAmount"] is not None]
+            through_dates = [row["dataThroughDate"] for row in rows if row["dataThroughDate"]]
+            return {
+                "available": True,
+                "scene": scene,
+                "period": period,
+                "rows": rows,
+                "summary": {
+                    "scopeCount": total_scope_count,
+                    "visibleCount": len(rows),
+                    "configuredCount": len(configured_rows),
+                    "progressReadyCount": len(progress_rows),
+                    "target": target_total,
+                    "actual": actual_total,
+                    "completionRate": actual_total / target_total if actual_total is not None and target_total else None,
+                    "profit": sum(profits) if profits else None,
+                    "lossAmount": sum(losses) if losses else None,
+                },
+                "dataThroughDate": max(through_dates) if through_dates else None,
+                "metricAvailability": {
+                    "hasEtlData": bool(metric_rows or progress_rows),
+                    "lossMetricsReady": any(row["lossAmount"] is not None for row in rows),
+                    "message": "亏损指标尚未由ETL写入时保持为空，不按0展示。",
+                },
+            }
+        except (PermissionError, ValueError):
+            raise
+        except Exception as error:
+            LOGGER.exception("Target progress dashboard query failed")
+            raise TargetManagementUnavailable("目标进度查询失败，请确认目标表和ERP基础表可用") from error
+        finally:
+            if connection is not None:
+                connection.close()
+
+    def _dashboard_target_rows(self, cursor: Any, scene: str, start: date, end: date) -> list[dict[str, Any]]:
+        cursor.execute(
+            f"""SELECT i.*, p.target_scene, p.status AS plan_status, p.period_start, p.period_end,
+                       m.metric_name, m.unit_code AS metric_unit_code,
+                       pr.stat_date, pr.actual_today, pr.actual_cumulative,
+                       pr.planned_cumulative_rate, pr.completion_rate, pr.progress_gap_rate,
+                       pr.remaining_value, pr.required_daily_value, pr.profit_cumulative,
+                       pr.profit_per_segment, pr.data_status, pr.data_through_date
+                FROM {self._table('biz_target_plan')} p
+                JOIN {self._table('biz_target_item')} i ON i.plan_id=p.id
+                LEFT JOIN {self._table('target_metric_definition')} m
+                  ON m.metric_code=i.metric_code AND m.metric_version=i.metric_version
+                LEFT JOIN {self._table('ads_target_progress_day')} pr
+                  ON pr.id=(SELECT pr2.id FROM {self._table('ads_target_progress_day')} pr2
+                            WHERE pr2.target_item_id=i.id AND pr2.stat_date<=CURRENT_DATE
+                            ORDER BY pr2.stat_date DESC LIMIT 1)
+                WHERE p.target_scene=%s AND p.period_start=%s AND p.period_end=%s
+                  AND p.status IN ('ACTIVE','PUBLISHED') AND i.enabled=1 AND i.unit_code='SEGMENT'
+                ORDER BY i.sort_order, i.id""",
+            (scene, start, end),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def _dashboard_metric_rows(self, cursor: Any, scene: str, start: date, end: date) -> list[dict[str, Any]]:
+        dimension_column = {"PLATFORM": "platform_code", "GDS": "gds_code", "POLICY": "policy_group_code"}[scene]
+        cursor.execute(
+            f"""SELECT {dimension_column} AS scope_code, metric_code, business_date,
+                       sum(actual_value) AS actual_value, sum(issue_profit) AS issue_profit,
+                       sum(ticket_count) AS ticket_count, max(data_status) AS data_status,
+                       max(source_max_time) AS source_max_time
+                FROM {self._table('dws_target_metric_day')}
+                WHERE business_date BETWEEN %s AND %s
+                  AND coalesce({dimension_column}, '')<>''
+                  AND metric_code IN ('ISSUED_AIRLIFT_SEGMENT','REWARD_SEGMENT','GDS_1A_ELIGIBLE_SEGMENT',
+                                      'ISSUE_PROFIT','LOSS_AMOUNT','LOSS_TICKET_COUNT','LOSS_SEGMENT_COUNT')
+                GROUP BY {dimension_column}, metric_code, business_date""",
+            (start, end),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def _dashboard_roster(self, cursor: Any) -> dict[int, dict[str, Any]]:
+        try:
+            cursor.execute(
+                f"""SELECT ru.id, coalesce(ru.wechat_id, '') AS wechat_id,
+                           coalesce(ro.org_code, '') AS department_code,
+                           coalesce(ro.org_cname, '') AS department_name
+                    FROM {self._roster_users} ru
+                    LEFT JOIN {self._roster_orgs} ro ON ro.id=ru.org_id
+                    WHERE ru.enabled=1"""
+            )
+            return {int(row["id"]): dict(row) for row in cursor.fetchall()}
+        except Exception as error:
+            LOGGER.warning("ERP roster unavailable for target dashboard: %s", error)
+            return {}
+
+    @staticmethod
+    def _metric_index(metric_rows: list[dict[str, Any]]) -> dict[str, dict[str, list[dict[str, Any]]]]:
+        index: dict[str, dict[str, list[dict[str, Any]]]] = {}
+        for row in metric_rows:
+            index.setdefault(str(row["scope_code"]), {}).setdefault(str(row["metric_code"]), []).append(row)
+        return index
+
+    @staticmethod
+    def _metric_value(metrics: dict[str, list[dict[str, Any]]], code: str, *, on_date: date | None = None) -> float | None:
+        rows = metrics.get(code, [])
+        if on_date is not None:
+            rows = [row for row in rows if row["business_date"] == on_date]
+        if not rows:
+            return None
+        return sum(float(row["actual_value"] or 0) for row in rows)
+
+    @staticmethod
+    def _ticket_value(metrics: dict[str, list[dict[str, Any]]], code: str) -> float | None:
+        rows = metrics.get(code, [])
+        values = [row["ticket_count"] for row in rows if row["ticket_count"] is not None]
+        return sum(float(value) for value in values) if values else None
+
+    @staticmethod
+    def _report_dates(start: date, end: date) -> tuple[date | None, date | None]:
+        anchor = min(end, business_now().date() - timedelta(days=1))
+        if anchor < start:
+            return None, None
+        previous = anchor - timedelta(days=1)
+        return anchor, previous if previous >= start else None
+
+    def _progress_metrics(self, start: date, end: date, metrics: dict[str, list[dict[str, Any]]],
+                          base: dict[str, Any]) -> dict[str, Any]:
+        report_date, previous_date = self._report_dates(start, end)
+        segment_code = str(base.get("metricCode") or "ISSUED_AIRLIFT_SEGMENT")
+        segments = self._metric_value(metrics, segment_code)
+        if segments is None and segment_code != "ISSUED_AIRLIFT_SEGMENT":
+            segments = self._metric_value(metrics, "ISSUED_AIRLIFT_SEGMENT")
+        actual = base.get("actual") if base.get("actual") is not None else segments
+        profit = self._metric_value(metrics, "ISSUE_PROFIT")
+        if profit is None:
+            profit = base.get("profit")
+        yesterday = self._metric_value(metrics, segment_code, on_date=report_date) if report_date else None
+        if yesterday is None and report_date and segment_code != "ISSUED_AIRLIFT_SEGMENT":
+            yesterday = self._metric_value(metrics, "ISSUED_AIRLIFT_SEGMENT", on_date=report_date)
+        if yesterday is None:
+            yesterday = base.get("yesterday")
+        day_before = self._metric_value(metrics, segment_code, on_date=previous_date) if previous_date else None
+        yesterday_profit = self._metric_value(metrics, "ISSUE_PROFIT", on_date=report_date) if report_date else None
+        loss_amount = self._metric_value(metrics, "LOSS_AMOUNT")
+        loss_tickets = self._metric_value(metrics, "LOSS_TICKET_COUNT")
+        loss_segments = self._metric_value(metrics, "LOSS_SEGMENT_COUNT")
+        total_tickets = self._ticket_value(metrics, segment_code)
+        if total_tickets is None and segment_code != "ISSUED_AIRLIFT_SEGMENT":
+            total_tickets = self._ticket_value(metrics, "ISSUED_AIRLIFT_SEGMENT")
+        target = float(base.get("target") or 0)
+        completion = base.get("completionRate")
+        if completion is None and actual is not None and target:
+            completion = float(actual) / target
+        expected = base.get("expectedRate")
+        remaining = base.get("remaining")
+        if remaining is None and actual is not None and target:
+            remaining = max(target - float(actual), 0.0)
+        required_daily = base.get("requiredDaily")
+        if required_daily is None and remaining is not None and report_date:
+            days_left = max((end - report_date).days, 0)
+            required_daily = remaining / days_left if days_left else (0.0 if remaining == 0 else None)
+        metric_dates = [row["business_date"] for rows in metrics.values() for row in rows if row.get("business_date")]
+        data_through_date = base.get("dataThroughDate") or (_iso(max(metric_dates)) if metric_dates else None)
+        return {
+            **base,
+            "actual": actual,
+            "completionRate": completion,
+            "progressGapRate": (completion - expected) if completion is not None and expected is not None else base.get("progressGapRate"),
+            "remaining": remaining,
+            "requiredDaily": required_daily,
+            "profit": profit,
+            "profitPerSegment": (profit / actual) if profit is not None and actual else base.get("profitPerSegment"),
+            "yesterday": yesterday,
+            "dayBefore": day_before,
+            "dayOverDayRate": ((yesterday - day_before) / day_before) if yesterday is not None and day_before else None,
+            "yesterdayProfit": yesterday_profit,
+            "yesterdayProfitPerSegment": (yesterday_profit / yesterday) if yesterday_profit is not None and yesterday else None,
+            "lossAmount": loss_amount,
+            "lossTicketCount": loss_tickets,
+            "lossSegmentCount": loss_segments,
+            "lossShare": (loss_tickets / total_tickets) if loss_tickets is not None and total_tickets else None,
+            "totalTicketCount": total_tickets,
+            "reportDate": _iso(report_date),
+            "previousDate": _iso(previous_date),
+            "dataThroughDate": data_through_date,
+            "dataStatus": base.get("dataStatus") if actual is not None else ("READY" if metrics else "PENDING_ETL"),
+        }
+
+    def _platform_progress_rows(self, period: str, start: date, end: date,
+                                masters: list[dict[str, Any]], targets: list[dict[str, Any]],
+                                metric_rows: list[dict[str, Any]], roster: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:
+        target_by_code = {str(row["platformCode"]): row for row in targets if row.get("platformCode")}
+        metric_index = self._metric_index(metric_rows)
+        result = []
+        for master in masters:
+            code = str(master["code"])
+            target = target_by_code.get(code)
+            base = dict(target) if target else {
+                "id": f"PLATFORM:{code}", "itemId": None, "planId": None, "scene": "platform", "period": period,
+                "departmentCode": "", "department": "", "platformCode": code,
+                "platform": str(master["name"] or code), "gds": None, "policyCode": "", "policy": None,
+                "ownerUserId": None, "owner": "", "metric": "有效出票承运航段",
+                "metricCode": "ISSUED_AIRLIFT_SEGMENT", "metricVersion": "V1", "target": 0.0,
+                "actual": None, "yesterday": None, "expectedRate": None, "completionRate": None,
+                "progressGapRate": None, "remaining": None, "requiredDaily": None, "profit": None,
+                "profitPerSegment": None, "status": "UNCONFIGURED", "dataStatus": "PENDING_ETL",
+                "dataThroughDate": None, "remark": "", "itemIds": {},
+            }
+            owner_id = base.get("ownerUserId")
+            employee = roster.get(int(owner_id)) if owner_id is not None else None
+            base.update({
+                "configured": target is not None,
+                "platformFullName": str(master["full_name"] or master["name"] or code),
+                "wechatConfigured": bool(employee and employee.get("wechat_id")),
+            })
+            result.append(self._progress_metrics(start, end, metric_index.get(code, {}), base))
+        return result
+
+    def _configured_progress_rows(self, scene: str, period: str, start: date, end: date,
+                                  targets: list[dict[str, Any]], metric_rows: list[dict[str, Any]],
+                                  roster: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:
+        metric_index = self._metric_index(metric_rows)
+        result = []
+        for target in targets:
+            scope_code = str(target.get("gds") if scene == "GDS" else target.get("policyCode") or "")
+            owner_id = target.get("ownerUserId")
+            employee = roster.get(int(owner_id)) if owner_id is not None else None
+            base = {**target, "configured": True, "platformFullName": "", "wechatConfigured": bool(employee and employee.get("wechat_id"))}
+            result.append(self._progress_metrics(start, end, metric_index.get(scope_code, {}), base))
+        return result
 
     def _public_rows(self, scene: str, period: str, raw_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         simple = [self._public_row(scene, period, row) for row in raw_rows]
@@ -370,6 +728,40 @@ class TargetManagementService:
             connection = self.source.connect()
             connection.begin()
             cursor = connection.cursor(pymysql.cursors.DictCursor)
+            try:
+                cursor.execute(
+                    f"""SELECT ru.id, ru.cname AS owner_name,
+                               coalesce(ro.org_code, '') AS department_code,
+                               coalesce(ro.org_cname, '') AS department_name
+                        FROM {self._roster_users} ru
+                        LEFT JOIN {self._roster_orgs} ro ON ro.id=ru.org_id
+                        WHERE ru.id=%s AND ru.enabled=1 LIMIT 1""",
+                    (owner_user_id,),
+                )
+            except Exception as roster_error:
+                raise TargetManagementUnavailable(
+                    "ERP花名册不可读，无法校验责任人及归属部门"
+                ) from roster_error
+            roster_owner = cursor.fetchone()
+            if not roster_owner:
+                raise ValueError("所选责任人不在有效ERP花名册中")
+            owner_name = str(roster_owner["owner_name"] or "").strip()
+            department_code = str(roster_owner["department_code"] or "").strip()
+            department_name = str(roster_owner["department_name"] or "").strip()
+            if not department_code or not department_name:
+                raise ValueError("所选责任人未关联归属部门，请先补全ERP花名册")
+            if scene == "PLATFORM":
+                cursor.execute(
+                    f"""SELECT ota_code, ota_cname FROM {self._platforms}
+                        WHERE ota_code=%s AND status=1
+                          AND (start_time IS NULL OR start_time<=NOW())
+                          AND (end_time IS NULL OR end_time>=NOW()) LIMIT 1""",
+                    (platform_code,),
+                )
+                platform = cursor.fetchone()
+                if not platform:
+                    raise ValueError("所选平台不在有效ERP平台资料中")
+                platform_name = str(platform["ota_cname"] or platform["ota_code"])
             cursor.execute(
                 f"SELECT metric_name, unit_code, supported_scenes FROM {self._table('target_metric_definition')} "
                 "WHERE metric_code=%s AND metric_version=%s AND status='ACTIVE' LIMIT 1",
@@ -378,6 +770,8 @@ class TargetManagementService:
             metric = cursor.fetchone()
             if not metric:
                 raise ValueError("所选指标口径不存在或未启用")
+            if str(metric["unit_code"] or "").upper() != "SEGMENT":
+                raise ValueError("目标配置当前只支持航段数量指标，金额指标仅用于进度看板")
             if scene not in {item.strip() for item in str(metric["supported_scenes"] or "").split(",")}:
                 raise ValueError("所选指标口径不支持当前场景")
             cursor.execute(
@@ -476,7 +870,7 @@ class TargetManagementService:
                     saved_ids.append(int(cursor.lastrowid))
             connection.commit()
             return {"planId": plan_id, "itemIds": saved_ids, "scene": scene, "period": period}
-        except (PermissionError, ValueError):
+        except (PermissionError, ValueError, TargetManagementUnavailable):
             if connection is not None: connection.rollback()
             raise
         except Exception as error:

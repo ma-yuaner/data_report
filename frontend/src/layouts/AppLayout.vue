@@ -84,7 +84,8 @@
           <a-sub-menu v-if="canSeeGroup('business_config')" key="business-configuration">
             <template #icon><ControlOutlined /></template>
             <template #title>业务配置</template>
-            <a-menu-item v-if="canSeeMenu('business_config.targets')" key="/business-configuration/targets">目标管理</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('business_config.targets')" key="/business-configuration/targets">目标配置</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('business_config.target_progress')" key="/business-configuration/target-progress">目标进度</a-menu-item>
           </a-sub-menu>
           <a-menu-item v-if="canSeeMenu('monitor.center')" key="/monitoring"><template #icon><RadarChartOutlined /></template>监控中心</a-menu-item>
           <a-menu-item v-if="canSeeMenu('problems')" key="/problems"><template #icon><WarningOutlined /></template>问题中心</a-menu-item>

@@ -62,6 +62,19 @@ def target_management_list():
         return _target_error(error)
 
 
+@api.get("/v1/business-configuration/target-progress")
+def target_progress_dashboard():
+    try:
+        return ok(TargetManagementService(current_app.config).progress_dashboard(
+            g.current_user,
+            scene_value=request.args.get("scene"),
+            period_value=request.args.get("period"),
+            keyword_value=request.args.get("keyword", ""),
+        ))
+    except (PermissionError, ValueError, TargetManagementUnavailable) as error:
+        return _target_error(error)
+
+
 @api.get("/v1/business-configuration/targets/metrics")
 def target_management_metrics():
     try:

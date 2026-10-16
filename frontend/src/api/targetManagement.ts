@@ -16,8 +16,17 @@ export interface TargetMetric {
   filterDescription?: string | null
 }
 
-export interface TargetOption { code: string; name: string }
-export interface TargetUserOption { id: number; username: string; name: string }
+export interface TargetOption { code: string; name: string; fullName?: string; source?: string }
+export interface TargetUserOption {
+  id: number
+  username: string
+  name: string
+  wechatId: string
+  hasNotificationIdentity: boolean
+  departmentCode: string
+  departmentName: string
+  source?: string
+}
 export interface TargetOptions {
   available: boolean
   platforms: TargetOption[]
@@ -25,6 +34,9 @@ export interface TargetOptions {
   users: TargetUserOption[]
   departments: TargetOption[]
   policyGroups: TargetOption[]
+  rosterAvailable: boolean
+  rosterMessage: string
+  sources: { platform: string; employee: string; department: string }
 }
 
 export interface TargetGdsMeasure {
@@ -87,6 +99,50 @@ export interface TargetListResult {
   dataThroughDate?: string | null
 }
 
+export type TargetProgressRow = Omit<TargetRow, 'status' | 'itemId' | 'planId'> & {
+  itemId: number | null
+  planId: number | null
+  status: TargetStatus | 'UNCONFIGURED'
+  configured: boolean
+  platformFullName: string
+  wechatConfigured: boolean
+  dayBefore: number | null
+  dayOverDayRate: number | null
+  yesterdayProfit: number | null
+  yesterdayProfitPerSegment: number | null
+  lossAmount: number | null
+  lossTicketCount: number | null
+  lossSegmentCount: number | null
+  lossShare: number | null
+  totalTicketCount: number | null
+  reportDate?: string | null
+  previousDate?: string | null
+}
+
+export interface TargetProgressResult {
+  available: boolean
+  scene: TargetScene
+  period: string
+  rows: TargetProgressRow[]
+  summary: {
+    scopeCount: number
+    visibleCount: number
+    configuredCount: number
+    progressReadyCount: number
+    target: number
+    actual: number | null
+    completionRate: number | null
+    profit: number | null
+    lossAmount: number | null
+  }
+  dataThroughDate?: string | null
+  metricAvailability: {
+    hasEtlData: boolean
+    lossMetricsReady: boolean
+    message: string
+  }
+}
+
 export interface SaveTargetInput {
   scene: TargetScene
   period: string
@@ -111,6 +167,11 @@ export interface SaveTargetInput {
 
 export async function fetchTargets(params: { scene: TargetScene; period: string; status?: string; keyword?: string }) {
   const response = await http.get<ApiEnvelope<TargetListResult>>('/v1/business-configuration/targets', { params })
+  return response.data.data
+}
+
+export async function fetchTargetProgress(params: { scene: TargetScene; period: string; keyword?: string }) {
+  const response = await http.get<ApiEnvelope<TargetProgressResult>>('/v1/business-configuration/target-progress', { params })
   return response.data.data
 }
 

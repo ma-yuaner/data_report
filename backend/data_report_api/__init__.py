@@ -67,6 +67,8 @@ def required_menu_code(path: str) -> str | None:
         return "smart.placement.policies"
     if path.startswith("/api/v1/monitoring"):
         return "monitor.center"
+    if path.startswith("/api/v1/business-configuration/target-progress"):
+        return "business_config.target_progress"
     if path.startswith("/api/v1/business-configuration/targets"):
         return "business_config.targets"
     if path.startswith("/api/v1/problems/") or path == "/api/v1/issues":

@@ -1,9 +1,16 @@
 # 目标管理 V1
 
+> 页面职责已经拆分为“目标配置”和“目标进度”：配置页只维护目标与责任归属；进度页只读展示月度完成、利润、亏损与趋势。
+
+平台进度以 `sibelog.sibe_ota` 的全量有效平台为底表，目标与ETL结果均采用左关联。因此未配置目标的平台也会显示，并明确标记“未配置”。GDS与政策员在尚无完整业务主数据表前，以已启用目标作为展示范围。
+
+亏损指标目录通过 `docs/sql/target-management-metrics-v2.sql` 幂等补充。该脚本只增加口径元数据，不产生任何完成数据；ETL未写入时，页面必须显示“待ETL”，不得当作0。
+
 - 更新日期：2026-10-16
 - 用户确认：目标管理采用统一模型，覆盖平台、GDS、部门与政策员目标；原有日报脚本暂不修改，新建独立ETL落库。
 - 建表脚本：[`docs/sql/target-management-v1.sql`](../../sql/target-management-v1.sql)
-- 前端页面：`/business-configuration/targets`
+- 目标配置页面：`/business-configuration/targets`
+- 目标进度页面：`/business-configuration/target-progress`
 
 ## 1. 现有报表迁移基线
 
@@ -37,13 +44,23 @@
 
 ## 3. 页面边界
 
-“业务配置 → 目标管理”包含：
+“业务配置 → 目标配置”包含：
 
 1. 平台目标；
 2. GDS目标；
 3. 部门/政策员目标。
 
-配置页可以只读展示完成量、完成率、正常进度、剩余量和数据时间，但只允许编辑目标、归属与周期。实际完成量只能由ETL写入。
+配置页只用于编辑航段数量目标、归属、周期和状态；金额指标不允许作为目标值配置。实际完成量只能由ETL写入。
+
+“业务配置 → 目标进度”按月份集中展示：
+
+1. 目标、累计实际、完成率、正常进度、进度差、剩余量和日均需完成；
+2. 累计出票预估利润、单段利润、昨日利润和昨日单段利润；
+3. 单独亏损金额、亏损票数、亏损航段数和亏损票占比；
+4. 昨日航段、前日航段和日环比；
+5. 责任人、归属部门、企业微信身份与数据截止日期。
+
+“单独亏损金额”定义为`issue_profit < 0`记录的出票预估亏损绝对值之和，属于业务估算而非财务结算。MySQL聚合源的亏损票数必须使用`sum(iss_num)`，不得按聚合行数计数；亏损票占比同时保留亏损票数与总票数分母。该定义来源于当前已确认的`bi_order_issue_year`聚合粒度，后续ETL仍须与原平台报表逐项对账。
 
 部门目标默认由政策员明细汇总；只有业务明确下达独立部门目标时，才创建`DEPARTMENT`场景目标。预警阈值仍由预警规则管理，Webhook及发送对象仍由通知配置管理。
 
@@ -51,10 +68,22 @@
 
 - `GET /api/v1/business-configuration/targets`：按场景、月份、状态和关键词查询目标与最新进度；
 - `GET /api/v1/business-configuration/targets/metrics`：读取已启用指标口径；
-- `GET /api/v1/business-configuration/targets/options`：从现有资源指标表、系统用户和已配置目标中读取平台、GDS、责任人和部门选项；
+- `GET /api/v1/business-configuration/targets/options`：平台读取ERP`sibelog.sibe_ota`，责任人及企业微信身份读取`sibebd.rbac_user`，归属部门通过`rbac_user.org_id` 关联`sibebd.rbac_organization`；
 - `POST /api/v1/business-configuration/targets`：事务性新建或更新目标计划与明细。
+- `GET /api/v1/business-configuration/target-progress`：按场景、月份和关键词读取只读进度看板；平台场景始终以ERP全量有效平台为底表。
 
 当`ads_target_progress_day`没有对应快照时，接口对完成量、利润、完成率和正常进度返回`null`，页面显示“待ETL产出”，不将缺数解释为0。
+
+花名册是目标责任人、部门和后续企业微信`@`的唯一来源，不回退为数据中心登录账号。应用数据库账号需要至少拥有以下只读权限：
+
+```sql
+GRANT SELECT (`id`, `cname`, `wechat_id`, `org_id`, `enabled`)
+ON `sibebd`.`rbac_user` TO 'app_user'@'%';
+GRANT SELECT (`id`, `org_code`, `org_cname`)
+ON `sibebd`.`rbac_organization` TO 'app_user'@'%';
+GRANT SELECT (`ota_code`, `ota_cname`, `ota_full_cname`, `status`, `start_time`, `end_time`, `sort_seq`)
+ON `sibelog`.`sibe_ota` TO 'app_user'@'%';
+```
 
 ## 4. 独立ETL方案
 

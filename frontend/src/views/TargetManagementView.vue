@@ -1,23 +1,24 @@
 <template>
   <div class="page-wrap target-management-page">
-    <PageHeader eyebrow="BUSINESS CONFIGURATION" title="目标管理" description="统一配置平台、GDS、部门与政策员的航段目标，完成进度只读取ETL产出。">
+    <PageHeader eyebrow="BUSINESS CONFIGURATION" title="目标配置" description="只维护平台、GDS、部门与政策员的月度目标及责任归属；完成情况请在“目标进度”查看。">
       <a-space>
         <a-button @click="metricDrawerOpen = true"><DatabaseOutlined />指标口径</a-button>
-        <a-button type="primary" @click="openCreate"><PlusOutlined />新建目标</a-button>
+        <a-button type="primary" :disabled="!options.rosterAvailable" @click="openCreate"><PlusOutlined />新建目标</a-button>
       </a-space>
     </PageHeader>
 
     <a-alert v-if="loadError" class="state-alert" type="error" show-icon :message="loadError" description="页面未使用备用演示数据，请修复接口或数据库后重试。" />
+    <a-alert v-if="!options.rosterAvailable" class="state-alert" type="warning" show-icon message="ERP花名册暂不可用" :description="options.rosterMessage || '无法读取责任人、归属部门和企业微信身份，已禁止新建目标。'" />
 
     <section class="target-hero">
       <div class="hero-copy">
         <span>当前计划</span><h2>{{ periodLabel }}航段目标</h2>
-        <p>{{ dataThroughDate ? `数据统计截止 ${dataThroughDate}` : '完成进度待ETL产出' }} · 完成量不允许页面手工填写</p>
+        <p>集中维护目标值、责任人与归属部门 · 完成、利润和亏损统一前往“目标进度”查看</p>
       </div>
       <div class="hero-metrics">
         <article><span>目标航段</span><strong>{{ formatNumber(summary.target) }}</strong><small>{{ summary.configuredCount }} 项已配置</small></article>
-        <article><span>累计完成</span><strong>{{ formatNullable(summary.actual) }}</strong><small>{{ summary.completionRate == null ? '待ETL产出' : `完成率 ${percent(summary.completionRate)}` }}</small></article>
-        <article :class="{ risk: summary.behind > 0 }"><span>进度落后</span><strong>{{ summary.progressReadyCount ? summary.behind : '--' }}</strong><small>{{ summary.progressReadyCount }} 项已产出进度</small></article>
+        <article><span>执行中</span><strong>{{ activeCount }}</strong><small>已启用目标配置</small></article>
+        <article><span>草稿 / 暂停</span><strong>{{ draftCount }} / {{ pausedCount }}</strong><small>待发布或暂不执行</small></article>
       </div>
     </section>
 
@@ -28,7 +29,7 @@
           <a-select v-model:value="selectedStatus" class="status-select" :options="statusOptions" />
           <a-input v-model:value="keyword" allow-clear class="keyword-input" placeholder="搜索平台、GDS、部门或政策员" />
         </div>
-        <div class="toolbar-actions"><span>{{ dataThroughDate ? `数据截止：${dataThroughDate}` : '进度数据未产出' }}</span><a-button :loading="loading" @click="loadTargets"><ReloadOutlined />刷新</a-button></div>
+        <div class="toolbar-actions"><span>配置变更直接写入目标表</span><a-button :loading="loading" @click="loadTargets"><ReloadOutlined />刷新</a-button></div>
       </div>
 
       <a-tabs v-model:activeKey="activeScene" class="target-tabs">
@@ -47,20 +48,9 @@
           <template v-else-if="column.key === 'owner'"><div class="stack-cell"><strong>{{ record.owner }}</strong><small>{{ record.department }}</small></div></template>
           <template v-else-if="column.key === 'metric'"><div class="metric-cell"><span>{{ record.metric }}</span><small>{{ record.metricCode }} / {{ record.metricVersion }}</small></div></template>
           <template v-else-if="column.key === 'target'">{{ formatNumber(record.target) }}</template>
-          <template v-else-if="column.key === 'actual'"><strong class="actual-value">{{ formatNullable(record.actual) }}</strong></template>
-          <template v-else-if="column.key === 'yesterday'">{{ formatNullable(record.yesterday) }}</template>
-          <template v-else-if="column.key === 'profit'">{{ money(record.profit) }}</template>
-          <template v-else-if="column.key === 'progress'">
-            <div v-if="record.completionRate != null" class="progress-cell">
-              <a-progress :percent="progressPercent(record)" :status="record.expectedRate == null || record.completionRate >= record.expectedRate ? 'normal' : 'exception'" size="small" />
-              <small>{{ record.expectedRate == null ? '正常进度待产出' : `正常进度 ${percent(record.expectedRate)}` }}</small>
-            </div>
-            <a-tag v-else>待ETL产出</a-tag>
-          </template>
-          <template v-else-if="column.key === 'pace'"><a-tag :color="pace(record).color">{{ pace(record).text }}</a-tag></template>
           <template v-else-if="column.key === 'status'"><a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag></template>
           <template v-else-if="String(column.key).startsWith('gds-')">
-            <div v-if="gdsMeasure(record, String(column.key))" class="gds-pair"><strong>{{ formatNullable(gdsMeasure(record, String(column.key))?.actual) }}</strong><small>/ {{ formatNumber(gdsMeasure(record, String(column.key))?.target ?? 0) }}</small></div>
+            <div v-if="gdsMeasure(record, String(column.key))" class="gds-pair"><strong>{{ formatNumber(gdsMeasure(record, String(column.key))?.target ?? 0) }}</strong></div>
             <span v-else>--</span>
           </template>
           <template v-else-if="column.key === 'actions'"><a-space size="small"><a-button type="link" size="small" @click="openDetail(record)"><EyeOutlined />详情</a-button><a-button type="link" size="small" @click="openEdit(record)"><EditOutlined />编辑</a-button></a-space></template>
@@ -73,8 +63,8 @@
       <a-form layout="vertical">
         <div class="form-grid two"><a-form-item label="目标场景"><a-input :value="sceneMeta.title" disabled /></a-form-item><a-form-item label="目标月份"><a-input v-model:value="form.period" type="month" /></a-form-item></div>
         <div class="form-grid two">
-          <a-form-item label="归属部门"><a-auto-complete v-model:value="form.departmentName" :options="departmentSelectOptions" placeholder="选择或输入真实部门" @select="selectDepartment" /></a-form-item>
-          <a-form-item label="责任人"><a-select v-model:value="form.ownerUserId" show-search option-filter-prop="label" :options="userSelectOptions" placeholder="请选择系统用户" @change="selectOwner" /></a-form-item>
+          <a-form-item label="归属部门"><a-input v-model:value="form.departmentName" disabled placeholder="选择花名册责任人后自动带出" /></a-form-item>
+          <a-form-item label="花名册责任人"><a-select v-model:value="form.ownerUserId" show-search option-filter-prop="label" :options="userSelectOptions" placeholder="选择ERP花名册人员" @change="selectOwner" /></a-form-item>
         </div>
         <a-form-item v-if="activeScene === 'platform'" label="平台"><a-select v-model:value="form.platformCode" show-search option-filter-prop="label" :options="platformSelectOptions" placeholder="请选择真实平台" @change="selectPlatform" /></a-form-item>
         <a-form-item v-if="activeScene === 'gds'" label="GDS"><a-select v-model:value="form.gdsCode" show-search option-filter-prop="label" :options="gdsSelectOptions" placeholder="请选择GDS" /></a-form-item>
@@ -92,14 +82,14 @@
       <div class="drawer-actions"><a-button @click="editorOpen = false">取消</a-button><a-button type="primary" :loading="saving" @click="submitTarget">保存目标</a-button></div>
     </a-drawer>
 
-    <a-drawer v-model:open="detailOpen" title="目标进度详情" width="520">
+    <a-drawer v-model:open="detailOpen" title="目标配置详情" width="520">
       <template v-if="detailRow">
         <div class="detail-hero"><span>{{ sceneName(detailRow.scene) }}</span><h2>{{ objectName(detailRow) }}</h2><p>{{ detailRow.period }} · {{ detailRow.metric }}</p></div>
         <a-descriptions bordered size="small" :column="1">
           <a-descriptions-item label="归属部门">{{ detailRow.department }}</a-descriptions-item><a-descriptions-item label="责任人">{{ detailRow.owner }}</a-descriptions-item>
-          <a-descriptions-item label="目标航段">{{ formatNumber(detailRow.target) }}</a-descriptions-item><a-descriptions-item label="累计完成">{{ formatNullable(detailRow.actual) }}</a-descriptions-item>
-          <a-descriptions-item label="昨日完成">{{ formatNullable(detailRow.yesterday) }}</a-descriptions-item><a-descriptions-item label="实际 / 正常进度">{{ detailRow.completionRate == null ? '--' : percent(detailRow.completionRate) }} / {{ detailRow.expectedRate == null ? '--' : percent(detailRow.expectedRate) }}</a-descriptions-item>
-          <a-descriptions-item label="累计利润">{{ money(detailRow.profit) }}</a-descriptions-item><a-descriptions-item label="数据状态">{{ dataStatusLabel(detailRow.dataStatus) }}{{ detailRow.dataThroughDate ? ` · ${detailRow.dataThroughDate}` : '' }}</a-descriptions-item>
+          <a-descriptions-item label="目标航段">{{ formatNumber(detailRow.target) }}</a-descriptions-item><a-descriptions-item label="配置状态"><a-tag :color="statusColor(detailRow.status)">{{ statusLabel(detailRow.status) }}</a-tag></a-descriptions-item>
+          <a-descriptions-item label="统计口径">{{ detailRow.metric }}（{{ detailRow.metricCode }} / {{ detailRow.metricVersion }}）</a-descriptions-item>
+          <a-descriptions-item label="配置说明">{{ detailRow.remark || '未填写' }}</a-descriptions-item>
         </a-descriptions>
       </template>
     </a-drawer>
@@ -133,9 +123,8 @@ const saving = ref(false)
 const loadError = ref('')
 const rows = ref<TargetRow[]>([])
 const metrics = ref<TargetMetric[]>([])
-const options = ref<TargetOptions>({ available: true, platforms: [], gds: [], users: [], departments: [], policyGroups: [] })
+const options = ref<TargetOptions>({ available: true, platforms: [], gds: [], users: [], departments: [], policyGroups: [], rosterAvailable: false, rosterMessage: '', sources: { platform: '', employee: '', department: '' } })
 const summary = ref({ target: 0, actual: null as number | null, completionRate: null as number | null, behind: 0, configuredCount: 0, progressReadyCount: 0 })
-const dataThroughDate = ref<string | null>(null)
 const editorOpen = ref(false)
 const detailOpen = ref(false)
 const metricDrawerOpen = ref(false)
@@ -153,6 +142,9 @@ const sceneMetas: Record<SceneKey, { title: string; description: string; metric:
   policy: { title: '部门 / 政策员目标', description: '按部门与政策员/政策组配置1A、1G、1E、1S月度目标。', metric: '默认选择POLICY场景的已启用口径' },
 }
 const sceneMeta = computed(() => sceneMetas[activeScene.value])
+const activeCount = computed(() => rows.value.filter(row => row.status === 'ACTIVE').length)
+const draftCount = computed(() => rows.value.filter(row => row.status === 'DRAFT').length)
+const pausedCount = computed(() => rows.value.filter(row => row.status === 'PAUSED').length)
 const periodLabel = computed(() => `${selectedPeriod.value.slice(0, 4)}年${Number(selectedPeriod.value.slice(5))}月`)
 const periodOptions = computed(() => Array.from({ length: 13 }, (_, index) => {
   const date = new Date(today.getFullYear(), today.getMonth() + 3 - index, 1)
@@ -163,35 +155,34 @@ const statusOptions = [{ value: 'ALL', label: '全部状态' }, { value: 'ACTIVE
 const editStatusOptions = statusOptions.filter(item => ['ACTIVE', 'DRAFT', 'PAUSED'].includes(item.value))
 const platformSelectOptions = computed(() => options.value.platforms.map(item => ({ value: item.code, label: `${item.name} (${item.code})` })))
 const gdsSelectOptions = computed(() => options.value.gds.map(item => ({ value: item.code, label: item.name })))
-const userSelectOptions = computed(() => options.value.users.map(item => ({ value: item.id, label: `${item.name} (${item.username})` })))
-const departmentSelectOptions = computed(() => options.value.departments.map(item => ({ value: item.name, label: item.name })))
+const userSelectOptions = computed(() => options.value.users.map(item => ({
+  value: item.id,
+  label: `${item.name} · ${item.departmentName || '未关联部门'} · ${item.hasNotificationIdentity ? '已配置企微' : '未配置企微'}`,
+})))
 const policySelectOptions = computed(() => options.value.policyGroups.map(item => ({ value: item.name, label: item.name })))
-const supportedMetrics = computed(() => metrics.value.filter(item => item.supportedScenes.includes(sceneApi[activeScene.value])))
+const supportedMetrics = computed(() => metrics.value.filter(item => item.unitCode === 'SEGMENT' && item.supportedScenes.includes(sceneApi[activeScene.value])))
 const metricSelectOptions = computed(() => supportedMetrics.value.map(item => ({ value: item.code, label: `${item.name} (${item.code}/${item.version})` })))
 
 const baseColumns = {
-  owner: { title: '责任人 / 部门', key: 'owner', width: 140 }, metric: { title: '统计口径', key: 'metric', width: 190 }, target: { title: '目标航段', key: 'target', width: 110, align: 'right' as const }, actual: { title: '累计完成', key: 'actual', width: 110, align: 'right' as const },
-  progress: { title: '完成进度', key: 'progress', width: 190 }, pace: { title: '进度判断', key: 'pace', width: 105 }, status: { title: '状态', key: 'status', width: 90 }, actions: { title: '操作', key: 'actions', width: 140, fixed: 'right' as const },
+  owner: { title: '责任人 / 部门', key: 'owner', width: 160 }, metric: { title: '统计口径', key: 'metric', width: 210 }, target: { title: '目标航段', key: 'target', width: 110, align: 'right' as const },
+  status: { title: '状态', key: 'status', width: 100 }, actions: { title: '操作', key: 'actions', width: 140, fixed: 'right' as const },
 }
 const columns = computed(() => activeScene.value === 'policy' ? [
   { title: '政策员 / 政策组', key: 'object', width: 180, fixed: 'left' as const }, baseColumns.owner,
-  ...policyGdsCodes.map(code => ({ title: `${code}完成 / 目标`, key: `gds-${code}`, width: 132, align: 'right' as const })), baseColumns.target, baseColumns.actual, baseColumns.progress, baseColumns.pace,
-  { title: '累计利润', key: 'profit', width: 110, align: 'right' as const }, baseColumns.status, baseColumns.actions,
+  ...policyGdsCodes.map(code => ({ title: `${code}目标`, key: `gds-${code}`, width: 105, align: 'right' as const })), baseColumns.target, baseColumns.status, baseColumns.actions,
 ] : [
-  { title: activeScene.value === 'platform' ? '平台' : 'GDS', key: 'object', width: 180, fixed: 'left' as const }, baseColumns.owner, baseColumns.metric, baseColumns.target, baseColumns.actual,
-  { title: '昨日完成', key: 'yesterday', width: 105, align: 'right' as const }, baseColumns.progress, baseColumns.pace,
-  ...(activeScene.value === 'platform' ? [{ title: '累计利润', key: 'profit', width: 110, align: 'right' as const }] : []), baseColumns.status, baseColumns.actions,
+  { title: activeScene.value === 'platform' ? '平台' : 'GDS', key: 'object', width: 200, fixed: 'left' as const }, baseColumns.owner, baseColumns.metric, baseColumns.target, baseColumns.status, baseColumns.actions,
 ])
-const tableWidth = computed(() => activeScene.value === 'policy' ? 1550 : 1390)
+const tableWidth = computed(() => activeScene.value === 'policy' ? 1120 : 920)
 
 let keywordTimer: ReturnType<typeof setTimeout> | undefined
 async function loadTargets() {
   loading.value = true; loadError.value = ''
   try {
     const result = await fetchTargets({ scene: sceneApi[activeScene.value], period: selectedPeriod.value, status: selectedStatus.value, keyword: keyword.value.trim() })
-    rows.value = result.rows; summary.value = result.summary; dataThroughDate.value = result.dataThroughDate ?? null
+    rows.value = result.rows; summary.value = result.summary
   } catch (error) {
-    rows.value = []; summary.value = { target: 0, actual: null, completionRate: null, behind: 0, configuredCount: 0, progressReadyCount: 0 }; dataThroughDate.value = null
+    rows.value = []; summary.value = { target: 0, actual: null, completionRate: null, behind: 0, configuredCount: 0, progressReadyCount: 0 }
     loadError.value = error instanceof Error ? error.message : '目标数据加载失败'
   } finally { loading.value = false }
 }
@@ -210,9 +201,13 @@ function openEdit(row: TargetRow) {
   policyGdsCodes.forEach(code => { form.gdsTargets[code] = row.gdsBreakdown?.[code]?.target ?? 0 }); editorOpen.value = true
 }
 function openDetail(row: TargetRow) { detailRow.value = row; detailOpen.value = true }
-function selectDepartment(name: string) { form.departmentCode = options.value.departments.find(item => item.name === name)?.code ?? '' }
 function selectPolicy(name: string) { form.policyCode = options.value.policyGroups.find(item => item.name === name)?.code ?? '' }
-function selectOwner(id: number) { form.ownerName = options.value.users.find(item => item.id === id)?.name ?? '' }
+function selectOwner(id: number) {
+  const employee = options.value.users.find(item => item.id === id)
+  form.ownerName = employee?.name ?? ''
+  form.departmentCode = employee?.departmentCode ?? ''
+  form.departmentName = employee?.departmentName ?? ''
+}
 function selectPlatform(code: string) { form.platformName = options.value.platforms.find(item => item.code === code)?.name ?? '' }
 async function submitTarget() {
   if (!form.departmentName.trim() || !form.ownerUserId || !form.ownerName) { void message.warning('请填写归属部门并选择责任人'); return }
@@ -232,14 +227,8 @@ async function submitTarget() {
 }
 
 function formatNumber(value: number) { return Math.round(Number(value)).toLocaleString('zh-CN') }
-function formatNullable(value: number | null | undefined) { return value == null ? '--' : formatNumber(value) }
-function percent(value: number) { return `${(Number(value) * 100).toFixed(1)}%` }
-function money(value: number | null | undefined) { return value == null ? '--' : `¥${Math.round(value).toLocaleString('zh-CN')}` }
-function progressPercent(row: TargetRow) { return Math.max(0, Math.round(Number(row.completionRate ?? 0) * 1000) / 10) }
-function pace(row: TargetRow) { if (row.completionRate == null || row.expectedRate == null) return { color: 'default', text: '待产出' }; const gap = (row.completionRate - row.expectedRate) * 100; if (gap >= 3) return { color: 'green', text: `领先 ${gap.toFixed(1)}%` }; if (gap >= 0) return { color: 'blue', text: '进度正常' }; return { color: 'red', text: `落后 ${Math.abs(gap).toFixed(1)}%` } }
 function statusLabel(status: TargetStatus) { return ({ ACTIVE: '执行中', DRAFT: '草稿', PAUSED: '已暂停', CLOSED: '已结束', VOID: '已作废' } as const)[status] ?? status }
 function statusColor(status: TargetStatus) { return status === 'ACTIVE' ? 'green' : status === 'PAUSED' ? 'orange' : status === 'VOID' ? 'red' : 'default' }
-function dataStatusLabel(status: string) { return ({ PENDING_ETL: '待ETL产出', READY: '已产出', PARTIAL: '部分产出', MISSING: '数据缺失' } as Record<string, string>)[status] ?? status }
 function sceneName(scene: SceneKey) { return sceneMetas[scene].title }
 function objectName(row: TargetRow) { return row.scene === 'platform' ? row.platform || '未命名平台' : row.scene === 'gds' ? row.gds || '未命名GDS' : row.policy || '未命名政策组' }
 function objectSubline(row: TargetRow) { return row.scene === 'policy' ? `${row.department} · ${row.owner}` : `${row.department} · ${row.metric}` }
