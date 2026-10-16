@@ -23,6 +23,7 @@ from .services.smart_analysis import DIMENSIONS as SMART_DIMENSIONS, SmartAnalys
 from .services.smart_placement import SmartPlacementService, SmartPlacementUnavailable
 from .services.monitoring import MonitoringService, MonitoringUnavailable
 from .services.resource_governance import ResourceGovernanceService
+from .services.target_management import TargetManagementService, TargetManagementUnavailable
 
 
 api = Blueprint("api", __name__)
@@ -37,6 +38,52 @@ def json_body() -> dict:
     if not isinstance(values, dict):
         raise ValueError("请求内容必须为JSON对象")
     return values
+
+
+def _target_error(error: Exception):
+    if isinstance(error, PermissionError):
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    if isinstance(error, ValueError):
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.get("/v1/business-configuration/targets")
+def target_management_list():
+    try:
+        return ok(TargetManagementService(current_app.config).list_targets(
+            g.current_user,
+            scene_value=request.args.get("scene"),
+            period_value=request.args.get("period"),
+            status_value=request.args.get("status", "ALL"),
+            keyword_value=request.args.get("keyword", ""),
+        ))
+    except (PermissionError, ValueError, TargetManagementUnavailable) as error:
+        return _target_error(error)
+
+
+@api.get("/v1/business-configuration/targets/metrics")
+def target_management_metrics():
+    try:
+        return ok(TargetManagementService(current_app.config).metrics(g.current_user))
+    except (PermissionError, TargetManagementUnavailable) as error:
+        return _target_error(error)
+
+
+@api.get("/v1/business-configuration/targets/options")
+def target_management_options():
+    try:
+        return ok(TargetManagementService(current_app.config).options(g.current_user))
+    except (PermissionError, TargetManagementUnavailable) as error:
+        return _target_error(error)
+
+
+@api.post("/v1/business-configuration/targets")
+def target_management_save():
+    try:
+        return ok(TargetManagementService(current_app.config).save(g.current_user, json_body()), "目标已保存"), 201
+    except (PermissionError, ValueError, TargetManagementUnavailable) as error:
+        return _target_error(error)
 
 
 @api.get("/health")

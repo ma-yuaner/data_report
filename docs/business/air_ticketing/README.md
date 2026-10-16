@@ -39,6 +39,7 @@
 - 开发或使用GDS/OTA资源治理正式页面：阅读 [gds-resource-governance-live.md](gds-resource-governance-live.md)
 - 验收独立GDS航线治理页面与模拟上下线闭环：阅读 [gds-route-governance-preview.md](gds-route-governance-preview.md)
 - 建设GDS查询/航段服务表：阅读 [GDS资源指标服务表数据契约](gds-resource-metric-table-contract.md)
+- 建设平台、GDS、部门与政策员目标配置及完成进度：阅读 [目标管理V1](target-management-v1.md)
 - 追溯综合分析历史界面预览：阅读 [comprehensive-analysis-preview.md](comprehensive-analysis-preview.md)
 - 配置 MySQL 默认查询或临时切回 Hive：阅读 [data-source-switch.md](data-source-switch.md)
 - 开发出票利润分析和检查字段齐全度：阅读 [issue-profit-analysis.md](issue-profit-analysis.md)

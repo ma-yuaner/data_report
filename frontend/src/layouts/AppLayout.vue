@@ -81,6 +81,11 @@
               <a-menu-item v-if="canSeeMenu('smart.placement.orders')" key="/smart-analysis/placement/orders">收单情况</a-menu-item>
             </a-sub-menu>
           </a-sub-menu>
+          <a-sub-menu v-if="canSeeGroup('business_config')" key="business-configuration">
+            <template #icon><ControlOutlined /></template>
+            <template #title>业务配置</template>
+            <a-menu-item v-if="canSeeMenu('business_config.targets')" key="/business-configuration/targets">目标管理</a-menu-item>
+          </a-sub-menu>
           <a-menu-item v-if="canSeeMenu('monitor.center')" key="/monitoring"><template #icon><RadarChartOutlined /></template>监控中心</a-menu-item>
           <a-menu-item v-if="canSeeMenu('problems')" key="/problems"><template #icon><WarningOutlined /></template>问题中心</a-menu-item>
           <a-menu-item v-if="canSeeMenu('data_assets')" key="/data-assets"><template #icon><DatabaseOutlined /></template>数据资产</a-menu-item>
@@ -141,7 +146,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  BarChartOutlined, BranchesOutlined, CustomerServiceOutlined, DashboardOutlined, DatabaseOutlined, DeploymentUnitOutlined, HomeOutlined, LineChartOutlined,
+  BarChartOutlined, BranchesOutlined, ControlOutlined, CustomerServiceOutlined, DashboardOutlined, DatabaseOutlined, DeploymentUnitOutlined, HomeOutlined, LineChartOutlined,
   LockOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, MonitorOutlined, RobotOutlined,
   RadarChartOutlined, SafetyCertificateOutlined, TeamOutlined, WarningOutlined,
 } from '@ant-design/icons-vue'
@@ -156,7 +161,7 @@ const router = useRouter()
 const loggingOut = ref(false)
 const selectedKeys = computed(() => [route.path === '/analysis/profit' ? '/analysis/issue' : route.path])
 const userInitial = computed(() => (authStore.user?.displayName || authStore.user?.username || '数').slice(0, 1))
-const headerTag = computed(() => route.path === '/home' ? '数据工作台' : route.path.startsWith('/gds-route-governance') ? '航线治理演示' : route.path.startsWith('/resource-governance') ? '资源调用治理' : '业务估算利润')
+const headerTag = computed(() => route.path === '/home' ? '数据工作台' : route.path.startsWith('/business-configuration') ? '业务目标管理' : route.path.startsWith('/gds-route-governance') ? '航线治理演示' : route.path.startsWith('/resource-governance') ? '资源调用治理' : '业务估算利润')
 const canSeeMenu = (code: string) => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.menuCodes?.includes(code))
 const canSeeGroup = (code: string) => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.menuCodes?.some(item => item === code || item.startsWith(`${code}.`)))
 const openKeys = ref<string[]>([])
@@ -167,6 +172,7 @@ watch(() => route.path, path => {
     : path.startsWith('/risk-analysis') ? ['risk']
       : path.startsWith('/smart-analysis/placement/') ? ['smart', 'smart-placement']
         : path.startsWith('/smart-analysis') ? ['smart', 'smart-overall']
+        : path.startsWith('/business-configuration') ? ['business-configuration']
         : path.startsWith('/monitoring') ? []
         : path.startsWith('/admin/') ? ['system'] : []
 }, { immediate: true })
