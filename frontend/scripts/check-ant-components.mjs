@@ -24,7 +24,7 @@ const componentByTag = {
   'a-radio': 'Radio', 'a-radio-button': 'Radio', 'a-radio-group': 'Radio', 'a-result': 'Result',
   'a-row': 'Row', 'a-segmented': 'Segmented', 'a-select': 'Select',
   'a-space': 'Space', 'a-spin': 'Spin', 'a-steps': 'Steps', 'a-switch': 'Switch',
-  'a-table': 'Table', 'a-tab-pane': 'Tabs', 'a-tabs': 'Tabs', 'a-tag': 'Tag',
+  'a-table': 'Table', 'a-table-column': 'Table', 'a-tab-pane': 'Tabs', 'a-tabs': 'Tabs', 'a-tag': 'Tag',
   'a-timeline': 'Timeline',
 }
 
