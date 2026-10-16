@@ -39,7 +39,11 @@
         <a-button :disabled="loading" @click="resetFilters"><ReloadOutlined />重置</a-button>
         </div>
       </div>
-      <a-table :loading="loading" :columns="columns" :data-source="data?.rows || []" row-key="id" :pagination="pagination" :scroll="{ x: 1500 }" @change="changePage">
+      <div v-if="selectedReviewRows.length" class="batch-action-bar">
+        <div><strong>已选择 {{ selectedReviewRows.length }} 项</strong><span>批量审核只允许选择同一审核阶段，结果及调整内容会统一应用。</span></div>
+        <a-space><a-button @click="clearReviewSelection">清空选择</a-button><a-button type="primary" @click="openBatchReview">批量审核</a-button></a-space>
+      </div>
+      <a-table :loading="loading" :columns="columns" :data-source="data?.rows || []" row-key="id" :row-selection="reviewRowSelection" :pagination="pagination" :scroll="{ x: 1500 }" @change="changePage">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'opportunity'">
             <button class="task-link" type="button" @click="openDetail(record)"><strong>{{ record.opportunityName }}</strong><small>{{ record.taskNo }}</small></button>
@@ -173,15 +177,15 @@
       </a-form>
     </a-modal>
 
-    <a-modal v-model:open="reviewOpen" :title="reviewStage === 'DATA_MANAGER' ? '数据部经理审核' : '政策经理审核'" width="min(900px, 95vw)" wrap-class-name="placement-action-modal" :footer="null" :mask-closable="false">
-      <div class="action-context">
+    <a-modal v-model:open="reviewOpen" :title="`${batchReviewMode ? '批量' : ''}${reviewStage === 'DATA_MANAGER' ? '数据部经理审核' : '政策经理审核'}`" width="min(900px, 95vw)" wrap-class-name="placement-action-modal" :footer="null" :mask-closable="false">
+      <div v-if="batchReviewMode" class="action-context batch-review-context">
+        <div><strong>本次共审核 {{ batchReviewRows.length }} 项</strong><span>{{ reviewStage === 'DATA_MANAGER' ? '待数据审核' : '待政策审核' }}</span></div>
+        <p>{{ batchReviewRows.slice(0, 3).map(item => item.taskNo).join('、') }}<template v-if="batchReviewRows.length > 3"> 等 {{ batchReviewRows.length }} 项</template></p>
+      </div>
+      <div v-else class="action-context">
         <div><strong>{{ activeTask?.opportunityName }}</strong><span>{{ activeTask?.taskNo }}</span></div>
         <p>{{ activeTask?.platformName }} · {{ activeTask?.airlineCode }} · {{ routeName(activeTask) }}</p>
       </div>
-      <section v-if="reviewStage === 'DATA_MANAGER'" class="review-section">
-        <header><strong>审核确认项</strong><span>选择“通过”时三项必须全部确认</span></header>
-        <a-checkbox-group v-model:value="reviewChecks" class="review-checks" :options="reviewCheckOptions" />
-      </section>
       <div class="form-grid two review-form-grid">
         <PlacementField label="审核结果" required hint="退回后创建人可编辑并重新提交"><a-select v-model:value="reviewForm.result" :options="reviewResultOptions" /></PlacementField>
         <PlacementField v-if="reviewStage === 'POLICY_MANAGER'" label="政策可执行性" required hint="不可执行时不能选择审核通过"><a-select v-model:value="reviewForm.policyExecutableLevel" :options="executableOptions" /></PlacementField>
@@ -341,7 +345,6 @@
                 <article v-for="review in detail.reviews" :key="review.id" class="record-card">
                   <header><div><strong>{{ reviewStageLabel(review.reviewStage) }}</strong><span>{{ review.reviewerName }} · {{ displayTime(review.createdAt) }}</span></div><a-tag :color="reviewResultMeta(review.reviewResult).color">{{ reviewResultMeta(review.reviewResult).label }}</a-tag></header>
                   <div class="record-grid">
-                    <span v-if="review.reviewStage === 'DATA_MANAGER'">数据口径：{{ yesNo(review.dataMetricConfirmed) }}</span><span v-if="review.reviewStage === 'DATA_MANAGER'">样本充分：{{ yesNo(review.sampleSufficient) }}</span><span v-if="review.reviewStage === 'DATA_MANAGER'">预估价值：{{ yesNo(review.estimatedValueConfirmed) }}</span>
                     <span v-if="review.reviewStage === 'POLICY_MANAGER'">可执行性：{{ executableLabel(review.policyExecutableLevel) }}</span><span v-if="review.reviewStage === 'POLICY_MANAGER'">风险等级：{{ priorityDisplay(review.riskLevel).label }}</span><span v-if="review.adjustedPriority">调整优先级：{{ priorityDisplay(review.adjustedPriority).label }}</span>
                   </div>
                   <p v-if="review.riskControlRequirement"><b>风险控制：</b>{{ review.riskControlRequirement }}</p><p v-if="review.claimScope"><b>认领范围：</b>{{ review.claimScope }}</p><p><b>审核意见：</b>{{ valueOrDash(review.reviewComment, '无补充意见') }}</p>
@@ -417,7 +420,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import {
-  CheckboxGroup as ACheckboxGroup,
   DatePicker as ADatePicker,
   Descriptions as ADescriptions,
   DescriptionsItem as ADescriptionsItem,
@@ -437,7 +439,7 @@ import PageHeader from '@/components/PageHeader.vue'
 import PlacementField from '@/components/PlacementField.vue'
 import { useAuthStore } from '@/stores/auth'
 import {
-  cancelPlacementTask, claimPlacementTask, createPlacementEffectReview, createPlacementTask, deletePlacementTask, executePlacementTask, fetchPlacementTask, fetchPlacementTaskMonitoring,
+  batchReviewPlacementTasks, cancelPlacementTask, claimPlacementTask, createPlacementEffectReview, createPlacementTask, deletePlacementTask, executePlacementTask, fetchPlacementTask, fetchPlacementTaskMonitoring,
   fetchPlacementDimensions, fetchPlacementTasks, reviewPlacementTask, updatePlacementTask,
   stopPlacementMonitoring, withdrawPlacementTask,
   type PlacementDimensionOption, type PlacementDimensionOptions, type PlacementPriority,
@@ -473,8 +475,9 @@ const editingTaskId = ref<number>()
 const detail = ref<PlacementTaskDetail>()
 const monitoring = ref<PlacementTaskMonitoring>()
 const activeTask = ref<PlacementTaskRow>()
+const selectedReviewTaskIds = ref<number[]>([])
+const batchReviewRows = ref<PlacementTaskRow[]>([])
 const reviewStage = ref<'DATA_MANAGER' | 'POLICY_MANAGER'>('DATA_MANAGER')
-const reviewChecks = ref<string[]>(['dataMetricConfirmed', 'sampleSufficient', 'estimatedValueConfirmed'])
 const reviewForm = ref({ result: 'APPROVED', comment: '', policyExecutableLevel: 'EXECUTABLE', riskLevel: 'MEDIUM', riskControlRequirement: '', claimScope: '', adjustedPriority: '', adjustedCompleteAt: '' })
 const claimForm = ref({ plannedCompleteAt: '', note: '' })
 const executionForm = ref<Record<string, any>>({ result: 'SUCCESS', retryRequired: false })
@@ -505,7 +508,6 @@ const executableOptions = [{ value: 'EXECUTABLE', label: '可执行' }, { value:
 const executionResultOptions = [{ value: 'SUCCESS', label: '投放成功' }, { value: 'FAILED', label: '投放失败' }]
 const failureTypeOptions = [{ value: 'NO_RESOURCE', label: '无可用资源' }, { value: 'PRICE_UNFEASIBLE', label: '价格不可行' }, { value: 'SYSTEM_ERROR', label: '系统故障' }, { value: 'EXTERNAL_REJECTED', label: '外部系统拒绝' }, { value: 'OTHER', label: '其他原因' }]
 const effectReviewOptions = [{ value: 'CONTINUE', label: '继续投放' }, { value: 'ADJUST', label: '调整后重新审核' }, { value: 'STOP', label: '停止投放' }, { value: 'COMPLETED', label: '完成复盘' }]
-const reviewCheckOptions = [{ value: 'dataMetricConfirmed', label: '数据口径确认' }, { value: 'sampleSufficient', label: '样本充分性确认' }, { value: 'estimatedValueConfirmed', label: '预估价值确认' }]
 const hasPermission = (code: string) => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.permissions?.includes(code))
 const canCreate = computed(() => hasPermission('smart_placement.create'))
 const canEditTasks = computed(() => hasPermission('smart_placement.edit'))
@@ -547,6 +549,13 @@ const columns = [
   { title: '预估价值', key: 'estimate', width: 150 }, { title: '优先级', key: 'priority', width: 90 }, { title: '状态', key: 'status', width: 120 },
   { title: '负责人', key: 'owner', width: 110 }, { title: '截止时间', key: 'due', width: 155 }, { title: '操作', key: 'action', width: 350, fixed: 'right' as const },
 ]
+const selectedReviewRows = computed(() => (data.value?.rows || []).filter(row => selectedReviewTaskIds.value.includes(row.id)))
+const batchReviewMode = computed(() => batchReviewRows.value.length > 0)
+const reviewRowSelection = computed(() => canReviewData.value || canReviewPolicy.value ? {
+  selectedRowKeys: selectedReviewTaskIds.value,
+  onChange: (keys: (string | number)[]) => { selectedReviewTaskIds.value = keys.map(Number) },
+  getCheckboxProps: (record: PlacementTaskRow) => ({ disabled: !isReviewable(record), name: record.taskNo }),
+} : undefined)
 const pagination = computed(() => ({ current: page.value, pageSize: pageSize.value, total: data.value?.total || 0, showSizeChanger: true, showTotal: (total: number) => `共 ${number(total)} 项` }))
 const formatter = new Intl.NumberFormat('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const number = (value: number | null | undefined) => new Intl.NumberFormat('zh-CN').format(Number(value || 0))
@@ -672,7 +681,7 @@ async function load(targetPage = page.value) {
   loading.value = true; error.value = ''; page.value = targetPage
   try { data.value = await fetchPlacementTasks({ ...filters.value, page: page.value, pageSize: pageSize.value }) }
   catch (failure) { data.value = undefined; error.value = failure instanceof Error ? failure.message : '投放任务查询失败' }
-  finally { loading.value = false }
+  finally { selectedReviewTaskIds.value = []; loading.value = false }
 }
 function preferredScope() {
   if (!authStore.user?.isAdmin && (canReviewData.value || canReviewPolicy.value)) return 'review'
@@ -873,18 +882,41 @@ const canClaim = (row: PlacementTaskRow) => canClaimTasks.value && row.status ==
 const canExecute = (row: PlacementTaskRow) => canExecuteTasks.value && row.status === 'IN_PROGRESS' && (Boolean(authStore.user?.isAdmin) || row.currentAssigneeId === authStore.user?.id)
 function openReview(row: PlacementTaskRow) {
   activeTask.value = row
+  batchReviewRows.value = []
   reviewStage.value = row.status === 'PENDING_DATA_REVIEW' ? 'DATA_MANAGER' : 'POLICY_MANAGER'
   reviewForm.value = { result: 'APPROVED', comment: '', policyExecutableLevel: 'EXECUTABLE', riskLevel: 'MEDIUM', riskControlRequirement: '', claimScope: '', adjustedPriority: '', adjustedCompleteAt: '' }
-  reviewChecks.value = []
+  reviewOpen.value = true
+}
+function clearReviewSelection() { selectedReviewTaskIds.value = [] }
+function openBatchReview() {
+  const rows = selectedReviewRows.value
+  if (!rows.length) { message.warning('请先选择需要审核的任务'); return }
+  const statuses = new Set(rows.map(row => row.status))
+  if (statuses.size !== 1) { message.warning('一次只能批量审核同一审核阶段的任务'); return }
+  const status = rows[0]?.status
+  if (status !== 'PENDING_DATA_REVIEW' && status !== 'PENDING_POLICY_REVIEW') { message.warning('所选任务当前不可审核'); return }
+  activeTask.value = undefined
+  batchReviewRows.value = [...rows]
+  reviewStage.value = status === 'PENDING_DATA_REVIEW' ? 'DATA_MANAGER' : 'POLICY_MANAGER'
+  reviewForm.value = { result: 'APPROVED', comment: '', policyExecutableLevel: 'EXECUTABLE', riskLevel: 'MEDIUM', riskControlRequirement: '', claimScope: '', adjustedPriority: '', adjustedCompleteAt: '' }
   reviewOpen.value = true
 }
 async function submitReview() {
-  if (!activeTask.value) return
+  if (!activeTask.value && !batchReviewRows.value.length) return
   if (reviewForm.value.result !== 'APPROVED' && !reviewForm.value.comment.trim()) { message.warning('退回或驳回时必须填写审核意见'); return }
-  if (reviewStage.value === 'DATA_MANAGER' && reviewForm.value.result === 'APPROVED' && reviewChecks.value.length !== reviewCheckOptions.length) { message.warning('审核通过前请完成三项数据确认'); return }
   if (reviewStage.value === 'POLICY_MANAGER' && reviewForm.value.result === 'APPROVED' && reviewForm.value.policyExecutableLevel === 'NOT_EXECUTABLE') { message.warning('政策不可执行时不能选择审核通过'); return }
   saving.value = true
-  try { await reviewPlacementTask(activeTask.value.id, { stage: reviewStage.value, ...reviewForm.value, dataMetricConfirmed: reviewChecks.value.includes('dataMetricConfirmed'), sampleSufficient: reviewChecks.value.includes('sampleSufficient'), estimatedValueConfirmed: reviewChecks.value.includes('estimatedValueConfirmed') }); message.success('审核结果已提交'); reviewOpen.value = false; await load() }
+  try {
+    const payload = { stage: reviewStage.value, ...reviewForm.value }
+    if (batchReviewRows.value.length) {
+      const result = await batchReviewPlacementTasks(batchReviewRows.value.map(row => row.id), payload)
+      message.success(`已完成 ${result.count} 项批量审核`)
+    } else if (activeTask.value) {
+      await reviewPlacementTask(activeTask.value.id, payload)
+      message.success('审核结果已提交')
+    }
+    reviewOpen.value = false; batchReviewRows.value = []; await load()
+  }
   catch (failure) { message.error(failure instanceof Error ? failure.message : '审核失败') } finally { saving.value = false }
 }
 function openClaim(row: PlacementTaskRow) { activeTask.value = row; claimForm.value = { plannedCompleteAt: row.expectedCompleteAt, note: '' }; claimOpen.value = true }
@@ -968,6 +1000,7 @@ onMounted(() => {
 .panel-title { display: flex; align-items: center; justify-content: space-between; gap: 16px; }.panel-title > div strong,.panel-title > div small { display: block; }.panel-title > div strong { color: #172033; font-size: 16px; }.panel-title small { margin-top: 3px; color: #697386; font-size: 11px; font-weight: 400; }
 .workflow-chain { display: grid; grid-template-columns: repeat(7,minmax(0,1fr)); }.workflow-node { position: relative; min-width: 0; text-align: center; color: #667085; }.workflow-node:not(:last-child)::after { position: absolute; top: 16px; right: calc(-50% + 17px); left: calc(50% + 17px); height: 2px; background: #d9e4f2; content: ''; }.workflow-node.done:not(:last-child)::after { background: #80a8fb; }.workflow-index { position: relative; z-index: 1; display: grid; width: 33px; height: 33px; margin: 0 auto 9px; place-items: center; border: 2px solid #cfd9e8; border-radius: 50%; color: #8090a8; background: #fff; font-size: 12px; font-weight: 700; }.workflow-node.done .workflow-index { border-color: #2563eb; color: #fff; background: #2563eb; }.workflow-node.current .workflow-index { border-color: #f59e0b; color: #9a5700; background: #fff5d9; box-shadow: 0 0 0 5px #fff8e7; }.workflow-node strong,.workflow-node small { display: block; }.workflow-node strong { overflow: hidden; color: #475467; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }.workflow-node small { margin-top: 2px; color: #98a2b3; font-size: 10px; }
 .work-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 16px; }.work-tabs { display: flex; gap: 6px; margin-right: auto; }.work-tab { padding: 7px 12px; border: 0; border-radius: 7px; color: #667085; background: #f5f7fa; cursor: pointer; }.work-tab.active { color: #2563eb; background: #eaf1ff; font-weight: 600; }.filter-bar { display: grid; grid-template-columns: minmax(220px,1fr) 160px 135px 105px auto auto; gap: 10px; }
+.batch-action-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: -2px 0 14px; padding: 11px 13px; border: 1px solid #bad2fb; border-radius: 9px; background: #f3f7ff; }.batch-action-bar strong,.batch-action-bar span { display: block; }.batch-action-bar strong { color: #234e91; }.batch-action-bar span { margin-top: 2px; color: #71809a; font-size: 11px; }.batch-review-context { border-color: #bad2fb; background: #f3f7ff; }
 .task-link { padding: 0; border: 0; text-align: left; background: transparent; cursor: pointer; }.task-link strong, .task-link small, .scope-cell strong, .scope-cell span { display: block; }.task-link strong { color: #275fae; }.task-link small, .scope-cell span { margin-top: 3px; color: #8290a4; font-size: 11px; }.scope-cell .exclude { color: #c15b69; }
 .form-intro { display: flex; align-items: center; gap: 13px; margin: 0 0 15px; padding: 13px 15px; border: 1px solid #cfe0fb; border-radius: 11px; background: linear-gradient(135deg,#f4f8ff,#fff); }.intro-mark { display: grid; flex: 0 0 38px; height: 38px; place-items: center; border-radius: 9px; color: #fff; font-weight: 700; background: #2867b7; }.form-intro strong,.form-intro span { display: block; }.form-intro strong { color: #253651; font-size: 14px; }.form-intro span { margin-top: 2px; color: #768399; font-size: 12px; }.intro-copy { min-width: 0; }.field-legend { display: flex; flex: none; gap: 6px; margin-left: auto; }.form-intro .field-legend span { margin: 0; padding: 2px 7px; border: 1px solid #dfe5ed; border-radius: 999px; color: #8994a5; background: #fff; font-size: 10px; }.form-intro .field-legend .required-dot { border-color: #f1c8cd; color: #bf4351; background: #fff6f7; }.dimension-alert { margin-bottom: 14px; }
 .task-form { display: grid; gap: 0; }.form-section { margin-bottom: 14px; padding: 17px; border: 1px solid #e2e8f1; border-radius: 12px; background: #fff; }.section-heading { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 13px; padding-bottom: 11px; border-bottom: 1px solid #edf1f5; }.section-heading > span { display: grid; flex: 0 0 26px; height: 26px; place-items: center; border-radius: 7px; color: #2867b7; font-size: 12px; font-weight: 700; background: #eaf2ff; }.section-heading > div { min-width: 0; }.section-heading h3 { margin: 1px 0 2px; color: #263750; font-size: 14px; }.section-heading p { margin: 0; color: #697386; font-size: 11px; }.section-heading em { flex: none; margin-left: auto; padding: 3px 8px; border-radius: 999px; color: #768499; background: #f0f4f8; font-size: 10px; font-style: normal; }.form-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 11px; }.form-grid.three { grid-template-columns: repeat(3,minmax(0,1fr)); }.form-grid.one { grid-template-columns: 1fr; }.span-2 { grid-column: span 2; }.span-3 { grid-column: span 3; }

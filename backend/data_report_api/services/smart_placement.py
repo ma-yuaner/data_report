@@ -1063,7 +1063,7 @@ class SmartPlacementService:
             if cursor is not None: cursor.close()
             if connection is not None: connection.close()
 
-    def review_task(self, user: dict[str, Any], task_id: int, values: dict[str, Any]) -> dict[str, Any]:
+    def _review_request(self, user: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
         stage = _text(values.get("stage"), "审核环节", 32, required=True).upper()
         if stage not in REVIEW_STAGES:
             raise ValueError("审核环节不支持")
@@ -1079,14 +1079,6 @@ class SmartPlacementService:
         comment = _text(values.get("comment"), "审核意见", 10_000, required=result != "APPROVED")
         policy_executable = _text(values.get("policyExecutableLevel"), "政策可执行性", 32).upper()
         risk_level = _text(values.get("riskLevel"), "风险等级", 16).upper()
-        if stage == "DATA_MANAGER" and result == "APPROVED":
-            confirmations = (
-                _bool(values.get("dataMetricConfirmed")),
-                _bool(values.get("sampleSufficient")),
-                _bool(values.get("estimatedValueConfirmed")),
-            )
-            if not all(confirmations):
-                raise ValueError("数据审核通过前必须完成数据口径、样本充分性和预估价值确认")
         if stage == "POLICY_MANAGER":
             if not policy_executable or policy_executable not in POLICY_EXECUTABLE_LEVELS:
                 raise ValueError("请选择有效的政策可执行性")
@@ -1094,57 +1086,88 @@ class SmartPlacementService:
                 raise ValueError("请选择风险等级")
             if result == "APPROVED" and policy_executable == "NOT_EXECUTABLE":
                 raise ValueError("政策不可执行时不能选择审核通过")
+        priority = _text(values.get("adjustedPriority"), "调整优先级", 16).upper()
+        if priority and priority not in PRIORITIES:
+            raise ValueError("调整优先级不支持")
         expected_status, approved_status, reviewed_column = REVIEW_STAGES[stage]
         next_status = approved_status if result == "APPROVED" else "DRAFT" if result == "RETURNED" else "REJECTED"
+        return {
+            "stage": stage,
+            "result": result,
+            "comment": comment,
+            "policy_executable": policy_executable,
+            "risk_level": risk_level,
+            "priority": priority,
+            "adjusted_complete_at": _datetime_value(values.get("adjustedCompleteAt"), "调整完成时间"),
+            "risk_control_requirement": _text(values.get("riskControlRequirement"), "风控要求", 10_000),
+            "claim_scope": _text(values.get("claimScope"), "认领范围", 500),
+            "expected_status": expected_status,
+            "reviewed_column": reviewed_column,
+            "next_status": next_status,
+        }
+
+    def _apply_review(self, cursor, *, task_id: int, request: dict[str, Any], actor: tuple[int, str, str], now: datetime) -> dict[str, Any]:
+        task = self._task_for_update(cursor, task_id)
+        if task["status"] != request["expected_status"]:
+            raise ValueError(f"任务{task.get('task_no') or task_id}当前状态为{task['status']}，不能执行该审核")
+        stage = request["stage"]
+        cursor.execute(
+            f"""
+            INSERT INTO {self._table(REVIEW_TABLE)} (
+                task_id, review_stage, review_result, review_comment,
+                data_metric_confirmed, sample_sufficient, estimated_value_confirmed,
+                policy_executable_level, risk_level, risk_control_requirement,
+                claim_scope, adjusted_priority, adjusted_complete_at,
+                reviewer_id, reviewer_name, reviewer_role_snapshot, created_at
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (
+                task_id, stage, request["result"], request["comment"] or None,
+                None, None, None,
+                request["policy_executable"] or None if stage == "POLICY_MANAGER" else None,
+                request["risk_level"] or None if stage == "POLICY_MANAGER" else None,
+                request["risk_control_requirement"] or None if stage == "POLICY_MANAGER" else None,
+                request["claim_scope"] or None if stage == "POLICY_MANAGER" else None,
+                request["priority"] or None, request["adjusted_complete_at"],
+                actor[0], actor[1], stage, now,
+            ),
+        )
+        cursor.execute(
+            f"""
+            UPDATE {self._table(TASK_TABLE)}
+            SET status=%s, {request['reviewed_column']}=%s,
+                resume_review_stage=%s,
+                priority=COALESCE(%s, priority), expected_complete_at=COALESCE(%s, expected_complete_at),
+                closed_at=%s, updated_by_id=%s, updated_by_name=%s,
+                version_no=version_no+1, updated_at=%s
+            WHERE id=%s
+            """,
+            (
+                request["next_status"], now,
+                stage if request["result"] == "RETURNED" else None,
+                request["priority"] or None, request["adjusted_complete_at"],
+                now if request["next_status"] == "REJECTED" else None,
+                actor[0], actor[1], now, task_id,
+            ),
+        )
+        self._log(
+            cursor, task_id=task_id, action="REVIEW", actor=actor,
+            from_status=request["expected_status"], to_status=request["next_status"],
+            note=request["comment"] or request["result"],
+            detail={"stage": stage, "result": request["result"]},
+        )
+        return {"id": task_id, "status": request["next_status"]}
+
+    def _review_tasks(self, user: dict[str, Any], task_ids: list[int], values: dict[str, Any]) -> list[dict[str, Any]]:
+        request = self._review_request(user, values)
+        actor = _actor(user)
         now = _now()
         connection = cursor = None
         try:
             connection = self.source.connect(); connection.begin(); cursor = connection.cursor()
-            task = self._task_for_update(cursor, task_id)
-            if task["status"] != expected_status:
-                raise ValueError(f"当前任务状态为{task['status']}，不能执行该审核")
-            cursor.execute(
-                f"""
-                INSERT INTO {self._table(REVIEW_TABLE)} (
-                    task_id, review_stage, review_result, review_comment,
-                    data_metric_confirmed, sample_sufficient, estimated_value_confirmed,
-                    policy_executable_level, risk_level, risk_control_requirement,
-                    claim_scope, adjusted_priority, adjusted_complete_at,
-                    reviewer_id, reviewer_name, reviewer_role_snapshot, created_at
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                """,
-                (
-                    task_id, stage, result, comment or None,
-                    _bool(values.get("dataMetricConfirmed")) if stage == "DATA_MANAGER" else None,
-                    _bool(values.get("sampleSufficient")) if stage == "DATA_MANAGER" else None,
-                    _bool(values.get("estimatedValueConfirmed")) if stage == "DATA_MANAGER" else None,
-                    policy_executable or None if stage == "POLICY_MANAGER" else None,
-                    risk_level or None if stage == "POLICY_MANAGER" else None,
-                    _text(values.get("riskControlRequirement"), "风控要求", 10_000) or None if stage == "POLICY_MANAGER" else None,
-                    _text(values.get("claimScope"), "认领范围", 500) or None if stage == "POLICY_MANAGER" else None,
-                    _text(values.get("adjustedPriority"), "调整优先级", 16) or None,
-                    _datetime_value(values.get("adjustedCompleteAt"), "调整完成时间"),
-                    actor[0], actor[1], stage, now,
-                ),
-            )
-            priority = _text(values.get("adjustedPriority"), "调整优先级", 16).upper()
-            if priority and priority not in PRIORITIES:
-                raise ValueError("调整优先级不支持")
-            cursor.execute(
-                f"""
-                UPDATE {self._table(TASK_TABLE)}
-                SET status=%s, {reviewed_column}=%s,
-                    resume_review_stage=%s,
-                    priority=COALESCE(%s, priority), expected_complete_at=COALESCE(%s, expected_complete_at),
-                    closed_at=%s, updated_by_id=%s, updated_by_name=%s,
-                    version_no=version_no+1, updated_at=%s
-                WHERE id=%s
-                """,
-                (next_status, now, stage if result == "RETURNED" else None, priority or None, _datetime_value(values.get("adjustedCompleteAt"), "调整完成时间"), now if next_status == "REJECTED" else None, actor[0], actor[1], now, task_id),
-            )
-            self._log(cursor, task_id=task_id, action="REVIEW", actor=actor, from_status=expected_status, to_status=next_status, note=comment or result, detail={"stage": stage, "result": result})
+            results = [self._apply_review(cursor, task_id=task_id, request=request, actor=actor, now=now) for task_id in task_ids]
             connection.commit()
-            return {"id": task_id, "status": next_status}
+            return results
         except ValueError:
             if connection is not None: connection.rollback()
             raise
@@ -1157,6 +1180,29 @@ class SmartPlacementService:
         finally:
             if cursor is not None: cursor.close()
             if connection is not None: connection.close()
+
+    def review_task(self, user: dict[str, Any], task_id: int, values: dict[str, Any]) -> dict[str, Any]:
+        return self._review_tasks(user, [task_id], values)[0]
+
+    def batch_review_tasks(self, user: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
+        raw_ids = values.get("taskIds")
+        if not isinstance(raw_ids, list) or not raw_ids:
+            raise ValueError("请选择需要批量审核的任务")
+        task_ids: list[int] = []
+        for raw_id in raw_ids:
+            try:
+                task_id = int(raw_id)
+            except (TypeError, ValueError) as error:
+                raise ValueError("批量审核任务编号不正确") from error
+            if task_id <= 0:
+                raise ValueError("批量审核任务编号不正确")
+            if task_id not in task_ids:
+                task_ids.append(task_id)
+        if len(task_ids) > 100:
+            raise ValueError("单次最多批量审核100条任务")
+        task_ids.sort()
+        results = self._review_tasks(user, task_ids, values)
+        return {"count": len(results), "taskIds": task_ids, "status": results[0]["status"]}
 
     def claim_task(self, user: dict[str, Any], task_id: int, values: dict[str, Any]) -> dict[str, Any]:
         _require_permission(user, PERMISSION_CLAIM, "当前账号没有投放任务认领权限")

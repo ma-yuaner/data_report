@@ -293,6 +293,12 @@ export async function reviewPlacementTask(id: number, values: Record<string, unk
   return response.data.data
 }
 
+export async function batchReviewPlacementTasks(taskIds: number[], values: Record<string, unknown>) {
+  const response = await http.post<ApiEnvelope<{ count: number; taskIds: number[]; status: PlacementTaskStatus }>>('/v1/smart-placement/tasks/reviews/batch', { ...values, taskIds })
+  if (!response.data.success) throw new Error(response.data.message)
+  return response.data.data
+}
+
 export async function claimPlacementTask(id: number, values: { plannedCompleteAt: string; note?: string }) {
   const response = await http.post<ApiEnvelope<{ id: number; status: PlacementTaskStatus; assigneeName: string }>>(`/v1/smart-placement/tasks/${id}/claim`, values)
   if (!response.data.success) throw new Error(response.data.message)

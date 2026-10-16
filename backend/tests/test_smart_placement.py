@@ -356,17 +356,56 @@ def test_cancel_requires_reason_before_database_access():
     service.source.connect.assert_not_called()
 
 
-def test_data_review_approval_requires_all_confirmations_before_database_access():
-    service, _connection, _cursor = service_with_cursor()
+def test_data_review_approval_does_not_require_confirmation_checkboxes():
+    service, connection, cursor = service_with_cursor()
+    cursor.fetchone.return_value = {
+        "id": 17, "task_no": "SP202610100017", "status": "PENDING_DATA_REVIEW",
+    }
 
-    with pytest.raises(ValueError, match="必须完成"):
-        service.review_task(
+    result = service.review_task(
+        {"id": 1, "display_name": "管理员", "is_admin": True},
+        17,
+        {"stage": "DATA_MANAGER", "result": "APPROVED"},
+    )
+
+    assert result == {"id": 17, "status": "PENDING_POLICY_REVIEW"}
+    insert_params = cursor.execute.call_args_list[1].args[1]
+    assert insert_params[4:7] == (None, None, None)
+    connection.commit.assert_called_once()
+
+
+def test_batch_review_is_atomic_and_applies_same_result_to_all_tasks():
+    service, connection, cursor = service_with_cursor()
+    cursor.fetchone.side_effect = [
+        {"id": 17, "task_no": "SP17", "status": "PENDING_DATA_REVIEW"},
+        {"id": 18, "task_no": "SP18", "status": "PENDING_DATA_REVIEW"},
+    ]
+
+    result = service.batch_review_tasks(
+        {"id": 1, "display_name": "管理员", "is_admin": True},
+        {"taskIds": [17, 18], "stage": "DATA_MANAGER", "result": "APPROVED", "adjustedPriority": "HIGH"},
+    )
+
+    assert result == {"count": 2, "taskIds": [17, 18], "status": "PENDING_POLICY_REVIEW"}
+    assert cursor.execute.call_count == 8
+    connection.commit.assert_called_once()
+
+
+def test_batch_review_rolls_back_when_one_task_is_not_in_expected_stage():
+    service, connection, cursor = service_with_cursor()
+    cursor.fetchone.side_effect = [
+        {"id": 17, "task_no": "SP17", "status": "PENDING_DATA_REVIEW"},
+        {"id": 18, "task_no": "SP18", "status": "PENDING_POLICY_REVIEW"},
+    ]
+
+    with pytest.raises(ValueError, match="SP18"):
+        service.batch_review_tasks(
             {"id": 1, "display_name": "管理员", "is_admin": True},
-            17,
-            {"stage": "DATA_MANAGER", "result": "APPROVED"},
+            {"taskIds": [17, 18], "stage": "DATA_MANAGER", "result": "APPROVED"},
         )
 
-    service.source.connect.assert_not_called()
+    connection.rollback.assert_called_once()
+    connection.commit.assert_not_called()
 
 
 def test_policy_review_cannot_approve_non_executable_task():
