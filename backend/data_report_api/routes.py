@@ -79,7 +79,7 @@ def _resource_governance_overview(data_source: str):
             group_by=request.args.get("groupBy"),
             filters={
                 key: request.args.get(key, "")
-                for key in ("platform", "site", "gds", "pcc", "apiGroup")
+                for key in ("platform", "site", "gds", "resourceChannel", "pcc", "apiGroup")
             },
             breach_only=breach_only,
         ))
@@ -107,7 +107,7 @@ def _resource_governance_export(data_source: str):
             group_by=request.args.get("groupBy"),
             filters={
                 key: request.args.get(key, "")
-                for key in ("platform", "site", "gds", "pcc", "apiGroup")
+                for key in ("platform", "site", "gds", "resourceChannel", "pcc", "apiGroup")
             },
             breach_only=breach_only,
         ))

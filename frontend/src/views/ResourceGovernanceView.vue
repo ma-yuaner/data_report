@@ -26,7 +26,8 @@
         <label><span>站点</span><a-select v-model:value="draft.site" allow-clear show-search placeholder="全部站点" :options="selectOptions(data?.options.site)" /></label>
         <label v-if="draft.dataSource === 'gds'"><span>GDS</span><a-select v-model:value="draft.gds" allow-clear show-search placeholder="全部GDS" :options="selectOptions(data?.options.gds)" /></label>
         <label v-if="draft.dataSource === 'gds'"><span>PCC</span><a-select v-model:value="draft.pcc" allow-clear show-search placeholder="全部PCC" :options="selectOptions(data?.options.pcc)" /></label>
-        <label><span>接口分组</span><a-select v-model:value="draft.apiGroup" allow-clear show-search placeholder="全部接口分组" :options="selectOptions(data?.options.apiGroup)" /></label>
+        <label v-if="draft.dataSource === 'gds'"><span>资源通道</span><a-select v-model:value="draft.resourceChannel" allow-clear placeholder="全部通道" :options="resourceChannelOptions" @change="changeResourceChannel" /></label>
+        <label><span>接口分组</span><a-select v-model:value="draft.apiGroup" allow-clear show-search placeholder="全部接口分组" :options="apiGroupOptions" @change="changeApiGroup" /></label>
       </div>
       <div class="scope-actions">
         <span>{{ pending ? '筛选条件已变更，点击查询后生效' : `当前为${layerLabel(applied.dataSource)}分析层` }}</span>
@@ -50,7 +51,7 @@
     <a-alert v-else-if="isGds && data?.ratioApplicable && data?.available && !data.segmentDataAvailable" class="state-alert" type="warning" show-icon
       message="MP总体航段数尚未完成同步" description="请检查bi_gds_resource_metric_day的MP_TOTAL记录；系统不会用PNR数或接口生单成功量替代航段数。" />
     <a-alert v-else-if="isGds && data?.available && !data.ratioApplicable" class="state-alert" type="info" show-icon
-      message="当前为接口分组质量分析" description="接口组只展示查询、验价、生单的请求、成功、失败和成功率；正式查定比只在MP总体口径计算。" />
+      :message="applied.resourceChannel === 'MPIS' ? '当前为MPIS通道质量分析' : '当前为接口分组质量分析'" description="MPIS和接口组只展示查询、验价、生单的请求、成功、失败和成功率；正式查定比只在MP总体口径计算。" />
     <a-alert v-else-if="!isGds && applied.platform && !hasOtaTarget(data?.summary)" class="state-alert" type="info" show-icon
       message="该平台尚未配置接口成功率目标" description="当前继续展示实际成功率，但不会标记达标或异常；配置平台目标后自动生效。" />
 
@@ -68,8 +69,8 @@
           <span v-else>不同GDS按独立目标评估</span>
         </div>
         <div v-else-if="isGds" class="hero-ratio">
-          <small>当前接口分组</small>
-          <strong>{{ applied.apiGroup || '分组质量' }}</strong>
+          <small>当前分析层级</small>
+          <strong>{{ applied.apiGroup || applied.resourceChannel || '接口质量' }}</strong>
           <span>不重复分摊MP总体航段</span>
         </div>
         <div v-else class="hero-ratio">
@@ -84,6 +85,8 @@
         <template v-if="isGdsRatioScope">
           <article><span>航段数</span><strong>{{ nullableCount(data?.summary.segmentCount) }}</strong><small>GDS查定比分母</small></article>
           <article><span>超额查询量</span><strong class="orange">{{ nullableCount(data?.summary.excessQueryCount) }}</strong><small>{{ data?.targetRatio ? '查询量 − 航段数 × 目标值' : '选择已配置目标的GDS后计算' }}</small></article>
+          <article><span>MPIS查询量</span><strong>{{ compact(data?.resourceStructure.mpisSearchRequests) }}</strong><small>不计入正式查定比分子</small></article>
+          <article><span>MPIS查询占比</span><strong>{{ percent(data?.resourceStructure.mpisShare) }}</strong><small>MPIS ÷（MP + MPIS）</small></article>
         </template>
         <template v-else-if="isGds">
           <article><span>查询失败量</span><strong>{{ integer(data?.summary.searchFailure) }}</strong><small>请求量 − 成功量</small></article>
@@ -110,10 +113,33 @@
         </div>
       </section>
 
-      <a-card v-if="isGds" :bordered="false" class="analysis-panel api-group-panel">
+      <a-card v-if="isGds" :bordered="false" class="analysis-panel channel-panel">
         <template #title>
           <div class="panel-title">
-            <div><strong>接口分组调用质量</strong><small>1A、1A_NDC、1A_MPIS等分组独立展示；成功与失败均由基础量重算</small></div>
+            <div><strong>资源通道结构</strong><small>先比较MP与MPIS，再下钻普通MP、NDC或具体MPIS接口组</small></div>
+            <a-tag color="blue">GDS → CHANNEL → API GROUP</a-tag>
+          </div>
+        </template>
+        <a-table :columns="resourceChannelColumns" :data-source="data?.resourceChannels || []" row-key="value"
+          :pagination="false" :scroll="{ x: 1180 }" :locale="{ emptyText: '当前范围暂无通道数据' }">
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'name'"><div class="resource-name"><strong>{{ record.name }}</strong><small>{{ record.value === 'MP' ? '参与查定比' : '独立观察迁移占比' }}</small></div></template>
+            <template v-else-if="column.key === 'search'">{{ integer(record.searchRequests) }}</template>
+            <template v-else-if="column.key === 'share'"><strong>{{ percent(record.queryShare) }}</strong></template>
+            <template v-else-if="column.key === 'segment'">{{ record.ratioApplicable ? nullableCount(record.segmentCount) : '不适用' }}</template>
+            <template v-else-if="column.key === 'ratio'"><strong v-if="record.ratioApplicable" :class="ratioClass(record)">{{ ratioText(record) }}</strong><span v-else>不适用</span></template>
+            <template v-else-if="column.key === 'searchRate'">{{ percent(record.searchSuccessRate) }}</template>
+            <template v-else-if="column.key === 'verifyRate'">{{ percent(record.verifySuccessRate) }}</template>
+            <template v-else-if="column.key === 'orderRate'">{{ percent(record.orderSuccessRate) }}</template>
+            <template v-else-if="column.key === 'action'"><a-button type="link" size="small" @click="openResourceChannelAnalysis(record)">下钻接口组</a-button></template>
+          </template>
+        </a-table>
+      </a-card>
+
+      <a-card v-if="isGds && applied.resourceChannel" :bordered="false" class="analysis-panel api-group-panel">
+        <template #title>
+          <div class="panel-title">
+            <div><strong>{{ applied.resourceChannel }}接口分组调用质量</strong><small>{{ applied.resourceChannel === 'MP' ? '普通MP与NDC属于MP的下一级' : '仅展示MPIS接口组' }}；成功与失败均由基础量重算</small></div>
             <a-tag color="purple">API GROUP</a-tag>
           </div>
         </template>
@@ -285,7 +311,7 @@ const reportingCutoffValue = new Date(`${today}T12:00:00+08:00`)
 reportingCutoffValue.setDate(reportingCutoffValue.getDate() - 1)
 const reportingCutoff = shanghaiDate(reportingCutoffValue)
 const monthStart = `${reportingCutoff.slice(0, 7)}-01`
-const emptyScope = (layer: GovernanceLayer = routeLayer()): GovernanceScope => ({ startDate: monthStart, endDate: reportingCutoff, dataSource: layer, groupBy: layer === 'gds' ? 'gds' : 'platform', platform: '', site: '', gds: '', pcc: '', apiGroup: '', breachOnly: false })
+const emptyScope = (layer: GovernanceLayer = routeLayer()): GovernanceScope => ({ startDate: monthStart, endDate: reportingCutoff, dataSource: layer, groupBy: layer === 'gds' ? 'gds' : 'platform', platform: '', site: '', gds: '', resourceChannel: '', pcc: '', apiGroup: '', breachOnly: false })
 const draft = ref<GovernanceScope>(emptyScope())
 const applied = ref<GovernanceScope>({ ...draft.value })
 const preset = ref('month')
@@ -298,6 +324,7 @@ let requestId = 0
 
 const periodOptions = [{ label: '昨日', value: 'yesterday' }, { label: '近7个完整日', value: 'seven' }, { label: '本月至昨日', value: 'month' }, { label: '自定义', value: 'custom' }]
 const gdsDimensions = [{ label: 'GDS', value: 'gds' }, { label: 'PCC', value: 'pcc' }, { label: '平台', value: 'platform' }, { label: '站点', value: 'site' }]
+const gdsAnalysisDimensions = [{ label: 'GDS', value: 'gds' }, { label: '资源通道', value: 'resourceChannel' }, { label: '接口分组', value: 'apiGroup' }, { label: 'PCC', value: 'pcc' }, { label: '平台', value: 'platform' }, { label: '站点', value: 'site' }]
 const otaDimensions = [{ label: '平台', value: 'platform' }, { label: '站点', value: 'site' }, { label: '接口分组', value: 'apiGroup' }]
 const dimensionOptions = computed(() => draft.value.dataSource === 'gds' ? gdsDimensions : otaDimensions)
 const pending = computed(() => JSON.stringify(draft.value) !== JSON.stringify(applied.value))
@@ -307,6 +334,13 @@ const pageTitle = computed(() => isGds.value ? 'GDS资源治理' : 'OTA渠道质
 const pageDescription = computed(() => isGds.value ? '按GDS与PCC分析查询量、航段数和查定比' : '按平台与站点分析查询、验价和生单接口成功率')
 const layerLabel = (layer: GovernanceLayer) => layer === 'gds' ? 'GDS资源层' : 'OTA渠道层'
 const selectOptions = (values?: string[]) => (values || []).map(value => ({ label: value, value }))
+const resourceChannelOptions = [{ label: 'MP（含普通MP、NDC）', value: 'MP' }, { label: 'MPIS', value: 'MPIS' }]
+const apiGroupOptions = computed(() => {
+  const values = data.value?.options.apiGroup || []
+  const channel = draft.value.resourceChannel
+  const filtered = !channel ? values : values.filter(value => channel === 'MPIS' ? value.toUpperCase().endsWith('_MPIS') : !value.toUpperCase().endsWith('_MPIS'))
+  return selectOptions(filtered)
+})
 const disabledDailyDate = (value: { format?: (format: string) => string } | null) => Boolean(value?.format && value.format('YYYY-MM-DD') > reportingCutoff)
 const integer = (value?: number | null) => value == null ? '—' : new Intl.NumberFormat('zh-CN').format(value)
 const compact = (value?: number | null) => value == null ? '—' : new Intl.NumberFormat('zh-CN', { notation: 'compact', maximumFractionDigits: 2 }).format(value)
@@ -348,6 +382,7 @@ const appliedTags = computed(() => [
   applied.value.platform && `平台：${applied.value.platform}`,
   applied.value.site && `站点：${applied.value.site}`,
   applied.value.gds && `GDS：${applied.value.gds}`,
+  applied.value.resourceChannel && `资源通道：${applied.value.resourceChannel}`,
   applied.value.pcc && `PCC：${applied.value.pcc}`,
   applied.value.apiGroup && `接口组：${applied.value.apiGroup}`,
 ].filter(Boolean) as string[])
@@ -355,7 +390,7 @@ const heroTitle = computed(() => {
   const summary = data.value?.summary
   if (!summary || summary.status === 'no_records') return '当前范围暂无资源调用数据'
   if (!isGds.value) return '当前为OTA渠道接口链路分析'
-  if (!data.value?.ratioApplicable) return `${applied.value.apiGroup || '接口分组'}调用质量分析`
+  if (!data.value?.ratioApplicable) return `${applied.value.apiGroup || applied.value.resourceChannel || '接口分组'}调用质量分析`
   if (summary.status === 'segment_field_missing' || summary.status === 'segment_data_missing') return '查询链路已接入，航段数待补齐'
   if (summary.status === 'segment_partial') return '航段数同步不完整，暂不输出查定比'
   if (summary.ratioInfinite) return '存在查询但没有航段数'
@@ -453,6 +488,17 @@ const interfaceDimensionColumns = [
   { title: '生单成功率', key: 'orderRate', width: 120 },
   { title: '操作', key: 'action', fixed: 'right' as const, width: 100 },
 ]
+const resourceChannelColumns = [
+  { title: '资源通道', key: 'name', fixed: 'left' as const, width: 220 },
+  { title: '查询请求量', key: 'search', width: 135 },
+  { title: '查询占比', key: 'share', width: 120 },
+  { title: '航段数', key: 'segment', width: 115 },
+  { title: '查定比', key: 'ratio', width: 130 },
+  { title: '查询成功率', key: 'searchRate', width: 125 },
+  { title: '验价成功率', key: 'verifyRate', width: 125 },
+  { title: '生单成功率', key: 'orderRate', width: 125 },
+  { title: '操作', key: 'action', fixed: 'right' as const, width: 120 },
+]
 const dimensionColumns = computed(() => isGdsRatioScope.value ? gdsDimensionColumns : isGds.value ? interfaceDimensionColumns : otaDimensionColumns)
 const apiGroupColumns = [
   { title: '接口分组', key: 'name', fixed: 'left' as const, width: 150 },
@@ -498,6 +544,17 @@ function applyPreset(value: string | number) {
   if (selected === 'month') draft.value.startDate = monthStart
   draft.value.endDate = reportingCutoff
 }
+function changeResourceChannel(value: unknown) {
+  const channel = String(value || '')
+  if (!draft.value.apiGroup) return
+  const isMpisGroup = draft.value.apiGroup.toUpperCase().endsWith('_MPIS')
+  if ((channel === 'MPIS') !== isMpisGroup) draft.value.apiGroup = ''
+}
+function changeApiGroup(value: unknown) {
+  const apiGroup = String(value || '')
+  if (!apiGroup || draft.value.dataSource !== 'gds') return
+  draft.value.resourceChannel = apiGroup.toUpperCase().endsWith('_MPIS') ? 'MPIS' : 'MP'
+}
 function resetFilters() { const layer = draft.value.dataSource; draft.value = { ...emptyScope(), dataSource: layer, groupBy: layer === 'gds' ? 'gds' : 'platform' }; draftGroup.value = draft.value.groupBy; preset.value = 'month' }
 function applyFilters() { draft.value.groupBy = draftGroup.value; void load({ ...draft.value }) }
 async function exportReport() {
@@ -540,7 +597,7 @@ const analysisIsGdsRatioScope = computed(() => analysisScope.value.dataSource ==
 const analysisDimensionColumns = computed(() => analysisIsGdsRatioScope.value ? gdsDimensionColumns : analysisScope.value.dataSource === 'gds' ? interfaceDimensionColumns : otaDimensionColumns)
 const analysisDailyColumns = computed(() => analysisIsGdsRatioScope.value ? gdsDailyColumns : otaDailyColumns)
 let drawerRequestId = 0
-const dimensionsForLayer = (layer: GovernanceLayer) => layer === 'gds' ? gdsDimensions : otaDimensions
+const dimensionsForLayer = (layer: GovernanceLayer) => layer === 'gds' ? gdsAnalysisDimensions : otaDimensions
 const nextAnalysisGroup = (scope: GovernanceScope, after?: GovernanceDimension) => {
   const available = dimensionsForLayer(scope.dataSource).map(item => item.value as GovernanceDimension).filter(key => !scope[key])
   if (!available.length) return undefined
@@ -554,6 +611,7 @@ const analysisScopeTags = computed(() => [
   analysisScope.value.platform && `平台：${analysisScope.value.platform}`,
   analysisScope.value.site && `站点：${analysisScope.value.site}`,
   analysisScope.value.gds && `GDS：${analysisScope.value.gds}`,
+  analysisScope.value.resourceChannel && `资源通道：${analysisScope.value.resourceChannel}`,
   analysisScope.value.pcc && `PCC：${analysisScope.value.pcc}`,
   analysisScope.value.apiGroup && `接口组：${analysisScope.value.apiGroup}`,
 ].filter(Boolean) as string[])
@@ -580,9 +638,17 @@ async function openAnalysis(record: { value: string; name: string }) {
   await loadAnalysis(scope)
 }
 async function openApiGroupAnalysis(record: { value: string; name: string }) {
-  const scope = { ...applied.value, apiGroup: record.value }
+  const scope = { ...applied.value, resourceChannel: record.value.toUpperCase().endsWith('_MPIS') ? 'MPIS' : 'MP', apiGroup: record.value }
   scope.groupBy = nextAnalysisGroup(scope) || 'gds'
   drawerTitle.value = `${record.name} · 接口分组分析`
+  drawerOpen.value = true
+  analysisView.value = 'dimension'
+  analysisHistory.value = [{ ...scope }]
+  await loadAnalysis(scope)
+}
+async function openResourceChannelAnalysis(record: { value: string; name: string }) {
+  const scope = { ...applied.value, resourceChannel: record.value, apiGroup: '', groupBy: 'apiGroup' as GovernanceDimension }
+  drawerTitle.value = `${record.name} · 接口组下钻`
   drawerOpen.value = true
   analysisView.value = 'dimension'
   analysisHistory.value = [{ ...scope }]
@@ -660,7 +726,7 @@ watch(() => route.meta.governanceLayer, () => {
 .quality-grid strong { display: block; margin-top: 7px; color: #30425b; font-size: 15px; }
 .charts-grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(320px, .85fr); gap: 15px; margin-bottom: 15px; }
 .analysis-panel { min-width: 0; border: 1px solid #e3e9f1; border-radius: 12px; }
-.api-group-panel { margin-bottom: 15px; }
+.channel-panel, .api-group-panel { margin-bottom: 15px; }
 .analysis-panel :deep(.ant-card-head) { min-height: 58px; border-color: #edf1f5; }
 .analysis-panel :deep(.ant-card-body) { padding: 18px 20px; }
 .panel-title > div, .dimension-header > div { display: grid; gap: 4px; }

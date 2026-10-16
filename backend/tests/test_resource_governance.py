@@ -49,6 +49,8 @@ class ResourceGovernanceTests(unittest.TestCase):
             return None
 
         def fetchall():
+            if "AS resource_channel" in self.last_sql:
+                return [("MP",) + summary, ("MPIS",) + group]
             if "SELECT DISTINCT" in self.last_sql:
                 return [
                     ("CTRIP", "CTRIP_HK", "1A", "HKGH228DF", module.GDS_MP_SCOPE),
@@ -107,6 +109,11 @@ class ResourceGovernanceTests(unittest.TestCase):
         self.assertEqual(result["trend"][0]["date"], "2026-10-14")
         self.assertEqual(result["options"]["apiGroup"], ["1A", "1A_MPIS"])
         self.assertEqual(result["apiGroups"][0]["searchRequests"], 10000)
+        self.assertEqual(result["resourceChannels"][0]["value"], "MP")
+        self.assertEqual(result["resourceChannels"][0]["queryShare"], "90.91")
+        self.assertEqual(result["resourceChannels"][1]["value"], "MPIS")
+        self.assertEqual(result["resourceStructure"]["mpSearchRequests"], 100000)
+        self.assertEqual(result["resourceStructure"]["mpisSearchRequests"], 10000)
         self.assertEqual(result["apiGroups"][0]["searchFailure"], 500)
         self.assertEqual(result["apiGroups"][0]["searchFailureRate"], "5.00")
         self.assertEqual(result["apiGroups"][0]["verifyFailure"], 200)
@@ -134,6 +141,35 @@ class ResourceGovernanceTests(unittest.TestCase):
         )
         self.assertNotIn("SUM(seg_num)", summary_call[0])
         self.assertEqual(summary_call[1][2:], ("API_GROUP", "1A_NDC"))
+
+    def test_gds_mpis_channel_is_quality_scope_and_filters_mpis_groups(self):
+        self.configure_gds()
+        result = module.ResourceGovernanceService({}).overview(
+            "2026-10-14", "2026-10-14", data_source="gds", group_by="platform",
+            filters={"gds": "1A", "resourceChannel": "MPIS"},
+        )
+
+        self.assertFalse(result["ratioApplicable"])
+        self.assertEqual(result["filters"]["resourceChannel"], "MPIS")
+        summary_call = next(
+            call.args for call in self.cursor.execute.call_args_list
+            if "MAX(etl_updated_at)" in call.args[0]
+        )
+        self.assertIn("RIGHT(UPPER(source_api_group), 5) = '_MPIS'", summary_call[0])
+        self.assertIn("metric_scope = %s", summary_call[0])
+        self.assertEqual(summary_call[1][2:4], ("API_GROUP", "1A"))
+
+    def test_gds_resource_channel_dimension_returns_hierarchy_rows(self):
+        self.configure_gds()
+        result = module.ResourceGovernanceService({}).overview(
+            "2026-10-14", "2026-10-14", data_source="gds",
+            group_by="resourceChannel", filters={"gds": "1A"},
+        )
+
+        self.assertEqual(result["dimension"]["label"], "资源通道")
+        self.assertEqual([row["value"] for row in result["dimension"]["rows"]], ["MP", "MPIS"])
+        self.assertTrue(result["dimension"]["rows"][0]["ratioApplicable"])
+        self.assertFalse(result["dimension"]["rows"][1]["ratioApplicable"])
 
     def test_partial_mp_segment_sync_blocks_ratio_and_excess(self):
         self.configure_gds(segment_missing=1)
@@ -219,6 +255,7 @@ class ResourceGovernanceTests(unittest.TestCase):
             {"start_value": "2026-10-15", "end_value": "2026-10-14"},
             {"data_source": "all"},
             {"group_by": "airline"},
+            {"filters": {"resourceChannel": "UNKNOWN"}},
         ):
             with self.assertRaises(ValueError):
                 service.overview(**kwargs)
@@ -254,7 +291,7 @@ class ResourceGovernanceTests(unittest.TestCase):
         workbook = load_workbook(content, read_only=True, data_only=True)
         self.assertEqual(
             workbook.sheetnames,
-            ["管理摘要", "日趋势", "维度对比", "接口分组质量"],
+            ["管理摘要", "日趋势", "维度对比", "资源通道结构", "接口分组质量"],
         )
         summary = dict(workbook["管理摘要"].iter_rows(min_row=2, values_only=True))
         self.assertEqual(summary["MP查询量"], 100000)

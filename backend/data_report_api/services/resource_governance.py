@@ -20,6 +20,8 @@ REQUEST_TABLE_NAME = "bi_ota_gds_request_day"
 DEFAULT_GDS_METRIC_TABLE = "bi_gds_resource_metric_day"
 GDS_MP_SCOPE = "MP_TOTAL"
 GDS_API_GROUP_SCOPE = "API_GROUP"
+GDS_CHANNEL_MP = "MP"
+GDS_CHANNEL_MPIS = "MPIS"
 DATA_SOURCES = {
     "ota": {"value": 0, "label": "OTA"},
     "gds": {"value": 1, "label": "GDS"},
@@ -28,6 +30,7 @@ DIMENSIONS = {
     "platform": {"field": "ota_code", "label": "平台"},
     "site": {"field": "ota_site_code", "label": "站点"},
     "gds": {"field": "gds_code", "label": "GDS"},
+    "resourceChannel": {"field": "source_api_group", "label": "资源通道"},
     "pcc": {"field": "pcc_code", "label": "PCC"},
     "apiGroup": {"field": "source_api_group", "label": "接口分组"},
 }
@@ -169,6 +172,23 @@ def _governance_workbook(result: dict[str, Any]) -> BinaryIO:
     _append_report_sheet(workbook, "维度对比", dimension_headers, dimension_rows)
 
     if result["dataSource"]["key"] == "gds":
+        channel_headers = [
+            "资源通道", "查询占比", "是否参与查定比", "航段数", "查定比",
+            *(label for label, _ in REPORT_COLUMNS),
+        ]
+        channel_rows = []
+        for metric in result.get("resourceChannels", []):
+            ratio = "∞" if metric.get("ratioInfinite") else metric.get("queryToSegmentRatio")
+            channel_rows.append([
+                metric.get("name") or metric.get("value"),
+                metric.get("queryShare"),
+                "是" if metric.get("ratioApplicable") else "否",
+                metric.get("segmentCount"),
+                ratio,
+                *(_report_metric_value(metric, key) for _, key in REPORT_COLUMNS),
+            ])
+        _append_report_sheet(workbook, "资源通道结构", channel_headers, channel_rows)
+
         group_headers = ["接口分组", *(label for label, _ in REPORT_COLUMNS)]
         group_rows = [
             [metric.get("name") or metric.get("value"), *(
@@ -394,6 +414,7 @@ class ResourceGovernanceService:
         source_value: int | None = None,
         metric_scope: str | None = None,
         include_api_group: bool = True,
+        include_resource_channel: bool = True,
         iso_dates: bool = False,
     ) -> tuple[str, list[Any]]:
         clauses = ["operator_date >= %s", "operator_date <= %s"]
@@ -408,10 +429,85 @@ class ResourceGovernanceService:
             clauses.append("metric_scope = %s")
             parameters.append(metric_scope)
         for key, value in cleaned_filters.items():
+            if key == "resourceChannel":
+                if not value or not include_resource_channel:
+                    continue
+                if value == GDS_CHANNEL_MP:
+                    clauses.append("RIGHT(UPPER(source_api_group), 5) <> '_MPIS'")
+                elif value == GDS_CHANNEL_MPIS:
+                    clauses.append("RIGHT(UPPER(source_api_group), 5) = '_MPIS'")
+                continue
             if value and (key != "apiGroup" or include_api_group):
                 clauses.append(f"{FILTER_FIELDS[key]} = %s")
                 parameters.append(value)
         return " AND ".join(clauses), parameters
+
+    def _gds_resource_channels(
+        self,
+        cursor: Any,
+        table: str,
+        first: date,
+        last: date,
+        cleaned_filters: dict[str, str],
+        selected_target: int | None,
+    ) -> list[dict[str, Any]]:
+        """Return mutually exclusive MP/MPIS channel rows for the current business scope."""
+        context_filters = {**cleaned_filters, "resourceChannel": "", "apiGroup": ""}
+        mp_where, mp_params = self._where(
+            first,
+            last,
+            context_filters,
+            metric_scope=GDS_MP_SCOPE,
+            include_api_group=False,
+            include_resource_channel=False,
+            iso_dates=True,
+        )
+        mpis_filters = {**context_filters, "resourceChannel": GDS_CHANNEL_MPIS}
+        mpis_where, mpis_params = self._where(
+            first,
+            last,
+            mpis_filters,
+            metric_scope=GDS_API_GROUP_SCOPE,
+            include_api_group=False,
+            include_resource_channel=True,
+            iso_dates=True,
+        )
+        mp_select = METRIC_SELECT.format(
+            segment_expression="SUM(seg_num)",
+            segment_missing_expression=(
+                "SUM(CASE WHEN segment_missing_flag = 1 OR seg_num IS NULL THEN 1 ELSE 0 END)"
+            ),
+        )
+        interface_select = METRIC_SELECT.format(
+            segment_expression="NULL", segment_missing_expression="NULL"
+        )
+        cursor.execute(
+            f"SELECT 'MP' AS resource_channel, {mp_select} FROM {table} WHERE {mp_where} "
+            "UNION ALL "
+            f"SELECT 'MPIS' AS resource_channel, {interface_select} FROM {table} WHERE {mpis_where}",
+            tuple(mp_params + mpis_params),
+        )
+        raw_rows = cursor.fetchall()
+        rows: list[dict[str, Any]] = []
+        for row in raw_rows:
+            channel = str(row[0])
+            ratio_applicable = channel == GDS_CHANNEL_MP
+            metric = _metric(
+                tuple(row[1:]),
+                True,
+                selected_target if ratio_applicable else None,
+                ratio_applicable,
+            )
+            rows.append({
+                "value": channel,
+                "name": "MP（含普通MP、NDC）" if ratio_applicable else "MPIS",
+                "ratioApplicable": ratio_applicable,
+                **metric,
+            })
+        total_queries = sum(row["searchRequests"] for row in rows)
+        for row in rows:
+            row["queryShare"] = _rate(row["searchRequests"], total_queries)
+        return rows
 
     def _populate_gds(
         self,
@@ -427,9 +523,14 @@ class ResourceGovernanceService:
         table = f"{self.source.database}.{self.gds_metric_table}"
         result["table"] = table
         result["apiGroups"] = []
+        result["resourceChannels"] = []
 
-        # MP_TOTAL是唯一允许携带航段分母的口径；选择接口组后只分析该组接口质量。
-        summary_scope = GDS_API_GROUP_SCOPE if cleaned_filters["apiGroup"] else GDS_MP_SCOPE
+        # MP_TOTAL是唯一允许携带航段分母的口径；MPIS或具体接口组只分析接口质量。
+        summary_scope = (
+            GDS_API_GROUP_SCOPE
+            if cleaned_filters["apiGroup"] or cleaned_filters["resourceChannel"] == GDS_CHANNEL_MPIS
+            else GDS_MP_SCOPE
+        )
         summary_ratio_applicable = summary_scope == GDS_MP_SCOPE
         summary_select = METRIC_SELECT.format(
             segment_expression="SUM(seg_num)" if summary_ratio_applicable else "NULL",
@@ -445,6 +546,7 @@ class ResourceGovernanceService:
             cleaned_filters,
             metric_scope=summary_scope,
             include_api_group=not summary_ratio_applicable,
+            include_resource_channel=not summary_ratio_applicable,
             iso_dates=True,
         )
 
@@ -466,6 +568,20 @@ class ResourceGovernanceService:
             if key == "apiGroup":
                 values.discard(GDS_MP_SCOPE)
             result["options"][key] = sorted(values)
+        result["options"]["resourceChannel"] = [GDS_CHANNEL_MP, GDS_CHANNEL_MPIS]
+
+        result["resourceChannels"] = self._gds_resource_channels(
+            cursor, table, first, last, cleaned_filters, selected_target
+        )
+        channel_map = {row["value"]: row for row in result["resourceChannels"]}
+        mp_queries = channel_map.get(GDS_CHANNEL_MP, {}).get("searchRequests", 0)
+        mpis_queries = channel_map.get(GDS_CHANNEL_MPIS, {}).get("searchRequests", 0)
+        result["resourceStructure"] = {
+            "totalSearchRequests": mp_queries + mpis_queries,
+            "mpSearchRequests": mp_queries,
+            "mpisSearchRequests": mpis_queries,
+            "mpisShare": channel_map.get(GDS_CHANNEL_MPIS, {}).get("queryShare"),
+        }
 
         cursor.execute(
             f"SELECT {summary_select}, MAX(etl_updated_at) FROM {table} WHERE {summary_where}",
@@ -506,7 +622,11 @@ class ResourceGovernanceService:
 
         dimension_scope = (
             GDS_API_GROUP_SCOPE
-            if dimension_key == "apiGroup" or cleaned_filters["apiGroup"]
+            if (
+                dimension_key == "apiGroup"
+                or cleaned_filters["apiGroup"]
+                or cleaned_filters["resourceChannel"] == GDS_CHANNEL_MPIS
+            )
             else GDS_MP_SCOPE
         )
         dimension_ratio_applicable = dimension_scope == GDS_MP_SCOPE
@@ -524,31 +644,35 @@ class ResourceGovernanceService:
             cleaned_filters,
             metric_scope=dimension_scope,
             include_api_group=dimension_scope == GDS_API_GROUP_SCOPE,
+            include_resource_channel=dimension_scope == GDS_API_GROUP_SCOPE,
             iso_dates=True,
         )
-        dimension = DIMENSIONS[dimension_key]
-        dimension_field = dimension["field"]
-        cursor.execute(
-            f"SELECT {dimension_field}, {dimension_select} FROM {table} WHERE {dimension_where} "
-            f"AND {dimension_field} IS NOT NULL AND {dimension_field} <> '' GROUP BY {dimension_field} "
-            "ORDER BY SUM(search_request_count_all) DESC LIMIT 500",
-            tuple(dimension_params),
-        )
         dimension_rows = []
-        for row in cursor.fetchall():
-            value = str(row[0])
-            row_target = (
-                self.gds_targets.get(value.upper())
-                if dimension_ratio_applicable and dimension_key == "gds"
-                else selected_target if dimension_ratio_applicable else None
+        if dimension_key == "resourceChannel":
+            dimension_rows = [dict(row) for row in result["resourceChannels"]]
+        else:
+            dimension = DIMENSIONS[dimension_key]
+            dimension_field = dimension["field"]
+            cursor.execute(
+                f"SELECT {dimension_field}, {dimension_select} FROM {table} WHERE {dimension_where} "
+                f"AND {dimension_field} IS NOT NULL AND {dimension_field} <> '' GROUP BY {dimension_field} "
+                "ORDER BY SUM(search_request_count_all) DESC LIMIT 500",
+                tuple(dimension_params),
             )
-            dimension_rows.append(
-                {
-                    "value": value,
-                    "name": value,
-                    **_metric(tuple(row[1:]), True, row_target, dimension_ratio_applicable),
-                }
-            )
+            for row in cursor.fetchall():
+                value = str(row[0])
+                row_target = (
+                    self.gds_targets.get(value.upper())
+                    if dimension_ratio_applicable and dimension_key == "gds"
+                    else selected_target if dimension_ratio_applicable else None
+                )
+                dimension_rows.append(
+                    {
+                        "value": value,
+                        "name": value,
+                        **_metric(tuple(row[1:]), True, row_target, dimension_ratio_applicable),
+                    }
+                )
         breach_rows = [row for row in dimension_rows if row.get("breach")]
         result["breachObjectCount"] = len(breach_rows)
         result["dimension"]["rows"] = breach_rows if breach_only else dimension_rows
@@ -559,6 +683,7 @@ class ResourceGovernanceService:
             cleaned_filters,
             metric_scope=GDS_API_GROUP_SCOPE,
             include_api_group=True,
+            include_resource_channel=True,
             iso_dates=True,
         )
         group_select = METRIC_SELECT.format(
@@ -705,12 +830,22 @@ class ResourceGovernanceService:
         dimension_key = str(group_by or default_group).strip()
         if dimension_key not in DIMENSIONS:
             raise ValueError("不支持的分析维度")
-        if source_key == "ota" and dimension_key in {"gds", "pcc"}:
+        if source_key == "ota" and dimension_key in {"gds", "pcc", "resourceChannel"}:
             dimension_key = "platform"
         cleaned_filters = {
             key: _clean_filter((filters or {}).get(key)) for key in FILTER_FIELDS
         }
-        ratio_applicable = source_key == "gds" and not cleaned_filters["apiGroup"]
+        if cleaned_filters["resourceChannel"] and cleaned_filters["resourceChannel"] not in {
+            GDS_CHANNEL_MP, GDS_CHANNEL_MPIS
+        }:
+            raise ValueError("资源通道只支持MP或MPIS")
+        if source_key == "ota":
+            cleaned_filters["resourceChannel"] = ""
+        ratio_applicable = (
+            source_key == "gds"
+            and not cleaned_filters["apiGroup"]
+            and cleaned_filters["resourceChannel"] != GDS_CHANNEL_MPIS
+        )
         selected_target = self.gds_targets.get(cleaned_filters["gds"].upper()) if source_key == "gds" and cleaned_filters["gds"] else None
         selected_success_targets = self.ota_targets.get(cleaned_filters["platform"], {}) if source_key == "ota" and cleaned_filters["platform"] else {}
 
@@ -735,12 +870,20 @@ class ResourceGovernanceService:
             "summary": _metric((0,) + (None,) * 17, False, selected_target, ratio_applicable, selected_success_targets),
             "trend": [],
             "apiGroups": [],
+            "resourceChannels": [],
+            "resourceStructure": {
+                "totalSearchRequests": 0,
+                "mpSearchRequests": 0,
+                "mpisSearchRequests": 0,
+                "mpisShare": None,
+            },
             "dimension": {"key": dimension_key, "label": DIMENSIONS[dimension_key]["label"], "rows": []},
             "notes": (
                 [
                     "正式GDS查定比按非MPIS查询量÷航段数重算，分母固定使用seg_num。",
-                    "MP_TOTAL承载正式查定比；API_GROUP承载1A、1A_NDC、1A_MPIS等分组接口质量，两者不会重复累计航段。",
-                    "选择具体接口分组后只分析该组查询、验价和生单成功/失败，查定比显示为不适用。",
+                    "资源层级固定为GDS→MP/MPIS→接口分组；MP包含普通MP和NDC，MPIS独立计算查询占比。",
+                    "MP_TOTAL承载正式查定比；API_GROUP承载普通MP、NDC、MPIS等分组接口质量，两者不会重复累计航段。",
+                    "选择MPIS或具体接口分组后只分析查询、验价和生单质量，查定比显示为不适用。",
                 ]
                 if source_key == "gds"
                 else [

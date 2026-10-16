@@ -1,6 +1,6 @@
 # GDS资源指标服务表数据契约
 
-- 更新日期：2026-10-15
+- 更新日期：2026-10-16
 - 页面读取表：`sibebid.bi_gds_resource_metric_day`
 - 上游请求表：`sibebid.bi_ota_gds_request_day`
 - 上游航段表：`sibebid.bi_issue_segment_pnr_year`
@@ -25,6 +25,8 @@ GDS查定比 = MP查询量 / SUM(seg_num)
 ```
 
 - `1A`、`1A_NDC`计入MP查询量；`1A_MPIS`不计入；1G等其他GDS使用相同规则。
+- 页面分析层级固定为`GDS → 资源通道 → 接口分组`。资源通道按接口组名称派生：以`_MPIS`结尾为`MPIS`，其余为`MP`；因此`1A_NDC`是MP的下级接口组，不与MP平级。
+- `MPIS查询占比 = MPIS查询量 / (MP查询量 + MPIS查询量)`，只用于观察流量迁移，不替代正式查定比。
 - 分母固定来自`bi_issue_segment_pnr_year.seg_num`。
 - `pnr_num`、`iss_num`、`order_num`和接口`order_request_success`不作为查定比分母。
 - 同一完整业务日内，某个细分组合没有航段记录表示该组合航段数为0，不是“未同步”。
@@ -99,7 +101,8 @@ CREATE TABLE sibebid.bi_gds_resource_metric_day (
 |---|---|
 | MP查询量、航段数、查定比、超额查询 | `metric_scope='MP_TOTAL'` |
 | GDS/PCC/平台/站点对比与日趋势 | `metric_scope='MP_TOTAL'` |
-| 1A、1A_NDC、1A_MPIS等接口分组质量 | `metric_scope='API_GROUP'` |
+| MP与MPIS查询量及占比 | `MP_TOTAL`汇总MP，`API_GROUP`汇总`*_MPIS` |
+| 普通MP、NDC、MPIS等接口分组质量 | `metric_scope='API_GROUP'`，在所属资源通道下展示 |
 | 查询/验价/生单失败量 | 页面使用`请求量-成功量`实时计算 |
 | 接口组“分析此项” | `API_GROUP`继续按GDS、PCC、平台、站点下钻 |
 
