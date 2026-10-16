@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -594,7 +594,14 @@ def test_analysis_coverage_applies_business_filters_and_returns_real_workflow_st
     assert "CONCAT_WS" in query
     assert "NULLIF(TRIM(t.order_source),'') IS NULL OR t.order_source=%s" in query
     assert "NULLIF(TRIM(t.route_text),'') IS NULL" in query
-    assert params[:-1] == (date(2026, 10, 15), date(2026, 10, 1), "携程", "EK", "直连订单", "HKG-DXB", "HKG-DXB")
+    assert "coverage_execution.effective_start_at" in query
+    assert "latest_execution.execution_result='SUCCESS'" in query
+    assert "NOT EXISTS" in query
+    assert params[:-1] == (
+        datetime(2026, 10, 16), datetime(2026, 10, 1), datetime(2026, 10, 1),
+        date(2026, 10, 15), date(2026, 10, 1),
+        "携程", "EK", "直连订单", "HKG-DXB", "HKG-DXB",
+    )
     assert params[-1] == 1001
 
 
@@ -612,7 +619,9 @@ def test_analysis_coverage_treats_unrestricted_optional_task_fields_as_wildcards
     assert "(NULLIF(TRIM(t.site_name),'') IS NULL OR t.site_name=%s)" in query
     assert "(NULLIF(TRIM(t.product_type),'') IS NULL OR t.product_type=%s)" in query
     assert params[:-1] == (
-        date(2026, 10, 15), date(2026, 10, 1), "乐游携程一部", "公布转私有",
+        datetime(2026, 10, 16), datetime(2026, 10, 1), datetime(2026, 10, 1),
+        date(2026, 10, 15), date(2026, 10, 1),
+        "乐游携程一部", "公布转私有",
     )
 
 

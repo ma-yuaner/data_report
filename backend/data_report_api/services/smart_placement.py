@@ -697,12 +697,48 @@ class SmartPlacementService:
             raise ValueError("智能综合分析日期范围不正确")
         limit = max(1, min(int(limit), 2000))
         visibility, visibility_params = self._visibility_condition(user)
+        range_start = datetime.combine(first, time.min)
+        range_end_exclusive = datetime.combine(last + timedelta(days=1), time.min)
+        successful_execution = (
+            f"SELECT 1 FROM {self._table(EXECUTION_TABLE)} coverage_execution "
+            "WHERE coverage_execution.task_id=t.id "
+            "AND coverage_execution.execution_result='SUCCESS'"
+        )
         where = [
             "t.is_deleted=0", visibility,
-            "(t.analysis_start_date IS NULL OR t.analysis_start_date<=%s)",
-            "(t.analysis_end_date IS NULL OR t.analysis_end_date>=%s)",
+            f"""(
+                EXISTS (
+                    {successful_execution}
+                    AND coverage_execution.id=(
+                        SELECT MAX(latest_execution.id)
+                        FROM {self._table(EXECUTION_TABLE)} latest_execution
+                        WHERE latest_execution.task_id=t.id
+                          AND latest_execution.execution_result='SUCCESS'
+                    )
+                    AND COALESCE(
+                        coverage_execution.effective_start_at,
+                        coverage_execution.actual_placement_at,
+                        t.monitoring_started_at,
+                        coverage_execution.created_at
+                    ) < %s
+                    AND (coverage_execution.effective_end_at IS NULL OR coverage_execution.effective_end_at >= %s)
+                    AND (t.closed_at IS NULL OR t.closed_at >= %s)
+                )
+                OR (
+                    NOT EXISTS ({successful_execution})
+                    AND (t.analysis_start_date IS NULL OR t.analysis_start_date<=%s)
+                    AND (t.analysis_end_date IS NULL OR t.analysis_end_date>=%s)
+                )
+            )""",
         ]
-        params: list[Any] = [*visibility_params, last, first]
+        params: list[Any] = [
+            *visibility_params,
+            range_end_exclusive,
+            range_start,
+            range_start,
+            last,
+            first,
+        ]
         cleaned = {key: str(value or "").strip() for key, value in (filters or {}).items()}
 
         field_map = {
