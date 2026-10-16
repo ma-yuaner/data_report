@@ -38,6 +38,7 @@ SMART_TASK_TABLE = "smart_placement_task"
 SMART_TASK_LOG_TABLE = "smart_placement_operation_log"
 
 SMART_TEMPLATE = "SMART_PLACEMENT_ORDER"
+SMART_ORDER_SOURCES = frozenset({"平台手工订单", "直连订单"})
 MANUAL_RULE_TEMPLATES = frozenset({
     "ORDER_SEGMENT_THRESHOLD",
     "GDS_QUERY_RATIO_DAILY",
@@ -313,6 +314,7 @@ def _smart_order_time_range(task: dict[str, Any], execution: dict[str, Any]) -> 
         _datetime_bound(task.get("order_start_date")),
         _datetime_bound(execution.get("actual_placement_at")),
         _datetime_bound(execution.get("effective_start_at")),
+        _datetime_bound(execution.get("monitoring_start_at")),
     ]
     ends = [
         _datetime_bound(task.get("order_end_date"), end_of_day=True),
@@ -413,7 +415,7 @@ class MonitorRuleCompiler:
         if not template_id:
             raise MonitoringUnavailable("智能投放监控模板尚未初始化，请先执行monitoring-center-schema.sql")
 
-        effective_start = execution.get("effective_start_at")
+        effective_start = execution.get("monitoring_start_at") or execution.get("effective_start_at")
         effective_end = execution.get("effective_end_at")
         if effective_end and effective_end <= now:
             status = "EXPIRED"
@@ -444,7 +446,12 @@ class MonitorRuleCompiler:
         # therefore use names as their canonical matching dimensions.
         add("platform_name", "EQ", "STRING", platform_name)
         add("site_name", "EQ", "STRING", site_name)
-        add("order_source", "EQ", "STRING", _clean_text(execution.get("order_source") or task.get("order_source")))
+        raw_order_source = execution.get("order_source") if "order_source" in execution else task.get("order_source")
+        order_sources = _split_values(raw_order_source)
+        if len(order_sources) == 1:
+            add("order_source", "EQ", "STRING", order_sources[0])
+        elif order_sources and set(order_sources) != SMART_ORDER_SOURCES:
+            add("order_source", "IN", "STRING_SET", order_sources)
         add("airline_code", "IN", "STRING_SET", _split_values(execution.get("airline_code") or task.get("airline_code")))
         add("departure_location_codes", "OVERLAP", "STRING_SET", _split_values(execution.get("departure_code") or task.get("departure_code")))
         add("arrival_location_codes", "OVERLAP", "STRING_SET", _split_values(execution.get("arrival_code") or task.get("arrival_code")))

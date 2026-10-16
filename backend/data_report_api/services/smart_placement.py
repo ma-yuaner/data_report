@@ -48,7 +48,8 @@ REVIEW_STAGES = {
 REVIEW_RESULTS = frozenset({"APPROVED", "RETURNED", "REJECTED"})
 POLICY_EXECUTABLE_LEVELS = frozenset({"EXECUTABLE", "CONDITIONAL", "NOT_EXECUTABLE"})
 ATTENTION_STATUSES = frozenset({"IN_PROGRESS", "COMPLETED", "NO_ACTION"})
-ORDER_SOURCES = frozenset({"平台手工订单", "直连订单"})
+ORDER_SOURCE_VALUES = ("平台手工订单", "直连订单")
+ORDER_SOURCES = frozenset(ORDER_SOURCE_VALUES)
 TRIP_TYPES = frozenset({"ONE_WAY", "ROUND_TRIP", "MULTI_CITY"})
 SEGMENT_TYPES = frozenset({"直达", "中转"})
 CODE_RE = re.compile(r"^[A-Za-z0-9._:/-]{1,128}$")
@@ -142,11 +143,26 @@ def _bool(value: Any) -> bool:
     return value is True or str(value).lower() in {"1", "true", "yes"}
 
 
-def _order_source(value: Any, name: str = "订单来源") -> str | None:
-    result = _text(value, name, 32) or None
-    if result and result not in ORDER_SOURCES:
+def _order_source_values(value: Any, name: str = "订单来源") -> list[str]:
+    if value in (None, ""):
+        return []
+    if isinstance(value, (list, tuple, set)):
+        raw_values = list(value)
+    else:
+        text = str(value).strip()
+        try:
+            parsed = json.loads(text)
+        except (TypeError, json.JSONDecodeError):
+            parsed = None
+        raw_values = parsed if isinstance(parsed, list) else re.split(r"[,，;；]+", text)
+    cleaned = {str(item).strip() for item in raw_values if str(item).strip()}
+    if cleaned - ORDER_SOURCES:
         raise ValueError(f"{name}只支持平台手工订单或直连订单")
-    return result
+    return [item for item in ORDER_SOURCE_VALUES if item in cleaned]
+
+
+def _order_source(value: Any, name: str = "订单来源") -> str | None:
+    return ",".join(_order_source_values(value, name)) or None
 
 
 def _segment_type(value: Any, name: str = "航段类型") -> str | None:
@@ -652,7 +668,8 @@ class SmartPlacementService:
                 f"""
                 SELECT id, task_no, opportunity_name, opportunity_source,
                        platform_name, site_name, airline_code, departure_code,
-                       arrival_code, route_text, include_cabins, exclude_cabins,
+                       arrival_code, route_text, journey_type, segment_type,
+                       include_cabins, exclude_cabins,
                        product_type, order_source, placement_method, estimated_month_ticket_count,
                        estimated_month_profit_cny, priority, status,
                        current_assignee_id, current_assignee_name, expected_complete_at,
@@ -716,9 +733,9 @@ class SmartPlacementService:
                           AND latest_execution.execution_result='SUCCESS'
                     )
                     AND COALESCE(
+                        t.monitoring_started_at,
                         coverage_execution.effective_start_at,
                         coverage_execution.actual_placement_at,
-                        t.monitoring_started_at,
                         coverage_execution.created_at
                     ) < %s
                     AND (coverage_execution.effective_end_at IS NULL OR coverage_execution.effective_end_at >= %s)
@@ -753,6 +770,9 @@ class SmartPlacementService:
                 continue
             if value == "__NULL__":
                 where.append(f"NULLIF(TRIM({column}),'') IS NULL")
+            elif key == "orderSource":
+                where.append(f"(NULLIF(TRIM({column}),'') IS NULL OR FIND_IN_SET(%s,REPLACE(REPLACE({column},'，',','),' ',''))>0)")
+                params.append(value)
             elif key in wildcard_fields:
                 where.append(f"(NULLIF(TRIM({column}),'') IS NULL OR {column}=%s)")
                 params.append(value)
@@ -1246,6 +1266,7 @@ class SmartPlacementService:
         result = _text(values.get("result"), "投放结果", 16, required=True).upper()
         if result not in {"SUCCESS", "FAILED"}:
             raise ValueError("投放结果不支持")
+        now = _now()
         policy_id = _text(values.get("externalPolicyId"), "外部政策ID", 128, required=result == "SUCCESS")
         if policy_id and not CODE_RE.fullmatch(policy_id):
             raise ValueError("外部政策ID格式不合法")
@@ -1260,8 +1281,9 @@ class SmartPlacementService:
         )
         if long_term:
             effective_end = None
-        if effective_start and effective_end and effective_end <= effective_start:
-            raise ValueError("政策失效时间必须晚于生效时间")
+        monitoring_start = max(now, effective_start) if result == "SUCCESS" and effective_start else None
+        if monitoring_start and effective_end and effective_end <= monitoring_start:
+            raise ValueError("政策失效时间必须晚于最终监控生效时间")
         loss_threshold_min, loss_threshold_max = _loss_thresholds(
             values, required=result == "SUCCESS",
         )
@@ -1282,12 +1304,14 @@ class SmartPlacementService:
         overlap = sorted(set(included_list) & set(excluded_list))
         if overlap:
             raise ValueError(f"实际包含舱位和排除舱位不能重复：{','.join(overlap)}")
+        order_source_supplied = "orderSource" in values
         execution = {
             "external_policy_id": policy_id or None,
             "external_policy_name": _text(values.get("externalPolicyName"), "外部政策名称", 200) or None,
             "actual_placement_at": actual_at,
             "effective_start_at": effective_start,
             "effective_end_at": effective_end,
+            "monitoring_start_at": monitoring_start,
             "platform_code": _code(values.get("platformCode"), "平台编码") or None,
             "platform_name": _text(values.get("platformName"), "平台名称", 100) or None,
             "site_code": _code(values.get("siteCode"), "站点编码") or None,
@@ -1310,7 +1334,6 @@ class SmartPlacementService:
             "execution_note": _text(values.get("executionNote"), "执行说明", 10_000) or None,
         }
         next_status = "MONITORING" if result == "SUCCESS" else "IN_PROGRESS" if retry_required else "FAILED"
-        now = _now()
         connection = cursor = None
         try:
             connection = self.source.connect(); connection.begin(); cursor = connection.cursor()
@@ -1321,6 +1344,7 @@ class SmartPlacementService:
                 raise PermissionError("只能由任务认领人或管理员登记投放结果")
             cursor.execute(f"SELECT COALESCE(MAX(attempt_no),0)+1 FROM {self._table(EXECUTION_TABLE)} WHERE task_id=%s", (task_id,))
             attempt = int(cursor.fetchone()[0])
+            resolved_order_source = execution["order_source"] if order_source_supplied else task.get("order_source")
             cursor.execute(
                 f"""
                 INSERT INTO {self._table(EXECUTION_TABLE)} (
@@ -1352,7 +1376,7 @@ class SmartPlacementService:
                     execution["include_cabins"] or task.get("include_cabins"),
                     execution["exclude_cabins"] or task.get("exclude_cabins"),
                     execution["product_type"] or task.get("product_type"),
-                    execution["order_source"] or task.get("order_source"),
+                    resolved_order_source,
                     execution["loss_threshold_min"] if execution["loss_threshold_min"] is not None else task.get("loss_threshold_min"),
                     execution["loss_threshold_max"] if execution["loss_threshold_max"] is not None else task.get("loss_threshold_max"),
                     execution["long_term_flag"],
@@ -1383,7 +1407,7 @@ class SmartPlacementService:
                     "include_cabins": execution["include_cabins"] or task.get("include_cabins"),
                     "exclude_cabins": execution["exclude_cabins"] or task.get("exclude_cabins"),
                     "product_type": execution["product_type"] or task.get("product_type"),
-                    "order_source": execution["order_source"] or task.get("order_source"),
+                    "order_source": resolved_order_source,
                     "loss_threshold_min": execution["loss_threshold_min"] if execution["loss_threshold_min"] is not None else task.get("loss_threshold_min"),
                     "loss_threshold_max": execution["loss_threshold_max"] if execution["loss_threshold_max"] is not None else task.get("loss_threshold_max"),
                     "long_term_flag": execution["long_term_flag"],
@@ -1403,7 +1427,7 @@ class SmartPlacementService:
                     SET status=%s, monitoring_started_at=%s, closed_at=%s,
                         updated_by_id=%s, updated_by_name=%s,
                         version_no=version_no+1, updated_at=%s WHERE id=%s""",
-                (next_status, now if next_status == "MONITORING" else None, now if next_status == "FAILED" else None, actor[0], actor[1], now, task_id),
+                (next_status, monitoring_start if next_status == "MONITORING" else None, now if next_status == "FAILED" else None, actor[0], actor[1], now, task_id),
             )
             self._log(cursor, task_id=task_id, action="EXECUTE", actor=actor, from_status="IN_PROGRESS", to_status=next_status, note=_text(values.get("executionNote"), "执行说明", 1000) or failure_reason or result, detail={"executionId": execution_id, "result": result, "externalPolicyId": policy_id, "monitorRule": monitor_rule})
             connection.commit()

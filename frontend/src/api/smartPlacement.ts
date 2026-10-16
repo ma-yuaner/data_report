@@ -14,6 +14,8 @@ export interface PlacementTaskRow {
   departureCode: string | null
   arrivalCode: string | null
   routeText: string | null
+  journeyType: string | null
+  segmentType: string | null
   includeCabins: string | null
   excludeCabins: string | null
   productType: string | null
@@ -144,7 +146,7 @@ export interface PlacementTaskInput {
   includeCabins?: string
   excludeCabins?: string
   productType?: string
-  orderSource?: string
+  orderSource?: string[]
   orderStartDate?: string
   orderEndDate?: string
   advanceSaleDays?: number

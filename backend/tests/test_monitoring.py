@@ -97,6 +97,59 @@ def test_smart_placement_compiler_creates_versioned_structured_conditions():
     assert profit_conditions == {("GTE", "-30"), ("LTE", "0")}
 
 
+def test_smart_placement_compiler_treats_both_order_sources_as_unrestricted_and_uses_monitor_start():
+    cursor = MagicMock()
+    cursor.fetchone.return_value = (9,)
+    cursor.lastrowid = 77
+    monitoring_start = datetime(2026, 10, 11, 12, 0)
+    task = {
+        "id": 17,
+        "opportunity_name": "全渠道投放机会",
+        "current_assignee_id": 8,
+        "current_assignee_name": "政策员",
+        "platform_name": "携程",
+        "airline_code": "HO",
+        "order_source": "平台手工订单,直连订单",
+        "order_start_date": "2026-10-01",
+        "order_end_date": "2026-10-31",
+    }
+    execution = {
+        "external_policy_id": "POLICY-ALL",
+        "actual_placement_at": datetime(2026, 10, 11, 10, 0),
+        "effective_start_at": datetime(2026, 10, 11, 9, 0),
+        "monitoring_start_at": monitoring_start,
+        "effective_end_at": datetime(2026, 10, 31, 23, 59),
+        "order_source": "平台手工订单,直连订单",
+    }
+
+    result = MonitorRuleCompiler().sync_smart_placement(
+        cursor=cursor,
+        database="sibebid",
+        task=task,
+        execution_id=31,
+        attempt_no=1,
+        execution=execution,
+        actor=(8, "政策员", "POLICY_OPERATOR"),
+        now=monitoring_start,
+    )
+
+    assert result["ruleStatus"] == "ACTIVE"
+    condition_params = [
+        call.args[1]
+        for call in cursor.execute.call_args_list
+        if "monitor_rule_condition" in call.args[0]
+    ]
+    assert "order_source" not in {params[3] for params in condition_params}
+    order_time = next(params for params in condition_params if params[3] == "order_time")
+    assert json.loads(order_time[6])[0] == "2026-10-11T12:00:00"
+    rule_insert = next(
+        call.args[1]
+        for call in cursor.execute.call_args_list
+        if "INSERT INTO sibebid.monitor_rule (" in call.args[0]
+    )
+    assert rule_insert[12] == monitoring_start
+
+
 def test_diagnostic_condition_comparison_covers_name_source_and_time():
     assert _compare_condition("携程", "EQ", "携程")
     assert not _compare_condition("直连订单", "EQ", "平台手工订单")

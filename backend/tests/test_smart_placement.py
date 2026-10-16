@@ -82,6 +82,21 @@ def test_create_task_persists_separate_scope_and_excluded_cabins():
     connection.commit.assert_called_once()
 
 
+def test_create_task_normalizes_multiple_order_sources():
+    service, connection, cursor = service_with_cursor()
+    cursor.lastrowid = 19
+
+    result = service.create_task(
+        {"id": 3, "display_name": "数据分析员", "permissions": ["smart_placement.create"]},
+        task_payload(orderSource=["直连订单", "平台手工订单"]),
+    )
+
+    assert result["id"] == 19
+    insert_params = cursor.execute.call_args_list[0].args[1]
+    assert "平台手工订单,直连订单" in insert_params
+    connection.commit.assert_called_once()
+
+
 def test_create_task_rejects_overlapping_cabin_rules_before_database_access():
     service, _connection, _cursor = service_with_cursor()
 
@@ -444,7 +459,9 @@ def test_failed_execution_retry_requires_next_handle_time_before_database_access
     service.source.connect.assert_not_called()
 
 
-def test_successful_execution_compiles_monitor_rule_in_same_transaction():
+def test_successful_execution_compiles_monitor_rule_in_same_transaction(monkeypatch):
+    registered_at = datetime(2026, 10, 11, 12, 0)
+    monkeypatch.setattr(smart_placement_module, "_now", lambda: registered_at)
     source = MagicMock()
     source.database = "sibebid"
     connection = source.connect.return_value
@@ -460,6 +477,7 @@ def test_successful_execution_compiles_monitor_rule_in_same_transaction():
             "platform_code": "CTRIP",
             "platform_name": "携程",
             "airline_code": "HO",
+            "order_source": "平台手工订单",
         },
         (1,),
     ]
@@ -482,6 +500,7 @@ def test_successful_execution_compiles_monitor_rule_in_same_transaction():
             "actualPlacementAt": "2026-10-11 10:00:00",
             "effectiveStartAt": "2026-10-11 10:00:00",
             "longTerm": True,
+            "orderSource": [],
             "segmentType": "直达",
             "lossThresholdMin": 0,
             "lossThresholdMax": 30,
@@ -491,13 +510,41 @@ def test_successful_execution_compiles_monitor_rule_in_same_transaction():
     assert result["status"] == "MONITORING"
     assert result["monitorRule"]["ruleCode"] == "SPM-17-31"
     compiler.sync_smart_placement.assert_called_once()
-    assert compiler.sync_smart_placement.call_args.kwargs["execution"]["effective_end_at"] is None
+    compiled_execution = compiler.sync_smart_placement.call_args.kwargs["execution"]
+    assert compiled_execution["effective_end_at"] is None
+    assert compiled_execution["monitoring_start_at"] == registered_at
+    assert compiled_execution["order_source"] is None
     insert_query, insert_params = next(
         call.args for call in cursor.execute.call_args_list
         if "INSERT INTO sibebid.smart_placement_execution" in call.args[0]
     )
     assert insert_query.count("%s") == len(insert_params)
     connection.commit.assert_called_once()
+
+
+def test_successful_execution_rejects_policy_that_expires_before_monitoring_can_start(monkeypatch):
+    service, _connection, _cursor = service_with_cursor()
+    monkeypatch.setattr(
+        smart_placement_module, "_now",
+        lambda: datetime(2026, 10, 11, 12, 0),
+    )
+
+    with pytest.raises(ValueError, match="最终监控生效时间"):
+        service.register_execution(
+            {"id": 3, "display_name": "政策员", "permissions": ["smart_placement.execute"]},
+            17,
+            {
+                "result": "SUCCESS",
+                "externalPolicyId": "POLICY-002",
+                "actualPlacementAt": "2026-10-11 10:00:00",
+                "effectiveStartAt": "2026-10-11 10:00:00",
+                "effectiveEndAt": "2026-10-11 11:00:00",
+                "lossThresholdMin": 0,
+                "lossThresholdMax": 30,
+            },
+        )
+
+    service.source.connect.assert_not_called()
 
 
 def test_list_orders_returns_real_summary_and_rows():
@@ -631,7 +678,7 @@ def test_analysis_coverage_applies_business_filters_and_returns_real_workflow_st
     assert "t.platform_name=%s" in query
     assert "t.airline_code=%s" in query
     assert "CONCAT_WS" in query
-    assert "NULLIF(TRIM(t.order_source),'') IS NULL OR t.order_source=%s" in query
+    assert "FIND_IN_SET(%s,REPLACE(REPLACE(t.order_source,'，',','),' ',''))>0" in query
     assert "NULLIF(TRIM(t.route_text),'') IS NULL" in query
     assert "coverage_execution.effective_start_at" in query
     assert "latest_execution.execution_result='SUCCESS'" in query
