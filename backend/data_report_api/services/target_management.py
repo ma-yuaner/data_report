@@ -104,11 +104,21 @@ class TargetManagementService:
         mysql_config["DATA_MODE"] = "mysql"
         self.source = source or DataSource(mysql_config)
         self.database = self.source.database
-        self.roster_database = str(config.get("ERP_ROSTER_DATABASE", "sibebd")).strip()
+        self.roster_database = str(config.get("ERP_ROSTER_DATABASE", "sibedb")).strip()
         self.roster_user_table = str(config.get("ERP_ROSTER_USER_TABLE", "rbac_user")).strip()
         self.roster_org_table = str(config.get("ERP_ROSTER_ORG_TABLE", "rbac_organization")).strip()
         self.platform_database = str(config.get("ERP_PLATFORM_DATABASE", "sibelog")).strip()
         self.platform_table = str(config.get("ERP_PLATFORM_TABLE", "sibe_ota")).strip()
+        roster_mysql_config = dict(mysql_config)
+        roster_mysql_config.update({
+            "MYSQL_HOST": config.get("ERP_ROSTER_MYSQL_HOST") or config.get("MYSQL_HOST"),
+            "MYSQL_PORT": config.get("ERP_ROSTER_MYSQL_PORT") or config.get("MYSQL_PORT", 3306),
+            "MYSQL_DATABASE": self.roster_database,
+            "MYSQL_USER": config.get("ERP_ROSTER_MYSQL_USER") or config.get("MYSQL_USER"),
+            "MYSQL_PASSWORD": config.get("ERP_ROSTER_MYSQL_PASSWORD") or config.get("MYSQL_PASSWORD"),
+            "MYSQL_CHARSET": config.get("ERP_ROSTER_MYSQL_CHARSET") or config.get("MYSQL_CHARSET", "utf8mb4"),
+        })
+        self.roster_source = DataSource(roster_mysql_config)
         for value in (
             self.roster_database, self.roster_user_table, self.roster_org_table,
             self.platform_database, self.platform_table,
@@ -134,6 +144,65 @@ class TargetManagementService:
     @property
     def _platforms(self) -> str:
         return self._qualified(self.platform_database, self.platform_table)
+
+    def _roster_options(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        import pymysql
+
+        connection = None
+        try:
+            connection = self.roster_source.connect()
+            with connection.cursor(pymysql.cursors.DictCursor) as cursor:
+                cursor.execute(
+                    f"""SELECT ru.id, '' AS username,
+                               ru.cname AS name, coalesce(ru.wechat_id, '') AS wechat_id,
+                               coalesce(ro.org_code, '') AS department_code,
+                               coalesce(ro.org_cname, '') AS department_name
+                        FROM {self._roster_users} ru
+                        LEFT JOIN {self._roster_orgs} ro ON ro.id=ru.org_id
+                        WHERE ru.enabled=1 AND coalesce(ru.cname, '')<>''
+                        ORDER BY ro.org_cname, ru.cname, ru.id"""
+                )
+                employees = [{
+                    "id": int(row["id"]), "username": str(row["username"] or ""),
+                    "name": str(row["name"]), "wechatId": str(row["wechat_id"] or ""),
+                    "hasNotificationIdentity": bool(row["wechat_id"]),
+                    "departmentCode": str(row["department_code"] or ""),
+                    "departmentName": str(row["department_name"] or ""),
+                    "source": f"{self.roster_database}.{self.roster_user_table}",
+                } for row in cursor.fetchall()]
+            seen_departments: set[str] = set()
+            departments: list[dict[str, Any]] = []
+            for employee in employees:
+                code = employee["departmentCode"]
+                if code and code not in seen_departments:
+                    seen_departments.add(code)
+                    departments.append({"code": code, "name": employee["departmentName"] or code})
+            return employees, departments
+        finally:
+            if connection is not None:
+                connection.close()
+
+    def _roster_owner(self, owner_user_id: int) -> dict[str, Any] | None:
+        import pymysql
+
+        connection = None
+        try:
+            connection = self.roster_source.connect()
+            with connection.cursor(pymysql.cursors.DictCursor) as cursor:
+                cursor.execute(
+                    f"""SELECT ru.id, ru.cname AS owner_name,
+                               coalesce(ro.org_code, '') AS department_code,
+                               coalesce(ro.org_cname, '') AS department_name
+                        FROM {self._roster_users} ru
+                        LEFT JOIN {self._roster_orgs} ro ON ro.id=ru.org_id
+                        WHERE ru.id=%s AND ru.enabled=1 LIMIT 1""",
+                    (owner_user_id,),
+                )
+                row = cursor.fetchone()
+                return dict(row) if row else None
+        finally:
+            if connection is not None:
+                connection.close()
 
     def metrics(self, user: dict[str, Any]) -> dict[str, Any]:
         _require(user, VIEW_PERMISSION, "当前账号没有目标管理查看权限")
@@ -201,39 +270,6 @@ class TargetManagementService:
                         WHERE coalesce(gds_code, '') <> '' GROUP BY gds_code ORDER BY gds_code"""
                 )
                 gds = [{"code": str(row["code"]), "name": str(row["code"])} for row in cursor.fetchall()]
-                roster_available = True
-                roster_message = ""
-                employees: list[dict[str, Any]] = []
-                roster_departments: list[dict[str, Any]] = []
-                try:
-                    cursor.execute(
-                        f"""SELECT ru.id, '' AS username,
-                                   ru.cname AS name, coalesce(ru.wechat_id, '') AS wechat_id,
-                                   coalesce(ro.org_code, '') AS department_code,
-                                   coalesce(ro.org_cname, '') AS department_name
-                            FROM {self._roster_users} ru
-                            LEFT JOIN {self._roster_orgs} ro ON ro.id=ru.org_id
-                            WHERE ru.enabled=1 AND coalesce(ru.cname, '')<>''
-                            ORDER BY ro.org_cname, ru.cname, ru.id"""
-                    )
-                    employees = [{
-                        "id": int(row["id"]), "username": str(row["username"] or ""),
-                        "name": str(row["name"]), "wechatId": str(row["wechat_id"] or ""),
-                        "hasNotificationIdentity": bool(row["wechat_id"]),
-                        "departmentCode": str(row["department_code"] or ""),
-                        "departmentName": str(row["department_name"] or ""),
-                        "source": f"{self.roster_database}.{self.roster_user_table}",
-                    } for row in cursor.fetchall()]
-                    seen_departments: set[str] = set()
-                    for employee in employees:
-                        code = employee["departmentCode"]
-                        if code and code not in seen_departments:
-                            seen_departments.add(code)
-                            roster_departments.append({"code": code, "name": employee["departmentName"] or code})
-                except Exception as roster_error:
-                    roster_available = False
-                    roster_message = "ERP花名册暂不可读，请为应用数据库账号授予rbac_user和rbac_organization只读权限"
-                    LOGGER.warning("ERP roster unavailable for target options: %s", roster_error)
                 cursor.execute(
                     f"""SELECT department_code AS code, max(department_name_snapshot) AS name
                         FROM (
@@ -244,9 +280,6 @@ class TargetManagementService:
                         GROUP BY department_code ORDER BY name, code"""
                 )
                 configured_departments = [{"code": row["code"], "name": row["name"] or row["code"]} for row in cursor.fetchall()]
-                departments_by_code = {str(item["code"]): item for item in configured_departments}
-                departments_by_code.update({str(item["code"]): item for item in roster_departments})
-                departments = sorted(departments_by_code.values(), key=lambda item: (str(item["name"]), str(item["code"])))
                 cursor.execute(
                     f"""SELECT policy_group_code AS code, max(policy_group_name_snapshot) AS name
                         FROM {self._table('biz_target_item')}
@@ -254,6 +287,19 @@ class TargetManagementService:
                         GROUP BY policy_group_code ORDER BY name, code"""
                 )
                 policies = [{"code": row["code"], "name": row["name"] or row["code"]} for row in cursor.fetchall()]
+            roster_available = True
+            roster_message = ""
+            employees: list[dict[str, Any]] = []
+            roster_departments: list[dict[str, Any]] = []
+            try:
+                employees, roster_departments = self._roster_options()
+            except Exception as roster_error:
+                roster_available = False
+                roster_message = "ERP花名册暂不可读，请检查sibedb独立连接及rbac_user、rbac_organization只读权限"
+                LOGGER.warning("ERP roster unavailable for target options: %s", roster_error)
+            departments_by_code = {str(item["code"]): item for item in configured_departments}
+            departments_by_code.update({str(item["code"]): item for item in roster_departments})
+            departments = sorted(departments_by_code.values(), key=lambda item: (str(item["name"]), str(item["code"])))
             return {
                 "available": True, "platforms": platforms, "gds": gds,
                 "users": employees, "employees": employees, "departments": departments,
@@ -374,7 +420,7 @@ class TargetManagementService:
                 configured = self._dashboard_target_rows(cursor, scene, start, end)
                 public_targets = self._public_rows(scene, period, configured)
                 metric_rows = self._dashboard_metric_rows(cursor, scene, start, end)
-                roster = self._dashboard_roster(cursor)
+                roster = self._dashboard_roster()
 
                 if scene == "PLATFORM":
                     cursor.execute(
@@ -475,20 +521,28 @@ class TargetManagementService:
         )
         return [dict(row) for row in cursor.fetchall()]
 
-    def _dashboard_roster(self, cursor: Any) -> dict[int, dict[str, Any]]:
+    def _dashboard_roster(self) -> dict[int, dict[str, Any]]:
+        import pymysql
+
+        connection = None
         try:
-            cursor.execute(
-                f"""SELECT ru.id, coalesce(ru.wechat_id, '') AS wechat_id,
-                           coalesce(ro.org_code, '') AS department_code,
-                           coalesce(ro.org_cname, '') AS department_name
-                    FROM {self._roster_users} ru
-                    LEFT JOIN {self._roster_orgs} ro ON ro.id=ru.org_id
-                    WHERE ru.enabled=1"""
-            )
-            return {int(row["id"]): dict(row) for row in cursor.fetchall()}
+            connection = self.roster_source.connect()
+            with connection.cursor(pymysql.cursors.DictCursor) as cursor:
+                cursor.execute(
+                    f"""SELECT ru.id, coalesce(ru.wechat_id, '') AS wechat_id,
+                               coalesce(ro.org_code, '') AS department_code,
+                               coalesce(ro.org_cname, '') AS department_name
+                        FROM {self._roster_users} ru
+                        LEFT JOIN {self._roster_orgs} ro ON ro.id=ru.org_id
+                        WHERE ru.enabled=1"""
+                )
+                return {int(row["id"]): dict(row) for row in cursor.fetchall()}
         except Exception as error:
             LOGGER.warning("ERP roster unavailable for target dashboard: %s", error)
             return {}
+        finally:
+            if connection is not None:
+                connection.close()
 
     @staticmethod
     def _metric_index(metric_rows: list[dict[str, Any]]) -> dict[str, dict[str, list[dict[str, Any]]]]:
@@ -722,34 +776,26 @@ class TargetManagementService:
             policy_name = _text(values.get("policyGroupName"), "政策员/政策组", required=True, maximum=150)
             policy_code = _text(values.get("policyGroupCode"), "政策组编码", maximum=100) or _stable_code("POLICY", policy_name)
 
+        try:
+            roster_owner = self._roster_owner(owner_user_id)
+        except Exception as roster_error:
+            raise TargetManagementUnavailable(
+                "ERP花名册不可读，无法校验责任人及归属部门"
+            ) from roster_error
+        if not roster_owner:
+            raise ValueError("所选责任人不在有效ERP花名册中")
+        owner_name = str(roster_owner["owner_name"] or "").strip()
+        department_code = str(roster_owner["department_code"] or "").strip()
+        department_name = str(roster_owner["department_name"] or "").strip()
+        if not department_code or not department_name:
+            raise ValueError("所选责任人未关联归属部门，请先补全ERP花名册")
+
         import pymysql
         connection = cursor = None
         try:
             connection = self.source.connect()
             connection.begin()
             cursor = connection.cursor(pymysql.cursors.DictCursor)
-            try:
-                cursor.execute(
-                    f"""SELECT ru.id, ru.cname AS owner_name,
-                               coalesce(ro.org_code, '') AS department_code,
-                               coalesce(ro.org_cname, '') AS department_name
-                        FROM {self._roster_users} ru
-                        LEFT JOIN {self._roster_orgs} ro ON ro.id=ru.org_id
-                        WHERE ru.id=%s AND ru.enabled=1 LIMIT 1""",
-                    (owner_user_id,),
-                )
-            except Exception as roster_error:
-                raise TargetManagementUnavailable(
-                    "ERP花名册不可读，无法校验责任人及归属部门"
-                ) from roster_error
-            roster_owner = cursor.fetchone()
-            if not roster_owner:
-                raise ValueError("所选责任人不在有效ERP花名册中")
-            owner_name = str(roster_owner["owner_name"] or "").strip()
-            department_code = str(roster_owner["department_code"] or "").strip()
-            department_name = str(roster_owner["department_name"] or "").strip()
-            if not department_code or not department_name:
-                raise ValueError("所选责任人未关联归属部门，请先补全ERP花名册")
             if scene == "PLATFORM":
                 cursor.execute(
                     f"""SELECT ota_code, ota_cname FROM {self._platforms}

@@ -8,6 +8,31 @@ def service() -> TargetManagementService:
     return TargetManagementService.__new__(TargetManagementService)
 
 
+class MainSource:
+    database = "sibebid"
+
+
+def test_roster_can_use_an_independent_mysql_connection():
+    instance = TargetManagementService({
+        "DATA_MODE": "mysql",
+        "MYSQL_HOST": "main.example",
+        "MYSQL_PORT": 3306,
+        "MYSQL_DATABASE": "sibebid",
+        "MYSQL_USER": "main_user",
+        "MYSQL_PASSWORD": "main_password",
+        "ERP_ROSTER_MYSQL_HOST": "roster.example",
+        "ERP_ROSTER_MYSQL_PORT": 63306,
+        "ERP_ROSTER_MYSQL_USER": "roster_user",
+        "ERP_ROSTER_MYSQL_PASSWORD": "roster_password",
+        "ERP_ROSTER_DATABASE": "sibedb",
+    }, source=MainSource())
+
+    assert instance.database == "sibebid"
+    assert instance.roster_source.database == "sibedb"
+    assert instance.roster_source.config["MYSQL_HOST"] == "roster.example"
+    assert instance.roster_source.config["MYSQL_USER"] == "roster_user"
+
+
 def test_metric_value_keeps_missing_distinct_from_real_zero():
     rows = [{"business_date": date(2026, 10, 1), "actual_value": 0}]
 

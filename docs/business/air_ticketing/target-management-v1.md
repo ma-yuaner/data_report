@@ -68,7 +68,7 @@
 
 - `GET /api/v1/business-configuration/targets`：按场景、月份、状态和关键词查询目标与最新进度；
 - `GET /api/v1/business-configuration/targets/metrics`：读取已启用指标口径；
-- `GET /api/v1/business-configuration/targets/options`：平台读取ERP`sibelog.sibe_ota`，责任人及企业微信身份读取`sibebd.rbac_user`，归属部门通过`rbac_user.org_id` 关联`sibebd.rbac_organization`；
+- `GET /api/v1/business-configuration/targets/options`：平台读取ERP`sibelog.sibe_ota`；责任人及企业微信身份通过独立花名册连接读取`sibedb.rbac_user`，归属部门通过`rbac_user.org_id`关联`sibedb.rbac_organization`；
 - `POST /api/v1/business-configuration/targets`：事务性新建或更新目标计划与明细。
 - `GET /api/v1/business-configuration/target-progress`：按场景、月份和关键词读取只读进度看板；平台场景始终以ERP全量有效平台为底表。
 
@@ -78,9 +78,9 @@
 
 ```sql
 GRANT SELECT (`id`, `cname`, `wechat_id`, `org_id`, `enabled`)
-ON `sibebd`.`rbac_user` TO 'app_user'@'%';
+ON `sibedb`.`rbac_user` TO 'app_user'@'%';
 GRANT SELECT (`id`, `org_code`, `org_cname`)
-ON `sibebd`.`rbac_organization` TO 'app_user'@'%';
+ON `sibedb`.`rbac_organization` TO 'app_user'@'%';
 GRANT SELECT (`ota_code`, `ota_cname`, `ota_full_cname`, `status`, `start_time`, `end_time`, `sort_seq`)
 ON `sibelog`.`sibe_ota` TO 'app_user'@'%';
 ```

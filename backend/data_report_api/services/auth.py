@@ -1646,7 +1646,7 @@ class AuthManager:
 
     def _roster_location(self) -> tuple[str, str]:
         return (
-            str(self.config.get("ERP_ROSTER_DATABASE", "sibebd")).strip(),
+            str(self.config.get("ERP_ROSTER_DATABASE", "sibedb")).strip(),
             str(self.config.get("ERP_ROSTER_TABLE", "system_user")).strip(),
         )
 
