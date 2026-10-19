@@ -87,6 +87,9 @@ PERMISSION_CATALOG = (
     {"code": "monitor.action.view", "name": "查看技术工单", "description": "查看资源限流、下线与恢复工单及技术回执", "menuCode": "monitor.center"},
     {"code": "monitor.action.manage", "name": "处理技术工单", "description": "接单、执行并回写资源限流、下线与恢复结果", "menuCode": "monitor.center"},
     {"code": "monitor.run.view", "name": "查看监控运行日志", "description": "查看采集、匹配和通知任务运行情况", "menuCode": "monitor.center"},
+    {"code": "business_config.targets.view", "name": "查看目标配置", "description": "查看平台、GDS、部门与政策员目标配置", "menuCode": "business_config.targets"},
+    {"code": "business_config.targets.manage", "name": "管理业务目标", "description": "新建、编辑或暂停业务目标配置", "menuCode": "business_config.targets"},
+    {"code": "business_config.target_progress.view", "name": "查看目标进度", "description": "查看月度目标完成、利润、亏损与趋势", "menuCode": "business_config.target_progress"},
 )
 MENU_CATALOG = (
     {"code": "governance.gds", "name": "GDS资源治理", "description": "GDS、PCC查询量、航段数与查定比分析", "groupCode": "governance", "groupName": "资源治理"},
@@ -117,6 +120,8 @@ MENU_CATALOG = (
     {"code": "smart.details", "name": "出票明细", "description": "查看一票一行的智能出票记录", "groupCode": "smart", "groupName": "智能分析"},
     {"code": "smart.placement.policies", "name": "投放政策", "description": "投放机会、审核、认领与登记", "groupCode": "smart", "groupName": "智能分析"},
     {"code": "smart.placement.orders", "name": "收单情况", "description": "政策命中订单与关注处理", "groupCode": "smart", "groupName": "智能分析"},
+    {"code": "business_config.targets", "name": "目标配置", "description": "配置平台、GDS、部门与政策员月度目标", "groupCode": "business_config", "groupName": "业务配置"},
+    {"code": "business_config.target_progress", "name": "目标进度", "description": "查看月度目标完成、利润、亏损与趋势", "groupCode": "business_config", "groupName": "业务配置"},
     {"code": "monitor.center", "name": "监控中心", "description": "通用规则、告警事件与任务运行监控", "groupCode": "monitor", "groupName": "监控中心"},
     {"code": "problems", "name": "问题中心", "description": "经营问题跟踪", "groupCode": "problems", "groupName": "问题中心"},
     {"code": "data_assets", "name": "数据资产", "description": "数据资产目录", "groupCode": "data_assets", "groupName": "数据资产"},
@@ -1704,7 +1709,7 @@ class AuthManager:
 
     def _roster_location(self) -> tuple[str, str]:
         return (
-            str(self.config.get("ERP_ROSTER_DATABASE", "sibebd")).strip(),
+            str(self.config.get("ERP_ROSTER_DATABASE", "sibedb")).strip(),
             str(self.config.get("ERP_ROSTER_TABLE", "system_user")).strip(),
         )
 

@@ -156,6 +156,22 @@ def test_details_use_detail_table_stage_flags_and_selected_fields(source):
     assert "row_number()" not in queries[-1].lower()
 
 
+def test_detail_ota_order_number_is_an_exact_bound_filter(source):
+    cursor = source.connect.return_value.cursor.return_value
+    cursor.fetchone.return_value = (0, 0, None, None)
+    cursor.fetchall.return_value = []
+
+    module.SmartAnalysisService({}, source=source).details(
+        start_value="2026-10-09", end_value="2026-10-09",
+        filters={"otaOrderNo": "OTA-20261009-001"},
+    )
+
+    query, params = cursor.execute.call_args_list[0].args
+    assert "nullif(trim(src.ota_order_no), '') = %s" in query
+    assert "OTA-20261009-001" not in query
+    assert params[-1] == "OTA-20261009-001"
+
+
 def test_detail_unused_stage_includes_null_smart_confirm(source):
     cursor = source.connect.return_value.cursor.return_value
     cursor.fetchone.return_value = (0, 0, None, None)

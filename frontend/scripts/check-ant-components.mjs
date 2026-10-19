@@ -25,7 +25,7 @@ const componentByTag = {
   'a-row': 'Row', 'a-segmented': 'Segmented', 'a-select': 'Select',
   'a-space': 'Space', 'a-spin': 'Spin', 'a-steps': 'Steps', 'a-switch': 'Switch',
   'a-table': 'Table', 'a-table-column': 'Table', 'a-tab-pane': 'Tabs', 'a-tabs': 'Tabs', 'a-tag': 'Tag',
-  'a-timeline': 'Timeline',
+  'a-timeline': 'Timeline', 'a-tooltip': 'Tooltip',
 }
 
 const vueFiles = []

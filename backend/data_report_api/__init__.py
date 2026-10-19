@@ -61,6 +61,8 @@ def required_menu_code(path: str) -> str | None:
         "/api/v1/smart-analysis/exports/details",
     )):
         return "smart.details"
+    if path.startswith("/api/v1/smart-analysis/templates"):
+        return "smart"
     if path.startswith("/api/v1/smart-analysis/filter-options"):
         return "smart"
     if path.startswith("/api/v1/smart-placement/orders"):
@@ -69,6 +71,10 @@ def required_menu_code(path: str) -> str | None:
         return "smart.placement.policies"
     if path.startswith("/api/v1/monitoring"):
         return "monitor.center"
+    if path.startswith("/api/v1/business-configuration/target-progress"):
+        return "business_config.target_progress"
+    if path.startswith("/api/v1/business-configuration/targets"):
+        return "business_config.targets"
     if path.startswith("/api/v1/problems/") or path == "/api/v1/issues":
         return "problems"
     if path.startswith("/api/v1/assets/"):

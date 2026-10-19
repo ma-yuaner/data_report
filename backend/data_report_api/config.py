@@ -28,16 +28,36 @@ class Config:
     MYSQL_POOL_SIZE = int(os.getenv("MYSQL_POOL_SIZE", "12"))
     MYSQL_POOL_MIN_CACHED = int(os.getenv("MYSQL_POOL_MIN_CACHED", "2"))
     MYSQL_TIME_ZONE = os.getenv("MYSQL_TIME_ZONE", "+08:00")
-    ERP_MYSQL_HOST = os.getenv("ERP_MYSQL_HOST", "").strip() or MYSQL_HOST
-    ERP_MYSQL_PORT = int(os.getenv("ERP_MYSQL_PORT", "").strip() or MYSQL_PORT)
+    ERP_MYSQL_HOST = (
+        os.getenv("ERP_MYSQL_HOST", "").strip()
+        or os.getenv("ERP_ROSTER_MYSQL_HOST", "").strip()
+        or MYSQL_HOST
+    )
+    ERP_MYSQL_PORT = int(
+        os.getenv("ERP_MYSQL_PORT", "").strip()
+        or os.getenv("ERP_ROSTER_MYSQL_PORT", "").strip()
+        or MYSQL_PORT
+    )
     ERP_MYSQL_DATABASE = (
         os.getenv("ERP_MYSQL_DATABASE", "").strip()
         or os.getenv("ERP_ROSTER_DATABASE", "").strip()
         or "sibebd"
     )
-    ERP_MYSQL_USER = os.getenv("ERP_MYSQL_USER", "").strip() or MYSQL_USER
-    ERP_MYSQL_PASSWORD = os.getenv("ERP_MYSQL_PASSWORD", "") or MYSQL_PASSWORD
-    ERP_MYSQL_CHARSET = os.getenv("ERP_MYSQL_CHARSET", "").strip() or MYSQL_CHARSET
+    ERP_MYSQL_USER = (
+        os.getenv("ERP_MYSQL_USER", "").strip()
+        or os.getenv("ERP_ROSTER_MYSQL_USER", "").strip()
+        or MYSQL_USER
+    )
+    ERP_MYSQL_PASSWORD = (
+        os.getenv("ERP_MYSQL_PASSWORD", "")
+        or os.getenv("ERP_ROSTER_MYSQL_PASSWORD", "")
+        or MYSQL_PASSWORD
+    )
+    ERP_MYSQL_CHARSET = (
+        os.getenv("ERP_MYSQL_CHARSET", "").strip()
+        or os.getenv("ERP_ROSTER_MYSQL_CHARSET", "").strip()
+        or MYSQL_CHARSET
+    )
     ERP_MYSQL_CONNECT_TIMEOUT = int(
         os.getenv("ERP_MYSQL_CONNECT_TIMEOUT", "").strip() or MYSQL_CONNECT_TIMEOUT
     )
@@ -51,8 +71,33 @@ class Config:
     ERP_MYSQL_POOL_MIN_CACHED = int(
         os.getenv("ERP_MYSQL_POOL_MIN_CACHED", "").strip() or "1"
     )
-    ERP_ROSTER_DATABASE = os.getenv("ERP_ROSTER_DATABASE", ERP_MYSQL_DATABASE)
+    ERP_ROSTER_MYSQL_HOST = os.getenv("ERP_ROSTER_MYSQL_HOST", "").strip() or ERP_MYSQL_HOST
+    ERP_ROSTER_MYSQL_PORT = int(
+        os.getenv("ERP_ROSTER_MYSQL_PORT", "").strip() or ERP_MYSQL_PORT
+    )
+    ERP_ROSTER_MYSQL_USER = os.getenv("ERP_ROSTER_MYSQL_USER", "").strip() or ERP_MYSQL_USER
+    ERP_ROSTER_MYSQL_PASSWORD = os.getenv("ERP_ROSTER_MYSQL_PASSWORD", "") or ERP_MYSQL_PASSWORD
+    ERP_ROSTER_MYSQL_CHARSET = os.getenv("ERP_ROSTER_MYSQL_CHARSET", "").strip() or ERP_MYSQL_CHARSET
+    ERP_ROSTER_DATABASE = os.getenv("ERP_ROSTER_DATABASE", "").strip() or ERP_MYSQL_DATABASE
     ERP_ROSTER_TABLE = os.getenv("ERP_ROSTER_TABLE", "system_user")
+    ERP_ROSTER_USER_TABLE = os.getenv("ERP_ROSTER_USER_TABLE", "system_user")
+    ERP_ROSTER_USER_DEPARTMENT_TABLE = os.getenv(
+        "ERP_ROSTER_USER_DEPARTMENT_TABLE", "system_user_department"
+    )
+    ERP_ROSTER_ORG_TABLE = os.getenv("ERP_ROSTER_ORG_TABLE", "base_organization")
+    # 目标进度ETL的ERP业务明细库；未单独配置时复用同一sibedb连接。
+    TARGET_ERP_MYSQL_HOST = os.getenv("TARGET_ERP_MYSQL_HOST", ERP_ROSTER_MYSQL_HOST)
+    TARGET_ERP_MYSQL_PORT = int(os.getenv("TARGET_ERP_MYSQL_PORT", str(ERP_ROSTER_MYSQL_PORT)))
+    TARGET_ERP_MYSQL_USER = os.getenv("TARGET_ERP_MYSQL_USER", ERP_ROSTER_MYSQL_USER)
+    TARGET_ERP_MYSQL_PASSWORD = os.getenv("TARGET_ERP_MYSQL_PASSWORD", ERP_ROSTER_MYSQL_PASSWORD)
+    TARGET_ERP_MYSQL_CHARSET = os.getenv("TARGET_ERP_MYSQL_CHARSET", ERP_ROSTER_MYSQL_CHARSET)
+    TARGET_ERP_DATABASE = os.getenv("TARGET_ERP_DATABASE", ERP_ROSTER_DATABASE)
+    TARGET_ETL_INTERVAL_SECONDS = int(os.getenv("TARGET_ETL_INTERVAL_SECONDS", "900"))
+    TARGET_ETL_MANUAL_COOLDOWN_SECONDS = int(os.getenv("TARGET_ETL_MANUAL_COOLDOWN_SECONDS", "120"))
+    TARGET_ETL_MANUAL_LOCK_WAIT_SECONDS = int(os.getenv("TARGET_ETL_MANUAL_LOCK_WAIT_SECONDS", "30"))
+    TARGET_ETL_MANUAL_STALE_SECONDS = int(os.getenv("TARGET_ETL_MANUAL_STALE_SECONDS", "7200"))
+    ERP_PLATFORM_DATABASE = os.getenv("ERP_PLATFORM_DATABASE", "sibelog")
+    ERP_PLATFORM_TABLE = os.getenv("ERP_PLATFORM_TABLE", "sibe_ota")
     HIVE_HOST = os.getenv("HIVE_HOST", "")
     HIVE_PORT = int(os.getenv("HIVE_PORT", "10000"))
     HIVE_DATABASE = os.getenv("HIVE_DATABASE", "lywz")

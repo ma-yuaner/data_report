@@ -7,11 +7,11 @@
 
     <a-card :bordered="false" class="panel-card smart-dimension-panel">
       <div class="view-template-bar">
-        <strong>分析模板</strong>
-        <a-select v-model:value="selectedTemplateId" allow-clear placeholder="选择已保存模板" :options="templateOptions" @change="applyDimensionTemplate" />
+        <strong>私人模板 / 公共模板</strong>
+        <a-select v-model:value="selectedTemplateId" allow-clear placeholder="选择私人或公共模板" :options="templateOptions" @change="applyDimensionTemplate" />
         <a-button @click="openTemplateModal"><SaveOutlined />保存当前配置</a-button>
-        <a-button danger :disabled="!selectedTemplateId" @click="deleteDimensionTemplate"><DeleteOutlined />删除模板</a-button>
-        <span>保存分析维度、显示指标和排序，退出后仍可选用</span>
+        <a-button danger :disabled="!selectedTemplate?.isOwner" @click="deleteDimensionTemplate"><DeleteOutlined />删除模板</a-button>
+        <span>私人模板仅本人可见；可在保存时公开供其他账号使用</span>
       </div>
       <div class="dimension-toolbar">
         <label><span>分析维度</span><a-select v-model:value="groups" mode="multiple" :options="dimensionOptions" :max-tag-count="4" placeholder="至少选择一个维度" @change="queryFromStart" /></label>
@@ -50,6 +50,7 @@
     <a-modal v-model:open="templateModalOpen" title="保存维度分析模板" ok-text="保存" cancel-text="取消" @ok="saveDimensionTemplate">
       <p class="template-modal-note">模板将保存当前 {{ groups.length }} 个维度、{{ selectedMetrics.length }} 个指标及排序设置；同名会覆盖。</p>
       <a-input v-model:value="templateName" :maxlength="30" show-count placeholder="例如：航司平台利润" @press-enter="saveDimensionTemplate" />
+      <a-checkbox v-model:checked="templatePublic" class="template-public-check">公开模板（其他账号可使用，但不能修改）</a-checkbox>
     </a-modal>
   </div>
 </template>
@@ -62,16 +63,16 @@ import { DeleteOutlined, DownloadOutlined, SaveOutlined, SearchOutlined, Setting
 import PageHeader from '@/components/PageHeader.vue'
 import DataStateBar from '@/components/DataStateBar.vue'
 import SmartAnalysisFilters from '@/components/SmartAnalysisFilters.vue'
-import { dimensionOptions, smartAnalysisApi, type SmartDimensionData, type SmartDimensionPath, type SmartFilters, type SmartMetrics, type SmartStage, type SmartType } from '@/api/smartAnalysis'
+import { dimensionOptions, smartAnalysisApi, type SmartDimensionData, type SmartDimensionPath, type SmartFilters, type SmartMetrics, type SmartStage, type SmartType, type SmartViewTemplate } from '@/api/smartAnalysis'
 import { useSmartAnalysisStore } from '@/stores/smartAnalysis'
 import { useAuthStore } from '@/stores/auth'
 import { guardSmartExport } from '@/utils/smartExportGuard'
-import { loadViewTemplates, removeViewTemplate, saveViewTemplate, type NamedViewTemplate } from '@/utils/smartViewTemplates'
+import { loadViewTemplates } from '@/utils/smartViewTemplates'
 
 type MetricKind = 'count' | 'money' | 'rate'
 interface MetricOption { key: string; title: string; group: string; path: string[]; kind: MetricKind; width: number; stage?: SmartStage; smartType?: SmartType }
 type TableRow = SmartDimensionData['rows'][number] & { isTotal?: boolean }
-type DimensionTemplateValue = { groups: string[]; metrics: string[]; sortBy: string; direction: 'asc' | 'desc' }
+type DimensionTemplateValue = { groups: string[]; metrics: string[]; sortBy: string; direction: 'asc' | 'desc' } & Record<string, unknown>
 
 const baseMetrics: MetricOption[] = [
   { key: 'ticketCount', title: '出票量', group: '基础指标', path: ['ticketCount'], kind: 'count', width: 100, stage: 'all' },
@@ -119,10 +120,11 @@ const direction = ref<'asc' | 'desc'>(savedDimensionConfig?.direction || store.d
 const page = ref(store.dimensionState.page)
 const pageSize = ref(store.dimensionState.pageSize)
 const metricModalOpen = ref(false)
-const dimensionTemplates = ref<NamedViewTemplate<DimensionTemplateValue>[]>(loadViewTemplates('dimension-analysis', authStore.user?.id, isDimensionTemplateValue))
-const selectedTemplateId = ref<string>()
+const dimensionTemplates = ref<SmartViewTemplate<DimensionTemplateValue>[]>([])
+const selectedTemplateId = ref<number>()
 const templateModalOpen = ref(false)
 const templateName = ref('')
+const templatePublic = ref(false)
 const integer = new Intl.NumberFormat('zh-CN')
 const currency = new Intl.NumberFormat('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const sortOptions = [
@@ -130,7 +132,12 @@ const sortOptions = [
   { label: '全部出票量', value: 'ticketCount' }, { label: '全部预估利润', value: 'totalProfit' }, { label: '总航段数', value: 'segments' },
 ]
 const directionOptions = [{ label: '降序', value: 'desc' }, { label: '升序', value: 'asc' }]
-const templateOptions = computed(() => dimensionTemplates.value.map(item => ({ value: item.id, label: item.name })))
+const selectedTemplate = computed(() => dimensionTemplates.value.find(item => item.id === selectedTemplateId.value))
+const templateOptions = computed(() => [
+  { label: '私人模板', options: dimensionTemplates.value.filter(item => item.isOwner && !item.isPublic).map(item => ({ value: item.id, label: item.name })) },
+  { label: '我的公共模板', options: dimensionTemplates.value.filter(item => item.isOwner && item.isPublic).map(item => ({ value: item.id, label: item.name })) },
+  { label: '公共模板', options: dimensionTemplates.value.filter(item => !item.isOwner && item.isPublic).map(item => ({ value: item.id, label: `${item.name} · ${item.ownerName}` })) },
+].filter(group => group.options.length))
 const typeLabel = computed(() => ({ all: '智能整体', down: '智能降舱', void: '智能废票' }[pageState.smartType]))
 const count = (value: number | null | undefined) => value == null ? '—' : integer.format(value)
 const stateLabel = computed(() => data.value?.available && data.value.hasData ? '真实MySQL数据' : data.value?.available ? '当前范围暂无数据' : '数据不可用')
@@ -186,7 +193,7 @@ function resetPage() { groups.value = ['airline', 'platform']; selectedMetrics.v
 function openMetricModal() { draftMetrics.value = [...selectedMetrics.value]; metricModalOpen.value = true }
 function selectDefaultMetrics() { draftMetrics.value = [...DEFAULT_METRICS] }
 function applyMetrics() { if (!draftMetrics.value.length) { message.warning('请至少选择一个指标'); return }; selectedMetrics.value = metricOptions.filter(item => draftMetrics.value.includes(item.key)).map(item => item.key); selectedTemplateId.value = undefined; metricModalOpen.value = false; syncState() }
-function applyDimensionTemplate(templateId?: string) {
+function applyDimensionTemplate(templateId?: number) {
   if (!templateId) return
   const template = dimensionTemplates.value.find(item => item.id === templateId)
   if (!template) return
@@ -196,25 +203,48 @@ function applyDimensionTemplate(templateId?: string) {
   queryFromStart()
 }
 function openTemplateModal() {
-  templateName.value = dimensionTemplates.value.find(item => item.id === selectedTemplateId.value)?.name || ''
+  const template = selectedTemplate.value
+  templateName.value = template?.isOwner ? template.name : (template ? `${template.name}副本` : '')
+  templatePublic.value = template?.isOwner ? template.isPublic : false
   templateModalOpen.value = true
 }
-function saveDimensionTemplate() {
+async function loadDimensionTemplates() {
   try {
-    const result = saveViewTemplate('dimension-analysis', authStore.user?.id, dimensionTemplates.value, templateName.value, currentDimensionConfig())
-    dimensionTemplates.value = result.values
-    selectedTemplateId.value = result.saved.id
+    let rows = await smartAnalysisApi.templates<DimensionTemplateValue>('dimension-analysis')
+    const ownNames = new Set(rows.filter(item => item.isOwner).map(item => item.name))
+    const legacy = loadViewTemplates('dimension-analysis', authStore.user?.id, isDimensionTemplateValue)
+    const missing = legacy.filter(item => !ownNames.has(item.name))
+    for (const item of missing) {
+      await smartAnalysisApi.saveTemplate<DimensionTemplateValue>({ scope: 'dimension-analysis', name: item.name, value: item.value, isPublic: false })
+    }
+    if (missing.length) rows = await smartAnalysisApi.templates<DimensionTemplateValue>('dimension-analysis')
+    dimensionTemplates.value = rows
+  }
+  catch (error) { message.error(error instanceof Error ? error.message : '维度模板加载失败') }
+}
+async function saveDimensionTemplate() {
+  try {
+    const current = selectedTemplate.value
+    const saved = await smartAnalysisApi.saveTemplate<DimensionTemplateValue>({
+      id: current?.isOwner ? current.id : undefined,
+      scope: 'dimension-analysis', name: templateName.value,
+      value: currentDimensionConfig(), isPublic: templatePublic.value,
+    })
+    await loadDimensionTemplates()
+    selectedTemplateId.value = saved.id
     templateModalOpen.value = false
-    message.success(`已保存分析模板“${result.saved.name}”`)
+    message.success(`已保存${saved.isPublic ? '公共' : '私人'}模板“${saved.name}”`)
   } catch (error) { message.warning(error instanceof Error ? error.message : '分析模板保存失败') }
 }
 function deleteDimensionTemplate() {
-  const template = dimensionTemplates.value.find(item => item.id === selectedTemplateId.value)
-  if (!template) return
+  const template = selectedTemplate.value
+  if (!template?.isOwner) return
   Modal.confirm({ title: '删除维度分析模板', content: `确定删除“${template.name}”吗？`, okType: 'danger', onOk: () => {
-    dimensionTemplates.value = removeViewTemplate('dimension-analysis', authStore.user?.id, dimensionTemplates.value, template.id)
-    selectedTemplateId.value = undefined
-    message.success('分析模板已删除')
+    void smartAnalysisApi.deleteTemplate(template.id).then(async () => {
+      selectedTemplateId.value = undefined
+      await loadDimensionTemplates()
+      message.success('分析模板已删除')
+    }).catch(error => message.error(error instanceof Error ? error.message : '分析模板删除失败'))
   } })
 }
 function beginDetails(path: SmartDimensionPath[], stage: SmartStage, metricLabel: string, smartType = pageState.smartType) {
@@ -225,7 +255,7 @@ function openDetails(path: SmartDimensionPath[]) { beginDetails(path, 'all', '�
 function openMetricDetails(path: SmartDimensionPath[], metric: MetricOption) { if (metric.stage) beginDetails(path, metric.stage, metric.title, metric.smartType || pageState.smartType) }
 async function runExport() { exporting.value = true; try { await smartAnalysisApi.exportDimensions({ ...pageState.applied }, { groupBy: groups.value, metrics: selectedMetrics.value, smartType: pageState.smartType, sortBy: sortBy.value, direction: direction.value }); message.success('导出文件已开始下载') } catch (error) { message.error(error instanceof Error ? error.message : '维度分析导出失败') } finally { exporting.value = false } }
 function exportRows() { guardSmartExport(data.value?.total ?? 0, runExport) }
-onMounted(() => { void load() })
+onMounted(() => { void load(); void loadDimensionTemplates() })
 </script>
 
 <style scoped>
@@ -236,6 +266,7 @@ onMounted(() => { void load() })
 .view-template-bar :deep(.ant-select) { width: 220px; }
 .view-template-bar > span { flex: 1; color: #7b899c; font-size: 10px; text-align: right; }
 .template-modal-note { color: #718096; font-size: 12px; }
+.template-public-check { display: block; margin-top: 14px; color: #5f6d82; }
 .dimension-toolbar { display: grid; grid-template-columns: minmax(260px,1fr) 170px 110px auto auto auto; align-items: end; gap: 10px; margin-bottom: 12px; }
 .dimension-toolbar label { display: grid; gap: 6px; color: #718096; font-size: 11px; }
 .dimension-toolbar :deep(.ant-select) { width: 100%; }

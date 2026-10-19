@@ -71,6 +71,10 @@ DIMENSIONS: dict[str, tuple[str, str]] = {
     "tcRoute": ("tc_route", "TC区航线"),
     "profitBand": ("profit_band_name", "利润区间"),
 }
+EXACT_FILTERS: dict[str, tuple[str, str]] = {
+    "otaOrderNo": ("ota_order_no", "OTA订单号"),
+}
+FILTERS = {**DIMENSIONS, **EXACT_FILTERS}
 
 AGGREGATES: tuple[tuple[str, str, str], ...] = (
     ("ticket_count", "issue_count", "count"),
@@ -288,11 +292,11 @@ def parse_query_periods(
 def parse_filters(filters: dict[str, str | None]) -> dict[str, str]:
     cleaned: dict[str, str] = {}
     for key, value in filters.items():
-        if key not in DIMENSIONS or value in (None, ""):
+        if key not in FILTERS or value in (None, ""):
             continue
         text = str(value).strip()
         if not text or len(text) > 200:
-            raise ValueError(f"{DIMENSIONS[key][1]}筛选值不合法")
+            raise ValueError(f"{FILTERS[key][1]}筛选值不合法")
         cleaned[key] = text
     return cleaned
 
@@ -316,7 +320,7 @@ def build_where(
             conditions.append(f"{prefix}{field} {operator} %s")
             params.append(value.isoformat())
     for key, value in cleaned.items():
-        field = DIMENSIONS[key][0]
+        field = FILTERS[key][0]
         if value == NULL_TOKEN:
             conditions.append(f"nullif(trim({prefix}{field}), '') IS NULL")
         else:
@@ -373,7 +377,7 @@ def build_trend_where(
                 conditions.append(f"{prefix}order_create_date {operator} %s")
                 params.append(value.isoformat())
     for key, value in cleaned.items():
-        field = DIMENSIONS[key][0]
+        field = FILTERS[key][0]
         if value == NULL_TOKEN:
             conditions.append(f"nullif(trim({prefix}{field}), '') IS NULL")
         else:

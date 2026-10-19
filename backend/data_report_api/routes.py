@@ -20,9 +20,16 @@ from .services.risk_upload import RiskUploadService
 from .services.data_source import DataSource, data_mode, is_live_mode
 from .services.telemetry import TelemetryService, TelemetryUnavailable
 from .services.smart_analysis import DIMENSIONS as SMART_DIMENSIONS, SmartAnalysisService
+from .services.smart_view_template import SmartViewTemplateService
 from .services.smart_placement import SmartPlacementService, SmartPlacementUnavailable
 from .services.monitoring import MonitoringService, MonitoringUnavailable
 from .services.resource_governance import ResourceGovernanceService
+from .services.target_management import TargetManagementService, TargetManagementUnavailable
+from .services.target_etl_trigger import (
+    TargetEtlTriggerConflict,
+    TargetEtlTriggerService,
+    TargetEtlTriggerUnavailable,
+)
 from .services.gds_route_analysis import GdsRouteAnalysisService, GdsRouteAnalysisUnavailable
 
 
@@ -38,6 +45,84 @@ def json_body() -> dict:
     if not isinstance(values, dict):
         raise ValueError("请求内容必须为JSON对象")
     return values
+
+
+def _target_error(error: Exception):
+    if isinstance(error, PermissionError):
+        return jsonify({"success": False, "message": str(error), "data": None}), 403
+    if isinstance(error, ValueError):
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    return jsonify({"success": False, "message": str(error), "data": None}), 503
+
+
+@api.get("/v1/business-configuration/targets")
+def target_management_list():
+    try:
+        return ok(TargetManagementService(current_app.config).list_targets(
+            g.current_user,
+            scene_value=request.args.get("scene"),
+            period_value=request.args.get("period"),
+            status_value=request.args.get("status", "ALL"),
+            keyword_value=request.args.get("keyword", ""),
+        ))
+    except (PermissionError, ValueError, TargetManagementUnavailable) as error:
+        return _target_error(error)
+
+
+@api.get("/v1/business-configuration/target-progress")
+def target_progress_dashboard():
+    try:
+        return ok(TargetManagementService(current_app.config).progress_dashboard(
+            g.current_user,
+            scene_value=request.args.get("scene"),
+            period_value=request.args.get("period"),
+            keyword_value=request.args.get("keyword", ""),
+            include_unconfigured_value=request.args.get("includeUnconfigured"),
+        ))
+    except (PermissionError, ValueError, TargetManagementUnavailable) as error:
+        return _target_error(error)
+
+
+@api.get("/v1/business-configuration/target-progress/refresh/status")
+def target_progress_refresh_status():
+    try:
+        return ok(TargetEtlTriggerService(current_app.config).status(g.current_user))
+    except (PermissionError, TargetEtlTriggerUnavailable) as error:
+        return _target_error(error)
+
+
+@api.post("/v1/business-configuration/target-progress/refresh")
+def target_progress_refresh():
+    try:
+        return ok(TargetEtlTriggerService(current_app.config).trigger(g.current_user), "立即更新任务已提交"), 202
+    except TargetEtlTriggerConflict as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 409
+    except (PermissionError, TargetEtlTriggerUnavailable) as error:
+        return _target_error(error)
+
+
+@api.get("/v1/business-configuration/targets/metrics")
+def target_management_metrics():
+    try:
+        return ok(TargetManagementService(current_app.config).metrics(g.current_user))
+    except (PermissionError, TargetManagementUnavailable) as error:
+        return _target_error(error)
+
+
+@api.get("/v1/business-configuration/targets/options")
+def target_management_options():
+    try:
+        return ok(TargetManagementService(current_app.config).options(g.current_user))
+    except (PermissionError, TargetManagementUnavailable) as error:
+        return _target_error(error)
+
+
+@api.post("/v1/business-configuration/targets")
+def target_management_save():
+    try:
+        return ok(TargetManagementService(current_app.config).save(g.current_user, json_body()), "目标已保存"), 201
+    except (PermissionError, ValueError, TargetManagementUnavailable) as error:
+        return _target_error(error)
 
 
 @api.get("/health")
@@ -282,7 +367,7 @@ def comprehensive_details():
 
 
 def smart_filters() -> dict[str, str | None]:
-    return {key: request.args.get(key) for key in SMART_DIMENSIONS}
+    return {key: request.args.get(key) for key in (*SMART_DIMENSIONS, "otaOrderNo")}
 
 
 def smart_period_args() -> dict[str, str | None]:
@@ -294,6 +379,30 @@ def smart_period_args() -> dict[str, str | None]:
         "order_start": request.args.get("orderStart"),
         "order_end": request.args.get("orderEnd"),
     }
+
+
+@api.get("/v1/smart-analysis/templates")
+def smart_analysis_templates():
+    try:
+        return ok(SmartViewTemplateService(current_app.config).list(g.current_user, request.args.get("scope")))
+    except (ValueError, PermissionError) as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400 if isinstance(error, ValueError) else 403
+
+
+@api.post("/v1/smart-analysis/templates")
+def save_smart_analysis_template():
+    try:
+        return ok(SmartViewTemplateService(current_app.config).save(g.current_user, request.get_json(silent=True) or {}))
+    except (ValueError, PermissionError) as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400 if isinstance(error, ValueError) else 403
+
+
+@api.delete("/v1/smart-analysis/templates/<int:template_id>")
+def delete_smart_analysis_template(template_id: int):
+    try:
+        return ok(SmartViewTemplateService(current_app.config).delete(g.current_user, template_id))
+    except (ValueError, PermissionError) as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400 if isinstance(error, ValueError) else 403
 
 
 @api.get("/v1/smart-analysis/comprehensive")

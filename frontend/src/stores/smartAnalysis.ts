@@ -24,7 +24,7 @@ function emptyFilters(): SmartFilters {
     depCity: '', arrCity: '', depCountry: '', arrCountry: '', depZone: '', arrZone: '',
     depArea: '', arrArea: '', flightWay: '', transferType: '', orderSource: '',
     routeCategory: '', ageType: '', ndc: '', routeLength: '', cityRoute: '',
-    countryRoute: '', zoneRoute: '', tcRoute: '', profitBand: '',
+    countryRoute: '', zoneRoute: '', tcRoute: '', profitBand: '', otaOrderNo: '',
   }
 }
 
