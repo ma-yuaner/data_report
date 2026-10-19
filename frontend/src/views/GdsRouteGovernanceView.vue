@@ -2,14 +2,17 @@
   <div class="page-wrap route-governance-page">
     <PageHeader eyebrow="RESOURCE GOVERNANCE" :title="pageMeta.title" :description="pageMeta.description">
       <a-space>
-        <a-tag color="orange">验收演示 · 假数据</a-tag>
-        <a-button @click="resetDemo"><ReloadOutlined />重置演示</a-button>
+        <a-tag :color="isLiveRouteView ? 'green' : 'orange'">{{ isLiveRouteView ? 'Hive实际数据' : '验收演示 · 假数据' }}</a-tag>
+        <a-button v-if="!isLiveRouteView" @click="resetDemo"><ReloadOutlined />重置演示</a-button>
       </a-space>
     </PageHeader>
 
-    <a-alert class="preview-banner" type="warning" show-icon
-      message="统一资源治理流程 · 当前明细治理页使用假数据"
-      description="GDS总览与接口质量继续使用原正式看板；本页只承接航线/配置诊断、白名单、治理执行和效果复盘，不会触发真实上下线。" />
+    <a-alert v-if="isLiveRouteView" class="preview-banner" type="success" show-icon
+      message="航线视图已接入Hive日汇总"
+      description="直接读取lywz.dws_gds_airroute_day；查询、验价、生单分阶段展示。本表没有出票航段分母，因此本页不计算航线查定比。" />
+    <a-alert v-else class="preview-banner" type="warning" show-icon
+      message="统一资源治理流程 · 当前页面仍为交互验收数据"
+      description="航线视图已经接入真实Hive；配置诊断、白名单、治理执行和效果复盘仍不会触发真实上下线。" />
 
     <section class="module-nav">
       <button v-for="item in modulePages" :key="item.path" type="button" :class="{ active: page === item.key }" @click="router.push(item.path)">
@@ -67,31 +70,48 @@
     </template>
 
     <template v-else-if="page === 'routes'">
-      <FilterPanel @reset="resetFilters">
-        <label><span>统计日期</span><a-range-picker v-model:value="dateRange" value-format="YYYY-MM-DD" /></label>
-        <label><span>GDS</span><a-select v-model:value="filters.gds" allow-clear placeholder="全部GDS" :options="gdsOptions" /></label>
-        <label><span>平台</span><a-select v-model:value="filters.platform" allow-clear placeholder="全部平台" :options="platformOptions" /></label>
-        <label><span>白名单状态</span><a-select v-model:value="filters.whitelist" allow-clear placeholder="全部状态" :options="whitelistOptions" /></label>
-        <label><span>航线/航司</span><a-input v-model:value="filters.keyword" allow-clear placeholder="例如 HKG-ICN / 7C" /></label>
-      </FilterPanel>
-      <a-card v-if="diagnosisView === 'route'" class="panel-card" :bordered="false">
-        <div class="section-title"><div><span>ROUTE PERFORMANCE</span><h2>航线效率明细</h2><p>先看航线问题，再进入具体配置组合定位原因。</p></div><a-tag color="blue">{{ filteredRoutes.length }} 条航线</a-tag></div>
-        <a-table :data-source="filteredRoutes" :pagination="{ pageSize: 6 }" row-key="id" :scroll="{ x: 1450 }">
-          <a-table-column title="航线" fixed="left" :width="150"><template #default="{ record }"><button class="link-cell" @click="openRoute(record)"><strong>{{ record.route }}</strong><small>{{ record.depCity }} → {{ record.arrCity }}</small></button></template></a-table-column>
-          <a-table-column title="航司 / 平台" :width="170"><template #default="{ record }"><strong>{{ record.airline }}</strong><div class="cell-sub">{{ record.platform }} · {{ record.site }}</div></template></a-table-column>
-          <a-table-column title="GDS / PCC" :width="160"><template #default="{ record }"><strong>{{ record.gdsCode }}</strong><div class="cell-sub">{{ record.pccCode }}</div></template></a-table-column>
-          <a-table-column title="查询量" data-index="queryCount" :width="130" align="right"><template #default="{ text }">{{ formatInteger(text) }}</template></a-table-column>
-          <a-table-column title="航段数" data-index="segmentCount" :width="110" align="right"><template #default="{ text }">{{ formatInteger(text) }}</template></a-table-column>
-          <a-table-column title="MP查定比" :width="140" align="right"><template #default="{ record }"><strong :class="{ danger: record.queryToSegmentRatio > 4000 }">{{ formatInteger(record.queryToSegmentRatio) }} : 1</strong></template></a-table-column>
-          <a-table-column title="MP / MPIS / NDC" :width="190"><template #default="{ record }"><div class="share-line"><i :style="{ width: `${record.mpShare}%` }" /><i :style="{ width: `${record.mpisShare}%` }" /><i :style="{ width: `${record.ndcShare}%` }" /></div><div class="share-label">{{ record.mpShare }}% / {{ record.mpisShare }}% / {{ record.ndcShare }}%</div></template></a-table-column>
-          <a-table-column title="查询成功率" :width="120" align="right"><template #default="{ record }">{{ record.searchSuccessRate.toFixed(1) }}%</template></a-table-column>
-          <a-table-column title="白名单" :width="100"><template #default="{ record }"><a-tag :color="whitelistColor(record.whitelistStatus)">{{ whitelistText(record.whitelistStatus) }}</a-tag></template></a-table-column>
-          <a-table-column title="状态" :width="100"><template #default="{ record }"><a-tag :color="riskColor(record.riskStatus)">{{ riskText(record.riskStatus) }}</a-tag></template></a-table-column>
-          <a-table-column title="操作" fixed="right" :width="100"><template #default="{ record }"><a-button type="link" @click="openRoute(record)">分析此项</a-button></template></a-table-column>
-        </a-table>
-      </a-card>
+      <template v-if="diagnosisView === 'route'">
+        <FilterPanel @reset="resetFilters">
+          <label><span>统计日期（完整业务日）</span><a-range-picker v-model:value="dateRange" value-format="YYYY-MM-DD" :allow-clear="false" /></label>
+          <label><span>GDS</span><a-select v-model:value="filters.gds" allow-clear placeholder="全部GDS" :options="gdsOptions" /></label>
+          <label><span>PCC</span><a-select v-model:value="filters.pcc" allow-clear placeholder="全部PCC" :options="pccOptions" /></label>
+          <label><span>平台</span><a-select v-model:value="filters.platform" allow-clear placeholder="全部平台" :options="platformOptions" /></label>
+          <label><span>站点</span><a-select v-model:value="filters.site" allow-clear placeholder="全部站点" :options="siteOptions" /></label>
+          <label><span>接口分组</span><a-select v-model:value="filters.apiGroup" allow-clear placeholder="全部接口组" :options="apiGroupOptions" /></label>
+          <label><span>航线/机场/城市/航司</span><a-input v-model:value="filters.keyword" allow-clear placeholder="例如 HKG-ICN / 7C" /></label>
+        </FilterPanel>
+
+        <a-alert v-if="routeError" class="context-tip" type="error" show-icon message="GDS航线Hive查询失败" :description="routeError" />
+        <section v-if="routeAnalysis" class="metric-grid compact">
+          <article class="metric-card tone-blue"><span>查询请求量</span><strong>{{ formatInteger(routeAnalysis.summary.searchRequests) }}</strong><small>search · {{ routeAnalysis.period.startDate }} 至 {{ routeAnalysis.period.endDate }}</small></article>
+          <article class="metric-card tone-green"><span>查询接口成功率</span><strong>{{ formatRate(routeAnalysis.summary.searchSuccessRate) }}</strong><small>结果成功率 {{ formatRate(routeAnalysis.summary.searchResultSuccessRate) }}</small></article>
+          <article class="metric-card tone-cyan"><span>验价成功率</span><strong>{{ formatRate(routeAnalysis.summary.verifySuccessRate) }}</strong><small>{{ formatInteger(routeAnalysis.summary.verifySuccess) }} / {{ formatInteger(routeAnalysis.summary.verifyRequests) }}</small></article>
+          <article class="metric-card tone-orange"><span>生单成功率</span><strong>{{ formatRate(routeAnalysis.summary.orderSuccessRate) }}</strong><small>{{ formatInteger(routeAnalysis.summary.orderSuccess) }} / {{ formatInteger(routeAnalysis.summary.orderRequests) }}</small></article>
+        </section>
+
+        <a-card class="panel-card" :bordered="false" :loading="routeLoading">
+          <div class="section-title"><div><span>ROUTE PERFORMANCE</span><h2>航线接口质量明细</h2><p>按航线、平台/站点、GDS/PCC聚合；点击“分析此项”查看接口阶段与资源通道结构。</p></div><a-space><a-tag color="blue">{{ routeAnalysis?.rowCount || 0 }} 个组合</a-tag><a-tag v-if="routeAnalysis?.truncated" color="orange">仅展示前{{ routeAnalysis.resultLimit }}项</a-tag></a-space></div>
+          <a-table :data-source="routeAnalysis?.rows || []" :pagination="{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '20', '50'] }" row-key="id" :scroll="{ x: 1600 }">
+            <a-table-column title="航线" fixed="left" :width="170"><template #default="{ record }"><button class="link-cell" @click="openLiveRoute(record)"><strong>{{ record.route }}</strong><small>{{ record.depCity || record.depAirport || '—' }} → {{ record.arrCity || record.arrAirport || '—' }}</small></button></template></a-table-column>
+            <a-table-column title="平台 / 站点" :width="180"><template #default="{ record }"><strong>{{ record.platform || '—' }}</strong><div class="cell-sub">{{ record.site || '全部站点' }}</div></template></a-table-column>
+            <a-table-column title="GDS / PCC" :width="160"><template #default="{ record }"><strong>{{ record.gdsCode || '—' }}</strong><div class="cell-sub">{{ record.pccCode || '—' }}</div></template></a-table-column>
+            <a-table-column title="查询量" data-index="searchRequests" :width="125" align="right"><template #default="{ text }">{{ formatInteger(text) }}</template></a-table-column>
+            <a-table-column title="MP / MPIS / NDC" :width="205"><template #default="{ record }"><div class="share-line"><i :style="{ width: shareWidth(record.mpShare) }" /><i :style="{ width: shareWidth(record.mpisShare) }" /><i :style="{ width: shareWidth(record.ndcShare) }" /></div><div class="share-label">{{ formatRate(record.mpShare) }} / {{ formatRate(record.mpisShare) }} / {{ formatRate(record.ndcShare) }}</div></template></a-table-column>
+            <a-table-column title="查询接口成功率" :width="135" align="right"><template #default="{ record }">{{ formatRate(record.searchSuccessRate) }}</template></a-table-column>
+            <a-table-column title="结果成功率" :width="120" align="right"><template #default="{ record }">{{ formatRate(record.searchResultSuccessRate) }}</template></a-table-column>
+            <a-table-column title="查询超时率" :width="115" align="right"><template #default="{ record }">{{ formatRate(record.searchTimeoutRate) }}</template></a-table-column>
+            <a-table-column title="平均查询耗时" :width="125" align="right"><template #default="{ record }">{{ formatMilliseconds(record.avgSearchExecuteTime) }}</template></a-table-column>
+            <a-table-column title="验价成功率" :width="115" align="right"><template #default="{ record }">{{ formatRate(record.verifySuccessRate) }}</template></a-table-column>
+            <a-table-column title="生单成功率" :width="115" align="right"><template #default="{ record }">{{ formatRate(record.orderSuccessRate) }}</template></a-table-column>
+            <a-table-column title="操作" fixed="right" :width="100"><template #default="{ record }"><a-button type="link" @click="openLiveRoute(record)">分析此项</a-button></template></a-table-column>
+          </a-table>
+          <a-empty v-if="!routeLoading && !routeError && !(routeAnalysis?.rows.length)" description="所选完整业务日没有航线汇总数据" />
+          <div v-if="routeAnalysis" class="data-footnote">数据源：{{ routeAnalysis.source }} · {{ routeAnalysis.table }} · 最近源数据 {{ routeAnalysis.summary.sourceUpdatedAt || '—' }}</div>
+        </a-card>
+      </template>
       <template v-else>
         <a-alert class="context-tip" type="info" show-icon message="配置治理粒度" description="同一航线按乘客人数、行程类型、去程提前天数、回程停留天数和MP/MPIS/NDC拆分，避免整条航线被粗暴下线。" />
+        <a-alert class="context-tip" type="warning" show-icon message="配置视图尚未接入正式数据" description="当前只完成优先级1的Hive航线维度；该页仍为交互样板，不能作为上下线依据。" />
         <a-card class="panel-card" :bordered="false">
           <div class="section-title"><div><span>CONFIGURATION UNIT</span><h2>航线配置效率</h2></div><a-radio-group v-model:value="configView" button-style="solid"><a-radio-button value="all">全部</a-radio-button><a-radio-button value="异常">只看异常</a-radio-button></a-radio-group></div>
           <a-table :data-source="visibleConfigurations" :pagination="false" row-key="id" :scroll="{ x: 1450 }">
@@ -216,7 +236,26 @@
     </template>
 
     <a-drawer v-model:open="routeDrawerOpen" title="航线诊断" width="620">
-      <template v-if="selectedRoute">
+      <template v-if="selectedLiveRoute">
+        <div class="drawer-hero"><div><span>{{ selectedLiveRoute.gdsCode || '—' }} · {{ selectedLiveRoute.pccCode || '—' }}</span><h2>{{ selectedLiveRoute.route }}</h2><p>{{ selectedLiveRoute.platform || '—' }} · {{ selectedLiveRoute.site || '全部站点' }}</p></div><a-tag color="green">Hive实际数据</a-tag></div>
+        <div class="drawer-metrics"><article><span>查询请求</span><strong>{{ formatInteger(selectedLiveRoute.searchRequests) }}</strong></article><article><span>验价请求</span><strong>{{ formatInteger(selectedLiveRoute.verifyRequests) }}</strong></article><article><span>生单请求</span><strong>{{ formatInteger(selectedLiveRoute.orderRequests) }}</strong></article></div>
+        <a-descriptions bordered :column="2" size="small">
+          <a-descriptions-item label="查询接口成功率">{{ formatRate(selectedLiveRoute.searchSuccessRate) }}</a-descriptions-item><a-descriptions-item label="查询结果成功率">{{ formatRate(selectedLiveRoute.searchResultSuccessRate) }}</a-descriptions-item>
+          <a-descriptions-item label="验价成功率">{{ formatRate(selectedLiveRoute.verifySuccessRate) }}</a-descriptions-item><a-descriptions-item label="生单成功率">{{ formatRate(selectedLiveRoute.orderSuccessRate) }}</a-descriptions-item>
+          <a-descriptions-item label="查询超时率">{{ formatRate(selectedLiveRoute.searchTimeoutRate) }}</a-descriptions-item><a-descriptions-item label="查询缓存率">{{ formatRate(selectedLiveRoute.searchCacheRate) }}</a-descriptions-item>
+          <a-descriptions-item label="直飞方案数">{{ formatInteger(selectedLiveRoute.directFlightCount) }}</a-descriptions-item><a-descriptions-item label="中转方案数">{{ formatInteger(selectedLiveRoute.connectingFlightCount) }}</a-descriptions-item>
+          <a-descriptions-item label="最近源数据" :span="2">{{ selectedLiveRoute.sourceUpdatedAt || '—' }}</a-descriptions-item>
+        </a-descriptions>
+        <div class="drawer-section-title"><strong>资源通道结构</strong><span>按查询请求量计算</span></div>
+        <div class="channel-grid">
+          <article><span>MP</span><strong>{{ formatInteger(selectedLiveRoute.mpSearchRequests) }}</strong><small>{{ formatRate(selectedLiveRoute.mpShare) }}</small></article>
+          <article><span>MPIS</span><strong>{{ formatInteger(selectedLiveRoute.mpisSearchRequests) }}</strong><small>{{ formatRate(selectedLiveRoute.mpisShare) }}</small></article>
+          <article><span>NDC</span><strong>{{ formatInteger(selectedLiveRoute.ndcSearchRequests) }}</strong><small>{{ formatRate(selectedLiveRoute.ndcShare) }}</small></article>
+        </div>
+        <a-alert class="drawer-note" type="info" show-icon message="当前下钻边界" description="查询日志没有实际航司字段，且本表没有出票航段分母；首版按航线与接口质量定位，不展示虚假的航司归因和查定比。" />
+        <div class="drawer-actions"><a-button @click="routeDrawerOpen = false">关闭</a-button><a-button disabled>配置分析待接入</a-button></div>
+      </template>
+      <template v-else-if="selectedRoute">
         <div class="drawer-hero"><div><span>{{ selectedRoute.gdsCode }} · {{ selectedRoute.pccCode }}</span><h2>{{ selectedRoute.route }}</h2><p>{{ selectedRoute.airline }} · {{ selectedRoute.platform }} · {{ selectedRoute.site }}</p></div><a-tag :color="riskColor(selectedRoute.riskStatus)">{{ riskText(selectedRoute.riskStatus) }}</a-tag></div>
         <div class="drawer-metrics"><article><span>MP查询量</span><strong>{{ formatInteger(selectedRoute.queryCount) }}</strong></article><article><span>航段数</span><strong>{{ formatInteger(selectedRoute.segmentCount) }}</strong></article><article><span>查定比</span><strong class="danger">{{ formatInteger(selectedRoute.queryToSegmentRatio) }} : 1</strong></article></div>
         <a-descriptions bordered :column="2" size="small">
@@ -233,7 +272,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import {
@@ -241,9 +280,9 @@ import {
   CheckCircleOutlined, FileProtectOutlined, ProfileOutlined, ReloadOutlined, RightOutlined,
   SafetyCertificateOutlined, ThunderboltOutlined,
 } from '@ant-design/icons-vue'
-import type { Dayjs } from 'dayjs'
 import PageHeader from '@/components/PageHeader.vue'
 import FilterPanel from '@/components/FilterPanel.vue'
+import { fetchGdsRouteAnalysis, type GdsRouteAnalysisData, type GdsRouteMetricRow } from '@/api/resourceGovernance'
 import { useGdsRouteGovernanceStore, type GovernanceActionStatus, type GovernanceEventStatus, type RouteMetric, type RouteRiskStatus } from '@/stores/gdsRouteGovernance'
 
 type PageKey = 'overview' | 'routes' | 'configurations' | 'quality' | 'whitelist' | 'events' | 'actions' | 'execution' | 'review'
@@ -252,13 +291,26 @@ const route = useRoute()
 const router = useRouter()
 const store = useGdsRouteGovernanceStore()
 const page = computed(() => String(route.meta.gdsRoutePage || 'overview') as PageKey)
+const isLiveRouteView = computed(() => page.value === 'routes' && diagnosisView.value === 'route')
 const routeDrawerOpen = ref(false)
 const selectedRoute = ref<RouteMetric | null>(null)
+const selectedLiveRoute = ref<GdsRouteMetricRow | null>(null)
 const diagnosisView = ref<'route' | 'configuration'>(route.query.view === 'configuration' ? 'configuration' : 'route')
 const executionTab = ref<'events' | 'actions'>(route.query.tab === 'actions' ? 'actions' : 'events')
 const configView = ref<'all' | '异常'>('all')
-const dateRange = ref<[Dayjs, Dayjs] | string[] | null>(null)
-const filters = reactive({ gds: undefined as string | undefined, platform: undefined as string | undefined, whitelist: undefined as string | undefined, keyword: '' })
+const dateRange = ref<[string, string] | null>(null)
+const filters = reactive({
+  gds: undefined as string | undefined,
+  pcc: undefined as string | undefined,
+  platform: undefined as string | undefined,
+  site: undefined as string | undefined,
+  apiGroup: undefined as string | undefined,
+  keyword: '',
+})
+const routeAnalysis = ref<GdsRouteAnalysisData | null>(null)
+const routeLoading = ref(false)
+const routeError = ref('')
+let routeQueryTimer: ReturnType<typeof setTimeout> | null = null
 
 const pageDefinitions: Record<PageKey, { title: string; description: string }> = {
   overview: { title: 'GDS航线治理', description: '从最新白名单、航线效率和接口质量发现问题，形成可审计的上下线闭环。' },
@@ -289,16 +341,12 @@ const flowSteps = [
   { title: '效果复盘', text: '压降、迁移与复发分析', path: '/gds-route-governance/review' },
 ]
 
-const gdsOptions = [{ value: '1A', label: '1A' }, { value: '1G', label: '1G' }]
-const platformOptions = [...new Set(store.routes.map(item => item.platform))].map(value => ({ value, label: value }))
-const whitelistOptions = [{ value: 'ACTIVE', label: '有效' }, { value: 'EXPIRING', label: '即将到期' }, { value: 'INACTIVE', label: '已失效' }]
-const filteredRoutes = computed(() => store.routes.filter(item => {
-  const keyword = filters.keyword.trim().toUpperCase()
-  return (!filters.gds || item.gdsCode === filters.gds)
-    && (!filters.platform || item.platform === filters.platform)
-    && (!filters.whitelist || item.whitelistStatus === filters.whitelist)
-    && (!keyword || `${item.route}|${item.airline}`.toUpperCase().includes(keyword))
-}))
+const toOptions = (values: string[] = []) => values.map(value => ({ value, label: value }))
+const gdsOptions = computed(() => toOptions(routeAnalysis.value?.options.gds))
+const pccOptions = computed(() => toOptions(routeAnalysis.value?.options.pcc))
+const platformOptions = computed(() => toOptions(routeAnalysis.value?.options.platform))
+const siteOptions = computed(() => toOptions(routeAnalysis.value?.options.site))
+const apiGroupOptions = computed(() => toOptions(routeAnalysis.value?.options.apiGroup))
 const riskRoutes = computed(() => [...store.routes].filter(item => item.riskStatus !== 'NORMAL').sort((a, b) => b.queryToSegmentRatio - a.queryToSegmentRatio))
 const breachedRouteCount = computed(() => store.routes.filter(item => item.riskStatus === 'BREACHED').length)
 const visibleConfigurations = computed(() => configView.value === '异常' ? store.configurations.filter(item => item.status === '异常') : store.configurations)
@@ -314,6 +362,9 @@ const effectRows = [
 ]
 
 const formatInteger = (value: number) => new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 0 }).format(value)
+const formatRate = (value: string | number | null | undefined) => value === null || value === undefined || value === '' ? '—' : `${Number(value).toFixed(2)}%`
+const formatMilliseconds = (value: string | number | null | undefined) => value === null || value === undefined || value === '' ? '—' : `${new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 0 }).format(Number(value))} ms`
+const shareWidth = (value: string | number | null | undefined) => `${Math.max(0, Math.min(100, Number(value || 0)))}%`
 const whitelistText = (value: string) => ({ ACTIVE: '有效', EXPIRING: '即将到期', INACTIVE: '已失效' }[value] || value)
 const whitelistColor = (value: string) => value === 'ACTIVE' ? 'green' : value === 'EXPIRING' ? 'orange' : 'default'
 const riskText = (value: RouteRiskStatus) => ({ NORMAL: '达标', WATCH: '观察', BREACHED: '异常', OFFLINE: '已下线' }[value])
@@ -325,8 +376,39 @@ const actionStatusText = (value: GovernanceActionStatus) => ({ PENDING: '待接�
 const actionStatusColor = (value: GovernanceActionStatus) => ({ PENDING: 'orange', ACCEPTED: 'blue', EXECUTING: 'processing', SUCCEEDED: 'cyan', RECOVERY_PENDING: 'purple', RECOVERED: 'green' }[value])
 const actionTypeText = (value: string) => ({ RATE_LIMIT: '限流', DISABLE: '临时下线', EXTEND_DISABLE: '延长下线', RESTORE: '恢复上线', ROUTE_TO_MPIS: '迁移MPIS' }[value] || value)
 const nextActionText = (value: GovernanceActionStatus) => ({ PENDING: '技术接单', ACCEPTED: '开始执行', EXECUTING: '确认生效', SUCCEEDED: '模拟到期', RECOVERY_PENDING: '确认恢复', RECOVERED: '已闭环' }[value])
-const openRoute = (item: RouteMetric) => { selectedRoute.value = item; routeDrawerOpen.value = true }
-const resetFilters = () => { filters.gds = undefined; filters.platform = undefined; filters.whitelist = undefined; filters.keyword = ''; dateRange.value = null }
+const openRoute = (item: RouteMetric) => { selectedLiveRoute.value = null; selectedRoute.value = item; routeDrawerOpen.value = true }
+const openLiveRoute = (item: GdsRouteMetricRow) => { selectedRoute.value = null; selectedLiveRoute.value = item; routeDrawerOpen.value = true }
+const yesterday = () => {
+  const value = new Date()
+  value.setDate(value.getDate() - 1)
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
+}
+const loadRouteAnalysis = async () => {
+  if (!isLiveRouteView.value || !dateRange.value?.[0] || !dateRange.value?.[1]) return
+  routeLoading.value = true
+  routeError.value = ''
+  try {
+    routeAnalysis.value = await fetchGdsRouteAnalysis({
+      startDate: dateRange.value[0], endDate: dateRange.value[1],
+      gds: filters.gds, pcc: filters.pcc, platform: filters.platform,
+      site: filters.site, apiGroup: filters.apiGroup, keyword: filters.keyword.trim(),
+    })
+  } catch (error) {
+    routeAnalysis.value = null
+    routeError.value = error instanceof Error ? error.message : '查询失败，请检查Hive连接与dws_gds_airroute_day数据。'
+  } finally {
+    routeLoading.value = false
+  }
+}
+const scheduleRouteQuery = () => {
+  if (routeQueryTimer) clearTimeout(routeQueryTimer)
+  routeQueryTimer = setTimeout(loadRouteAnalysis, 350)
+}
+const resetFilters = () => {
+  filters.gds = undefined; filters.pcc = undefined; filters.platform = undefined
+  filters.site = undefined; filters.apiGroup = undefined; filters.keyword = ''
+  const day = yesterday(); dateRange.value = [day, day]
+}
 const resetDemo = () => { store.resetReview(); message.success('演示流程已恢复到初始状态') }
 const acknowledge = (id: string) => { store.acknowledgeEvent(id); message.success('异常已确认，操作日志将在正式接口中留痕') }
 const observe = (id: string) => { store.observeEvent(id); message.info('已进入观察状态') }
@@ -338,11 +420,21 @@ onMounted(() => {
   store.hydrate()
   const queryValue = (key: string) => typeof route.query[key] === 'string' ? String(route.query[key]) : ''
   filters.gds = queryValue('gds') || undefined
+  filters.pcc = queryValue('pcc') || undefined
   filters.platform = queryValue('platform') || undefined
+  filters.site = queryValue('site') || undefined
+  filters.apiGroup = queryValue('apiGroup') || undefined
   const startDate = queryValue('startDate')
   const endDate = queryValue('endDate')
-  if (startDate && endDate) dateRange.value = [startDate, endDate]
+  const defaultDay = yesterday()
+  dateRange.value = startDate && endDate ? [startDate, endDate] : [defaultDay, defaultDay]
 })
+
+watch(
+  () => [page.value, diagnosisView.value, dateRange.value?.[0], dateRange.value?.[1], filters.gds, filters.pcc, filters.platform, filters.site, filters.apiGroup, filters.keyword],
+  () => scheduleRouteQuery(),
+)
+onBeforeUnmount(() => { if (routeQueryTimer) clearTimeout(routeQueryTimer) })
 </script>
 
 <style scoped>
@@ -391,7 +483,9 @@ onMounted(() => {
 .event-stack { display: grid; gap: 9px; }.event-stack article { padding: 13px; display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 10px; border-radius: 11px; background: #f7f9fc; }.event-stack article div { display: grid; gap: 3px; }.event-stack small { color: #8b96a6; font-size: 10px; }.event-stack article > span:last-child { color: #66758a; font-size: 10px; }
 .link-cell { padding: 0; display: grid; gap: 3px; border: 0; color: #265fae; background: transparent; text-align: left; cursor: pointer; }
 .danger { color: #cb4754 !important; }.share-line { height: 6px; display: flex; overflow: hidden; border-radius: 8px; background: #eef1f5; }.share-line i:nth-child(1) { background: #eb9b3a; }.share-line i:nth-child(2) { background: #35a481; }.share-line i:nth-child(3) { background: #4b79cf; }.share-label { margin-top: 5px; color: #8995a6; font-size: 9px; }
+.data-footnote { margin-top: 14px; padding-top: 12px; border-top: 1px solid #edf0f4; color: #8a96a7; font-size: 10px; text-align: right; }
 .done-text { color: #2f8f71; font-size: 11px; }.drawer-hero { margin-bottom: 16px; padding: 18px; display: flex; justify-content: space-between; border-radius: 14px; color: #fff; background: linear-gradient(135deg, #244a7e, #277f8a); }.drawer-hero span { font-size: 10px; opacity: .75; }.drawer-hero h2 { margin: 4px 0; color: #fff; font-size: 26px; }.drawer-hero p { margin: 0; font-size: 11px; opacity: .82; }.drawer-metrics { margin-bottom: 16px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }.drawer-metrics article { padding: 13px; display: grid; gap: 7px; border: 1px solid #e5eaf0; border-radius: 10px; }.drawer-metrics span { color: #8390a2; font-size: 10px; }.drawer-metrics strong { font-size: 16px; }.drawer-section-title { margin: 22px 0 10px; display: flex; justify-content: space-between; }.drawer-section-title span { color: #919cac; font-size: 10px; }.drawer-configs { display: grid; gap: 8px; }.drawer-configs article { padding: 12px; display: flex; justify-content: space-between; border-radius: 10px; background: #f6f8fb; }.drawer-configs article > span { display: grid; gap: 4px; }.drawer-configs small { color: #8d98a8; font-size: 10px; }.drawer-actions { margin-top: 20px; display: flex; justify-content: flex-end; gap: 8px; }
+.channel-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }.channel-grid article { padding: 14px; display: grid; gap: 5px; border: 1px solid #e5eaf0; border-radius: 11px; background: #f8fafc; }.channel-grid span, .channel-grid small { color: #8490a2; font-size: 10px; }.channel-grid strong { color: #263650; font-size: 18px; }.drawer-note { margin-top: 16px; border-radius: 10px; }
 .effect-bars { display: grid; gap: 18px; }.effect-bars > div { display: grid; grid-template-columns: 120px minmax(0, 1fr) 110px; align-items: center; gap: 12px; color: #657286; font-size: 11px; }.effect-bars > div > div { display: grid; gap: 4px; }.effect-bars i { height: 8px; display: block; border-radius: 8px; }.before { background: #d7dee8; }.after { background: #3a83cc; }.effect-bars strong { text-align: right; }.legend { margin-top: 18px; display: flex; justify-content: flex-end; gap: 15px; color: #8490a2; font-size: 10px; }.legend span { display: flex; align-items: center; gap: 5px; }.legend i { width: 12px; height: 6px; border-radius: 4px; }.review-status-list { display: grid; gap: 10px; }.review-status-list article { padding: 14px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 12px; border-radius: 10px; background: #f7f9fc; }.review-status-list span { color: #657286; font-size: 11px; }.review-status-list strong { grid-row: 1 / 3; grid-column: 2; align-self: center; color: #263650; font-size: 22px; }.review-status-list small { color: #9aa4b3; font-size: 9px; }
 @media (max-width: 1280px) { .module-nav { grid-template-columns: repeat(4, 1fr); }.flow-track { grid-template-columns: repeat(3, 1fr); }.flow-track button:nth-child(3) { border-right: 0; }.metric-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 900px) { .content-grid { grid-template-columns: 1fr; }.module-nav { grid-template-columns: repeat(2, 1fr); }.flow-track { grid-template-columns: 1fr; }.flow-track button { border-right: 0; border-bottom: 1px solid #edf0f4; }.metric-grid { grid-template-columns: 1fr; } }

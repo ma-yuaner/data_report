@@ -1,7 +1,7 @@
 # 资源治理明细页面验收说明
 
-- 页面状态：静态交互验收版
-- 数据状态：假数据，不读取或修改正式库
+- 页面状态：航线视图已接真实Hive；其余治理流程仍为静态交互验收版
+- 航线数据：`lywz.dws_gds_airroute_day`
 - 路由前缀：`/resource-governance`
 - 与现有模块关系：复用原“资源治理”一级菜单。原GDS资源治理负责总览与接口质量，新增页面只承接航线/配置诊断、白名单、执行和复盘，避免重复建设。
 
@@ -11,7 +11,7 @@
 |---|---|---|
 | GDS资源治理 | `/resource-governance/gds` | 沿用真实总览、GDS/PCC/平台维度与接口质量分析 |
 | OTA渠道质量 | `/resource-governance/ota` | 沿用真实平台接口质量分析 |
-| 航线配置诊断 | `/resource-governance/route-diagnosis` | 同页切换航线视图与配置视图，完成逐层下钻 |
+| 航线配置诊断 | `/resource-governance/route-diagnosis` | 航线视图读取真实Hive，配置视图仍为样板 |
 | 白名单管理 | `/resource-governance/whitelist` | 最新快照、版本、有效期和配置数量 |
 | 治理执行 | `/resource-governance/execution` | 同页切换异常处置与上下线任务，保留连续上下文 |
 | 治理复盘 | `/resource-governance/review` | 治理前后效果和闭环状态 |
@@ -30,7 +30,27 @@
 
 原`/gds-route-governance/*`地址保留重定向，用于兼容旧收藏和已经分配的菜单权限。
 
-演示状态只保存在浏览器`localStorage`，不产生服务端记录。正式接入时页面只替换数据API，业务页面结构和状态流转继续沿用。
+白名单、治理执行和复盘的演示状态只保存在浏览器`localStorage`，不产生服务端记录。航线视图不使用这些假状态。
+
+## 航线视图V1数据口径
+
+- API：`GET /api/v1/resource-governance/gds/routes`；
+- 数据源：强制使用Hive连接，不跟随全局`DATA_MODE=mysql`切换；
+- 默认期间：昨天一个完整业务日；单次最多31天；
+- 结果上限：按查询请求量降序返回前500个航线组合，可通过筛选继续缩小范围；
+- 聚合粒度：航线、出到达城市/机场、平台、站点、GDS、PCC；
+- 接口阶段：`api_method=search/verify/orderCreate`分别计算查询、验价、生单；
+- 通道结构：接口组名称归一化后按MP、MPIS、NDC互斥拆分；
+- 查询日志不写实际`poi_code`，因此V1不按航司归因查询量；
+- 该表没有出票航段分母，因此V1不计算航线查定比，也不生成上下线结论。
+
+环境变量：
+
+```dotenv
+GDS_ROUTE_HIVE_TABLE=dws_gds_airroute_day
+GDS_ROUTE_MAX_ROWS=500
+GDS_ROUTE_MAX_DAYS=31
+```
 
 ## 正式数据前置条件
 

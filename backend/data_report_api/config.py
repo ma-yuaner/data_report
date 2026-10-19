@@ -84,6 +84,9 @@ class Config:
     )
     RESOURCE_GOVERNANCE_GDS_TARGETS = os.getenv("RESOURCE_GOVERNANCE_GDS_TARGETS", "1A:4000")
     RESOURCE_GOVERNANCE_OTA_SUCCESS_TARGETS = os.getenv("RESOURCE_GOVERNANCE_OTA_SUCCESS_TARGETS", "{}")
+    GDS_ROUTE_HIVE_TABLE = os.getenv("GDS_ROUTE_HIVE_TABLE", "dws_gds_airroute_day")
+    GDS_ROUTE_MAX_ROWS = int(os.getenv("GDS_ROUTE_MAX_ROWS", "500"))
+    GDS_ROUTE_MAX_DAYS = int(os.getenv("GDS_ROUTE_MAX_DAYS", "31"))
 
 
 class TestConfig(Config):

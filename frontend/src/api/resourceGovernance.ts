@@ -124,3 +124,92 @@ export async function exportResourceGovernance(scope: GovernanceScope): Promise<
   })
   downloadResponse(response, `${scope.dataSource === 'gds' ? 'GDS资源治理' : 'OTA渠道质量'}_${scope.startDate}_${scope.endDate}.xlsx`)
 }
+
+export interface GdsRouteScope {
+  startDate: string
+  endDate: string
+  platform?: string
+  site?: string
+  gds?: string
+  pcc?: string
+  apiGroup?: string
+  route?: string
+  keyword?: string
+}
+
+export interface GdsRouteMetric {
+  requestCount: number
+  searchRequests: number
+  searchSuccess: number
+  searchFailure: number
+  searchResultSuccess: number
+  searchPriceCount: number
+  searchTimeouts: number
+  searchCacheCount: number
+  searchSuccessRate: string | null
+  searchResultSuccessRate: string | null
+  searchTimeoutRate: string | null
+  searchCacheRate: string | null
+  avgSearchExecuteTime: string | null
+  verifyRequests: number
+  verifySuccess: number
+  verifyFailure: number
+  verifySuccessRate: string | null
+  verifyTimeoutRate: string | null
+  verifyPriceChangeRate: string | null
+  avgVerifyExecuteTime: string | null
+  orderRequests: number
+  orderSuccess: number
+  orderFailure: number
+  orderSuccessRate: string | null
+  orderTimeoutRate: string | null
+  orderPriceChangeRate: string | null
+  avgOrderExecuteTime: string | null
+  mpSearchRequests: number
+  mpisSearchRequests: number
+  ndcSearchRequests: number
+  mpShare: string | null
+  mpisShare: string | null
+  ndcShare: string | null
+  directFlightCount: number
+  connectingFlightCount: number
+  sourceUpdatedAt: string | null
+}
+
+export interface GdsRouteMetricRow extends GdsRouteMetric {
+  id: string
+  route: string
+  depCity: string
+  arrCity: string
+  depAirport: string
+  arrAirport: string
+  platform: string
+  site: string
+  gdsCode: string
+  pccCode: string
+}
+
+export interface GdsRouteAnalysisData {
+  source: string
+  table: string
+  available: boolean
+  generatedAt: string
+  period: { startDate: string; endDate: string }
+  filters: Record<string, string>
+  summary: GdsRouteMetric
+  rows: GdsRouteMetricRow[]
+  rowCount: number
+  resultLimit: number
+  truncated: boolean
+  options: Record<'gds' | 'pcc' | 'platform' | 'site' | 'apiGroup', string[]>
+  notes: string[]
+}
+
+export async function fetchGdsRouteAnalysis(scope: GdsRouteScope): Promise<GdsRouteAnalysisData> {
+  const response = await http.get<ApiEnvelope<GdsRouteAnalysisData>>('/v1/resource-governance/gds/routes', {
+    params: scope,
+    timeout: 180_000,
+  })
+  if (!response.data.success) throw new Error(response.data.message)
+  return response.data.data
+}
