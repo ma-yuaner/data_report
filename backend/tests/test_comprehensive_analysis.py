@@ -67,6 +67,8 @@ class ComprehensiveTests(unittest.TestCase):
         self.assertEqual(result["metrics"]["issue"]["count"], 3)
         self.assertEqual(result["metrics"]["issue"]["segmentCount"], 5)
         self.assertEqual(result["metrics"]["issue"]["segmentMissingCount"], 0)
+        self.assertEqual(result["metrics"]["issue"]["perSegmentProfit"], "2.42468")
+        self.assertIsNone(result["metrics"]["refund"]["perSegmentProfit"])
         self.assertEqual(result["metrics"]["refund"]["count"], 2)
         self.assertEqual(result["trend"][0]["totalProfit"], result["totalProfit"])
         self.assertEqual(result["comparison"][0]["totalProfit"], result["totalProfit"])
@@ -99,6 +101,17 @@ class ComprehensiveTests(unittest.TestCase):
         self.assertIsNone(result["metrics"]["refund"]["knownProfit"])
         self.assertIsNone(result["comparison"][0]["totalProfit"])
         self.assertIsNone(result["totalProfit"])
+
+    def test_per_segment_profit_requires_complete_nonzero_segments(self):
+        cases = [
+            (fact(segments=0), "zero segments"),
+            (fact(segments=5, segment_missing=1), "missing segments"),
+            (fact(known="8.0001", missing=1), "missing profit"),
+        ]
+        for row, label in cases:
+            with self.subTest(label=label):
+                result = self.analysis(snapshot([row]))
+                self.assertIsNone(result["metrics"]["issue"]["perSegmentProfit"])
 
     def test_missing_product_preserves_amount(self):
         result = self.analysis(snapshot([fact(product=None)]), group="product")

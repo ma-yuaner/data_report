@@ -34,6 +34,7 @@ NOTES = [
     "金额：沿用源字段的CNY业务估算口径与正负号，不代表已结算利润；不并入风控核对区利润。",
     "数量：四类业务的business_count分别按票展示，不合计为总票数或据此计算退票率。",
     "航段：出票航段数取ADS的segment_count已知值汇总；segment_missing_count单独提示，不将缺失航段当作0。",
+    "单段利润：仅出票按完整出票利润除以完整出票航段数计算；利润或航段缺失、航段为0时不计算。",
     "产品：保留平台内原值，不推定正式分类；未关联产品的业务保留在待补充产品中。",
     "航司：出票取marketing_airline，退票取marketing_airline_s，改签取新航司air_line，增值取air_line；多航司原值不拆分。",
     "返点、后返、汇率、实际结算、ADM及增值退款完整性尚未确认；无缺失利润字段不等于财务数据完整。",
@@ -83,11 +84,22 @@ def aggregate(rows: list[dict], available: bool = True) -> dict:
         segment_missing = sum(int(row["segment_missing_count"] or 0) for row in selected)
         amounts = [Decimal(str(row["known_profit_cny"])) for row in selected if row["known_profit_cny"] is not None]
         known = sum(amounts, Decimal(0)) if amounts or not selected else None
+        profit = known if available and missing == 0 else None
+        per_segment_profit = (
+            profit / Decimal(segment_count)
+            if business == "issue"
+            and profit is not None
+            and segment_count is not None
+            and segment_count > 0
+            and segment_missing == 0
+            else None
+        )
         result[business] = {
             "count": quantity if available else None,
             "segmentCount": segment_count if available else None,
             "segmentMissingCount": segment_missing if available else 0,
-            "profit": str(known) if available and missing == 0 else None,
+            "profit": str(profit) if profit is not None else None,
+            "perSegmentProfit": str(per_segment_profit) if per_segment_profit is not None else None,
             "knownProfit": str(known) if available and known is not None else None,
             "profitMissingCount": missing if available else 0,
             "productMissingCount": sum(int(row["business_count"]) for row in selected if not row.get("ticket_product_raw")) if available else 0,

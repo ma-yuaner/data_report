@@ -56,10 +56,10 @@
           <a-segmented v-model:value="groupDimension" :options="dimensionOptions" :disabled="loading" @change="changeGroup" />
           <div class="comparison-sort"><span>排序</span><a-select v-model:value="comparisonSort" :options="sortOptions" :disabled="loading" @change="changeSort" /></div>
         </div>
-        <a-table class="dimension-table" :columns="comparisonColumns" :data-source="data?.comparison || []" row-key="key" :pagination="{ pageSize: 20, showSizeChanger: true }" :scroll="{ x: 1180 }" :locale="{ emptyText: available ? '所选条件没有业务数据' : '中间层数据未就绪' }">
+        <a-table class="dimension-table" :columns="comparisonColumns" :data-source="data?.comparison || []" row-key="key" :pagination="{ pageSize: 20, showSizeChanger: true }" :scroll="{ x: 1240 }" :locale="{ emptyText: available ? '所选条件没有业务数据' : '中间层数据未就绪' }">
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'name'"><strong>{{ record.name }}</strong></template>
-            <template v-else-if="isBusinessKey(column.key)"><div class="metric-cell"><strong :class="{ negative: isNegative(record.metrics[column.key].profit) }">{{ money(record.metrics[column.key].profit) }}<small> 元</small></strong><span>{{ count(record.metrics[column.key].count) }} 票</span><span v-if="column.key === 'issue'">{{ count(record.metrics.issue.segmentCount) }} 航段</span><span v-if="record.metrics[column.key].profitMissingCount">缺失利润 {{ count(record.metrics[column.key].profitMissingCount) }} 票</span><span v-if="column.key === 'issue' && record.metrics.issue.segmentMissingCount" class="metric-missing">航段缺失 {{ count(record.metrics.issue.segmentMissingCount) }} 票</span></div></template>
+            <template v-else-if="isBusinessKey(column.key)"><div class="metric-cell"><strong :class="{ negative: isNegative(record.metrics[column.key].profit) }">{{ money(record.metrics[column.key].profit) }}<small> 元</small></strong><span>{{ count(record.metrics[column.key].count) }} 票</span><span v-if="column.key === 'issue'">{{ count(record.metrics.issue.segmentCount) }} 航段</span><span v-if="column.key === 'issue'">单段利润 {{ money(record.metrics.issue.perSegmentProfit) }}{{ record.metrics.issue.perSegmentProfit == null ? '' : ' 元/段' }}</span><span v-if="record.metrics[column.key].profitMissingCount">缺失利润 {{ count(record.metrics[column.key].profitMissingCount) }} 票</span><span v-if="column.key === 'issue' && record.metrics.issue.segmentMissingCount" class="metric-missing">航段缺失 {{ count(record.metrics.issue.segmentMissingCount) }} 票</span></div></template>
             <template v-else-if="column.key === 'total'"><strong :class="{ negative: isNegative(record.totalProfit) }">{{ money(record.totalProfit) }} 元</strong></template>
             <template v-else-if="column.key === 'action'"><a-button type="link" size="small" data-telemetry-code="comprehensive-diagnosis-open" data-telemetry-name="分析此项" data-telemetry-event="drilldown_open" @click="openDiagnosis(record)">分析此项</a-button><a-button type="link" size="small" data-telemetry-code="comprehensive-daily-open" data-telemetry-name="日汇总" data-telemetry-event="detail_open" @click="openDetail(undefined, record)">日汇总</a-button></template>
           </template>
@@ -106,7 +106,7 @@
                   <a-table v-if="diagnosisGroupOptions.length" class="dimension-table" :columns="diagnosisColumns" :data-source="diagnosisRows" row-key="key" :pagination="diagnosisPagination" :scroll="{ x: 1050 }" :locale="{ emptyText: '当前条件在该维度下没有可分析数据' }" @change="changeDiagnosisPage">
                     <template #bodyCell="{ column, record }">
                       <template v-if="column.key === 'name'"><strong>{{ record.name }}</strong></template>
-                      <template v-else-if="isBusinessKey(column.key)"><div class="metric-cell"><strong :class="{ negative: isNegative(record.metrics[column.key].profit) }">{{ money(record.metrics[column.key].profit) }}<small> 元</small></strong><span>{{ count(record.metrics[column.key].count) }} 票</span><span v-if="column.key === 'issue'">{{ count(record.metrics.issue.segmentCount) }} 航段</span><span v-if="column.key === 'issue' && record.metrics.issue.segmentMissingCount" class="metric-missing">航段缺失 {{ count(record.metrics.issue.segmentMissingCount) }} 票</span></div></template>
+                      <template v-else-if="isBusinessKey(column.key)"><div class="metric-cell"><strong :class="{ negative: isNegative(record.metrics[column.key].profit) }">{{ money(record.metrics[column.key].profit) }}<small> 元</small></strong><span>{{ count(record.metrics[column.key].count) }} 票</span><span v-if="column.key === 'issue'">{{ count(record.metrics.issue.segmentCount) }} 航段</span><span v-if="column.key === 'issue'">单段利润 {{ money(record.metrics.issue.perSegmentProfit) }}{{ record.metrics.issue.perSegmentProfit == null ? '' : ' 元/段' }}</span><span v-if="column.key === 'issue' && record.metrics.issue.segmentMissingCount" class="metric-missing">航段缺失 {{ count(record.metrics.issue.segmentMissingCount) }} 票</span></div></template>
                       <template v-else-if="column.key === 'total'"><strong :class="{ negative: isNegative(record.totalProfit) }">{{ money(record.totalProfit) }} 元</strong></template>
                       <template v-else-if="column.key === 'action'"><a-button type="link" size="small" @click="continueDiagnosis(record)">继续分析</a-button><a-button type="link" size="small" @click="openDiagnosisDetail(record)">查看明细</a-button></template>
                     </template>
@@ -357,13 +357,13 @@ function continueDiagnosis(row: DimensionRow) {
 }
 const comparisonColumns = computed(() => [
   { title: groupLabel.value, key: 'name', width: 170, fixed: 'left' as const },
-  ...businesses.map(b => ({ title: b.key === 'issue' ? '出票利润 / 票数 / 航段' : b.label + '利润 / 票数', key: b.key, width: b.key === 'issue' ? 190 : 165 })),
+  ...businesses.map(b => ({ title: b.key === 'issue' ? '出票利润 / 票数 / 航段 / 单段利润' : b.label + '利润 / 票数', key: b.key, width: b.key === 'issue' ? 235 : 165 })),
   { title: '合计利润', key: 'total', width: 145 },
   { title: '继续分析', key: 'action', width: 160, fixed: 'right' as const },
 ])
 const diagnosisColumns = computed(() => [
   { title: dimensions.find(dimension => dimension.key === diagnosisGroup.value)?.label || '维度', key: 'name', width: 170, fixed: 'left' as const },
-  ...businesses.map(business => ({ title: business.key === 'issue' ? '出票利润 / 票数 / 航段' : business.label + '利润 / 票数', key: business.key, width: business.key === 'issue' ? 185 : 155 })),
+  ...businesses.map(business => ({ title: business.key === 'issue' ? '出票利润 / 票数 / 航段 / 单段利润' : business.label + '利润 / 票数', key: business.key, width: business.key === 'issue' ? 235 : 155 })),
   { title: '合计利润', key: 'total', width: 140 },
   { title: '下钻', key: 'action', width: 170, fixed: 'right' as const },
 ])

@@ -8,6 +8,7 @@ export interface Metric {
   segmentCount: number | null
   segmentMissingCount: number
   profit: string | null
+  perSegmentProfit: string | null
   knownProfit: string | null
   profitMissingCount: number
   productMissingCount: number
