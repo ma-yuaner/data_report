@@ -101,7 +101,10 @@ def gds_route_analysis():
             end_value=request.args.get("endDate"),
             filters={
                 key: request.args.get(key, "")
-                for key in ("platform", "site", "gds", "pcc", "apiGroup", "route", "keyword")
+                for key in (
+                    "platform", "site", "gds", "pcc", "resourceChannel",
+                    "apiGroup", "route", "keyword",
+                )
             },
         ))
     except ValueError as error:

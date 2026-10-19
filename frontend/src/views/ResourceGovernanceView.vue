@@ -223,7 +223,12 @@
     <div class="notes"><InfoCircleOutlined /><div><strong>当前版本边界</strong><p v-for="note in data?.notes || []" :key="note">{{ note }}</p></div></div>
 
     <a-drawer v-model:open="drawerOpen" width="1080" :title="drawerTitle">
-      <template #extra><a-button v-if="analysisHistory.length > 1" type="link" @click="backAnalysis">返回上一级</a-button></template>
+      <template #extra>
+        <a-space>
+          <a-button v-if="analysisScope.dataSource === 'gds'" type="link" @click="openAnalysisRoutes()"><BranchesOutlined />按当前条件查看航线</a-button>
+          <a-button v-if="analysisHistory.length > 1" type="link" @click="backAnalysis">返回上一级</a-button>
+        </a-space>
+      </template>
       <a-alert v-if="drawerError" class="state-alert" type="error" show-icon :message="drawerError" />
       <a-spin :spinning="drawerLoading" tip="正在分析该资源">
         <div class="drawer-scope">
@@ -267,7 +272,7 @@
               <template v-else-if="column.key === 'successTarget'">{{ otaTargetSummary(record) }}</template>
               <template v-else-if="column.key === 'order'">{{ integer(record.orderRequests) }}</template>
               <template v-else-if="column.key === 'breach'"><a-tag :color="record.breach ? 'red' : 'default'">{{ breachText(record) }}</a-tag></template>
-              <template v-else-if="column.key === 'action'"><a-button type="link" size="small" @click="continueAnalysis(record)">{{ hasNextAnalysisDimension ? '继续分析' : '锁定此项' }}</a-button></template>
+              <template v-else-if="column.key === 'action'"><a-button type="link" size="small" @click="hasNextAnalysisDimension ? continueAnalysis(record) : openAnalysisRoutes(record)">{{ hasNextAnalysisDimension ? '继续分析' : '查看航线' }}</a-button></template>
             </template>
           </a-table>
         </template>
@@ -336,14 +341,19 @@ const isGds = computed(() => applied.value.dataSource === 'gds')
 const isGdsRatioScope = computed(() => isGds.value && data.value?.ratioApplicable !== false)
 const pageTitle = computed(() => isGds.value ? 'GDS资源治理' : 'OTA渠道质量')
 const pageDescription = computed(() => isGds.value ? '按GDS与PCC分析查询量、航段数和查定比' : '按平台与站点分析查询、验价和生单接口成功率')
+const routeDiagnosisQuery = (scope: GovernanceScope) => ({
+    startDate: scope.startDate,
+    endDate: scope.endDate,
+    platform: scope.platform || undefined,
+    site: scope.site || undefined,
+    gds: scope.gds || undefined,
+    pcc: scope.pcc || undefined,
+    resourceChannel: scope.resourceChannel || undefined,
+    apiGroup: scope.apiGroup || undefined,
+})
 const openRouteDiagnosis = () => router.push({
   path: '/resource-governance/route-diagnosis',
-  query: {
-    startDate: applied.value.startDate,
-    endDate: applied.value.endDate,
-    platform: applied.value.platform || undefined,
-    gds: applied.value.gds || undefined,
-  },
+  query: routeDiagnosisQuery(applied.value),
 })
 const layerLabel = (layer: GovernanceLayer) => layer === 'gds' ? 'GDS资源层' : 'OTA渠道层'
 const selectOptions = (values?: string[]) => (values || []).map(value => ({ label: value, value }))
@@ -680,6 +690,15 @@ async function continueAnalysis(record: { value: string; name: string }) {
   analysisHistory.value.push({ ...scope })
   if (!next) analysisView.value = 'daily'
   await loadAnalysis(scope)
+}
+function openAnalysisRoutes(record?: { value: string; name: string }) {
+  const scope = { ...analysisScope.value }
+  if (record) {
+    const current = analysisData.value?.dimension.key || analysisGroup.value
+    scope[current] = record.value
+  }
+  drawerOpen.value = false
+  void router.push({ path: '/resource-governance/route-diagnosis', query: routeDiagnosisQuery(scope) })
 }
 async function backAnalysis() {
   if (analysisHistory.value.length <= 1) return

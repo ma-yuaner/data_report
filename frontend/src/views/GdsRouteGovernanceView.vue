@@ -2,6 +2,7 @@
   <div class="page-wrap route-governance-page">
     <PageHeader eyebrow="RESOURCE GOVERNANCE" :title="pageMeta.title" :description="pageMeta.description">
       <a-space>
+        <a-button v-if="isLiveRouteView" @click="router.push('/resource-governance/gds')"><ApartmentOutlined />返回GDS总览</a-button>
         <a-tag :color="isLiveRouteView ? 'green' : 'orange'">{{ isLiveRouteView ? 'Hive实际数据' : '验收演示 · 假数据' }}</a-tag>
         <a-button v-if="!isLiveRouteView" @click="resetDemo"><ReloadOutlined />重置演示</a-button>
       </a-space>
@@ -71,17 +72,23 @@
 
     <template v-else-if="page === 'routes'">
       <template v-if="diagnosisView === 'route'">
+        <a-alert v-if="routeContextTags.length" class="context-tip" type="info" show-icon
+          message="已承接GDS资源治理的分析条件" :description="`当前航线查询范围：${routeContextTags.join(' · ')}`" />
         <FilterPanel @reset="resetFilters">
           <label><span>统计日期（完整业务日）</span><a-range-picker v-model:value="dateRange" value-format="YYYY-MM-DD" :allow-clear="false" /></label>
           <label><span>GDS</span><a-select v-model:value="filters.gds" allow-clear placeholder="全部GDS" :options="gdsOptions" /></label>
           <label><span>PCC</span><a-select v-model:value="filters.pcc" allow-clear placeholder="全部PCC" :options="pccOptions" /></label>
           <label><span>平台</span><a-select v-model:value="filters.platform" allow-clear placeholder="全部平台" :options="platformOptions" /></label>
           <label><span>站点</span><a-select v-model:value="filters.site" allow-clear placeholder="全部站点" :options="siteOptions" /></label>
+          <label><span>资源通道</span><a-select v-model:value="filters.resourceChannel" allow-clear placeholder="全部通道" :options="resourceChannelOptions" @change="changeResourceChannel" /></label>
           <label><span>接口分组</span><a-select v-model:value="filters.apiGroup" allow-clear placeholder="全部接口组" :options="apiGroupOptions" /></label>
           <label><span>航线/机场/城市/航司</span><a-input v-model:value="filters.keyword" allow-clear placeholder="例如 HKG-ICN / 7C" /></label>
         </FilterPanel>
 
         <a-alert v-if="routeError" class="context-tip" type="error" show-icon message="GDS航线Hive查询失败" :description="routeError" />
+        <a-alert v-else-if="routeAnalysis" class="context-tip" type="warning" show-icon
+          message="接口失败量已接入，错误原因明细仍待数据补充"
+          description="当前可按航线查看查询、验价、生单失败量、超时率和变价率；dws_gds_airroute_day暂不包含错误码与标准错误分类，页面不会推测失败原因。" />
         <section v-if="routeAnalysis" class="metric-grid compact">
           <article class="metric-card tone-blue"><span>查询请求量</span><strong>{{ formatInteger(routeAnalysis.summary.searchRequests) }}</strong><small>search · {{ routeAnalysis.period.startDate }} 至 {{ routeAnalysis.period.endDate }}</small></article>
           <article class="metric-card tone-green"><span>查询接口成功率</span><strong>{{ formatRate(routeAnalysis.summary.searchSuccessRate) }}</strong><small>结果成功率 {{ formatRate(routeAnalysis.summary.searchResultSuccessRate) }}</small></article>
@@ -96,10 +103,11 @@
             <a-table-column title="平台 / 站点" :width="180"><template #default="{ record }"><strong>{{ record.platform || '—' }}</strong><div class="cell-sub">{{ record.site || '全部站点' }}</div></template></a-table-column>
             <a-table-column title="GDS / PCC" :width="160"><template #default="{ record }"><strong>{{ record.gdsCode || '—' }}</strong><div class="cell-sub">{{ record.pccCode || '—' }}</div></template></a-table-column>
             <a-table-column title="查询量" data-index="searchRequests" :width="125" align="right"><template #default="{ text }">{{ formatInteger(text) }}</template></a-table-column>
-            <a-table-column title="MP / MPIS / NDC" :width="205"><template #default="{ record }"><div class="share-line"><i :style="{ width: shareWidth(record.mpShare) }" /><i :style="{ width: shareWidth(record.mpisShare) }" /><i :style="{ width: shareWidth(record.ndcShare) }" /></div><div class="share-label">{{ formatRate(record.mpShare) }} / {{ formatRate(record.mpisShare) }} / {{ formatRate(record.ndcShare) }}</div></template></a-table-column>
+            <a-table-column title="普通MP / MPIS / NDC" :width="220"><template #default="{ record }"><div class="share-line"><i :style="{ width: shareWidth(record.mpShare) }" /><i :style="{ width: shareWidth(record.mpisShare) }" /><i :style="{ width: shareWidth(record.ndcShare) }" /></div><div class="share-label">{{ formatRate(record.mpShare) }} / {{ formatRate(record.mpisShare) }} / {{ formatRate(record.ndcShare) }}</div></template></a-table-column>
             <a-table-column title="查询接口成功率" :width="135" align="right"><template #default="{ record }">{{ formatRate(record.searchSuccessRate) }}</template></a-table-column>
             <a-table-column title="结果成功率" :width="120" align="right"><template #default="{ record }">{{ formatRate(record.searchResultSuccessRate) }}</template></a-table-column>
             <a-table-column title="查询超时率" :width="115" align="right"><template #default="{ record }">{{ formatRate(record.searchTimeoutRate) }}</template></a-table-column>
+            <a-table-column title="查 / 验 / 生失败" :width="175" align="right"><template #default="{ record }"><strong>{{ formatInteger(record.searchFailure) }}</strong><div class="cell-sub">{{ formatInteger(record.verifyFailure) }} / {{ formatInteger(record.orderFailure) }}</div></template></a-table-column>
             <a-table-column title="平均查询耗时" :width="125" align="right"><template #default="{ record }">{{ formatMilliseconds(record.avgSearchExecuteTime) }}</template></a-table-column>
             <a-table-column title="验价成功率" :width="115" align="right"><template #default="{ record }">{{ formatRate(record.verifySuccessRate) }}</template></a-table-column>
             <a-table-column title="生单成功率" :width="115" align="right"><template #default="{ record }">{{ formatRate(record.orderSuccessRate) }}</template></a-table-column>
@@ -243,12 +251,15 @@
           <a-descriptions-item label="查询接口成功率">{{ formatRate(selectedLiveRoute.searchSuccessRate) }}</a-descriptions-item><a-descriptions-item label="查询结果成功率">{{ formatRate(selectedLiveRoute.searchResultSuccessRate) }}</a-descriptions-item>
           <a-descriptions-item label="验价成功率">{{ formatRate(selectedLiveRoute.verifySuccessRate) }}</a-descriptions-item><a-descriptions-item label="生单成功率">{{ formatRate(selectedLiveRoute.orderSuccessRate) }}</a-descriptions-item>
           <a-descriptions-item label="查询超时率">{{ formatRate(selectedLiveRoute.searchTimeoutRate) }}</a-descriptions-item><a-descriptions-item label="查询缓存率">{{ formatRate(selectedLiveRoute.searchCacheRate) }}</a-descriptions-item>
+          <a-descriptions-item label="查询失败量">{{ formatInteger(selectedLiveRoute.searchFailure) }}</a-descriptions-item><a-descriptions-item label="验价失败量">{{ formatInteger(selectedLiveRoute.verifyFailure) }}</a-descriptions-item>
+          <a-descriptions-item label="生单失败量">{{ formatInteger(selectedLiveRoute.orderFailure) }}</a-descriptions-item><a-descriptions-item label="验价超时率">{{ formatRate(selectedLiveRoute.verifyTimeoutRate) }}</a-descriptions-item>
+          <a-descriptions-item label="生单超时率">{{ formatRate(selectedLiveRoute.orderTimeoutRate) }}</a-descriptions-item><a-descriptions-item label="验价变价率">{{ formatRate(selectedLiveRoute.verifyPriceChangeRate) }}</a-descriptions-item>
           <a-descriptions-item label="直飞方案数">{{ formatInteger(selectedLiveRoute.directFlightCount) }}</a-descriptions-item><a-descriptions-item label="中转方案数">{{ formatInteger(selectedLiveRoute.connectingFlightCount) }}</a-descriptions-item>
           <a-descriptions-item label="最近源数据" :span="2">{{ selectedLiveRoute.sourceUpdatedAt || '—' }}</a-descriptions-item>
         </a-descriptions>
         <div class="drawer-section-title"><strong>资源通道结构</strong><span>按查询请求量计算</span></div>
         <div class="channel-grid">
-          <article><span>MP</span><strong>{{ formatInteger(selectedLiveRoute.mpSearchRequests) }}</strong><small>{{ formatRate(selectedLiveRoute.mpShare) }}</small></article>
+          <article><span>普通MP</span><strong>{{ formatInteger(selectedLiveRoute.mpSearchRequests) }}</strong><small>{{ formatRate(selectedLiveRoute.mpShare) }}</small></article>
           <article><span>MPIS</span><strong>{{ formatInteger(selectedLiveRoute.mpisSearchRequests) }}</strong><small>{{ formatRate(selectedLiveRoute.mpisShare) }}</small></article>
           <article><span>NDC</span><strong>{{ formatInteger(selectedLiveRoute.ndcSearchRequests) }}</strong><small>{{ formatRate(selectedLiveRoute.ndcShare) }}</small></article>
         </div>
@@ -304,6 +315,7 @@ const filters = reactive({
   pcc: undefined as string | undefined,
   platform: undefined as string | undefined,
   site: undefined as string | undefined,
+  resourceChannel: undefined as string | undefined,
   apiGroup: undefined as string | undefined,
   keyword: '',
 })
@@ -346,7 +358,20 @@ const gdsOptions = computed(() => toOptions(routeAnalysis.value?.options.gds))
 const pccOptions = computed(() => toOptions(routeAnalysis.value?.options.pcc))
 const platformOptions = computed(() => toOptions(routeAnalysis.value?.options.platform))
 const siteOptions = computed(() => toOptions(routeAnalysis.value?.options.site))
-const apiGroupOptions = computed(() => toOptions(routeAnalysis.value?.options.apiGroup))
+const resourceChannelOptions = [{ value: 'MP', label: 'MP（含普通MP、NDC）' }, { value: 'MPIS', label: 'MPIS' }]
+const apiGroupOptions = computed(() => {
+  const values = routeAnalysis.value?.options.apiGroup || []
+  const channel = filters.resourceChannel
+  return toOptions(!channel ? values : values.filter(value => channel === 'MPIS' ? value.toUpperCase().endsWith('_MPIS') : !value.toUpperCase().endsWith('_MPIS')))
+})
+const routeContextTags = computed(() => [
+  filters.gds && `GDS：${filters.gds}`,
+  filters.pcc && `PCC：${filters.pcc}`,
+  filters.platform && `平台：${filters.platform}`,
+  filters.site && `站点：${filters.site}`,
+  filters.resourceChannel && `资源通道：${filters.resourceChannel}`,
+  filters.apiGroup && `接口组：${filters.apiGroup}`,
+].filter(Boolean) as string[])
 const riskRoutes = computed(() => [...store.routes].filter(item => item.riskStatus !== 'NORMAL').sort((a, b) => b.queryToSegmentRatio - a.queryToSegmentRatio))
 const breachedRouteCount = computed(() => store.routes.filter(item => item.riskStatus === 'BREACHED').length)
 const visibleConfigurations = computed(() => configView.value === '异常' ? store.configurations.filter(item => item.status === '异常') : store.configurations)
@@ -391,7 +416,8 @@ const loadRouteAnalysis = async () => {
     routeAnalysis.value = await fetchGdsRouteAnalysis({
       startDate: dateRange.value[0], endDate: dateRange.value[1],
       gds: filters.gds, pcc: filters.pcc, platform: filters.platform,
-      site: filters.site, apiGroup: filters.apiGroup, keyword: filters.keyword.trim(),
+      site: filters.site, resourceChannel: filters.resourceChannel,
+      apiGroup: filters.apiGroup, keyword: filters.keyword.trim(),
     })
   } catch (error) {
     routeAnalysis.value = null
@@ -406,8 +432,13 @@ const scheduleRouteQuery = () => {
 }
 const resetFilters = () => {
   filters.gds = undefined; filters.pcc = undefined; filters.platform = undefined
-  filters.site = undefined; filters.apiGroup = undefined; filters.keyword = ''
+  filters.site = undefined; filters.resourceChannel = undefined; filters.apiGroup = undefined; filters.keyword = ''
   const day = yesterday(); dateRange.value = [day, day]
+}
+const changeResourceChannel = () => {
+  if (!filters.apiGroup || !filters.resourceChannel) return
+  const isMpis = filters.apiGroup.toUpperCase().endsWith('_MPIS')
+  if ((filters.resourceChannel === 'MPIS') !== isMpis) filters.apiGroup = undefined
 }
 const resetDemo = () => { store.resetReview(); message.success('演示流程已恢复到初始状态') }
 const acknowledge = (id: string) => { store.acknowledgeEvent(id); message.success('异常已确认，操作日志将在正式接口中留痕') }
@@ -423,6 +454,7 @@ onMounted(() => {
   filters.pcc = queryValue('pcc') || undefined
   filters.platform = queryValue('platform') || undefined
   filters.site = queryValue('site') || undefined
+  filters.resourceChannel = queryValue('resourceChannel') || undefined
   filters.apiGroup = queryValue('apiGroup') || undefined
   const startDate = queryValue('startDate')
   const endDate = queryValue('endDate')
@@ -431,7 +463,7 @@ onMounted(() => {
 })
 
 watch(
-  () => [page.value, diagnosisView.value, dateRange.value?.[0], dateRange.value?.[1], filters.gds, filters.pcc, filters.platform, filters.site, filters.apiGroup, filters.keyword],
+  () => [page.value, diagnosisView.value, dateRange.value?.[0], dateRange.value?.[1], filters.gds, filters.pcc, filters.platform, filters.site, filters.resourceChannel, filters.apiGroup, filters.keyword],
   () => scheduleRouteQuery(),
 )
 onBeforeUnmount(() => { if (routeQueryTimer) clearTimeout(routeQueryTimer) })

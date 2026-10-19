@@ -66,6 +66,21 @@ def _channel_expression(channel: str) -> str:
     return f"not ({normalized} rlike 'MPIS$') and not ({normalized} rlike 'NDC$')"
 
 
+def _resource_channel_expression(channel: str) -> str:
+    """Build the user-facing MP/MPIS filter without changing metric buckets.
+
+    The governance definition treats NDC as a child of the broad MP channel while
+    the metric payload still exposes ordinary MP and NDC separately for analysis.
+    """
+    if channel == "MPIS":
+        return _channel_expression("MPIS")
+    if channel == "MP":
+        return f"not ({_channel_expression('MPIS')})"
+    if channel == "NDC":
+        return _channel_expression("NDC")
+    raise ValueError("资源通道仅支持MP、MPIS或NDC")
+
+
 METRIC_SQL = f"""
     coalesce(sum(api_request_count_all), 0),
     coalesce(sum(case when api_method = 'search' then api_request_count_all else 0 end), 0),
@@ -268,6 +283,9 @@ class GdsRouteAnalysisService:
             if value:
                 clauses.append(f"trim({field}) = %s")
                 params.append(value)
+        resource_channel = filters.get("resourceChannel", "").upper()
+        if resource_channel:
+            clauses.append(_resource_channel_expression(resource_channel))
         keyword = filters.get("keyword", "").upper()
         if keyword:
             clauses.append(

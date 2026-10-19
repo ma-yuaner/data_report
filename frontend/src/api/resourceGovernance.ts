@@ -132,6 +132,7 @@ export interface GdsRouteScope {
   site?: string
   gds?: string
   pcc?: string
+  resourceChannel?: string
   apiGroup?: string
   route?: string
   keyword?: string

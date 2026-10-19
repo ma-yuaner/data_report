@@ -87,6 +87,35 @@ def test_route_metric_sql_has_no_literal_percent_conflicting_with_pyhive_params(
     assert "rlike 'NDC$'" in module.METRIC_SQL
 
 
+def test_route_service_resource_channel_filter_keeps_ndc_inside_mp():
+    source = MagicMock()
+    source.database = "lywz"
+    source.label = "Hive · lywz"
+    service = module.GdsRouteAnalysisService({}, source=source)
+
+    where_sql, params = service._where(
+        datetime(2026, 10, 14).date(), datetime(2026, 10, 14).date(),
+        {"resourceChannel": "MP"},
+    )
+
+    assert "not (" in where_sql
+    assert "rlike 'MPIS$'" in where_sql
+    assert "rlike 'NDC$'" not in where_sql
+    assert params == ["2026-10-14", "2026-10-14"]
+
+    mpis_sql, _ = service._where(
+        datetime(2026, 10, 14).date(), datetime(2026, 10, 14).date(),
+        {"resourceChannel": "MPIS"},
+    )
+    assert "rlike 'MPIS$'" in mpis_sql
+
+    with pytest.raises(ValueError, match="资源通道"):
+        service._where(
+            datetime(2026, 10, 14).date(), datetime(2026, 10, 14).date(),
+            {"resourceChannel": "UNKNOWN"},
+        )
+
+
 def test_route_service_caps_period_at_yesterday_and_rejects_wide_range():
     source = MagicMock()
     source.database = "lywz"
@@ -115,6 +144,7 @@ def test_route_endpoint_returns_service_data_and_unavailable_status():
     assert response.status_code == 200
     assert response.get_json()["data"] == payload
     assert overview.call_args.kwargs["filters"]["gds"] == "1A"
+    assert "resourceChannel" in overview.call_args.kwargs["filters"]
 
     with patch(
         "data_report_api.routes.GdsRouteAnalysisService.overview",
