@@ -28,7 +28,7 @@ API_GROUP：日期 + 平台 + 站点 + GDS + PCC + 接口分组
 GDS查定比 = SUM(MP查询量) / SUM(seg_num)
 ```
 
-用户于2026-10-15确认，MP查询量包含`1A`、`1A_NDC`等非`*_MPIS`接口组，分母使用`bi_issue_segment_pnr_year.seg_num`。`pnr_num`与`order_request_success`均不参与正式查定比。航段未同步或部分缺失时页面显示“—”并停止计算；查询量大于0且完整同步后的航段数为0时显示“∞”。OTA渠道层不展示航段查定比。
+用户于2026-10-15确认，MP查询量包含`1A`、`1A_NDC`等非`*_MPIS`接口组，分母使用`bi_issue_segment_pnr_year.seg_num`。用户于2026-10-19进一步确认，正式分母只统计`flag=1`的出票航段；在历史数据尚未回填期间，`flag IS NULL`按出票兼容，`flag=0`订位航段不进入正式查定比。`pnr_num`与`order_request_success`均不参与正式查定比。航段未同步或部分缺失时页面显示“—”并停止计算；查询量大于0且完整同步后的航段数为0时显示“∞”。OTA渠道层不展示航段查定比。
 
 GDS目标按资源分别配置。首版通过`RESOURCE_GOVERNANCE_GDS_TARGETS`配置，格式如`1A:4000,1G:3000`；默认只配置`1A:4000`。汇总多个GDS时不套用统一目标，筛选具体GDS或查看GDS维度行时才判断达标并计算超额查询。
 

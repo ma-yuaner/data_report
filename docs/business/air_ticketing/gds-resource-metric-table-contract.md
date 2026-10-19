@@ -27,7 +27,7 @@ GDS查定比 = MP查询量 / SUM(seg_num)
 - `1A`、`1A_NDC`计入MP查询量；`1A_MPIS`不计入；1G等其他GDS使用相同规则。
 - 页面分析层级固定为`GDS → 资源通道 → 接口分组`。资源通道按接口组名称派生：以`_MPIS`结尾为`MPIS`，其余为`MP`；因此`1A_NDC`是MP的下级接口组，不与MP平级。
 - `MPIS查询占比 = MPIS查询量 / (MP查询量 + MPIS查询量)`，只用于观察流量迁移，不替代正式查定比。
-- 分母固定来自`bi_issue_segment_pnr_year.seg_num`。
+- 分母固定来自`bi_issue_segment_pnr_year.seg_num`，只汇总`flag=1`的出票航段；历史`flag IS NULL`按出票兼容，`flag=0`订位航段排除。
 - `pnr_num`、`iss_num`、`order_num`和接口`order_request_success`不作为查定比分母。
 - 同一完整业务日内，某个细分组合没有航段记录表示该组合航段数为0，不是“未同步”。
 - 只有整个业务日都没有航段源数据时，才保留NULL并将`segment_missing_flag=1`。
