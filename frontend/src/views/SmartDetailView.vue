@@ -15,11 +15,11 @@
 
     <a-card :bordered="false" class="panel-card smart-detail-panel">
       <div class="view-template-bar">
-        <strong>字段模板</strong>
-        <a-select v-model:value="selectedTemplateId" allow-clear placeholder="选择已保存模板" :options="templateOptions" @change="applyFieldTemplate" />
+        <strong>私人模板 / 公共模板</strong>
+        <a-select v-model:value="selectedTemplateId" allow-clear placeholder="选择私人或公共模板" :options="templateOptions" @change="applyFieldTemplate" />
         <a-button @click="openTemplateModal"><SaveOutlined />保存当前字段</a-button>
-        <a-button danger :disabled="!selectedTemplateId" @click="deleteFieldTemplate"><DeleteOutlined />删除模板</a-button>
-        <span>模板按当前账号保存，退出后仍可直接选用</span>
+        <a-button danger :disabled="!selectedTemplate?.isOwner" @click="deleteFieldTemplate"><DeleteOutlined />删除模板</a-button>
+        <span>私人模板仅本人可见；可在保存时公开供其他账号使用</span>
       </div>
       <div class="detail-toolbar">
         <label class="ticket-scope"><span>票单范围</span><a-select v-model:value="stage" :options="stageOptions" :dropdown-match-select-width="false" popup-class-name="ticket-scope-popup" @change="queryFromStart" /></label>
@@ -62,6 +62,7 @@
     <a-modal v-model:open="templateModalOpen" title="保存字段模板" ok-text="保存" cancel-text="取消" @ok="saveFieldTemplate">
       <p class="template-modal-note">当前已选 {{ selectedFields.length }} 个字段；使用相同名称会覆盖原模板。</p>
       <a-input v-model:value="templateName" :maxlength="30" show-count placeholder="例如：运营日常明细" @press-enter="saveFieldTemplate" />
+      <a-checkbox v-model:checked="templatePublic" class="template-public-check">公开模板（其他账号可使用，但不能修改）</a-checkbox>
     </a-modal>
 
     <a-drawer v-model:open="ticketOpen" title="出票记录完整信息" width="720">
@@ -96,15 +97,15 @@ import { ArrowLeftOutlined, DeleteOutlined, DownloadOutlined, SaveOutlined, Sear
 import PageHeader from '@/components/PageHeader.vue'
 import DataStateBar from '@/components/DataStateBar.vue'
 import SmartAnalysisFilters from '@/components/SmartAnalysisFilters.vue'
-import { smartAnalysisApi, type SmartDetailColumn, type SmartDetailData, type SmartDetailValueType, type SmartStage, type SmartTicketData, type SmartType } from '@/api/smartAnalysis'
+import { smartAnalysisApi, type SmartDetailColumn, type SmartDetailData, type SmartDetailValueType, type SmartStage, type SmartTicketData, type SmartType, type SmartViewTemplate } from '@/api/smartAnalysis'
 import { useSmartAnalysisStore } from '@/stores/smartAnalysis'
 import { useAuthStore } from '@/stores/auth'
 import { guardSmartExport } from '@/utils/smartExportGuard'
-import { loadViewTemplates, removeViewTemplate, saveViewTemplate, type NamedViewTemplate } from '@/utils/smartViewTemplates'
+import { loadViewTemplates } from '@/utils/smartViewTemplates'
 
 const DEFAULT_FIELDS = ['issueId', 'otaOrderNo', 'issueTicketNo', 'airline', 'platform', 'issueTicketTime', 'smartConfirm', 'issueProfit']
 const FIELD_CATEGORY_ORDER = ['订单与出票', '航程信息', '人员信息', '智能及PNR信息', '智能状态', '金额与派生字段']
-type DetailTemplateValue = { fields: string[] }
+type DetailTemplateValue = { fields: string[] } & Record<string, unknown>
 const isDetailTemplateValue = (value: unknown): value is DetailTemplateValue => Boolean(
   value && typeof value === 'object' && Array.isArray((value as DetailTemplateValue).fields)
   && (value as DetailTemplateValue).fields.every(item => typeof item === 'string'),
@@ -125,10 +126,11 @@ const fieldModalOpen = ref(false)
 const fieldSearch = ref('')
 const selectedFields = ref<string[]>(loadSavedFields())
 const draftFields = ref<string[]>([...selectedFields.value])
-const fieldTemplates = ref<NamedViewTemplate<DetailTemplateValue>[]>(loadViewTemplates('detail-fields', authStore.user?.id, isDetailTemplateValue))
-const selectedTemplateId = ref<string>()
+const fieldTemplates = ref<SmartViewTemplate<DetailTemplateValue>[]>([])
+const selectedTemplateId = ref<number>()
 const templateModalOpen = ref(false)
 const templateName = ref('')
+const templatePublic = ref(false)
 const ticketOpen = ref(false)
 const ticketLoading = ref(false)
 const ticket = ref<SmartTicketData>()
@@ -148,7 +150,12 @@ const stageOptions = computed(() => [
   { label: `${typeLabel.value}成功但未使用`, value: 'unused' },
   { label: '退票中/已退票（不区分智能类型）', value: 'refund' },
 ])
-const templateOptions = computed(() => fieldTemplates.value.map(item => ({ value: item.id, label: item.name })))
+const selectedTemplate = computed(() => fieldTemplates.value.find(item => item.id === selectedTemplateId.value))
+const templateOptions = computed(() => [
+  { label: '私人模板', options: fieldTemplates.value.filter(item => item.isOwner && !item.isPublic).map(item => ({ value: item.id, label: item.name })) },
+  { label: '我的公共模板', options: fieldTemplates.value.filter(item => item.isOwner && item.isPublic).map(item => ({ value: item.id, label: item.name })) },
+  { label: '公共模板', options: fieldTemplates.value.filter(item => !item.isOwner && item.isPublic).map(item => ({ value: item.id, label: `${item.name} · ${item.ownerName}` })) },
+].filter(group => group.options.length))
 const count = (value: number | null | undefined) => value == null ? '—' : integer.format(value)
 const money = (value: unknown) => value == null || value === '' ? '—' : currency.format(Number(value))
 const yesNo = (value: unknown) => value == null ? '—' : value ? '是' : '否'
@@ -200,7 +207,7 @@ function selectDefaults() { draftFields.value = [...DEFAULT_FIELDS] }
 function selectAll() { draftFields.value = (data.value?.availableColumns || []).map(field => field.key) }
 function applyFields() { selectedFields.value = normalizeFields(draftFields.value); selectedTemplateId.value = undefined; persistFields(); fieldModalOpen.value = false; queryFromStart() }
 function openFieldModal() { draftFields.value = [...selectedFields.value]; fieldSearch.value = ''; fieldModalOpen.value = true }
-function applyFieldTemplate(templateId?: string) {
+function applyFieldTemplate(templateId?: number) {
   if (!templateId) return
   const template = fieldTemplates.value.find(item => item.id === templateId)
   if (!template) return
@@ -212,25 +219,48 @@ function applyFieldTemplate(templateId?: string) {
   queryFromStart()
 }
 function openTemplateModal() {
-  templateName.value = fieldTemplates.value.find(item => item.id === selectedTemplateId.value)?.name || ''
+  const template = selectedTemplate.value
+  templateName.value = template?.isOwner ? template.name : (template ? `${template.name}副本` : '')
+  templatePublic.value = template?.isOwner ? template.isPublic : false
   templateModalOpen.value = true
 }
-function saveFieldTemplate() {
+async function loadFieldTemplates() {
   try {
-    const result = saveViewTemplate('detail-fields', authStore.user?.id, fieldTemplates.value, templateName.value, { fields: [...selectedFields.value] })
-    fieldTemplates.value = result.values
-    selectedTemplateId.value = result.saved.id
+    let rows = await smartAnalysisApi.templates<DetailTemplateValue>('detail-fields')
+    const ownNames = new Set(rows.filter(item => item.isOwner).map(item => item.name))
+    const legacy = loadViewTemplates('detail-fields', authStore.user?.id, isDetailTemplateValue)
+    const missing = legacy.filter(item => !ownNames.has(item.name))
+    for (const item of missing) {
+      await smartAnalysisApi.saveTemplate<DetailTemplateValue>({ scope: 'detail-fields', name: item.name, value: item.value, isPublic: false })
+    }
+    if (missing.length) rows = await smartAnalysisApi.templates<DetailTemplateValue>('detail-fields')
+    fieldTemplates.value = rows
+  }
+  catch (error) { message.error(error instanceof Error ? error.message : '字段模板加载失败') }
+}
+async function saveFieldTemplate() {
+  try {
+    const current = selectedTemplate.value
+    const saved = await smartAnalysisApi.saveTemplate<DetailTemplateValue>({
+      id: current?.isOwner ? current.id : undefined,
+      scope: 'detail-fields', name: templateName.value,
+      value: { fields: [...selectedFields.value] }, isPublic: templatePublic.value,
+    })
+    await loadFieldTemplates()
+    selectedTemplateId.value = saved.id
     templateModalOpen.value = false
-    message.success(`已保存字段模板“${result.saved.name}”`)
+    message.success(`已保存${saved.isPublic ? '公共' : '私人'}模板“${saved.name}”`)
   } catch (error) { message.warning(error instanceof Error ? error.message : '字段模板保存失败') }
 }
 function deleteFieldTemplate() {
-  const template = fieldTemplates.value.find(item => item.id === selectedTemplateId.value)
-  if (!template) return
+  const template = selectedTemplate.value
+  if (!template?.isOwner) return
   Modal.confirm({ title: '删除字段模板', content: `确定删除“${template.name}”吗？`, okType: 'danger', onOk: () => {
-    fieldTemplates.value = removeViewTemplate('detail-fields', authStore.user?.id, fieldTemplates.value, template.id)
-    selectedTemplateId.value = undefined
-    message.success('字段模板已删除')
+    void smartAnalysisApi.deleteTemplate(template.id).then(async () => {
+      selectedTemplateId.value = undefined
+      await loadFieldTemplates()
+      message.success('字段模板已删除')
+    }).catch(error => message.error(error instanceof Error ? error.message : '字段模板删除失败'))
   } })
 }
 async function openTicket(issueId: unknown) {
@@ -259,7 +289,7 @@ onMounted(() => {
   if (['all', 'down', 'void'].includes(queryType)) pageState.smartType = queryType
   if (stageOptions.value.some(item => item.value === queryStage)) stage.value = queryStage
   if (String(route.query.drill || '') !== '1') store.clearDrill()
-  draftFields.value = [...selectedFields.value]; void load()
+  draftFields.value = [...selectedFields.value]; void load(); void loadFieldTemplates()
 })
 </script>
 
@@ -275,6 +305,7 @@ onMounted(() => {
 .view-template-bar :deep(.ant-select) { width: 220px; }
 .view-template-bar > span { flex: 1; color: #7b899c; font-size: 10px; text-align: right; }
 .template-modal-note { color: #718096; font-size: 12px; }
+.template-public-check { display: block; margin-top: 14px; color: #5f6d82; }
 .detail-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin-bottom: 16px; }
 .detail-toolbar > label { width: 190px; display: grid; gap: 6px; color: #718096; font-size: 11px; }
 .detail-toolbar > .ticket-scope { width: 330px; flex: 0 0 330px; }

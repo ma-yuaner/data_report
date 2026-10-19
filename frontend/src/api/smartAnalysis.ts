@@ -45,6 +45,7 @@ export interface SmartFilters {
   zoneRoute: string
   tcRoute: string
   profitBand: string
+  otaOrderNo: string
 }
 
 export interface SmartMetricSet {
@@ -184,6 +185,18 @@ export interface SmartTicketData {
   record: Record<string, string | number | boolean | null> | null
 }
 
+export interface SmartViewTemplate<T extends Record<string, unknown> = Record<string, unknown>> {
+  id: number
+  scope: 'dimension-analysis' | 'detail-fields'
+  name: string
+  value: T
+  ownerUserId: number
+  ownerName: string
+  isOwner: boolean
+  isPublic: boolean
+  updatedAt: string
+}
+
 export const dimensionOptions = [
   ['airline', '航司'], ['platform', 'OTA平台'], ['site', 'OTA站点'], ['policy', '政策员'],
   ['leader', '组长'], ['member', '组员'], ['supplier', '出票供应商'], ['gds', 'GDS系统'],
@@ -225,6 +238,9 @@ export const smartAnalysisApi = {
   details: (filters: SmartFilters, params: { smartType: SmartType; stage: SmartStage; fields: string[]; page: number; pageSize: number }) => http.get<ApiEnvelope<SmartDetailData>>('/v1/smart-analysis/details', { params: { ...cleanFilters(filters), ...params, fields: params.fields.join(',') } }).then(response => response.data.data),
   ticket: (issueId: string) => http.get<ApiEnvelope<SmartTicketData>>(`/v1/smart-analysis/tickets/${encodeURIComponent(issueId)}`).then(response => response.data.data),
   filterOptions: (filters: SmartFilters, field: string, search = '') => http.get<ApiEnvelope<{ available: boolean; error: string; field: string; options: { value: string; label: string }[]; truncated: boolean }>>('/v1/smart-analysis/filter-options', { params: { ...cleanFilters(filters), field, search } }).then(response => response.data.data),
+  templates: <T extends Record<string, unknown>>(scope: 'dimension-analysis' | 'detail-fields') => http.get<ApiEnvelope<{ scope: string; rows: SmartViewTemplate<T>[] }>>('/v1/smart-analysis/templates', { params: { scope } }).then(response => response.data.data.rows),
+  saveTemplate: <T extends Record<string, unknown>>(input: { id?: number; scope: 'dimension-analysis' | 'detail-fields'; name: string; value: T; isPublic: boolean }) => http.post<ApiEnvelope<SmartViewTemplate<T>>>('/v1/smart-analysis/templates', input).then(response => response.data.data),
+  deleteTemplate: (id: number) => http.delete<ApiEnvelope<{ id: number }>>(`/v1/smart-analysis/templates/${id}`).then(response => response.data.data),
   exportTrend: (filters: SmartFilters, params: { kind: 'daily' | 'monthly'; smartType: SmartType; trendDate: SmartTrendDate }) => http.get('/v1/smart-analysis/exports/trend', { params: { ...cleanFilters(filters), ...params }, responseType: 'blob', timeout: SMART_EXPORT_TIMEOUT_MS }).then(response => downloadResponse(response, `智能分析_${params.kind === 'daily' ? '每日' : '每月'}趋势.xlsx`)),
   exportDimensions: (filters: SmartFilters, params: { groupBy: string[]; metrics: string[]; smartType: SmartType; sortBy: string; direction: 'asc' | 'desc' }) => http.get('/v1/smart-analysis/exports/dimensions', { params: { ...cleanFilters(filters), ...params, groupBy: params.groupBy.join(','), metrics: params.metrics.join(',') }, responseType: 'blob', timeout: SMART_EXPORT_TIMEOUT_MS }).then(response => downloadResponse(response, '智能分析_维度分析.xlsx')),
   exportDetails: (filters: SmartFilters, params: { smartType: SmartType; stage: SmartStage; fields: string[]; scope: 'visible' | 'all' }) => http.get('/v1/smart-analysis/exports/details', { params: { ...cleanFilters(filters), ...params, fields: params.fields.join(',') }, responseType: 'blob', timeout: SMART_EXPORT_TIMEOUT_MS }).then(response => downloadResponse(response, '智能分析_出票明细.xlsx')),

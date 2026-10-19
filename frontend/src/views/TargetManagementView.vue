@@ -45,6 +45,9 @@
           <template v-if="column.key === 'object'">
             <div class="object-cell"><span class="object-mark" :class="`mark-${record.scene}`">{{ objectMark(record) }}</span><div><strong>{{ objectName(record) }}</strong><small>{{ objectSubline(record) }}</small></div></div>
           </template>
+          <template v-else-if="column.key === 'policy-members'"><div class="stack-cell"><strong>{{ record.policyMemberNames.join(' / ') }}</strong><small>{{ record.policyMemberNames.length }} 名政策员</small></div></template>
+          <template v-else-if="column.key === 'policy-leader'"><div class="stack-cell"><strong>{{ record.policyLeaderName }}</strong><small>组长</small></div></template>
+          <template v-else-if="column.key === 'department'"><div class="stack-cell"><strong>{{ record.department }}</strong><small>{{ record.departmentCode }}</small></div></template>
           <template v-else-if="column.key === 'owner'"><div class="stack-cell"><strong>{{ record.owner }}</strong><small>{{ record.department }}</small></div></template>
           <template v-else-if="column.key === 'metric'"><div class="metric-cell"><span>{{ record.metric }}</span><small>{{ record.metricCode }} / {{ record.metricVersion }}</small></div></template>
           <template v-else-if="column.key === 'target'">{{ formatNumber(record.target) }}</template>
@@ -62,22 +65,25 @@
       <a-alert type="info" show-icon message="目标值保存后立即写入数据库；完成进度由后续ETL独立产出。" class="drawer-alert" />
       <a-form layout="vertical">
         <div class="form-grid two"><a-form-item label="目标场景"><a-input :value="sceneMeta.title" disabled /></a-form-item><a-form-item label="目标月份"><a-input v-model:value="form.period" type="month" /></a-form-item></div>
-        <div class="form-grid two">
-          <a-form-item label="归属部门"><a-input v-model:value="form.departmentName" disabled placeholder="选择花名册责任人后自动带出" /></a-form-item>
-          <a-form-item label="花名册责任人"><a-select v-model:value="form.ownerUserId" show-search option-filter-prop="label" :options="userSelectOptions" placeholder="选择ERP花名册人员" @change="selectOwner" /></a-form-item>
+        <div v-if="activeScene !== 'policy'" class="form-grid two">
+          <a-form-item label="归属部门"><a-select v-model:value="form.departmentCode" show-search option-filter-prop="label" :options="departmentSelectOptions" placeholder="选择真实组织部门" @change="selectDepartment" /></a-form-item>
+          <a-form-item label="责任人"><a-select v-model:value="form.ownerUserId" show-search option-filter-prop="label" :options="userSelectOptions" placeholder="选择责任人" @change="selectOwner" /></a-form-item>
         </div>
         <a-form-item v-if="activeScene === 'platform'" label="平台"><a-select v-model:value="form.platformCode" show-search option-filter-prop="label" :options="platformSelectOptions" placeholder="请选择真实平台" @change="selectPlatform" /></a-form-item>
         <a-form-item v-if="activeScene === 'gds'" label="GDS"><a-select v-model:value="form.gdsCode" show-search option-filter-prop="label" :options="gdsSelectOptions" placeholder="请选择GDS" /></a-form-item>
+        <a-form-item label="指标口径"><a-select v-model:value="form.metricCode" :options="metricSelectOptions" /></a-form-item>
         <template v-if="activeScene === 'policy'">
-          <a-form-item label="政策员 / 政策组"><a-auto-complete v-model:value="form.policyName" :options="policySelectOptions" placeholder="选择或输入真实政策员/政策组" @select="selectPolicy" /></a-form-item>
-          <div class="gds-target-editor"><label v-for="code in policyGdsCodes" :key="code"><span>{{ code }}目标</span><a-input-number v-model:value="form.gdsTargets[code]" :min="0" :step="1000" /></label></div>
+          <a-form-item label="政策员组合"><a-select v-model:value="form.policyMemberUserIds" mode="multiple" show-search option-filter-prop="label" :options="userSelectOptions" placeholder="从真实启用花名册中多选政策员" /></a-form-item>
+          <div class="form-grid two">
+            <a-form-item label="组长"><a-select v-model:value="form.policyLeaderUserId" show-search option-filter-prop="label" :options="policyLeaderSelectOptions" placeholder="从已选政策员中选择组长" /></a-form-item>
+            <a-form-item label="归属部门"><a-select v-model:value="form.departmentCode" show-search option-filter-prop="label" :options="departmentSelectOptions" placeholder="选择真实组织部门" @change="selectDepartment" /></a-form-item>
+          </div>
+          <div class="gds-target-editor"><label v-for="code in policyGdsCodes" :key="code"><span>{{ policyTargetLabel(code) }}</span><a-input-number v-model:value="form.gdsTargets[code]" :min="0" :step="1000" /></label></div>
         </template>
-        <template v-else>
-          <a-form-item label="指标口径"><a-select v-model:value="form.metricCode" :options="metricSelectOptions" /></a-form-item>
-          <a-form-item label="目标航段数"><a-input-number v-model:value="form.target" :min="0" :step="1000" class="full-width" /></a-form-item>
-        </template>
+        <a-form-item v-if="activeScene !== 'policy'" label="目标航段数"><a-input-number v-model:value="form.target" :min="0" :step="1000" class="full-width" /></a-form-item>
         <div class="form-grid two"><a-form-item label="状态"><a-select v-model:value="form.status" :options="editStatusOptions" /></a-form-item><a-form-item label="配置来源"><a-input value="手工配置" disabled /></a-form-item></div>
-        <a-form-item label="说明"><a-textarea v-model:value="form.remark" :rows="3" placeholder="填写调整原因或业务说明" /></a-form-item>
+        <a-form-item label="配置说明"><a-textarea v-model:value="form.remark" :rows="3" placeholder="填写长期保留在目标配置上的业务说明" /></a-form-item>
+        <a-form-item :label="editingId ? '本次修改原因' : '本次配置原因'" :required="Boolean(editingId)"><a-textarea v-model:value="form.changeReason" :rows="2" :placeholder="editingId ? '请说明本次修改原因，将写入审计日志' : '选填；未填写时记录为“新建目标配置”'" /></a-form-item>
       </a-form>
       <div class="drawer-actions"><a-button @click="editorOpen = false">取消</a-button><a-button type="primary" :loading="saving" @click="submitTarget">保存目标</a-button></div>
     </a-drawer>
@@ -86,7 +92,10 @@
       <template v-if="detailRow">
         <div class="detail-hero"><span>{{ sceneName(detailRow.scene) }}</span><h2>{{ objectName(detailRow) }}</h2><p>{{ detailRow.period }} · {{ detailRow.metric }}</p></div>
         <a-descriptions bordered size="small" :column="1">
-          <a-descriptions-item label="归属部门">{{ detailRow.department }}</a-descriptions-item><a-descriptions-item label="责任人">{{ detailRow.owner }}</a-descriptions-item>
+          <a-descriptions-item label="归属部门">{{ detailRow.department }}</a-descriptions-item>
+          <a-descriptions-item v-if="detailRow.scene === 'policy'" label="政策员">{{ detailRow.policyMemberNames.join(' / ') }}</a-descriptions-item>
+          <a-descriptions-item v-if="detailRow.scene === 'policy'" label="组长">{{ detailRow.policyLeaderName }}</a-descriptions-item>
+          <a-descriptions-item v-else label="责任人">{{ detailRow.owner }}</a-descriptions-item>
           <a-descriptions-item label="目标航段">{{ formatNumber(detailRow.target) }}</a-descriptions-item><a-descriptions-item label="配置状态"><a-tag :color="statusColor(detailRow.status)">{{ statusLabel(detailRow.status) }}</a-tag></a-descriptions-item>
           <a-descriptions-item label="统计口径">{{ detailRow.metric }}（{{ detailRow.metricCode }} / {{ detailRow.metricVersion }}）</a-descriptions-item>
           <a-descriptions-item label="配置说明">{{ detailRow.remark || '未填写' }}</a-descriptions-item>
@@ -132,7 +141,8 @@ const editingId = ref<string | null>(null)
 const detailRow = ref<TargetRow | null>(null)
 const form = reactive({
   period: currentPeriod, departmentCode: '', departmentName: '', platformCode: '', platformName: '', gdsCode: '', policyCode: '', policyName: '',
-  ownerUserId: undefined as number | undefined, ownerName: '', metricCode: '', metricVersion: 'V1', target: 0, status: 'ACTIVE' as EditableStatus, remark: '',
+  ownerUserId: undefined as number | undefined, ownerName: '', policyLeaderUserId: undefined as number | undefined, policyMemberUserIds: [] as number[],
+  metricCode: '', metricVersion: 'V1', target: 0, status: 'ACTIVE' as EditableStatus, remark: '', changeReason: '',
   itemId: undefined as number | undefined, itemIds: {} as Record<string, number>, gdsTargets: Object.fromEntries(policyGdsCodes.map(code => [code, 0])) as Record<string, number>,
 })
 
@@ -157,23 +167,30 @@ const platformSelectOptions = computed(() => options.value.platforms.map(item =>
 const gdsSelectOptions = computed(() => options.value.gds.map(item => ({ value: item.code, label: item.name })))
 const userSelectOptions = computed(() => options.value.users.map(item => ({
   value: item.id,
-  label: `${item.name} · ${item.departmentName || '未关联部门'} · ${item.hasNotificationIdentity ? '已配置企微' : '未配置企微'}`,
+  label: item.wechatId ? `${item.name} · ${item.wechatId}` : item.name,
 })))
-const policySelectOptions = computed(() => options.value.policyGroups.map(item => ({ value: item.name, label: item.name })))
+const policyLeaderSelectOptions = computed(() => userSelectOptions.value.filter(item => form.policyMemberUserIds.includes(item.value)))
+const departmentSelectOptions = computed(() => options.value.departments.map(item => ({ value: item.code, label: item.name })))
 const supportedMetrics = computed(() => metrics.value.filter(item => item.unitCode === 'SEGMENT' && item.supportedScenes.includes(sceneApi[activeScene.value])))
 const metricSelectOptions = computed(() => supportedMetrics.value.map(item => ({ value: item.code, label: `${item.name} (${item.code}/${item.version})` })))
+const selectedMetricName = computed(() => metrics.value.find(item => item.code === form.metricCode && item.version === form.metricVersion)?.name ?? '航段')
+const policyTableMetricName = computed(() => {
+  const names = [...new Set(rows.value.map(row => row.metric).filter(Boolean))]
+  return names.length === 1 ? names[0] : '航段'
+})
 
 const baseColumns = {
   owner: { title: '责任人 / 部门', key: 'owner', width: 160 }, metric: { title: '统计口径', key: 'metric', width: 210 }, target: { title: '目标航段', key: 'target', width: 110, align: 'right' as const },
   status: { title: '状态', key: 'status', width: 100 }, actions: { title: '操作', key: 'actions', width: 140, fixed: 'right' as const },
 }
 const columns = computed(() => activeScene.value === 'policy' ? [
-  { title: '政策员 / 政策组', key: 'object', width: 180, fixed: 'left' as const }, baseColumns.owner,
-  ...policyGdsCodes.map(code => ({ title: `${code}目标`, key: `gds-${code}`, width: 105, align: 'right' as const })), baseColumns.target, baseColumns.status, baseColumns.actions,
+  { title: '政策员', key: 'policy-members', width: 230, fixed: 'left' as const },
+  { title: '组长', key: 'policy-leader', width: 130 }, { title: '归属部门', key: 'department', width: 150 }, baseColumns.metric,
+  ...policyGdsCodes.map(code => ({ title: `${code}${policyTableMetricName.value}目标`, key: `gds-${code}`, width: 145, align: 'right' as const })), baseColumns.target, baseColumns.status, baseColumns.actions,
 ] : [
   { title: activeScene.value === 'platform' ? '平台' : 'GDS', key: 'object', width: 200, fixed: 'left' as const }, baseColumns.owner, baseColumns.metric, baseColumns.target, baseColumns.status, baseColumns.actions,
 ])
-const tableWidth = computed(() => activeScene.value === 'policy' ? 1120 : 920)
+const tableWidth = computed(() => activeScene.value === 'policy' ? 1750 : 920)
 
 let keywordTimer: ReturnType<typeof setTimeout> | undefined
 async function loadTargets() {
@@ -191,37 +208,39 @@ async function loadMeta() {
   catch (error) { void message.error(error instanceof Error ? error.message : '目标基础数据加载失败') }
 }
 function resetForm() {
-  Object.assign(form, { period: selectedPeriod.value, departmentCode: '', departmentName: '', platformCode: '', platformName: '', gdsCode: options.value.gds[0]?.code ?? '', policyCode: '', policyName: '', ownerUserId: undefined, ownerName: '', metricCode: supportedMetrics.value[0]?.code ?? '', metricVersion: supportedMetrics.value[0]?.version ?? 'V1', target: 0, status: 'ACTIVE', remark: '', itemId: undefined, itemIds: {} })
+  Object.assign(form, { period: selectedPeriod.value, departmentCode: '', departmentName: '', platformCode: '', platformName: '', gdsCode: options.value.gds[0]?.code ?? '', policyCode: '', policyName: '', ownerUserId: undefined, ownerName: '', policyLeaderUserId: undefined, policyMemberUserIds: [], metricCode: supportedMetrics.value[0]?.code ?? '', metricVersion: supportedMetrics.value[0]?.version ?? 'V1', target: 0, status: 'ACTIVE', remark: '', changeReason: '', itemId: undefined, itemIds: {} })
   policyGdsCodes.forEach(code => { form.gdsTargets[code] = 0 })
 }
 function openCreate() { editingId.value = null; resetForm(); editorOpen.value = true }
 function openEdit(row: TargetRow) {
   editingId.value = row.id
-  Object.assign(form, { period: row.period, departmentCode: row.departmentCode, departmentName: row.department, platformCode: row.platformCode, platformName: row.platform ?? '', gdsCode: row.gds ?? '', policyCode: row.policyCode, policyName: row.policy ?? '', ownerUserId: row.ownerUserId ?? undefined, ownerName: row.owner, metricCode: row.metricCode, metricVersion: row.metricVersion, target: row.target, status: ['ACTIVE', 'DRAFT', 'PAUSED'].includes(row.status) ? row.status : 'ACTIVE', remark: row.remark, itemId: row.itemId, itemIds: { ...row.itemIds } })
+  Object.assign(form, { period: row.period, departmentCode: row.departmentCode, departmentName: row.department, platformCode: row.platformCode, platformName: row.platform ?? '', gdsCode: row.gds ?? '', policyCode: row.policyCode, policyName: row.policy ?? '', ownerUserId: row.ownerUserId ?? undefined, ownerName: row.owner, policyLeaderUserId: row.policyLeaderUserId ?? undefined, policyMemberUserIds: [...row.policyMemberUserIds], metricCode: row.metricCode, metricVersion: row.metricVersion, target: row.target, status: ['ACTIVE', 'DRAFT', 'PAUSED'].includes(row.status) ? row.status : 'ACTIVE', remark: row.remark, changeReason: '', itemId: row.itemId, itemIds: { ...row.itemIds } })
   policyGdsCodes.forEach(code => { form.gdsTargets[code] = row.gdsBreakdown?.[code]?.target ?? 0 }); editorOpen.value = true
 }
 function openDetail(row: TargetRow) { detailRow.value = row; detailOpen.value = true }
-function selectPolicy(name: string) { form.policyCode = options.value.policyGroups.find(item => item.name === name)?.code ?? '' }
 function selectOwner(id: number) {
   const employee = options.value.users.find(item => item.id === id)
   form.ownerName = employee?.name ?? ''
-  form.departmentCode = employee?.departmentCode ?? ''
-  form.departmentName = employee?.departmentName ?? ''
 }
+function selectDepartment(code: string) { form.departmentName = options.value.departments.find(item => item.code === code)?.name ?? '' }
 function selectPlatform(code: string) { form.platformName = options.value.platforms.find(item => item.code === code)?.name ?? '' }
 async function submitTarget() {
-  if (!form.departmentName.trim() || !form.ownerUserId || !form.ownerName) { void message.warning('请填写归属部门并选择责任人'); return }
+  if (!form.departmentName.trim() || !form.departmentCode) { void message.warning('请选择归属部门'); return }
+  if (activeScene.value !== 'policy' && (!form.ownerUserId || !form.ownerName)) { void message.warning('请选择责任人'); return }
   if (activeScene.value === 'platform' && (!form.platformCode || !form.platformName)) { void message.warning('请选择平台'); return }
   if (activeScene.value === 'gds' && !form.gdsCode) { void message.warning('请选择GDS'); return }
-  if (activeScene.value === 'policy' && !form.policyName.trim()) { void message.warning('请填写政策员或政策组'); return }
+  if (activeScene.value === 'policy' && !form.policyMemberUserIds.length) { void message.warning('请至少选择一名政策员'); return }
+  if (activeScene.value === 'policy' && !form.policyLeaderUserId) { void message.warning('请选择组长'); return }
+  if (activeScene.value === 'policy' && form.policyLeaderUserId && !form.policyMemberUserIds.includes(form.policyLeaderUserId)) { void message.warning('组长必须包含在政策员组合中'); return }
+  if (editingId.value && !form.changeReason.trim()) { void message.warning('请填写本次修改原因'); return }
   const total = activeScene.value === 'policy' ? policyGdsCodes.reduce((sum, code) => sum + Number(form.gdsTargets[code] || 0), 0) : Number(form.target || 0)
   if (total <= 0) { void message.warning('目标航段数合计必须大于0'); return }
   const selectedMetric = metrics.value.find(item => item.code === form.metricCode && item.version === form.metricVersion) ?? supportedMetrics.value[0]
   if (!selectedMetric) { void message.warning('当前场景没有可用指标口径'); return }
   saving.value = true
   try {
-    await saveTarget({ scene: sceneApi[activeScene.value], period: form.period, departmentCode: form.departmentCode || undefined, departmentName: form.departmentName.trim(), platformCode: form.platformCode || undefined, platformName: form.platformName || undefined, gdsCode: form.gdsCode || undefined, policyGroupCode: form.policyCode || undefined, policyGroupName: form.policyName.trim() || undefined, ownerUserId: form.ownerUserId, ownerName: form.ownerName, metricCode: selectedMetric.code, metricVersion: selectedMetric.version, targetValue: activeScene.value === 'policy' ? undefined : Number(form.target), itemId: editingId.value && activeScene.value !== 'policy' ? form.itemId : undefined, itemIds: activeScene.value === 'policy' ? form.itemIds : undefined, gdsTargets: activeScene.value === 'policy' ? policyGdsCodes.map(code => ({ gdsCode: code, targetValue: Number(form.gdsTargets[code] || 0) })) : undefined, status: form.status, remark: form.remark.trim() })
-    editorOpen.value = false; selectedPeriod.value = form.period; await Promise.all([loadTargets(), loadMeta()]); void message.success('目标已写入数据库')
+    await saveTarget({ scene: sceneApi[activeScene.value], period: form.period, departmentCode: form.departmentCode, departmentName: form.departmentName.trim(), platformCode: form.platformCode || undefined, platformName: form.platformName || undefined, gdsCode: form.gdsCode || undefined, policyGroupCode: form.policyCode || undefined, policyGroupName: form.policyName.trim() || undefined, policyLeaderUserId: activeScene.value === 'policy' ? form.policyLeaderUserId : undefined, policyMemberUserIds: activeScene.value === 'policy' ? form.policyMemberUserIds : undefined, ownerUserId: activeScene.value === 'policy' ? form.policyLeaderUserId! : form.ownerUserId!, ownerName: activeScene.value === 'policy' ? options.value.users.find(item => item.id === form.policyLeaderUserId)?.name ?? '' : form.ownerName, metricCode: selectedMetric.code, metricVersion: selectedMetric.version, targetValue: activeScene.value === 'policy' ? undefined : Number(form.target), itemId: editingId.value && activeScene.value !== 'policy' ? form.itemId : undefined, itemIds: activeScene.value === 'policy' ? form.itemIds : undefined, gdsTargets: activeScene.value === 'policy' ? policyGdsCodes.map(code => ({ gdsCode: code, targetValue: Number(form.gdsTargets[code] || 0) })) : undefined, status: form.status, remark: form.remark.trim(), changeReason: form.changeReason.trim() })
+    editorOpen.value = false; selectedPeriod.value = form.period; await Promise.all([loadTargets(), loadMeta()]); void message.success('目标已写入数据库，可到目标进度点击“立即更新”')
   } catch (error) { void message.error(error instanceof Error ? error.message : '目标保存失败') }
   finally { saving.value = false }
 }
@@ -234,10 +253,12 @@ function objectName(row: TargetRow) { return row.scene === 'platform' ? row.plat
 function objectSubline(row: TargetRow) { return row.scene === 'policy' ? `${row.department} · ${row.owner}` : `${row.department} · ${row.metric}` }
 function objectMark(row: TargetRow) { return row.scene === 'platform' ? (row.platform || '平').slice(0, 1) : row.scene === 'gds' ? row.gds || 'G' : '策' }
 function gdsMeasure(row: TargetRow, columnKey: string) { return row.gdsBreakdown?.[columnKey.replace('gds-', '')] }
+function policyTargetLabel(code: string) { return `${code} · ${selectedMetricName.value}目标` }
 
 watch([activeScene, selectedPeriod, selectedStatus], () => { void loadTargets() })
 watch(keyword, () => { if (keywordTimer) clearTimeout(keywordTimer); keywordTimer = setTimeout(() => void loadTargets(), 350) })
 watch(() => form.metricCode, code => { const item = metrics.value.find(metric => metric.code === code); if (item) form.metricVersion = item.version })
+watch(() => form.policyMemberUserIds, ids => { if (form.policyLeaderUserId && !ids.includes(form.policyLeaderUserId)) form.policyLeaderUserId = undefined }, { deep: true })
 onMounted(async () => { await loadMeta(); await loadTargets() })
 </script>
 

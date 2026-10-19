@@ -16,6 +16,7 @@
     </div>
 
     <div class="smart-filter-grid">
+      <label v-if="page === 'detail'"><span>OTA订单号</span><a-input v-model:value="pageState.draft.otaOrderNo" allow-clear placeholder="输入完整OTA订单号精准查询" @press-enter="query" /></label>
       <label v-for="item in visibleFilters" :key="item.key"><span>{{ item.label }}</span><a-select v-model:value="pageState.draft[item.key]" allow-clear show-search :filter-option="false" :options="options[item.key] || []" :placeholder="`全部${item.label}`" :loading="optionLoading === item.key" :not-found-content="optionErrors[item.key] || '暂无可选数据'" @search="onSearch(item.key, $event)" @dropdown-visible-change="onDropdown(item.key, $event)" /></label>
     </div>
 
@@ -56,7 +57,7 @@ const smartTypes = [
 ]
 
 async function loadOptions(field: keyof SmartFilters, search = '') {
-  if (['startDate', 'endDate', 'firstDepStart', 'firstDepEnd', 'orderStart', 'orderEnd'].includes(field)) return
+  if (['startDate', 'endDate', 'firstDepStart', 'firstDepEnd', 'orderStart', 'orderEnd', 'otaOrderNo'].includes(field)) return
   optionLoading.value = field
   try {
     const result = await smartAnalysisApi.filterOptions({ ...pageState.draft }, field, search)

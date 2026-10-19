@@ -501,6 +501,7 @@ def test_page_level_menu_mapping_protects_smart_policy_and_order_pages_separatel
     assert required_menu_code("/api/v1/smart-analysis/overview") == "smart.overview"
     assert required_menu_code("/api/v1/smart-analysis/dimensions") == "smart.dimensions"
     assert required_menu_code("/api/v1/smart-analysis/details") == "smart.details"
+    assert required_menu_code("/api/v1/smart-analysis/templates") == "smart"
     assert required_menu_code("/api/v1/smart-analysis/filter-options") == "smart"
     assert required_menu_code("/api/v1/smart-placement/tasks") == "smart.placement.policies"
     assert required_menu_code("/api/v1/smart-placement/orders") == "smart.placement.orders"

@@ -59,6 +59,8 @@ def required_menu_code(path: str) -> str | None:
         "/api/v1/smart-analysis/exports/details",
     )):
         return "smart.details"
+    if path.startswith("/api/v1/smart-analysis/templates"):
+        return "smart"
     if path.startswith("/api/v1/smart-analysis/filter-options"):
         return "smart"
     if path.startswith("/api/v1/smart-placement/orders"):

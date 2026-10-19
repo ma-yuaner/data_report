@@ -61,6 +61,10 @@ export interface TargetRow {
   gds?: string | null
   policyCode: string
   policy?: string | null
+  policyLeaderUserId?: number | null
+  policyLeaderName: string
+  policyMemberUserIds: number[]
+  policyMemberNames: string[]
   ownerUserId?: number | null
   owner: string
   metric: string
@@ -136,11 +140,32 @@ export interface TargetProgressResult {
     lossAmount: number | null
   }
   dataThroughDate?: string | null
+  dataUpdatedAt?: string | null
+  includeUnconfigured: boolean
   metricAvailability: {
     hasEtlData: boolean
     lossMetricsReady: boolean
     message: string
   }
+}
+
+export type TargetEtlRefreshStatusCode = 'IDLE' | 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED'
+
+export interface TargetEtlRefreshStatus {
+  id: number | null
+  status: TargetEtlRefreshStatusCode
+  triggerType: string | null
+  requestedBy: string
+  requestedAt: string | null
+  startedAt: string | null
+  finishedAt: string | null
+  dataThroughDate: string | null
+  processedDates: number
+  dwsRows: number
+  adsRows: number
+  errorMessage: string
+  canTrigger: boolean
+  retryAfterSeconds: number
 }
 
 export interface SaveTargetInput {
@@ -153,6 +178,8 @@ export interface SaveTargetInput {
   gdsCode?: string
   policyGroupCode?: string
   policyGroupName?: string
+  policyLeaderUserId?: number
+  policyMemberUserIds?: number[]
   ownerUserId: number
   ownerName: string
   metricCode: string
@@ -163,6 +190,7 @@ export interface SaveTargetInput {
   gdsTargets?: Array<{ gdsCode: string; targetValue: number }>
   status: 'ACTIVE' | 'DRAFT' | 'PAUSED'
   remark?: string
+  changeReason?: string
 }
 
 export async function fetchTargets(params: { scene: TargetScene; period: string; status?: string; keyword?: string }) {
@@ -170,8 +198,18 @@ export async function fetchTargets(params: { scene: TargetScene; period: string;
   return response.data.data
 }
 
-export async function fetchTargetProgress(params: { scene: TargetScene; period: string; keyword?: string }) {
+export async function fetchTargetProgress(params: { scene: TargetScene; period: string; keyword?: string; includeUnconfigured?: boolean }) {
   const response = await http.get<ApiEnvelope<TargetProgressResult>>('/v1/business-configuration/target-progress', { params })
+  return response.data.data
+}
+
+export async function fetchTargetProgressRefreshStatus() {
+  const response = await http.get<ApiEnvelope<TargetEtlRefreshStatus>>('/v1/business-configuration/target-progress/refresh/status')
+  return response.data.data
+}
+
+export async function triggerTargetProgressRefresh() {
+  const response = await http.post<ApiEnvelope<TargetEtlRefreshStatus>>('/v1/business-configuration/target-progress/refresh')
   return response.data.data
 }
 

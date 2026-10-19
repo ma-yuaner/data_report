@@ -3,6 +3,11 @@
     <PageHeader eyebrow="TARGET PERFORMANCE" title="目标进度" description="按月份集中查看全部平台、GDS与政策员目标的完成、利润、亏损和趋势；本页只读。">
       <a-space>
         <a-button @click="router.push('/business-configuration/targets')"><SettingOutlined />目标配置</a-button>
+        <a-tooltip v-if="canManageTargets" :title="refreshButtonTip">
+          <a-button :loading="refreshRunning" :disabled="!refreshStatus.canTrigger && !refreshRunning" @click="triggerImmediateRefresh">
+            <ReloadOutlined />{{ refreshRunning ? '正在更新' : '立即更新' }}
+          </a-button>
+        </a-tooltip>
         <a-button type="primary" :loading="loading" @click="load"><ReloadOutlined />刷新数据</a-button>
       </a-space>
     </PageHeader>
@@ -16,15 +21,23 @@
       message="部分经营指标待ETL产出"
       :description="availability.message"
     />
+    <a-alert
+      v-if="refreshStatus.status === 'FAILED'"
+      class="state-alert"
+      type="error"
+      show-icon
+      message="最近一次立即更新失败"
+      :description="refreshStatus.errorMessage || '请稍后重试或检查目标ETL日志。'"
+    />
 
     <section class="progress-hero">
       <div class="hero-title">
         <span>{{ periodLabel }}</span>
         <h2>{{ sceneMeta.title }}月度进度</h2>
-        <p>{{ dataThroughDate ? `数据统计截止 ${dataThroughDate}` : '当前尚无ETL进度快照' }} · 空值表示尚未产出，不代表0</p>
+        <p>{{ dataUpdatedAt ? `统计截止 ${formatTime(dataUpdatedAt)}` : '当前尚无ETL进度快照' }}{{ dataThroughDate ? ` · 已纳入 ${dataThroughDate} 当日数据` : '' }} · 空值表示尚未产出，不代表0</p>
       </div>
       <div class="hero-cards">
-        <article><span>{{ sceneMeta.scopeLabel }}</span><strong>{{ summary.scopeCount }}</strong><small>已配置 {{ summary.configuredCount }}</small></article>
+        <article><span>{{ sceneMeta.scopeLabel }}</span><strong>{{ summary.scopeCount }}</strong><small>已配置 {{ summary.configuredCount }} · 当前显示 {{ summary.visibleCount }}</small></article>
         <article><span>目标 / 实际</span><strong>{{ number(summary.target) }} / {{ nullable(summary.actual) }}</strong><small>完成率 {{ percentNullable(summary.completionRate) }}</small></article>
         <article><span>累计出票利润</span><strong>{{ money(summary.profit) }}</strong><small>业务估算口径</small></article>
         <article class="loss"><span>单独亏损金额</span><strong>{{ money(summary.lossAmount) }}</strong><small>{{ availability.lossMetricsReady ? '亏损记录汇总' : '待ETL产出' }}</small></article>
@@ -36,6 +49,7 @@
         <div class="toolbar-left">
           <a-select v-model:value="selectedPeriod" class="period-select" :options="periodOptions" />
           <a-input-search v-model:value="keyword" class="keyword-input" allow-clear placeholder="搜索平台、GDS、政策员、部门或责任人" />
+          <a-checkbox v-if="activeScene === 'platform'" v-model:checked="includeUnconfigured">显示未配置平台</a-checkbox>
         </div>
         <span>共 {{ summary.visibleCount }} 行 · {{ summary.progressReadyCount }} 行已有进度</span>
       </div>
@@ -48,8 +62,11 @@
 
       <div class="scene-note">
         <div><strong>{{ sceneMeta.guidance }}</strong><span>{{ sceneMeta.description }}</span></div>
-        <a-tag v-if="activeScene === 'platform'" color="blue">ERP 全量平台 {{ summary.scopeCount }} 个</a-tag>
-        <a-tag v-else>当前展示已配置目标</a-tag>
+        <a-space>
+          <a-tag v-if="refreshStatus.status !== 'IDLE'" :color="refreshStatusColor">{{ refreshStatusLabel }}</a-tag>
+          <a-tag v-if="activeScene === 'platform'" color="blue">当前显示 {{ summary.visibleCount }} / {{ summary.scopeCount }} 个有效平台</a-tag>
+          <a-tag v-else>当前展示已配置目标</a-tag>
+        </a-space>
       </div>
 
       <a-table
@@ -113,11 +130,21 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, onMounted, ref, watch, type PropType } from 'vue'
+import { computed, defineComponent, h, onBeforeUnmount, onMounted, ref, watch, type PropType } from 'vue'
 import { useRouter } from 'vue-router'
+import { message } from 'ant-design-vue'
 import { BranchesOutlined, ReloadOutlined, SettingOutlined, ShopOutlined, TeamOutlined } from '@ant-design/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
-import { fetchTargetProgress, type TargetProgressResult, type TargetProgressRow, type TargetScene } from '@/api/targetManagement'
+import {
+  fetchTargetProgress,
+  fetchTargetProgressRefreshStatus,
+  triggerTargetProgressRefresh,
+  type TargetEtlRefreshStatus,
+  type TargetProgressResult,
+  type TargetProgressRow,
+  type TargetScene,
+} from '@/api/targetManagement'
+import { useAuthStore } from '@/stores/auth'
 
 const MetricValue = defineComponent({
   props: { value: { type: Number as PropType<number | null>, default: null }, decimals: { type: Number, default: 0 } },
@@ -134,24 +161,49 @@ const RateValue = defineComponent({
 
 type SceneKey = 'platform' | 'gds' | 'policy'
 const router = useRouter()
+const authStore = useAuthStore()
 const today = new Date()
 const currentPeriod = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
 const sceneApi: Record<SceneKey, TargetScene> = { platform: 'PLATFORM', gds: 'GDS', policy: 'POLICY' }
 const sceneMetas = {
-  platform: { title: '平台目标', scopeLabel: '有效平台', guidance: '以ERP平台基础资料为底表', description: '无论是否配置目标，所有有效平台都会出现；便于按月一次性检查漏配与完成表现。', icon: ShopOutlined },
+  platform: { title: '平台目标', scopeLabel: '有效平台总数', guidance: '以ERP平台基础资料为完整性底表', description: '默认只展示已配置目标的平台；勾选“显示未配置平台”后可检查全部有效平台与漏配项。', icon: ShopOutlined },
   gds: { title: 'GDS目标', scopeLabel: 'GDS目标数', guidance: '按已启用GDS目标汇总', description: '完成量、利润与趋势仅使用统一ETL写入的数据。', icon: BranchesOutlined },
   policy: { title: '政策员目标', scopeLabel: '政策目标数', guidance: '按部门与政策员目标汇总', description: '用于查看月度目标整体表现，不在此页面维护任务。', icon: TeamOutlined },
 } as const
 const activeScene = ref<SceneKey>('platform')
 const selectedPeriod = ref(currentPeriod)
 const keyword = ref('')
+const includeUnconfigured = ref(false)
 const loading = ref(false)
 const loadError = ref('')
 const rows = ref<TargetProgressRow[]>([])
 const summary = ref<TargetProgressResult['summary']>({ scopeCount: 0, visibleCount: 0, configuredCount: 0, progressReadyCount: 0, target: 0, actual: null, completionRate: null, profit: null, lossAmount: null })
 const availability = ref<TargetProgressResult['metricAvailability']>({ hasEtlData: false, lossMetricsReady: false, message: '完成、利润和亏损指标尚未由ETL写入，当前显示为待ETL。' })
 const dataThroughDate = ref<string | null>(null)
+const dataUpdatedAt = ref<string | null>(null)
+const refreshStatus = ref<TargetEtlRefreshStatus>({
+  id: null, status: 'IDLE', triggerType: null, requestedBy: '', requestedAt: null,
+  startedAt: null, finishedAt: null, dataThroughDate: null, processedDates: 0,
+  dwsRows: 0, adsRows: 0, errorMessage: '', canTrigger: true, retryAfterSeconds: 0,
+})
+const triggeredRunId = ref<number | null>(null)
 const sceneMeta = computed(() => sceneMetas[activeScene.value])
+const canManageTargets = computed(() => Boolean(
+  authStore.user?.isAdmin || authStore.user?.permissions?.includes('business_config.targets.manage'),
+))
+const refreshRunning = computed(() => ['QUEUED', 'RUNNING'].includes(refreshStatus.value.status))
+const refreshStatusColor = computed(() => ({ IDLE: 'default', QUEUED: 'blue', RUNNING: 'processing', SUCCEEDED: 'green', FAILED: 'red' }[refreshStatus.value.status]))
+const refreshStatusLabel = computed(() => ({
+  IDLE: '',
+  QUEUED: '立即更新：排队中', RUNNING: '立即更新：计算中',
+  SUCCEEDED: `最近更新成功 · ${refreshStatus.value.processedDates} 个业务日`,
+  FAILED: '最近更新失败',
+}[refreshStatus.value.status] || ''))
+const refreshButtonTip = computed(() => {
+  if (refreshRunning.value) return '目标ETL正在后台计算，完成后页面会自动刷新'
+  if (refreshStatus.value.retryAfterSeconds > 0) return `为保护数据库，请 ${refreshStatus.value.retryAfterSeconds} 秒后再试`
+  return '后台补算新增或修改目标，并刷新截至今天的真实进度'
+})
 const periodLabel = computed(() => `${selectedPeriod.value.slice(0, 4)}年${Number(selectedPeriod.value.slice(5))}月`)
 const periodOptions = computed(() => Array.from({ length: 25 }, (_, index) => {
   const date = new Date(today.getFullYear(), today.getMonth() + 3 - index, 1)
@@ -188,11 +240,16 @@ let keywordTimer: ReturnType<typeof setTimeout> | undefined
 async function load() {
   loading.value = true; loadError.value = ''
   try {
-    const result = await fetchTargetProgress({ scene: sceneApi[activeScene.value], period: selectedPeriod.value, keyword: keyword.value.trim() })
-    rows.value = result.rows; summary.value = result.summary; availability.value = result.metricAvailability; dataThroughDate.value = result.dataThroughDate ?? null
+    const result = await fetchTargetProgress({
+      scene: sceneApi[activeScene.value],
+      period: selectedPeriod.value,
+      keyword: keyword.value.trim(),
+      includeUnconfigured: activeScene.value === 'platform' ? includeUnconfigured.value : undefined,
+    })
+    rows.value = result.rows; summary.value = result.summary; availability.value = result.metricAvailability; dataThroughDate.value = result.dataThroughDate ?? null; dataUpdatedAt.value = result.dataUpdatedAt ?? null
   } catch (error) {
     rows.value = []; summary.value = { scopeCount: 0, visibleCount: 0, configuredCount: 0, progressReadyCount: 0, target: 0, actual: null, completionRate: null, profit: null, lossAmount: null }
-    availability.value = { hasEtlData: false, lossMetricsReady: false, message: '未读取到真实ETL数据。' }; dataThroughDate.value = null
+    availability.value = { hasEtlData: false, lossMetricsReady: false, message: '未读取到真实ETL数据。' }; dataThroughDate.value = null; dataUpdatedAt.value = null
     loadError.value = error instanceof Error ? error.message : '目标进度加载失败'
   } finally { loading.value = false }
 }
@@ -205,10 +262,63 @@ function money(value: number | null | undefined) { return value == null ? '待ET
 function percentNullable(value: number | null | undefined) { return value == null ? '待ETL' : `${(Number(value) * 100).toFixed(1)}%` }
 function progressPercent(value: number) { return Math.max(0, Math.min(100, Number((value * 100).toFixed(1)))) }
 function dataStatus(value: string) { return ({ READY: '已产出', PARTIAL: '部分产出', MISSING: '数据缺失', PENDING_ETL: '待ETL' } as Record<string, string>)[value] ?? value }
+function formatTime(value: string) { const parsed = new Date(value); return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString('zh-CN', { hour12: false }) }
+
+let refreshStatusTimer: ReturnType<typeof setTimeout> | undefined
+function scheduleRefreshStatus() {
+  if (refreshStatusTimer) clearTimeout(refreshStatusTimer)
+  const delay = refreshRunning.value ? 3_000 : refreshStatus.value.retryAfterSeconds > 0 ? Math.min(5_000, refreshStatus.value.retryAfterSeconds * 1_000) : 0
+  if (delay) refreshStatusTimer = setTimeout(() => void loadRefreshStatus(), delay)
+}
+async function loadRefreshStatus() {
+  try {
+    const result = await fetchTargetProgressRefreshStatus()
+    refreshStatus.value = result
+    if (triggeredRunId.value === result.id && ['SUCCEEDED', 'FAILED'].includes(result.status)) {
+      if (result.status === 'SUCCEEDED') {
+        message.success(`目标进度已更新：处理 ${result.processedDates} 个业务日`)
+        await load()
+      } else {
+        message.error(result.errorMessage || '目标进度立即更新失败')
+      }
+      triggeredRunId.value = null
+    }
+    scheduleRefreshStatus()
+  } catch (error) {
+    if (triggeredRunId.value != null) message.error(error instanceof Error ? error.message : '立即更新状态读取失败')
+    if (refreshStatusTimer) clearTimeout(refreshStatusTimer)
+  }
+}
+async function triggerImmediateRefresh() {
+  try {
+    const result = await triggerTargetProgressRefresh()
+    refreshStatus.value = result
+    triggeredRunId.value = result.id
+    message.success('立即更新任务已提交，完成后页面会自动刷新')
+    scheduleRefreshStatus()
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '立即更新提交失败')
+    await loadRefreshStatus()
+  }
+}
 
 watch([activeScene, selectedPeriod], () => { void load() })
+watch(includeUnconfigured, () => { if (activeScene.value === 'platform') void load() })
 watch(keyword, () => { if (keywordTimer) clearTimeout(keywordTimer); keywordTimer = setTimeout(() => void load(), 350) })
-onMounted(() => { void load() })
+let refreshTimer: ReturnType<typeof setInterval> | undefined
+function refreshWhenVisible() { if (document.visibilityState === 'visible') void load() }
+onMounted(() => {
+  void load()
+  void loadRefreshStatus()
+  refreshTimer = setInterval(refreshWhenVisible, 60_000)
+  document.addEventListener('visibilitychange', refreshWhenVisible)
+})
+onBeforeUnmount(() => {
+  if (refreshTimer) clearInterval(refreshTimer)
+  if (keywordTimer) clearTimeout(keywordTimer)
+  if (refreshStatusTimer) clearTimeout(refreshStatusTimer)
+  document.removeEventListener('visibilitychange', refreshWhenVisible)
+})
 </script>
 
 <style scoped>

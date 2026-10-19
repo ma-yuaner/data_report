@@ -6,8 +6,10 @@ ads_target_progress_day，该表无 ETL 快照时返回 null，不伪造 0 完�
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import re
+import uuid
 from calendar import monthrange
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -98,6 +100,42 @@ def _row_status(plan_status: str, enabled: Any) -> str:
     return "ACTIVE" if plan_status in {"ACTIVE", "PUBLISHED"} else plan_status
 
 
+def _boolean_query(value: Any, *, default: bool = False) -> bool:
+    if value is None or value == "":
+        return default
+    if isinstance(value, bool):
+        return value
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError("includeUnconfigured 必须为 true 或 false")
+
+
+def _json_ready(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _json_ready(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_ready(item) for item in value]
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    return value
+
+
+def _change_action(before: dict[str, Any] | None, status: str) -> str:
+    if not before:
+        return "CREATE"
+    previously_enabled = [bool(item.get("enabled")) for item in before.get("items", [])]
+    if status == "PAUSED" and any(previously_enabled):
+        return "PAUSE"
+    if status != "PAUSED" and previously_enabled and not any(previously_enabled):
+        return "RESUME"
+    return "UPDATE"
+
+
 class TargetManagementService:
     def __init__(self, config: dict[str, Any], source: DataSource | None = None):
         mysql_config = dict(config)
@@ -105,8 +143,11 @@ class TargetManagementService:
         self.source = source or DataSource(mysql_config)
         self.database = self.source.database
         self.roster_database = str(config.get("ERP_ROSTER_DATABASE", "sibedb")).strip()
-        self.roster_user_table = str(config.get("ERP_ROSTER_USER_TABLE", "rbac_user")).strip()
-        self.roster_org_table = str(config.get("ERP_ROSTER_ORG_TABLE", "rbac_organization")).strip()
+        self.roster_user_table = str(config.get("ERP_ROSTER_USER_TABLE", "system_user")).strip()
+        self.roster_user_department_table = str(
+            config.get("ERP_ROSTER_USER_DEPARTMENT_TABLE", "system_user_department")
+        ).strip()
+        self.roster_org_table = str(config.get("ERP_ROSTER_ORG_TABLE", "base_organization")).strip()
         self.platform_database = str(config.get("ERP_PLATFORM_DATABASE", "sibelog")).strip()
         self.platform_table = str(config.get("ERP_PLATFORM_TABLE", "sibe_ota")).strip()
         roster_mysql_config = dict(mysql_config)
@@ -120,7 +161,8 @@ class TargetManagementService:
         })
         self.roster_source = DataSource(roster_mysql_config)
         for value in (
-            self.roster_database, self.roster_user_table, self.roster_org_table,
+            self.roster_database, self.roster_user_table,
+            self.roster_user_department_table, self.roster_org_table,
             self.platform_database, self.platform_table,
         ):
             if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value):
@@ -142,6 +184,10 @@ class TargetManagementService:
         return self._qualified(self.roster_database, self.roster_org_table)
 
     @property
+    def _roster_user_departments(self) -> str:
+        return self._qualified(self.roster_database, self.roster_user_department_table)
+
+    @property
     def _platforms(self) -> str:
         return self._qualified(self.platform_database, self.platform_table)
 
@@ -158,8 +204,14 @@ class TargetManagementService:
                                coalesce(ro.org_code, '') AS department_code,
                                coalesce(ro.org_cname, '') AS department_name
                         FROM {self._roster_users} ru
-                        LEFT JOIN {self._roster_orgs} ro ON ro.id=ru.org_id
-                        WHERE ru.enabled=1 AND coalesce(ru.cname, '')<>''
+                        LEFT JOIN (
+                            SELECT user_id, max(id) AS latest_id
+                            FROM {self._roster_user_departments}
+                            GROUP BY user_id
+                        ) latest ON latest.user_id=ru.id
+                        LEFT JOIN {self._roster_user_departments} rud ON rud.id=latest.latest_id
+                        LEFT JOIN {self._roster_orgs} ro ON ro.id=rud.department_id
+                        WHERE ru.enabled=0 AND coalesce(ru.cname, '')<>''
                         ORDER BY ro.org_cname, ru.cname, ru.id"""
                 )
                 employees = [{
@@ -170,13 +222,16 @@ class TargetManagementService:
                     "departmentName": str(row["department_name"] or ""),
                     "source": f"{self.roster_database}.{self.roster_user_table}",
                 } for row in cursor.fetchall()]
-            seen_departments: set[str] = set()
-            departments: list[dict[str, Any]] = []
-            for employee in employees:
-                code = employee["departmentCode"]
-                if code and code not in seen_departments:
-                    seen_departments.add(code)
-                    departments.append({"code": code, "name": employee["departmentName"] or code})
+                cursor.execute(
+                    f"""SELECT org_code AS code, org_cname AS name
+                        FROM {self._roster_orgs}
+                        WHERE coalesce(org_code, '')<>'' AND coalesce(org_cname, '')<>''
+                        ORDER BY org_cname, org_code"""
+                )
+                departments = [
+                    {"code": str(row["code"]), "name": str(row["name"])}
+                    for row in cursor.fetchall()
+                ]
             return employees, departments
         finally:
             if connection is not None:
@@ -194,8 +249,14 @@ class TargetManagementService:
                                coalesce(ro.org_code, '') AS department_code,
                                coalesce(ro.org_cname, '') AS department_name
                         FROM {self._roster_users} ru
-                        LEFT JOIN {self._roster_orgs} ro ON ro.id=ru.org_id
-                        WHERE ru.id=%s AND ru.enabled=1 LIMIT 1""",
+                        LEFT JOIN (
+                            SELECT user_id, max(id) AS latest_id
+                            FROM {self._roster_user_departments}
+                            GROUP BY user_id
+                        ) latest ON latest.user_id=ru.id
+                        LEFT JOIN {self._roster_user_departments} rud ON rud.id=latest.latest_id
+                        LEFT JOIN {self._roster_orgs} ro ON ro.id=rud.department_id
+                        WHERE ru.id=%s AND ru.enabled=0 LIMIT 1""",
                     (owner_user_id,),
                 )
                 row = cursor.fetchone()
@@ -203,6 +264,131 @@ class TargetManagementService:
         finally:
             if connection is not None:
                 connection.close()
+
+    def _roster_people(self, user_ids: list[int]) -> dict[int, dict[str, Any]]:
+        if not user_ids:
+            return {}
+        import pymysql
+
+        connection = None
+        try:
+            connection = self.roster_source.connect()
+            placeholders = ",".join(["%s"] * len(user_ids))
+            with connection.cursor(pymysql.cursors.DictCursor) as cursor:
+                cursor.execute(
+                    f"""SELECT id, cname AS name
+                        FROM {self._roster_users}
+                        WHERE enabled=0 AND coalesce(cname, '')<>''
+                          AND id IN ({placeholders})""",
+                    tuple(user_ids),
+                )
+                return {int(row["id"]): dict(row) for row in cursor.fetchall()}
+        finally:
+            if connection is not None:
+                connection.close()
+
+    def _roster_department(self, code: str) -> dict[str, Any] | None:
+        import pymysql
+
+        connection = None
+        try:
+            connection = self.roster_source.connect()
+            with connection.cursor(pymysql.cursors.DictCursor) as cursor:
+                cursor.execute(
+                    f"""SELECT org_code AS code, org_cname AS name
+                        FROM {self._roster_orgs}
+                        WHERE org_code=%s AND coalesce(org_cname, '')<>'' LIMIT 1""",
+                    (code,),
+                )
+                row = cursor.fetchone()
+                return dict(row) if row else None
+        finally:
+            if connection is not None:
+                connection.close()
+
+    def _configuration_snapshot(
+        self,
+        cursor: Any,
+        plan_id: int,
+        *,
+        item_ids: list[int] | None = None,
+        policy_group_code: str = "",
+    ) -> dict[str, Any] | None:
+        normalized_ids = list(dict.fromkeys(int(value) for value in (item_ids or []) if value))
+        conditions = ["plan_id=%s"]
+        params: list[Any] = [plan_id]
+        selectors: list[str] = []
+        if normalized_ids:
+            selectors.append(f"id IN ({','.join(['%s'] * len(normalized_ids))})")
+            params.extend(normalized_ids)
+        if policy_group_code:
+            selectors.append("policy_group_code=%s")
+            params.append(policy_group_code)
+        if not selectors:
+            return None
+        conditions.append(f"({' OR '.join(selectors)})")
+        cursor.execute(
+            f"""SELECT id,item_code,scope_key,metric_code,metric_version,
+                       department_code,department_name_snapshot,
+                       platform_code,platform_name_snapshot,gds_code,
+                       policy_group_code,policy_group_name_snapshot,
+                       policy_leader_user_id,policy_leader_name_snapshot,
+                       owner_user_id,owner_name_snapshot,target_value,unit_code,
+                       allocation_source,enabled,sort_order,remark,
+                       created_by,created_at,updated_by,updated_at
+                FROM {self._table('biz_target_item')}
+                WHERE {' AND '.join(conditions)}
+                ORDER BY gds_code,id""",
+            tuple(params),
+        )
+        items = [dict(row) for row in cursor.fetchall()]
+        if not items:
+            return None
+        member_group_code = policy_group_code or str(items[0].get("policy_group_code") or "")
+        members: list[dict[str, Any]] = []
+        if member_group_code:
+            cursor.execute(
+                f"""SELECT member_user_id,member_name_snapshot,sort_order
+                    FROM {self._table('biz_target_policy_member')}
+                    WHERE plan_id=%s AND policy_group_code=%s
+                    ORDER BY sort_order,id""",
+                (plan_id, member_group_code),
+            )
+            members = [dict(row) for row in cursor.fetchall()]
+        return _json_ready({"items": items, "policyMembers": members})
+
+    def _write_change_log(
+        self,
+        cursor: Any,
+        *,
+        plan_id: int,
+        scene: str,
+        status: str,
+        item_ids: list[int],
+        before: dict[str, Any] | None,
+        after: dict[str, Any],
+        change_reason: str,
+        user: dict[str, Any],
+    ) -> None:
+        actor_id = int(user.get("id") or 0) or None
+        actor_name = str(
+            user.get("display_name") or user.get("displayName")
+            or user.get("username") or user.get("user_name") or ""
+        ).strip()[:100]
+        cursor.execute(
+            f"""INSERT INTO {self._table('biz_target_change_log')}
+                (operation_id,plan_id,target_scene,action_type,target_item_ids,
+                 before_json,after_json,change_reason,
+                 changed_by_user_id,changed_by_name_snapshot)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+            (
+                uuid.uuid4().hex, plan_id, scene, _change_action(before, status),
+                json.dumps(item_ids, ensure_ascii=False),
+                json.dumps(before, ensure_ascii=False) if before else None,
+                json.dumps(after, ensure_ascii=False), change_reason,
+                actor_id, actor_name,
+            ),
+        )
 
     def metrics(self, user: dict[str, Any]) -> dict[str, Any]:
         _require(user, VIEW_PERMISSION, "当前账号没有目标管理查看权限")
@@ -295,7 +481,10 @@ class TargetManagementService:
                 employees, roster_departments = self._roster_options()
             except Exception as roster_error:
                 roster_available = False
-                roster_message = "ERP花名册暂不可读，请检查sibedb独立连接及rbac_user、rbac_organization只读权限"
+                roster_message = (
+                    "ERP花名册暂不可读，请检查sibedb独立连接及system_user、"
+                    "system_user_department、base_organization只读权限"
+                )
                 LOGGER.warning("ERP roster unavailable for target options: %s", roster_error)
             departments_by_code = {str(item["code"]): item for item in configured_departments}
             departments_by_code.update({str(item["code"]): item for item in roster_departments})
@@ -368,6 +557,8 @@ class TargetManagementService:
                     tuple(params),
                 )
                 raw_rows = [dict(row) for row in cursor.fetchall()]
+                if scene == "POLICY":
+                    self._attach_policy_members(cursor, raw_rows)
             rows = self._public_rows(scene, period, raw_rows)
             target_total = sum(float(row["target"]) for row in rows)
             progress_rows = [row for row in rows if row["actual"] is not None]
@@ -396,12 +587,12 @@ class TargetManagementService:
                 connection.close()
 
     def progress_dashboard(self, user: dict[str, Any], *, scene_value: Any, period_value: Any,
-                           keyword_value: Any = "") -> dict[str, Any]:
+                           keyword_value: Any = "", include_unconfigured_value: Any = None) -> dict[str, Any]:
         """Return a read-only monthly dashboard without inventing missing ETL values.
 
-        PLATFORM deliberately starts from the ERP platform master, so an active OTA remains
-        visible even when no target has been configured. GDS and POLICY currently start from
-        configured, active targets because neither scene has a complete master roster yet.
+        PLATFORM deliberately starts from the ERP platform master for completeness checks, but
+        hides unconfigured OTAs by default. GDS and POLICY currently start from configured,
+        active targets because neither scene has a complete master roster yet.
         """
         _require_any(
             user,
@@ -411,6 +602,7 @@ class TargetManagementService:
         scene = _scene(scene_value)
         period, start, end = _month(period_value)
         keyword = str(keyword_value or "").strip().lower()
+        include_unconfigured = _boolean_query(include_unconfigured_value)
         import pymysql
 
         connection = None
@@ -438,9 +630,13 @@ class TargetManagementService:
                     rows = self._configured_progress_rows(scene, period, start, end, public_targets, metric_rows, roster)
                     total_scope_count = len(rows)
 
+            configured_scope_count = sum(1 for row in rows if row["configured"])
+            if scene == "PLATFORM" and not include_unconfigured:
+                rows = [row for row in rows if row["configured"]]
             if keyword:
                 rows = [row for row in rows if keyword in " ".join(str(row.get(key) or "").lower() for key in (
-                    "platformCode", "platform", "gds", "policyCode", "policy", "department", "owner",
+                    "platformCode", "platform", "gds", "policyCode", "policy", "policyLeaderName",
+                    "policyMemberNames", "department", "owner",
                 ))]
             progress_rows = [row for row in rows if row["actual"] is not None]
             configured_rows = [row for row in rows if row["configured"]]
@@ -449,6 +645,7 @@ class TargetManagementService:
             profits = [float(row["profit"]) for row in rows if row["profit"] is not None]
             losses = [float(row["lossAmount"]) for row in rows if row["lossAmount"] is not None]
             through_dates = [row["dataThroughDate"] for row in rows if row["dataThroughDate"]]
+            etl_updated_times = [row["etl_updated_at"] for row in metric_rows if row.get("etl_updated_at")]
             return {
                 "available": True,
                 "scene": scene,
@@ -457,7 +654,7 @@ class TargetManagementService:
                 "summary": {
                     "scopeCount": total_scope_count,
                     "visibleCount": len(rows),
-                    "configuredCount": len(configured_rows),
+                    "configuredCount": configured_scope_count,
                     "progressReadyCount": len(progress_rows),
                     "target": target_total,
                     "actual": actual_total,
@@ -466,6 +663,8 @@ class TargetManagementService:
                     "lossAmount": sum(losses) if losses else None,
                 },
                 "dataThroughDate": max(through_dates) if through_dates else None,
+                "dataUpdatedAt": _iso(max(etl_updated_times)) if etl_updated_times else None,
+                "includeUnconfigured": include_unconfigured if scene == "PLATFORM" else False,
                 "metricAvailability": {
                     "hasEtlData": bool(metric_rows or progress_rows),
                     "lossMetricsReady": any(row["lossAmount"] is not None for row in rows),
@@ -502,15 +701,47 @@ class TargetManagementService:
                 ORDER BY i.sort_order, i.id""",
             (scene, start, end),
         )
-        return [dict(row) for row in cursor.fetchall()]
+        rows = [dict(row) for row in cursor.fetchall()]
+        if scene == "POLICY":
+            self._attach_policy_members(cursor, rows)
+        return rows
+
+    def _attach_policy_members(self, cursor: Any, rows: list[dict[str, Any]]) -> None:
+        plan_ids = sorted({int(row["plan_id"]) for row in rows if row.get("plan_id") is not None})
+        if not plan_ids:
+            return
+        placeholders = ",".join(["%s"] * len(plan_ids))
+        cursor.execute(
+            f"""SELECT plan_id, policy_group_code, member_user_id, member_name_snapshot
+                FROM {self._table('biz_target_policy_member')}
+                WHERE plan_id IN ({placeholders})
+                ORDER BY plan_id, policy_group_code, sort_order, id""",
+            tuple(plan_ids),
+        )
+        members: dict[tuple[int, str], list[dict[str, Any]]] = {}
+        for member in cursor.fetchall():
+            key = (int(member["plan_id"]), str(member["policy_group_code"]))
+            members.setdefault(key, []).append({
+                "id": int(member["member_user_id"]),
+                "name": str(member["member_name_snapshot"]),
+            })
+        for row in rows:
+            key = (int(row["plan_id"]), str(row.get("policy_group_code") or ""))
+            selected = members.get(key, [])
+            row["policy_member_user_ids"] = [member["id"] for member in selected]
+            row["policy_member_names"] = [member["name"] for member in selected]
 
     def _dashboard_metric_rows(self, cursor: Any, scene: str, start: date, end: date) -> list[dict[str, Any]]:
         dimension_column = {"PLATFORM": "platform_code", "GDS": "gds_code", "POLICY": "policy_group_code"}[scene]
         cursor.execute(
             f"""SELECT {dimension_column} AS scope_code, metric_code, business_date,
                        sum(actual_value) AS actual_value, sum(issue_profit) AS issue_profit,
-                       sum(ticket_count) AS ticket_count, max(data_status) AS data_status,
-                       max(source_max_time) AS source_max_time
+                       sum(ticket_count) AS ticket_count,
+                       CASE WHEN sum(data_status='MISSING')>0 THEN 'MISSING'
+                            WHEN sum(data_status='PARTIAL')>0 THEN 'PARTIAL'
+                            ELSE 'READY' END AS data_status,
+                       max(source_max_time) AS source_max_time,
+                       max(etl_updated_at) AS etl_updated_at
                 FROM {self._table('dws_target_metric_day')}
                 WHERE business_date BETWEEN %s AND %s
                   AND coalesce({dimension_column}, '')<>''
@@ -533,8 +764,14 @@ class TargetManagementService:
                                coalesce(ro.org_code, '') AS department_code,
                                coalesce(ro.org_cname, '') AS department_name
                         FROM {self._roster_users} ru
-                        LEFT JOIN {self._roster_orgs} ro ON ro.id=ru.org_id
-                        WHERE ru.enabled=1"""
+                        LEFT JOIN (
+                            SELECT user_id, max(id) AS latest_id
+                            FROM {self._roster_user_departments}
+                            GROUP BY user_id
+                        ) latest ON latest.user_id=ru.id
+                        LEFT JOIN {self._roster_user_departments} rud ON rud.id=latest.latest_id
+                        LEFT JOIN {self._roster_orgs} ro ON ro.id=rud.department_id
+                        WHERE ru.enabled=0"""
                 )
                 return {int(row["id"]): dict(row) for row in cursor.fetchall()}
         except Exception as error:
@@ -556,13 +793,18 @@ class TargetManagementService:
         rows = metrics.get(code, [])
         if on_date is not None:
             rows = [row for row in rows if row["business_date"] == on_date]
-        if not rows:
+        if not rows or any(str(row.get("data_status") or "READY") != "READY" for row in rows):
             return None
-        return sum(float(row["actual_value"] or 0) for row in rows)
+        values = [row["actual_value"] for row in rows]
+        if any(value is None for value in values):
+            return None
+        return sum(float(value) for value in values)
 
     @staticmethod
     def _ticket_value(metrics: dict[str, list[dict[str, Any]]], code: str) -> float | None:
         rows = metrics.get(code, [])
+        if any(str(row.get("data_status") or "READY") != "READY" for row in rows):
+            return None
         values = [row["ticket_count"] for row in rows if row["ticket_count"] is not None]
         return sum(float(value) for value in values) if values else None
 
@@ -729,7 +971,13 @@ class TargetManagementService:
             "departmentCode": row["department_code"], "department": row["department_name_snapshot"],
             "platformCode": row["platform_code"], "platform": row["platform_name_snapshot"] or None,
             "gds": row["gds_code"] or None,
-            "policyCode": row["policy_group_code"], "policy": row["policy_group_name_snapshot"] or None,
+            "policyCode": row["policy_group_code"],
+            "policy": "/".join(str(value) for value in row.get("policy_member_names", []))
+                      or row["policy_group_name_snapshot"] or None,
+            "policyLeaderUserId": int(row["policy_leader_user_id"]) if row.get("policy_leader_user_id") is not None else None,
+            "policyLeaderName": str(row.get("policy_leader_name_snapshot") or ""),
+            "policyMemberUserIds": [int(value) for value in row.get("policy_member_user_ids", [])],
+            "policyMemberNames": [str(value) for value in row.get("policy_member_names", [])],
             "ownerUserId": int(row["owner_user_id"]) if row["owner_user_id"] is not None else None,
             "owner": row["owner_name_snapshot"], "metric": row["metric_name"] or row["metric_code"],
             "metricCode": row["metric_code"], "metricVersion": row["metric_version"],
@@ -752,11 +1000,11 @@ class TargetManagementService:
         scene = _scene(values.get("scene"))
         period, start, end = _month(values.get("period"))
         department_name = _text(values.get("departmentName"), "归属部门", required=True, maximum=100)
-        department_code = _text(values.get("departmentCode"), "部门编码", maximum=64) or _stable_code("DEPT", department_name)
-        owner_name = _text(values.get("ownerName"), "责任人", required=True, maximum=100)
-        owner_user_id = values.get("ownerUserId")
+        department_code = _text(values.get("departmentCode"), "部门编码", required=True, maximum=64)
+        owner_name = _text(values.get("ownerName"), "责任人", maximum=100)
+        owner_user_id = values.get("policyLeaderUserId") if scene == "POLICY" else values.get("ownerUserId")
         if owner_user_id in (None, ""):
-            raise ValueError("请从真实用户中选择责任人")
+            raise ValueError("请选择组长" if scene == "POLICY" else "请从真实用户中选择责任人")
         try:
             owner_user_id = int(owner_user_id)
         except Exception as error:
@@ -766,18 +1014,45 @@ class TargetManagementService:
         status = str(values.get("status") or "ACTIVE").strip().upper()
         if status not in EDIT_STATUSES:
             raise ValueError("可编辑状态只支持草稿、执行中或暂停")
+        change_reason = _text(values.get("changeReason"), "本次操作原因", maximum=1000)
         platform_code = platform_name = gds_code = policy_code = policy_name = ""
+        policy_leader_user_id: int | None = None
+        policy_leader_name = ""
+        policy_member_user_ids: list[int] = []
+        policy_member_names: list[str] = []
         if scene == "PLATFORM":
             platform_code = _text(values.get("platformCode"), "平台", required=True, maximum=64)
             platform_name = _text(values.get("platformName"), "平台名称", required=True, maximum=100)
         elif scene == "GDS":
             gds_code = _text(values.get("gdsCode"), "GDS", required=True, maximum=32).upper()
         else:
-            policy_name = _text(values.get("policyGroupName"), "政策员/政策组", required=True, maximum=150)
-            policy_code = _text(values.get("policyGroupCode"), "政策组编码", maximum=100) or _stable_code("POLICY", policy_name)
+            raw_member_ids = values.get("policyMemberUserIds")
+            if not isinstance(raw_member_ids, list) or not raw_member_ids:
+                raise ValueError("请至少选择一名政策员")
+            try:
+                policy_member_user_ids = list(dict.fromkeys(int(value) for value in raw_member_ids))
+            except Exception as error:
+                raise ValueError("政策员编号不合法") from error
+            policy_leader_user_id = owner_user_id
+            if policy_leader_user_id not in policy_member_user_ids:
+                raise ValueError("组长必须包含在政策员组合中")
+            try:
+                people = self._roster_people(policy_member_user_ids)
+            except Exception as roster_error:
+                raise TargetManagementUnavailable("ERP花名册不可读，无法校验政策员组合") from roster_error
+            if len(people) != len(policy_member_user_ids):
+                raise ValueError("政策员组合包含无效或已禁用人员")
+            policy_member_names = [str(people[user_id]["name"]) for user_id in policy_member_user_ids]
+            policy_leader_name = str(people[policy_leader_user_id]["name"])
+            owner_name = policy_leader_name
+            policy_name = ""
+            policy_code = _text(values.get("policyGroupCode"), "政策组编码", maximum=100) or _stable_code(
+                "POLICY", ",".join(str(value) for value in sorted(policy_member_user_ids))
+            )
 
         try:
             roster_owner = self._roster_owner(owner_user_id)
+            roster_department = self._roster_department(department_code)
         except Exception as roster_error:
             raise TargetManagementUnavailable(
                 "ERP花名册不可读，无法校验责任人及归属部门"
@@ -785,10 +1060,10 @@ class TargetManagementService:
         if not roster_owner:
             raise ValueError("所选责任人不在有效ERP花名册中")
         owner_name = str(roster_owner["owner_name"] or "").strip()
-        department_code = str(roster_owner["department_code"] or "").strip()
-        department_name = str(roster_owner["department_name"] or "").strip()
-        if not department_code or not department_name:
-            raise ValueError("所选责任人未关联归属部门，请先补全ERP花名册")
+        if not roster_department:
+            raise ValueError("所选归属部门不在ERP组织资料中")
+        department_code = str(roster_department["code"])
+        department_name = str(roster_department["name"])
 
         import pymysql
         connection = cursor = None
@@ -820,6 +1095,8 @@ class TargetManagementService:
                 raise ValueError("目标配置当前只支持航段数量指标，金额指标仅用于进度看板")
             if scene not in {item.strip() for item in str(metric["supported_scenes"] or "").split(",")}:
                 raise ValueError("所选指标口径不支持当前场景")
+            if scene == "GDS" and metric_code == "GDS_1A_ELIGIBLE_SEGMENT" and gds_code != "1A":
+                raise ValueError("1A考核有效航段只能用于1A目标")
             cursor.execute(
                 f"""SELECT id, status FROM {self._table('biz_target_plan')}
                     WHERE target_scene=%s AND period_type='MONTH' AND period_start=%s AND period_end=%s
@@ -863,6 +1140,18 @@ class TargetManagementService:
             if sum((entry[1] for entry in entries), Decimal("0")) <= 0:
                 raise ValueError("目标航段数合计必须大于0")
 
+            requested_item_ids = [entry[2] for entry in entries if entry[2]]
+            before_snapshot = self._configuration_snapshot(
+                cursor,
+                plan_id,
+                item_ids=requested_item_ids,
+                policy_group_code=policy_code if scene == "POLICY" else "",
+            )
+            if before_snapshot and not change_reason:
+                raise ValueError("修改目标配置时请填写本次操作原因")
+            if not change_reason:
+                change_reason = "新建目标配置"
+
             saved_ids: list[int] = []
             for entry_gds, target_value, existing_id in entries:
                 scope_parts = [f"DEPT={department_code}"]
@@ -875,6 +1164,8 @@ class TargetManagementService:
                 remark = _text(values.get("remark"), "说明", maximum=1000)
                 fields = (scope_key, metric_code, metric_version, department_code, department_name,
                           platform_code, platform_name, entry_gds, policy_code, policy_name,
+                          policy_leader_user_id, policy_leader_name,
+                          None, "",
                           owner_user_id, owner_name, target_value, metric["unit_code"], enabled,
                           remark or None, actor_id)
                 if existing_id:
@@ -883,6 +1174,8 @@ class TargetManagementService:
                             scope_key=%s,metric_code=%s,metric_version=%s,department_code=%s,
                             department_name_snapshot=%s,platform_code=%s,platform_name_snapshot=%s,
                             gds_code=%s,policy_group_code=%s,policy_group_name_snapshot=%s,
+                            policy_leader_user_id=%s,policy_leader_name_snapshot=%s,
+                            policy_member_user_id=%s,policy_member_name_snapshot=%s,
                             owner_user_id=%s,owner_name_snapshot=%s,target_value=%s,unit_code=%s,
                             enabled=%s,remark=%s,updated_by=%s WHERE id=%s AND plan_id=%s""",
                         (*fields, existing_id, plan_id),
@@ -902,18 +1195,59 @@ class TargetManagementService:
                         f"""INSERT INTO {self._table('biz_target_item')}
                             (plan_id,item_code,scope_key,metric_code,metric_version,department_code,
                              department_name_snapshot,platform_code,platform_name_snapshot,gds_code,
-                             policy_group_code,policy_group_name_snapshot,owner_user_id,owner_name_snapshot,
+                             policy_group_code,policy_group_name_snapshot,
+                             policy_leader_user_id,policy_leader_name_snapshot,
+                             policy_member_user_id,policy_member_name_snapshot,
+                             owner_user_id,owner_name_snapshot,
                              target_value,unit_code,allocation_source,enabled,remark,created_by,updated_by)
-                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'MANUAL',%s,%s,%s,%s)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'MANUAL',%s,%s,%s,%s)
                             ON DUPLICATE KEY UPDATE target_value=VALUES(target_value),
                               department_name_snapshot=VALUES(department_name_snapshot),
                               platform_name_snapshot=VALUES(platform_name_snapshot),
                               policy_group_name_snapshot=VALUES(policy_group_name_snapshot),
+                              policy_leader_user_id=VALUES(policy_leader_user_id),
+                              policy_leader_name_snapshot=VALUES(policy_leader_name_snapshot),
+                              policy_member_user_id=VALUES(policy_member_user_id),
+                              policy_member_name_snapshot=VALUES(policy_member_name_snapshot),
                               owner_name_snapshot=VALUES(owner_name_snapshot),enabled=VALUES(enabled),
                               remark=VALUES(remark),updated_by=VALUES(updated_by),id=LAST_INSERT_ID(id)""",
                         (plan_id, item_code, *fields[:-1], actor_id, actor_id),
                     )
                     saved_ids.append(int(cursor.lastrowid))
+            if scene == "POLICY":
+                cursor.execute(
+                    f"DELETE FROM {self._table('biz_target_policy_member')} "
+                    "WHERE plan_id=%s AND policy_group_code=%s",
+                    (plan_id, policy_code),
+                )
+                cursor.executemany(
+                    f"""INSERT INTO {self._table('biz_target_policy_member')}
+                        (plan_id,policy_group_code,member_user_id,member_name_snapshot,sort_order)
+                        VALUES (%s,%s,%s,%s,%s)""",
+                    [
+                        (plan_id, policy_code, user_id, policy_member_names[index], index)
+                        for index, user_id in enumerate(policy_member_user_ids)
+                    ],
+                )
+            after_snapshot = self._configuration_snapshot(
+                cursor,
+                plan_id,
+                item_ids=saved_ids,
+                policy_group_code=policy_code if scene == "POLICY" else "",
+            )
+            if not after_snapshot:
+                raise TargetManagementUnavailable("目标保存后无法生成审计快照")
+            self._write_change_log(
+                cursor,
+                plan_id=plan_id,
+                scene=scene,
+                status=status,
+                item_ids=saved_ids,
+                before=before_snapshot,
+                after=after_snapshot,
+                change_reason=change_reason,
+                user=user,
+            )
             connection.commit()
             return {"planId": plan_id, "itemIds": saved_ids, "scene": scene, "period": period}
         except (PermissionError, ValueError, TargetManagementUnavailable):
