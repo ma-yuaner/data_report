@@ -194,6 +194,8 @@ def _loss_thresholds(values: dict[str, Any], *, required: bool = False) -> tuple
     maximum = _decimal(values.get("lossThresholdMax"), "亏损阈值上限")
     if required and (minimum is None or maximum is None):
         raise ValueError("亏损阈值区间不能为空")
+    if (minimum is None) != (maximum is None):
+        raise ValueError("亏损阈值上下限必须同时填写或同时留空")
     if minimum is not None and minimum < 0:
         raise ValueError("亏损阈值下限不能小于0")
     if maximum is not None and maximum < 0:
@@ -244,7 +246,7 @@ def _task_fields(values: dict[str, Any], *, submit: bool) -> dict[str, Any]:
     if suggested_start and suggested_end and suggested_end <= suggested_start:
         raise ValueError("建议失效时间必须晚于生效时间")
 
-    loss_threshold_min, loss_threshold_max = _loss_thresholds(values, required=submit)
+    loss_threshold_min, loss_threshold_max = _loss_thresholds(values)
 
     include_cabins = _text(values.get("includeCabins"), "包含舱位", 500)
     exclude_cabins = _text(values.get("excludeCabins"), "排除舱位", 500)
@@ -1284,9 +1286,8 @@ class SmartPlacementService:
         monitoring_start = max(now, effective_start) if result == "SUCCESS" and effective_start else None
         if monitoring_start and effective_end and effective_end <= monitoring_start:
             raise ValueError("政策失效时间必须晚于最终监控生效时间")
-        loss_threshold_min, loss_threshold_max = _loss_thresholds(
-            values, required=result == "SUCCESS",
-        )
+        loss_threshold_supplied = "lossThresholdMin" in values or "lossThresholdMax" in values
+        loss_threshold_min, loss_threshold_max = _loss_thresholds(values)
         retry_required = _bool(values.get("retryRequired"))
         next_handle_at = _datetime_value(values.get("nextHandleAt"), "下次处理时间", required=result == "FAILED" and retry_required)
         include_cabins = _text(values.get("includeCabins"), "包含舱位", 500)
@@ -1342,6 +1343,8 @@ class SmartPlacementService:
                 raise ValueError("只有执行中的任务可以登记投放结果")
             if int(task.get("current_assignee_id") or 0) != actor[0] and actor[2] != "ADMIN":
                 raise PermissionError("只能由任务认领人或管理员登记投放结果")
+            resolved_loss_threshold_min = loss_threshold_min if loss_threshold_supplied else task.get("loss_threshold_min")
+            resolved_loss_threshold_max = loss_threshold_max if loss_threshold_supplied else task.get("loss_threshold_max")
             cursor.execute(f"SELECT COALESCE(MAX(attempt_no),0)+1 FROM {self._table(EXECUTION_TABLE)} WHERE task_id=%s", (task_id,))
             attempt = int(cursor.fetchone()[0])
             resolved_order_source = execution["order_source"] if order_source_supplied else task.get("order_source")
@@ -1377,8 +1380,8 @@ class SmartPlacementService:
                     execution["exclude_cabins"] or task.get("exclude_cabins"),
                     execution["product_type"] or task.get("product_type"),
                     resolved_order_source,
-                    execution["loss_threshold_min"] if execution["loss_threshold_min"] is not None else task.get("loss_threshold_min"),
-                    execution["loss_threshold_max"] if execution["loss_threshold_max"] is not None else task.get("loss_threshold_max"),
+                    resolved_loss_threshold_min,
+                    resolved_loss_threshold_max,
                     execution["long_term_flag"],
                     execution["placement_channel"],
                     execution["proof_url"],
@@ -1408,8 +1411,8 @@ class SmartPlacementService:
                     "exclude_cabins": execution["exclude_cabins"] or task.get("exclude_cabins"),
                     "product_type": execution["product_type"] or task.get("product_type"),
                     "order_source": resolved_order_source,
-                    "loss_threshold_min": execution["loss_threshold_min"] if execution["loss_threshold_min"] is not None else task.get("loss_threshold_min"),
-                    "loss_threshold_max": execution["loss_threshold_max"] if execution["loss_threshold_max"] is not None else task.get("loss_threshold_max"),
+                    "loss_threshold_min": resolved_loss_threshold_min,
+                    "loss_threshold_max": resolved_loss_threshold_max,
                     "long_term_flag": execution["long_term_flag"],
                 }
                 monitor_rule = self.monitor_rule_compiler.sync_smart_placement(

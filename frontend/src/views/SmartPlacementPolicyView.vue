@@ -149,12 +149,12 @@
         </section>
 
         <section class="form-section">
-          <header class="section-heading"><span>4</span><div><h3>策略与收益测算</h3><p>亏损阈值按绝对金额填写，例如 0 至 30 元表示最多允许亏损 30 元。</p></div><em>8 个字段</em></header>
+          <header class="section-heading"><span>4</span><div><h3>策略与收益测算</h3><p>亏损阈值为可选条件；留空表示不按预估利润过滤，同时填写时按亏损绝对金额计算。</p></div><em>8 个字段</em></header>
           <div class="form-grid three">
             <PlacementField class="span-2" label="建议投放方式" required hint="写清执行动作、范围和测试周期"><a-input v-model:value="taskForm.placementMethod" placeholder="例如：价格下调20元，小流量测试3天" /></PlacementField>
             <PlacementField label="优先级" required hint="用于任务排序和处理时效"><a-select v-model:value="taskForm.priority" :options="priorityOptions" /></PlacementField>
-            <PlacementField label="亏损阈值下限（CNY）" state="提交必填" hint="按亏损绝对值填写，通常为0"><a-input-number v-model:value="taskForm.lossThresholdMin" :min="0" :precision="2" placeholder="0" /></PlacementField>
-            <PlacementField label="亏损阈值上限（CNY）" state="提交必填" hint="例如30表示最多允许亏损30元"><a-input-number v-model:value="taskForm.lossThresholdMax" :min="0" :precision="2" placeholder="30" /></PlacementField>
+            <PlacementField label="亏损阈值下限（CNY）" state="可选" hint="上下限都留空表示不限制预估利润"><a-input-number v-model:value="taskForm.lossThresholdMin" :min="0" :precision="2" placeholder="可不填" /></PlacementField>
+            <PlacementField label="亏损阈值上限（CNY）" state="可选" hint="如填写，必须与下限同时填写"><a-input-number v-model:value="taskForm.lossThresholdMax" :min="0" :precision="2" placeholder="可不填" /></PlacementField>
             <PlacementField label="历史票数（票）" state="提交必填" hint="所选历史样本内的出票票数"><a-input-number v-model:value="taskForm.historicalTicketCount" :min="0" placeholder="请输入票数" /></PlacementField>
             <PlacementField label="历史利润（CNY）" state="提交必填" hint="历史样本的业务估算利润"><a-input-number v-model:value="taskForm.historicalProfitCny" :precision="4" placeholder="请输入金额" /></PlacementField>
             <PlacementField label="预估月票数（票）" state="提交必填" hint="预计政策每月可匹配的票数"><a-input-number v-model:value="taskForm.estimatedMonthTicketCount" :min="0" placeholder="请输入票数" /></PlacementField>
@@ -251,8 +251,8 @@
             <PlacementField label="包含舱位"><a-input v-model:value="executionForm.includeCabins" /></PlacementField>
             <PlacementField label="排除舱位"><a-input v-model:value="executionForm.excludeCabins" /></PlacementField>
             <PlacementField label="投放渠道"><a-input v-model:value="executionForm.placementChannel" /></PlacementField>
-            <PlacementField label="亏损阈值下限（CNY）" required><a-input-number v-model:value="executionForm.lossThresholdMin" :min="0" :precision="2" /></PlacementField>
-            <PlacementField label="亏损阈值上限（CNY）" required><a-input-number v-model:value="executionForm.lossThresholdMax" :min="0" :precision="2" /></PlacementField>
+            <PlacementField label="亏损阈值下限（CNY）" hint="可选；上下限都留空表示不限制预估利润"><a-input-number v-model:value="executionForm.lossThresholdMin" :min="0" :precision="2" placeholder="可不填" /></PlacementField>
+            <PlacementField label="亏损阈值上限（CNY）" hint="如填写，必须与下限同时填写"><a-input-number v-model:value="executionForm.lossThresholdMax" :min="0" :precision="2" placeholder="可不填" /></PlacementField>
             <PlacementField label="投放凭证地址" hint="填写可访问的截图或外部记录地址"><a-input v-model:value="executionForm.proofUrl" /></PlacementField>
           </div>
         </section>
@@ -605,7 +605,7 @@ function businessToday() { return new Date().toLocaleDateString('sv-SE', { timeZ
 function plusDays(day: string, amount: number) { const value = new Date(`${day}T00:00:00+08:00`); value.setDate(value.getDate() + amount); return value.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' }) }
 function blankTask(): PlacementTaskInput {
   const today = businessToday()
-  return { opportunityName: '', opportunitySource: 'MANUAL', analysisRuleCode: '', analysisStartDate: `${today.slice(0, 7)}-01`, analysisEndDate: today, platformCode: '', platformName: '', siteCode: '', siteName: '', airlineCode: '', departureCode: '', arrivalCode: '', journeyType: '', segmentType: '', flightNos: '', includeCabins: '', excludeCabins: '', productType: '', orderSource: [], orderStartDate: today, orderEndDate: plusDays(today, 7), advanceSaleDays: undefined, travelStartDate: today, travelEndDate: plusDays(today, 30), placementMethod: '', lossThresholdMin: 0, lossThresholdMax: 30, longTerm: false, analysisConclusion: '', riskNote: '', priority: 'MEDIUM', expectedCompleteAt: `${plusDays(today, 1)} 18:00:00`, suggestedEffectiveStart: `${today} 00:00:00`, suggestedEffectiveEnd: `${plusDays(today, 7)} 23:59:59`, submit: false }
+  return { opportunityName: '', opportunitySource: 'MANUAL', analysisRuleCode: '', analysisStartDate: `${today.slice(0, 7)}-01`, analysisEndDate: today, platformCode: '', platformName: '', siteCode: '', siteName: '', airlineCode: '', departureCode: '', arrivalCode: '', journeyType: '', segmentType: '', flightNos: '', includeCabins: '', excludeCabins: '', productType: '', orderSource: [], orderStartDate: today, orderEndDate: plusDays(today, 7), advanceSaleDays: undefined, travelStartDate: today, travelEndDate: plusDays(today, 30), placementMethod: '', lossThresholdMin: undefined, lossThresholdMax: undefined, longTerm: false, analysisConclusion: '', riskNote: '', priority: 'MEDIUM', expectedCompleteAt: `${plusDays(today, 1)} 18:00:00`, suggestedEffectiveStart: `${today} 00:00:00`, suggestedEffectiveEnd: `${plusDays(today, 7)} 23:59:59`, submit: false }
 }
 const taskForm = ref<PlacementTaskInput>(blankTask())
 
@@ -678,7 +678,7 @@ function taskToForm(task: Record<string, string | number | boolean | null>): Pla
     siteCode: String(task.siteCode || ''), siteName: String(task.siteName || ''), airlineCode: String(task.airlineCode || ''), departureCode: String(task.departureCode || ''), arrivalCode: String(task.arrivalCode || ''),
     journeyType: String(task.journeyType || ''), segmentType: String(task.segmentType || ''), flightNos: String(task.flightNos || ''), includeCabins: String(task.includeCabins || ''), excludeCabins: String(task.excludeCabins || ''), productType: String(task.productType || ''), orderSource: orderSourceValues(task.orderSource),
     orderStartDate: String(task.orderStartDate || ''), orderEndDate: String(task.orderEndDate || ''), advanceSaleDays: optionalNumber(task.advanceSaleDays), travelStartDate: String(task.travelStartDate || ''), travelEndDate: String(task.travelEndDate || ''),
-    placementMethod: String(task.placementMethod || ''), lossThresholdMin: optionalNumber(task.lossThresholdMin) ?? 0, lossThresholdMax: optionalNumber(task.lossThresholdMax) ?? 30, longTerm: yesNo(task.longTermFlag) === '是', suggestedEffectiveStart: String(task.suggestedEffectiveStart || ''), suggestedEffectiveEnd: String(task.suggestedEffectiveEnd || ''),
+    placementMethod: String(task.placementMethod || ''), lossThresholdMin: optionalNumber(task.lossThresholdMin), lossThresholdMax: optionalNumber(task.lossThresholdMax), longTerm: yesNo(task.longTermFlag) === '是', suggestedEffectiveStart: String(task.suggestedEffectiveStart || ''), suggestedEffectiveEnd: String(task.suggestedEffectiveEnd || ''),
     historicalTicketCount: optionalNumber(task.historicalTicketCount), historicalProfitCny: optionalNumber(task.historicalProfitCny), estimatedMonthTicketCount: optionalNumber(task.estimatedMonthTicketCount), estimatedMonthProfitCny: optionalNumber(task.estimatedMonthProfitCny),
     analysisConclusion: String(task.analysisConclusion || ''), riskNote: String(task.riskNote || ''), priority: String(task.priority || 'MEDIUM') as PlacementPriority, expectedCompleteAt: String(task.expectedCompleteAt || ''), submit: false,
   }
@@ -778,7 +778,6 @@ function validateTaskForm(values: PlacementTaskInput, submit: boolean) {
   if (submit && values.opportunitySource === 'AUTO_ANALYSIS' && !values.analysisRuleCode) return '规则识别机会必须填写分析规则编号'
   const submissionRequired: [keyof PlacementTaskInput, string][] = [
     ['suggestedEffectiveStart', '建议生效时间'],
-    ['lossThresholdMin', '亏损阈值下限'], ['lossThresholdMax', '亏损阈值上限'],
     ['historicalTicketCount', '历史票数'], ['historicalProfitCny', '历史利润'],
     ['estimatedMonthTicketCount', '预估月票数'], ['estimatedMonthProfitCny', '预估月利润'],
   ]
@@ -792,7 +791,10 @@ function validateTaskForm(values: PlacementTaskInput, submit: boolean) {
   if (values.travelStartDate && values.travelEndDate && values.travelEndDate < values.travelStartDate) return '去程旅行结束日期不能早于开始日期'
   if (!values.longTerm && values.suggestedEffectiveStart && values.suggestedEffectiveEnd && values.suggestedEffectiveEnd <= values.suggestedEffectiveStart) return '建议失效时间必须晚于生效时间'
   if (values.advanceSaleDays !== undefined && values.advanceSaleDays < 0) return '提前销售天数不能小于0'
-  if (values.lossThresholdMin !== undefined && values.lossThresholdMax !== undefined && values.lossThresholdMax < values.lossThresholdMin) return '亏损阈值上限不能小于下限'
+  const hasLossMin = values.lossThresholdMin !== undefined && values.lossThresholdMin !== null
+  const hasLossMax = values.lossThresholdMax !== undefined && values.lossThresholdMax !== null
+  if (hasLossMin !== hasLossMax) return '亏损阈值上下限必须同时填写或同时留空'
+  if (hasLossMin && hasLossMax && Number(values.lossThresholdMax) < Number(values.lossThresholdMin)) return '亏损阈值上限不能小于下限'
   const included = new Set(normalizeList(values.includeCabins).toUpperCase().split(',').filter(Boolean))
   const excluded = normalizeList(values.excludeCabins).toUpperCase().split(',').filter(Boolean)
   const overlap = excluded.filter(item => included.has(item))
@@ -939,7 +941,7 @@ async function openExecution(row: PlacementTaskRow) {
     const result = await fetchPlacementTask(row.id)
     const task = result.task
     const today = businessToday()
-    executionForm.value = { result: 'SUCCESS', retryRequired: false, externalPolicyId: '', externalPolicyName: '', actualPlacementAt: `${today} 12:00:00`, effectiveStartAt: String(task.suggestedEffectiveStart || `${today} 12:00:00`), effectiveEndAt: String(task.suggestedEffectiveEnd || `${plusDays(today, 7)} 23:59:59`), longTerm: yesNo(task.longTermFlag) === '是', platformCode: task.platformCode || '', platformName: task.platformName, siteCode: task.siteCode || '', siteName: task.siteName || '', airlineCode: task.airlineCode, segmentType: task.segmentType || '', departureCode: task.departureCode || '', arrivalCode: task.arrivalCode || '', flightNos: task.flightNos || '', includeCabins: task.includeCabins || '', excludeCabins: task.excludeCabins || '', productType: task.productType || '', orderSource: orderSourceValues(task.orderSource), lossThresholdMin: optionalNumber(task.lossThresholdMin) ?? 0, lossThresholdMax: optionalNumber(task.lossThresholdMax) ?? 30, placementChannel: '', proofUrl: '', executionNote: '', failureType: '', failureReason: '', nextHandleAt: '' }
+    executionForm.value = { result: 'SUCCESS', retryRequired: false, externalPolicyId: '', externalPolicyName: '', actualPlacementAt: `${today} 12:00:00`, effectiveStartAt: String(task.suggestedEffectiveStart || `${today} 12:00:00`), effectiveEndAt: String(task.suggestedEffectiveEnd || `${plusDays(today, 7)} 23:59:59`), longTerm: yesNo(task.longTermFlag) === '是', platformCode: task.platformCode || '', platformName: task.platformName, siteCode: task.siteCode || '', siteName: task.siteName || '', airlineCode: task.airlineCode, segmentType: task.segmentType || '', departureCode: task.departureCode || '', arrivalCode: task.arrivalCode || '', flightNos: task.flightNos || '', includeCabins: task.includeCabins || '', excludeCabins: task.excludeCabins || '', productType: task.productType || '', orderSource: orderSourceValues(task.orderSource), lossThresholdMin: optionalNumber(task.lossThresholdMin), lossThresholdMax: optionalNumber(task.lossThresholdMax), placementChannel: '', proofUrl: '', executionNote: '', failureType: '', failureReason: '', nextHandleAt: '' }
     executionOpen.value = true
   } catch (failure) { message.error(failure instanceof Error ? failure.message : '任务条件加载失败') }
   finally { saving.value = false }
@@ -951,8 +953,10 @@ function validateExecution() {
     if (!form.longTerm && !form.effectiveEndAt) return '非长期政策必须填写政策失效时间'
     if (!form.platformName || !form.airlineCode) return '请填写实际平台和航司'
     if (!form.longTerm && form.effectiveEndAt <= form.effectiveStartAt) return '政策失效时间必须晚于生效时间'
-    if (form.lossThresholdMin === undefined || form.lossThresholdMin === null || form.lossThresholdMax === undefined || form.lossThresholdMax === null) return '请填写实际亏损阈值区间'
-    if (form.lossThresholdMin < 0 || form.lossThresholdMax < form.lossThresholdMin) return '实际亏损阈值区间不正确'
+    const hasLossMin = form.lossThresholdMin !== undefined && form.lossThresholdMin !== null
+    const hasLossMax = form.lossThresholdMax !== undefined && form.lossThresholdMax !== null
+    if (hasLossMin !== hasLossMax) return '实际亏损阈值上下限必须同时填写或同时留空'
+    if (hasLossMin && (form.lossThresholdMin < 0 || form.lossThresholdMax < form.lossThresholdMin)) return '实际亏损阈值区间不正确'
   } else {
     if (!form.failureType || !form.failureReason) return '请填写失败类型和失败原因'
     if (form.retryRequired && !form.nextHandleAt) return '重新执行时必须填写下次处理时间'

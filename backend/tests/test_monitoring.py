@@ -139,7 +139,9 @@ def test_smart_placement_compiler_treats_both_order_sources_as_unrestricted_and_
         for call in cursor.execute.call_args_list
         if "monitor_rule_condition" in call.args[0]
     ]
-    assert "order_source" not in {params[3] for params in condition_params}
+    field_codes = {params[3] for params in condition_params}
+    assert "order_source" not in field_codes
+    assert "estimated_profit_cny" not in field_codes
     order_time = next(params for params in condition_params if params[3] == "order_time")
     assert json.loads(order_time[6])[0] == "2026-10-11T12:00:00"
     rule_insert = next(
