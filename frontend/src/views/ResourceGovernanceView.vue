@@ -248,7 +248,7 @@
             <article><span>生单成功</span><strong>{{ integer(analysisData?.summary.orderSuccess) }}</strong></article>
           </template>
         </div>
-        <div class="analysis-switch"><a-segmented v-model:value="analysisView" :options="[{ label: '定位问题', value: 'dimension' }, { label: '日汇总', value: 'daily' }]" /></div>
+        <div class="analysis-switch"><a-segmented v-model:value="analysisView" :options="analysisViewOptions" @change="changeAnalysisView" /></div>
         <template v-if="analysisView === 'dimension'">
           <div class="analysis-toolbar">
             <div><strong>继续定位问题维度</strong><small>当前条件会一直保留，选择下一层维度继续下钻</small></div>
@@ -276,7 +276,7 @@
             </template>
           </a-table>
         </template>
-        <a-table v-else class="daily-table" :columns="analysisDailyColumns" :data-source="analysisData?.trend || []" row-key="date" :pagination="{ pageSize: 20 }" :scroll="{ x: 880 }" :locale="{ emptyText: '该资源暂无每日数据' }">
+        <a-table v-else-if="analysisView === 'daily'" class="daily-table" :columns="analysisDailyColumns" :data-source="analysisData?.trend || []" row-key="date" :pagination="{ pageSize: 20 }" :scroll="{ x: 880 }" :locale="{ emptyText: '该资源暂无每日数据' }">
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'search'">{{ integer(record.searchRequests) }}</template>
             <template v-else-if="column.key === 'searchSuccess'">{{ integer(record.searchSuccess) }} / {{ percent(record.searchSuccessRate) }}</template>
@@ -287,6 +287,38 @@
             <template v-else-if="column.key === 'excess'">{{ nullableCount(record.excessQueryCount) }}</template>
           </template>
         </a-table>
+        <template v-else>
+          <a-alert class="state-alert" type="info" show-icon message="已把当前分析条件带入Hive航线数据"
+            description="航线数据直接读取lywz.dws_gds_airroute_day；保留日期、GDS、PCC、平台、站点、资源通道和接口分组。" />
+          <a-alert v-if="analysisRouteError" class="state-alert" type="error" show-icon message="航线数据查询失败" :description="analysisRouteError" />
+          <a-spin :spinning="analysisRouteLoading" tip="正在查询Hive航线数据">
+            <div v-if="analysisRouteData" class="drawer-kpis">
+              <article><span>查询请求量</span><strong>{{ integer(analysisRouteData.summary.searchRequests) }}</strong></article>
+              <article><span>查询成功率</span><strong>{{ percent(analysisRouteData.summary.searchSuccessRate) }}</strong></article>
+              <article><span>验价成功率</span><strong>{{ percent(analysisRouteData.summary.verifySuccessRate) }}</strong></article>
+              <article><span>生单成功率</span><strong>{{ percent(analysisRouteData.summary.orderSuccessRate) }}</strong></article>
+            </div>
+            <a-table class="daily-table" :columns="analysisRouteColumns" :data-source="analysisRouteData?.rows || []" row-key="id"
+              :pagination="{ pageSize: 10, showSizeChanger: true, showTotal: (total: number) => `共 ${total} 个航线组合` }" :scroll="{ x: 1120 }"
+              :locale="{ emptyText: analysisRouteLoading ? '正在查询航线数据' : '当前条件下没有航线数据' }">
+              <template #bodyCell="{ column, record }">
+                <template v-if="column.key === 'route'"><div class="resource-name"><strong>{{ record.route }}</strong><small>{{ record.depCity || record.depAirport || '—' }} → {{ record.arrCity || record.arrAirport || '—' }}</small></div></template>
+                <template v-else-if="column.key === 'platform'"><div class="resource-name"><strong>{{ record.platform || '—' }}</strong><small>{{ record.site || '全部站点' }}</small></div></template>
+                <template v-else-if="column.key === 'gds'"><div class="resource-name"><strong>{{ record.gdsCode || '—' }}</strong><small>{{ record.pccCode || '—' }}</small></div></template>
+                <template v-else-if="column.key === 'search'">{{ integer(record.searchRequests) }}</template>
+                <template v-else-if="column.key === 'searchRate'">{{ percent(record.searchSuccessRate) }}</template>
+                <template v-else-if="column.key === 'verifyRate'">{{ percent(record.verifySuccessRate) }}</template>
+                <template v-else-if="column.key === 'orderRate'">{{ percent(record.orderSuccessRate) }}</template>
+                <template v-else-if="column.key === 'failure'">{{ integer(record.searchFailure) }} / {{ integer(record.verifyFailure) }} / {{ integer(record.orderFailure) }}</template>
+                <template v-else-if="column.key === 'action'"><a-button type="link" size="small" @click="openAnalysisRoute(record)">继续分析</a-button></template>
+              </template>
+            </a-table>
+            <div class="drawer-route-actions">
+              <span>当前展示 {{ integer(analysisRouteData?.rowCount) }} 个航线组合</span>
+              <a-button type="primary" @click="openAnalysisRoutes()"><BranchesOutlined />进入完整航线诊断</a-button>
+            </div>
+          </a-spin>
+        </template>
       </a-spin>
     </a-drawer>
   </div>
@@ -304,11 +336,14 @@ import PageHeader from '@/components/PageHeader.vue'
 import {
   fetchResourceGovernance,
   exportResourceGovernance,
+  fetchGdsRouteAnalysis,
   type GovernanceData,
   type GovernanceDimension,
   type GovernanceLayer,
   type GovernanceMetric,
   type GovernanceScope,
+  type GdsRouteAnalysisData,
+  type GdsRouteMetricRow,
 } from '@/api/resourceGovernance'
 
 const shanghaiDate = (value = new Date()) => value.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
@@ -614,13 +649,20 @@ const drawerTitle = ref('资源日汇总')
 const analysisData = ref<GovernanceData>()
 const analysisScope = ref<GovernanceScope>({ ...applied.value })
 const analysisHistory = ref<GovernanceScope[]>([])
-const analysisView = ref<'dimension' | 'daily'>('dimension')
+type AnalysisView = 'dimension' | 'daily' | 'route'
+const analysisView = ref<AnalysisView>('dimension')
 const analysisGroup = ref<GovernanceDimension>('gds')
+const analysisRouteData = ref<GdsRouteAnalysisData>()
+const analysisRouteLoading = ref(false)
+const analysisRouteError = ref('')
 const analysisIsGdsRatioScope = computed(() => analysisScope.value.dataSource === 'gds' && analysisData.value?.ratioApplicable !== false)
 const analysisDimensionColumns = computed(() => analysisIsGdsRatioScope.value ? gdsDimensionColumns : analysisScope.value.dataSource === 'gds' ? interfaceDimensionColumns : otaDimensionColumns)
 const analysisDailyColumns = computed(() => analysisIsGdsRatioScope.value ? gdsDailyColumns : otaDailyColumns)
 let drawerRequestId = 0
 const dimensionsForLayer = (layer: GovernanceLayer) => layer === 'gds' ? gdsAnalysisDimensions : otaDimensions
+const analysisViewOptions = computed(() => analysisScope.value.dataSource === 'gds'
+  ? [{ label: '定位问题', value: 'dimension' }, { label: '日汇总', value: 'daily' }, { label: '航线分析', value: 'route' }]
+  : [{ label: '定位问题', value: 'dimension' }, { label: '日汇总', value: 'daily' }])
 const nextAnalysisGroup = (scope: GovernanceScope, after?: GovernanceDimension) => {
   const available = dimensionsForLayer(scope.dataSource).map(item => item.value as GovernanceDimension).filter(key => !scope[key])
   if (!available.length) return undefined
@@ -638,6 +680,17 @@ const analysisScopeTags = computed(() => [
   analysisScope.value.pcc && `PCC：${analysisScope.value.pcc}`,
   analysisScope.value.apiGroup && `接口组：${analysisScope.value.apiGroup}`,
 ].filter(Boolean) as string[])
+const analysisRouteColumns = [
+  { title: '航线', key: 'route', fixed: 'left' as const, width: 160 },
+  { title: '平台 / 站点', key: 'platform', width: 170 },
+  { title: 'GDS / PCC', key: 'gds', width: 145 },
+  { title: '查询量', key: 'search', width: 115 },
+  { title: '查询成功率', key: 'searchRate', width: 115 },
+  { title: '验价成功率', key: 'verifyRate', width: 115 },
+  { title: '生单成功率', key: 'orderRate', width: 115 },
+  { title: '查 / 验 / 生失败', key: 'failure', width: 160 },
+  { title: '操作', key: 'action', fixed: 'right' as const, width: 100 },
+]
 
 async function loadAnalysis(scope: GovernanceScope) {
   const id = ++drawerRequestId
@@ -649,6 +702,23 @@ async function loadAnalysis(scope: GovernanceScope) {
   try { const result = await fetchResourceGovernance(scope); if (id === drawerRequestId) { analysisData.value = result; drawerError.value = result.error } }
   catch (failure) { if (id === drawerRequestId) drawerError.value = failure instanceof Error ? failure.message : '资源分析失败' }
   finally { if (id === drawerRequestId) drawerLoading.value = false }
+}
+async function loadAnalysisRouteData() {
+  if (analysisScope.value.dataSource !== 'gds') return
+  analysisRouteLoading.value = true
+  analysisRouteError.value = ''
+  analysisRouteData.value = undefined
+  try {
+    analysisRouteData.value = await fetchGdsRouteAnalysis(routeDiagnosisQuery(analysisScope.value))
+  } catch (failure) {
+    analysisRouteError.value = failure instanceof Error ? failure.message : 'GDS航线Hive查询失败'
+  } finally {
+    analysisRouteLoading.value = false
+  }
+}
+async function changeAnalysisView(value: string | number) {
+  analysisView.value = String(value) as AnalysisView
+  if (analysisView.value === 'route') await loadAnalysisRouteData()
 }
 async function openAnalysis(record: { value: string; name: string }) {
   const dimension = applied.value.groupBy
@@ -699,6 +769,13 @@ function openAnalysisRoutes(record?: { value: string; name: string }) {
   }
   drawerOpen.value = false
   void router.push({ path: '/resource-governance/route-diagnosis', query: routeDiagnosisQuery(scope) })
+}
+function openAnalysisRoute(record: GdsRouteMetricRow) {
+  drawerOpen.value = false
+  void router.push({
+    path: '/resource-governance/route-diagnosis',
+    query: { ...routeDiagnosisQuery(analysisScope.value), route: record.route },
+  })
 }
 async function backAnalysis() {
   if (analysisHistory.value.length <= 1) return
@@ -783,6 +860,7 @@ watch(() => route.meta.governanceLayer, () => {
 .drawer-kpis span { display: block; color: #8b97a8; font-size: 10px; }
 .drawer-kpis strong { display: block; margin-top: 9px; color: #2c3d55; font-size: 20px; }
 .analysis-switch { display: flex; justify-content: center; margin: 4px 0 16px; }
+.drawer-route-actions { margin-top: 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #7d899a; font-size: 11px; }
 .analysis-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 12px; }
 .analysis-toolbar > div { display: grid; gap: 4px; color: #34465f; }
 .analysis-toolbar small { color: #8b97a8; font-size: 10px; }

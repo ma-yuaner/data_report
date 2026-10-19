@@ -82,6 +82,7 @@
           <label><span>站点</span><a-select v-model:value="filters.site" allow-clear placeholder="全部站点" :options="siteOptions" /></label>
           <label><span>资源通道</span><a-select v-model:value="filters.resourceChannel" allow-clear placeholder="全部通道" :options="resourceChannelOptions" @change="changeResourceChannel" /></label>
           <label><span>接口分组</span><a-select v-model:value="filters.apiGroup" allow-clear placeholder="全部接口组" :options="apiGroupOptions" /></label>
+          <label><span>航线</span><a-input v-model:value="filters.route" allow-clear placeholder="例如 HKG-ICN" /></label>
           <label><span>航线/机场/城市/航司</span><a-input v-model:value="filters.keyword" allow-clear placeholder="例如 HKG-ICN / 7C" /></label>
         </FilterPanel>
 
@@ -317,6 +318,7 @@ const filters = reactive({
   site: undefined as string | undefined,
   resourceChannel: undefined as string | undefined,
   apiGroup: undefined as string | undefined,
+  route: undefined as string | undefined,
   keyword: '',
 })
 const routeAnalysis = ref<GdsRouteAnalysisData | null>(null)
@@ -371,6 +373,7 @@ const routeContextTags = computed(() => [
   filters.site && `站点：${filters.site}`,
   filters.resourceChannel && `资源通道：${filters.resourceChannel}`,
   filters.apiGroup && `接口组：${filters.apiGroup}`,
+  filters.route && `航线：${filters.route}`,
 ].filter(Boolean) as string[])
 const riskRoutes = computed(() => [...store.routes].filter(item => item.riskStatus !== 'NORMAL').sort((a, b) => b.queryToSegmentRatio - a.queryToSegmentRatio))
 const breachedRouteCount = computed(() => store.routes.filter(item => item.riskStatus === 'BREACHED').length)
@@ -417,7 +420,7 @@ const loadRouteAnalysis = async () => {
       startDate: dateRange.value[0], endDate: dateRange.value[1],
       gds: filters.gds, pcc: filters.pcc, platform: filters.platform,
       site: filters.site, resourceChannel: filters.resourceChannel,
-      apiGroup: filters.apiGroup, keyword: filters.keyword.trim(),
+      apiGroup: filters.apiGroup, route: filters.route, keyword: filters.keyword.trim(),
     })
   } catch (error) {
     routeAnalysis.value = null
@@ -432,7 +435,7 @@ const scheduleRouteQuery = () => {
 }
 const resetFilters = () => {
   filters.gds = undefined; filters.pcc = undefined; filters.platform = undefined
-  filters.site = undefined; filters.resourceChannel = undefined; filters.apiGroup = undefined; filters.keyword = ''
+  filters.site = undefined; filters.resourceChannel = undefined; filters.apiGroup = undefined; filters.route = undefined; filters.keyword = ''
   const day = yesterday(); dateRange.value = [day, day]
 }
 const changeResourceChannel = () => {
@@ -456,6 +459,7 @@ onMounted(() => {
   filters.site = queryValue('site') || undefined
   filters.resourceChannel = queryValue('resourceChannel') || undefined
   filters.apiGroup = queryValue('apiGroup') || undefined
+  filters.route = queryValue('route') || undefined
   const startDate = queryValue('startDate')
   const endDate = queryValue('endDate')
   const defaultDay = yesterday()
@@ -463,7 +467,7 @@ onMounted(() => {
 })
 
 watch(
-  () => [page.value, diagnosisView.value, dateRange.value?.[0], dateRange.value?.[1], filters.gds, filters.pcc, filters.platform, filters.site, filters.resourceChannel, filters.apiGroup, filters.keyword],
+  () => [page.value, diagnosisView.value, dateRange.value?.[0], dateRange.value?.[1], filters.gds, filters.pcc, filters.platform, filters.site, filters.resourceChannel, filters.apiGroup, filters.route, filters.keyword],
   () => scheduleRouteQuery(),
 )
 onBeforeUnmount(() => { if (routeQueryTimer) clearTimeout(routeQueryTimer) })
