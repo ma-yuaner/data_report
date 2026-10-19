@@ -292,7 +292,7 @@
             description="航线数据直接读取lywz.dws_gds_airroute_day；保留日期、GDS、PCC、平台、站点、资源通道和接口分组。" />
           <a-alert v-if="analysisRouteError" class="state-alert" type="error" show-icon message="航线数据查询失败" :description="analysisRouteError" />
           <a-spin :spinning="analysisRouteLoading" tip="正在查询Hive航线数据">
-            <div v-if="analysisRouteData" class="drawer-kpis">
+            <div v-if="analysisRouteData?.queryReady" class="drawer-kpis">
               <article><span>查询请求量</span><strong>{{ integer(analysisRouteData.summary.searchRequests) }}</strong></article>
               <article><span>查询成功率</span><strong>{{ percent(analysisRouteData.summary.searchSuccessRate) }}</strong></article>
               <article><span>验价成功率</span><strong>{{ percent(analysisRouteData.summary.verifySuccessRate) }}</strong></article>

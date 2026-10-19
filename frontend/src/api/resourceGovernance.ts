@@ -194,6 +194,7 @@ export interface GdsRouteAnalysisData {
   source: string
   table: string
   available: boolean
+  queryReady: boolean
   generatedAt: string
   period: { startDate: string; endDate: string }
   filters: Record<string, string>

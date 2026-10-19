@@ -87,10 +87,13 @@
         </FilterPanel>
 
         <a-alert v-if="routeError" class="context-tip" type="error" show-icon message="GDS航线Hive查询失败" :description="routeError" />
+        <a-alert v-else-if="routeAnalysis && !routeAnalysis.queryReady" class="context-tip" type="info" show-icon
+          message="请先选择一个分析范围"
+          description="筛选项已经按所选日期加载。为避免无条件扫描航线大表，请选择GDS、PCC、平台、站点、资源通道、接口分组或航线后查询。" />
         <a-alert v-else-if="routeAnalysis" class="context-tip" type="warning" show-icon
           message="接口失败量已接入，错误原因明细仍待数据补充"
           description="当前可按航线查看查询、验价、生单失败量、超时率和变价率；dws_gds_airroute_day暂不包含错误码与标准错误分类，页面不会推测失败原因。" />
-        <section v-if="routeAnalysis" class="metric-grid compact">
+        <section v-if="routeAnalysis?.queryReady" class="metric-grid compact">
           <article class="metric-card tone-blue"><span>查询请求量</span><strong>{{ formatInteger(routeAnalysis.summary.searchRequests) }}</strong><small>search · {{ routeAnalysis.period.startDate }} 至 {{ routeAnalysis.period.endDate }}</small></article>
           <article class="metric-card tone-green"><span>查询接口成功率</span><strong>{{ formatRate(routeAnalysis.summary.searchSuccessRate) }}</strong><small>结果成功率 {{ formatRate(routeAnalysis.summary.searchResultSuccessRate) }}</small></article>
           <article class="metric-card tone-cyan"><span>验价成功率</span><strong>{{ formatRate(routeAnalysis.summary.verifySuccessRate) }}</strong><small>{{ formatInteger(routeAnalysis.summary.verifySuccess) }} / {{ formatInteger(routeAnalysis.summary.verifyRequests) }}</small></article>
@@ -98,7 +101,7 @@
         </section>
 
         <a-card class="panel-card" :bordered="false" :loading="routeLoading">
-          <div class="section-title"><div><span>ROUTE PERFORMANCE</span><h2>航线接口质量明细</h2><p>按航线、平台/站点、GDS/PCC聚合；点击“分析此项”查看接口阶段与资源通道结构。</p></div><a-space><a-tag color="blue">{{ routeAnalysis?.rowCount || 0 }} 个组合</a-tag><a-tag v-if="routeAnalysis?.truncated" color="orange">仅展示前{{ routeAnalysis.resultLimit }}项</a-tag></a-space></div>
+          <div class="section-title"><div><span>ROUTE PERFORMANCE</span><h2>航线接口质量明细</h2><p>按航线、平台/站点、GDS/PCC聚合；点击“分析此项”查看接口阶段与资源通道结构。</p></div><a-space><a-tag color="blue">{{ routeAnalysis?.queryReady ? routeAnalysis.rowCount : 0 }} 个组合</a-tag><a-tag v-if="routeAnalysis?.truncated" color="orange">仅展示前{{ routeAnalysis.resultLimit }}项</a-tag></a-space></div>
           <a-table :data-source="routeAnalysis?.rows || []" :pagination="{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '20', '50'] }" row-key="id" :scroll="{ x: 1600 }">
             <a-table-column title="航线" fixed="left" :width="170"><template #default="{ record }"><button class="link-cell" @click="openLiveRoute(record)"><strong>{{ record.route }}</strong><small>{{ record.depCity || record.depAirport || '—' }} → {{ record.arrCity || record.arrAirport || '—' }}</small></button></template></a-table-column>
             <a-table-column title="平台 / 站点" :width="180"><template #default="{ record }"><strong>{{ record.platform || '—' }}</strong><div class="cell-sub">{{ record.site || '全部站点' }}</div></template></a-table-column>
@@ -114,7 +117,8 @@
             <a-table-column title="生单成功率" :width="115" align="right"><template #default="{ record }">{{ formatRate(record.orderSuccessRate) }}</template></a-table-column>
             <a-table-column title="操作" fixed="right" :width="100"><template #default="{ record }"><a-button type="link" @click="openLiveRoute(record)">分析此项</a-button></template></a-table-column>
           </a-table>
-          <a-empty v-if="!routeLoading && !routeError && !(routeAnalysis?.rows.length)" description="所选完整业务日没有航线汇总数据" />
+          <a-empty v-if="!routeLoading && !routeError && routeAnalysis && !routeAnalysis.queryReady" description="选择分析范围后自动查询航线" />
+          <a-empty v-else-if="!routeLoading && !routeError && routeAnalysis?.queryReady && !(routeAnalysis.rows.length)" description="所选完整业务日和筛选条件没有航线汇总数据" />
           <div v-if="routeAnalysis" class="data-footnote">数据源：{{ routeAnalysis.source }} · {{ routeAnalysis.table }} · 最近源数据 {{ routeAnalysis.summary.sourceUpdatedAt || '—' }}</div>
         </a-card>
       </template>

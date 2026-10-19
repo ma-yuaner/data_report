@@ -60,6 +60,7 @@ def test_route_service_queries_hive_and_keeps_api_stages_separate():
         )
 
     assert result["available"] is True
+    assert result["queryReady"] is True
     assert result["table"] == "lywz.dws_gds_airroute_day"
     assert result["summary"]["searchSuccessRate"] == "92.00"
     assert result["summary"]["verifySuccessRate"] == "80.00"
@@ -72,11 +73,12 @@ def test_route_service_queries_hive_and_keeps_api_stages_separate():
         call for call in cursor.execute.call_args_list
         if "GROUP BY airroute_code" in call.args[0]
     )
-    assert "api_method = 'search'" in grouped_call.args[0]
-    assert "api_method = 'verify'" in grouped_call.args[0]
-    assert "api_method = 'orderCreate'" in grouped_call.args[0]
+    assert "lower(trim(coalesce(api_method, ''))) = 'search'" in grouped_call.args[0]
+    assert "lower(trim(coalesce(api_method, ''))) = 'verify'" in grouped_call.args[0]
+    assert "lower(trim(coalesce(api_method, ''))) in ('ordercreate', 'order')" in grouped_call.args[0]
+    assert "dt >= %s" in grouped_call.args[0]
     assert grouped_call.args[1] == (
-        "2026-10-14", "2026-10-15", "CTRIP", "1A", "%HKG%",
+        "20261014", "20261015", "CTRIP", "1A", "%HKG%",
     )
 
 
@@ -101,7 +103,7 @@ def test_route_service_resource_channel_filter_keeps_ndc_inside_mp():
     assert "not (" in where_sql
     assert "rlike 'MPIS$'" in where_sql
     assert "rlike 'NDC$'" not in where_sql
-    assert params == ["2026-10-14", "2026-10-14"]
+    assert params == ["20261014", "20261014"]
 
     mpis_sql, _ = service._where(
         datetime(2026, 10, 14).date(), datetime(2026, 10, 14).date(),
@@ -114,6 +116,42 @@ def test_route_service_resource_channel_filter_keeps_ndc_inside_mp():
             datetime(2026, 10, 14).date(), datetime(2026, 10, 14).date(),
             {"resourceChannel": "UNKNOWN"},
         )
+
+
+def test_route_service_loads_options_but_skips_unfiltered_large_scan():
+    source = MagicMock()
+    source.database = "lywz"
+    source.label = "Hive · lywz"
+    cursor = source.connect.return_value.cursor.return_value
+    state = {"sql": ""}
+
+    def execute(sql, params=()):
+        state["sql"] = sql
+
+    def fetchall():
+        if state["sql"].startswith("DESCRIBE"):
+            return columns()
+        if state["sql"].startswith("SELECT DISTINCT"):
+            return [("1A", "HKGH228DF", "CTRIP", "CTRIP_HK", "1A")]
+        raise AssertionError("未选择分析范围时不应扫描航线事实数据")
+
+    cursor.execute.side_effect = execute
+    cursor.fetchall.side_effect = fetchall
+
+    with patch.object(module, "business_now", return_value=datetime(2026, 10, 19, 10, 0)):
+        result = module.GdsRouteAnalysisService({}, source=source).overview(
+            "2026-10-18", "2026-10-18", {},
+        )
+
+    assert result["queryReady"] is False
+    assert result["rows"] == []
+    assert result["options"]["gds"] == ["1A"]
+    distinct_call = next(
+        call for call in cursor.execute.call_args_list
+        if call.args[0].startswith("SELECT DISTINCT")
+    )
+    assert "dt >= %s AND dt <= %s" in distinct_call.args[0]
+    assert distinct_call.args[1] == ("20261018", "20261018")
 
 
 def test_route_service_caps_period_at_yesterday_and_rejects_wide_range():

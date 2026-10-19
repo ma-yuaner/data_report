@@ -21,7 +21,7 @@ REQUIRED_COLUMNS = {
     "api_request_error", "api_execute_time", "api_result_success",
     "api_cache_count", "api_timeout_count", "api_price_count",
     "api_price_change", "direct_flight_count", "connecting_flight_count",
-    "operator_mintes_max",
+    "operator_mintes_max", "dt",
 }
 
 DIMENSION_COLUMNS = (
@@ -81,33 +81,39 @@ def _resource_channel_expression(channel: str) -> str:
     raise ValueError("资源通道仅支持MP、MPIS或NDC")
 
 
+API_METHOD_EXPRESSION = "lower(trim(coalesce(api_method, '')))"
+SEARCH_METHOD_CONDITION = f"{API_METHOD_EXPRESSION} = 'search'"
+VERIFY_METHOD_CONDITION = f"{API_METHOD_EXPRESSION} = 'verify'"
+ORDER_METHOD_CONDITION = f"{API_METHOD_EXPRESSION} in ('ordercreate', 'order')"
+
+
 METRIC_SQL = f"""
     coalesce(sum(api_request_count_all), 0),
-    coalesce(sum(case when api_method = 'search' then api_request_count_all else 0 end), 0),
-    coalesce(sum(case when api_method = 'search' then api_request_success else 0 end), 0),
-    coalesce(sum(case when api_method = 'search' then api_request_error else 0 end), 0),
-    coalesce(sum(case when api_method = 'search' then api_result_success else 0 end), 0),
-    coalesce(sum(case when api_method = 'search' then api_price_count else 0 end), 0),
-    coalesce(sum(case when api_method = 'search' then api_timeout_count else 0 end), 0),
-    coalesce(sum(case when api_method = 'search' then api_cache_count else 0 end), 0),
-    coalesce(sum(case when api_method = 'search' then api_execute_time else 0 end), 0),
-    coalesce(sum(case when api_method = 'verify' then api_request_count_all else 0 end), 0),
-    coalesce(sum(case when api_method = 'verify' then api_request_success else 0 end), 0),
-    coalesce(sum(case when api_method = 'verify' then api_request_error else 0 end), 0),
-    coalesce(sum(case when api_method = 'verify' then api_timeout_count else 0 end), 0),
-    coalesce(sum(case when api_method = 'verify' then api_execute_time else 0 end), 0),
-    coalesce(sum(case when api_method = 'verify' then api_price_change else 0 end), 0),
-    coalesce(sum(case when api_method = 'orderCreate' then api_request_count_all else 0 end), 0),
-    coalesce(sum(case when api_method = 'orderCreate' then api_request_success else 0 end), 0),
-    coalesce(sum(case when api_method = 'orderCreate' then api_request_error else 0 end), 0),
-    coalesce(sum(case when api_method = 'orderCreate' then api_timeout_count else 0 end), 0),
-    coalesce(sum(case when api_method = 'orderCreate' then api_execute_time else 0 end), 0),
-    coalesce(sum(case when api_method = 'orderCreate' then api_price_change else 0 end), 0),
-    coalesce(sum(case when api_method = 'search' and {_channel_expression('MP')} then api_request_count_all else 0 end), 0),
-    coalesce(sum(case when api_method = 'search' and {_channel_expression('MPIS')} then api_request_count_all else 0 end), 0),
-    coalesce(sum(case when api_method = 'search' and {_channel_expression('NDC')} then api_request_count_all else 0 end), 0),
-    coalesce(sum(case when api_method = 'search' then direct_flight_count else 0 end), 0),
-    coalesce(sum(case when api_method = 'search' then connecting_flight_count else 0 end), 0),
+    coalesce(sum(case when {SEARCH_METHOD_CONDITION} then api_request_count_all else 0 end), 0),
+    coalesce(sum(case when {SEARCH_METHOD_CONDITION} then api_request_success else 0 end), 0),
+    coalesce(sum(case when {SEARCH_METHOD_CONDITION} then api_request_error else 0 end), 0),
+    coalesce(sum(case when {SEARCH_METHOD_CONDITION} then api_result_success else 0 end), 0),
+    coalesce(sum(case when {SEARCH_METHOD_CONDITION} then api_price_count else 0 end), 0),
+    coalesce(sum(case when {SEARCH_METHOD_CONDITION} then api_timeout_count else 0 end), 0),
+    coalesce(sum(case when {SEARCH_METHOD_CONDITION} then api_cache_count else 0 end), 0),
+    coalesce(sum(case when {SEARCH_METHOD_CONDITION} then api_execute_time else 0 end), 0),
+    coalesce(sum(case when {VERIFY_METHOD_CONDITION} then api_request_count_all else 0 end), 0),
+    coalesce(sum(case when {VERIFY_METHOD_CONDITION} then api_request_success else 0 end), 0),
+    coalesce(sum(case when {VERIFY_METHOD_CONDITION} then api_request_error else 0 end), 0),
+    coalesce(sum(case when {VERIFY_METHOD_CONDITION} then api_timeout_count else 0 end), 0),
+    coalesce(sum(case when {VERIFY_METHOD_CONDITION} then api_execute_time else 0 end), 0),
+    coalesce(sum(case when {VERIFY_METHOD_CONDITION} then api_price_change else 0 end), 0),
+    coalesce(sum(case when {ORDER_METHOD_CONDITION} then api_request_count_all else 0 end), 0),
+    coalesce(sum(case when {ORDER_METHOD_CONDITION} then api_request_success else 0 end), 0),
+    coalesce(sum(case when {ORDER_METHOD_CONDITION} then api_request_error else 0 end), 0),
+    coalesce(sum(case when {ORDER_METHOD_CONDITION} then api_timeout_count else 0 end), 0),
+    coalesce(sum(case when {ORDER_METHOD_CONDITION} then api_execute_time else 0 end), 0),
+    coalesce(sum(case when {ORDER_METHOD_CONDITION} then api_price_change else 0 end), 0),
+    coalesce(sum(case when {SEARCH_METHOD_CONDITION} and {_channel_expression('MP')} then api_request_count_all else 0 end), 0),
+    coalesce(sum(case when {SEARCH_METHOD_CONDITION} and {_channel_expression('MPIS')} then api_request_count_all else 0 end), 0),
+    coalesce(sum(case when {SEARCH_METHOD_CONDITION} and {_channel_expression('NDC')} then api_request_count_all else 0 end), 0),
+    coalesce(sum(case when {SEARCH_METHOD_CONDITION} then direct_flight_count else 0 end), 0),
+    coalesce(sum(case when {SEARCH_METHOD_CONDITION} then connecting_flight_count else 0 end), 0),
     max(operator_mintes_max)
 """.strip()
 
@@ -185,6 +191,9 @@ class GdsRouteAnalysisService:
         cursor = connection.cursor()
         try:
             self._validate_schema(cursor)
+            options = self._options(cursor, start_date, end_date)
+            if not self._query_ready(normalized_filters):
+                return self._empty_response(start_date, end_date, normalized_filters, options)
             where_sql, params = self._where(start_date, end_date, normalized_filters)
             cursor.execute(f"SELECT {METRIC_SQL} FROM {self.table} WHERE {where_sql}", tuple(params))
             summary_row = cursor.fetchone()
@@ -193,18 +202,18 @@ class GdsRouteAnalysisService:
             dimensions = ", ".join(DIMENSION_COLUMNS)
             cursor.execute(
                 f"SELECT {dimensions}, {METRIC_SQL} FROM {self.table} WHERE {where_sql} "
-                f"GROUP BY {dimensions} ORDER BY sum(case when api_method = 'search' "
+                f"GROUP BY {dimensions} ORDER BY sum(case when {SEARCH_METHOD_CONDITION} "
                 f"then api_request_count_all else 0 end) DESC LIMIT {self.max_rows + 1}",
                 tuple(params),
             )
             raw_rows = list(cursor.fetchall())
             truncated = len(raw_rows) > self.max_rows
             rows = [self._route_row(row) for row in raw_rows[: self.max_rows]]
-            options = self._options(cursor, start_date, end_date)
             return {
                 "source": self.source.label,
                 "table": self.table,
                 "available": True,
+                "queryReady": True,
                 "generatedAt": business_now().isoformat(timespec="seconds"),
                 "period": {"startDate": start_date.isoformat(), "endDate": end_date.isoformat()},
                 "filters": normalized_filters,
@@ -216,6 +225,7 @@ class GdsRouteAnalysisService:
                 "options": options,
                 "notes": [
                     "航线页直接查询Hive日汇总，不经过MySQL服务表。",
+                    "日期按Hive分区dt（yyyyMMdd）过滤，operator_date仅作为业务字段保留。",
                     "查询、验价、生单分别按api_method=search、verify、orderCreate统计。",
                     "查询日志不写实际航司，首版不使用poi_code拆分查询量。",
                     "本表没有出票航段分母，航线页不计算查定比，避免产生错误结论。",
@@ -269,11 +279,11 @@ class GdsRouteAnalysisService:
         self, start_date: date, end_date: date, filters: dict[str, str]
     ) -> tuple[str, list[Any]]:
         clauses = [
-            "operator_date >= %s", "operator_date <= %s",
+            "dt >= %s", "dt <= %s",
             "(trim(data_source) = '1' or upper(trim(data_source)) = 'GDS')",
             "coalesce(trim(airroute_code), '') <> ''",
         ]
-        params: list[Any] = [start_date.isoformat(), end_date.isoformat()]
+        params: list[Any] = [start_date.strftime("%Y%m%d"), end_date.strftime("%Y%m%d")]
         mappings = {
             "platform": "ota_code", "site": "ota_site_code", "gds": "gds_code",
             "pcc": "pcc_code", "apiGroup": "source_api_group", "route": "airroute_code",
@@ -299,9 +309,9 @@ class GdsRouteAnalysisService:
     def _options(self, cursor, start_date: date, end_date: date) -> dict[str, list[str]]:
         cursor.execute(
             f"SELECT DISTINCT gds_code, pcc_code, ota_code, ota_site_code, source_api_group "
-            f"FROM {self.table} WHERE operator_date >= %s AND operator_date <= %s "
+            f"FROM {self.table} WHERE dt >= %s AND dt <= %s "
             "AND (trim(data_source) = '1' or upper(trim(data_source)) = 'GDS') LIMIT 2000",
-            (start_date.isoformat(), end_date.isoformat()),
+            (start_date.strftime("%Y%m%d"), end_date.strftime("%Y%m%d")),
         )
         rows = cursor.fetchall()
         keys = ("gds", "pcc", "platform", "site", "apiGroup")
@@ -312,6 +322,39 @@ class GdsRouteAnalysisService:
                 if value:
                     result[key].add(value)
         return {key: sorted(values) for key, values in result.items()}
+
+    @staticmethod
+    def _query_ready(filters: dict[str, str]) -> bool:
+        return any(filters.get(key) for key in (
+            "gds", "pcc", "platform", "site", "resourceChannel", "apiGroup", "route", "keyword",
+        ))
+
+    def _empty_response(
+        self,
+        start_date: date,
+        end_date: date,
+        filters: dict[str, str],
+        options: dict[str, list[str]],
+    ) -> dict[str, Any]:
+        return {
+            "source": self.source.label,
+            "table": self.table,
+            "available": True,
+            "queryReady": False,
+            "generatedAt": business_now().isoformat(timespec="seconds"),
+            "period": {"startDate": start_date.isoformat(), "endDate": end_date.isoformat()},
+            "filters": filters,
+            "summary": _metric([0] * 26 + [None]),
+            "rows": [],
+            "rowCount": 0,
+            "resultLimit": self.max_rows,
+            "truncated": False,
+            "options": options,
+            "notes": [
+                "已加载所选日期的筛选项；请选择GDS、PCC、平台、站点、通道、接口组或航线后查询。",
+                "航线大表默认不执行无条件明细扫描。",
+            ],
+        }
 
     @staticmethod
     def _route_row(row: Iterable[Any]) -> dict[str, Any]:
