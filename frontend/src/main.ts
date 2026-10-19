@@ -4,7 +4,7 @@ import {
   Alert, Avatar, Badge, Breadcrumb, Button, Card, Checkbox, Col, ConfigProvider,
   DatePicker, Descriptions, Divider, Drawer, Dropdown, Empty, Form, Input,
   InputNumber, Layout, List, Menu, Modal, Pagination, Progress, Radio, Result,
-  Row, Segmented, Select, Space, Spin, Steps, Switch, Table, Tabs, Tag, Timeline,
+  Row, Segmented, Select, Space, Spin, Steps, Switch, Table, Tabs, Tag, Timeline, Tooltip,
 } from 'ant-design-vue'
 import 'ant-design-vue/dist/reset.css'
 
@@ -50,6 +50,6 @@ app.use(router)
   Alert, Avatar, Badge, Breadcrumb, Button, Card, Checkbox, Col, ConfigProvider,
   DatePicker, Descriptions, Divider, Drawer, Dropdown, Empty, Form, Input,
   InputNumber, Layout, List, Menu, Modal, Pagination, Progress, Radio, Result,
-  Row, Segmented, Select, Space, Spin, Steps, Switch, Table, Tabs, Tag, Timeline,
+  Row, Segmented, Select, Space, Spin, Steps, Switch, Table, Tabs, Tag, Timeline, Tooltip,
 ].forEach(component => app.use(component))
 app.mount('#app')
