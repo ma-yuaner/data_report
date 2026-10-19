@@ -1,7 +1,10 @@
 <template>
   <div class="page-wrap governance-page">
     <PageHeader eyebrow="RESOURCE GOVERNANCE" :title="pageTitle" :description="pageDescription">
-      <a-tag color="blue">实际数据 · MySQL ADS</a-tag>
+      <a-space>
+        <a-button v-if="isGds" @click="openRouteDiagnosis"><BranchesOutlined />航线配置诊断</a-button>
+        <a-tag color="blue">实际数据 · MySQL ADS</a-tag>
+      </a-space>
     </PageHeader>
 
     <a-alert class="source-banner" type="info" show-icon
@@ -286,10 +289,10 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import dateLocale from 'ant-design-vue/es/date-picker/locale/zh_CN'
 import { message } from 'ant-design-vue'
-import { DownloadOutlined, InfoCircleOutlined } from '@ant-design/icons-vue'
+import { BranchesOutlined, DownloadOutlined, InfoCircleOutlined } from '@ant-design/icons-vue'
 import type { EChartsCoreOption } from 'echarts/core'
 import BaseChart from '@/components/BaseChart.vue'
 import PageHeader from '@/components/PageHeader.vue'
@@ -305,6 +308,7 @@ import {
 
 const shanghaiDate = (value = new Date()) => value.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
 const route = useRoute()
+const router = useRouter()
 const routeLayer = (): GovernanceLayer => route.meta.governanceLayer === 'ota' ? 'ota' : 'gds'
 const today = shanghaiDate()
 const reportingCutoffValue = new Date(`${today}T12:00:00+08:00`)
@@ -332,6 +336,15 @@ const isGds = computed(() => applied.value.dataSource === 'gds')
 const isGdsRatioScope = computed(() => isGds.value && data.value?.ratioApplicable !== false)
 const pageTitle = computed(() => isGds.value ? 'GDS资源治理' : 'OTA渠道质量')
 const pageDescription = computed(() => isGds.value ? '按GDS与PCC分析查询量、航段数和查定比' : '按平台与站点分析查询、验价和生单接口成功率')
+const openRouteDiagnosis = () => router.push({
+  path: '/resource-governance/route-diagnosis',
+  query: {
+    startDate: applied.value.startDate,
+    endDate: applied.value.endDate,
+    platform: applied.value.platform || undefined,
+    gds: applied.value.gds || undefined,
+  },
+})
 const layerLabel = (layer: GovernanceLayer) => layer === 'gds' ? 'GDS资源层' : 'OTA渠道层'
 const selectOptions = (values?: string[]) => (values || []).map(value => ({ label: value, value }))
 const resourceChannelOptions = [{ label: 'MP（含普通MP、NDC）', value: 'MP' }, { label: 'MPIS', value: 'MPIS' }]

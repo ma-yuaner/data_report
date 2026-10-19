@@ -73,7 +73,7 @@ bi_gds_resource_metric_day（GDS MP总体/API分组服务表）
 调度脚本的具体命令和参数见 `data-team-repo/etl_scripts/automation/monitoring/README.md`。
 ## 通知模型与花名册（2026-10-13）
 
-站外通知拆成三层：通知群端点、消息模板、事件路由。路由决定“哪类事件使用哪个模板、发送到哪个群、动态@哪类负责人”；人员身份不在通知群中重复维护，而由`sys_user_employee_binding`把数据中台账号映射到ERP`sibebd.system_user`，发送时读取最新`wechat_id/mobilephone`。
+站外通知拆成三层：通知群端点、消息模板、事件路由。路由决定“哪类事件使用哪个模板、发送到哪个群、动态@哪类负责人”；人员身份不在通知群中重复维护，而由`sys_user_employee_binding`把数据中台账号映射到ERP`sibebd.system_user`。ERP可使用独立的`ERP_MYSQL_*`连接；绑定时保存`wechat_id/mobilephone`快照，ERP可用时读取最新身份，临时不可用时使用已绑定快照，避免阻断已生成通知。
 
 企业微信默认模板采用最小必要信息，只提示登录数据中台处理，不包含订单号、乘客、航程、利润等业务明细。实际模板版本、解析后的收件人和发送内容快照写入`monitor_notify_delivery_context`供审计。Webhook只保存在通知端点表，发件箱只保存端点ID。
 

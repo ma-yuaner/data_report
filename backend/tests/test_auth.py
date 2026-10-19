@@ -507,6 +507,7 @@ def test_page_level_menu_mapping_protects_smart_policy_and_order_pages_separatel
     assert required_menu_code("/api/v1/smart-placement/orders") == "smart.placement.orders"
     assert required_menu_code("/api/v1/analysis/comprehensive/details") == "analysis.comprehensive"
     assert required_menu_code("/api/v1/resource-governance/gds/overview") == "governance.gds"
+    assert required_menu_code("/api/v1/resource-governance/gds/routes") == "gds_route.diagnosis"
     assert required_menu_code("/api/v1/resource-governance/ota/overview") == "governance.ota"
     assert required_menu_code("/api/v1/risk-uploads") == "risk.upload"
 

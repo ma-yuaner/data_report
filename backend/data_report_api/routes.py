@@ -30,6 +30,7 @@ from .services.target_etl_trigger import (
     TargetEtlTriggerService,
     TargetEtlTriggerUnavailable,
 )
+from .services.gds_route_analysis import GdsRouteAnalysisService, GdsRouteAnalysisUnavailable
 
 
 api = Blueprint("api", __name__)
@@ -175,6 +176,23 @@ def _resource_governance_overview(data_source: str):
 @api.get("/v1/resource-governance/gds/overview")
 def gds_resource_governance_overview():
     return _resource_governance_overview("gds")
+
+
+@api.get("/v1/resource-governance/gds/routes")
+def gds_route_analysis():
+    try:
+        return ok(GdsRouteAnalysisService(current_app.config).overview(
+            start_value=request.args.get("startDate"),
+            end_value=request.args.get("endDate"),
+            filters={
+                key: request.args.get(key, "")
+                for key in ("platform", "site", "gds", "pcc", "apiGroup", "route", "keyword")
+            },
+        ))
+    except ValueError as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 400
+    except GdsRouteAnalysisUnavailable as error:
+        return jsonify({"success": False, "message": str(error), "data": None}), 503
 
 
 @api.get("/v1/resource-governance/ota/overview")

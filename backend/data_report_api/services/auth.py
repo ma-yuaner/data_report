@@ -94,14 +94,10 @@ PERMISSION_CATALOG = (
 MENU_CATALOG = (
     {"code": "governance.gds", "name": "GDS资源治理", "description": "GDS、PCC查询量、航段数与查定比分析", "groupCode": "governance", "groupName": "资源治理"},
     {"code": "governance.ota", "name": "OTA渠道质量", "description": "平台查询、验价与生单接口成功率分析", "groupCode": "governance", "groupName": "资源治理"},
-    {"code": "gds_route.overview", "name": "治理总览", "description": "GDS航线治理闭环总览", "groupCode": "gds_route", "groupName": "GDS航线治理"},
-    {"code": "gds_route.routes", "name": "航线分析", "description": "按航线定位GDS资源效率问题", "groupCode": "gds_route", "groupName": "GDS航线治理"},
-    {"code": "gds_route.configurations", "name": "配置分析", "description": "按乘客、行程和日期区间分析配置组合", "groupCode": "gds_route", "groupName": "GDS航线治理"},
-    {"code": "gds_route.quality", "name": "接口质量", "description": "查询、验价和生单成功率分析", "groupCode": "gds_route", "groupName": "GDS航线治理"},
-    {"code": "gds_route.whitelist", "name": "白名单管理", "description": "查看有效航线白名单及版本", "groupCode": "gds_route", "groupName": "GDS航线治理"},
-    {"code": "gds_route.events", "name": "异常处置", "description": "确认航线、配置和接口异常", "groupCode": "gds_route", "groupName": "GDS航线治理"},
-    {"code": "gds_route.actions", "name": "上下线任务", "description": "管理限流、下线、迁移和恢复任务", "groupCode": "gds_route", "groupName": "GDS航线治理"},
-    {"code": "gds_route.review", "name": "治理复盘", "description": "分析治理前后效果与复发情况", "groupCode": "gds_route", "groupName": "GDS航线治理"},
+    {"code": "gds_route.diagnosis", "name": "航线配置诊断", "description": "从航线下钻到乘客、行程和日期区间配置组合", "groupCode": "gds_route", "groupName": "资源治理"},
+    {"code": "gds_route.whitelist", "name": "白名单管理", "description": "查看有效航线白名单及版本", "groupCode": "gds_route", "groupName": "资源治理"},
+    {"code": "gds_route.execution", "name": "治理执行", "description": "确认异常并管理限流、下线、迁移和恢复任务", "groupCode": "gds_route", "groupName": "资源治理"},
+    {"code": "gds_route.review", "name": "治理复盘", "description": "分析治理前后效果与复发情况", "groupCode": "gds_route", "groupName": "资源治理"},
     {"code": "overview", "name": "经营总览", "description": "经营总览页面", "groupCode": "overview", "groupName": "经营总览"},
     {"code": "analysis.comprehensive", "name": "综合分析", "description": "出退改增综合经营分析", "groupCode": "analysis", "groupName": "业务分析"},
     {"code": "analysis.issue", "name": "出票分析", "description": "出票利润分析", "groupCode": "analysis", "groupName": "业务分析"},
@@ -138,6 +134,14 @@ LEGACY_MENU_EXPANSIONS = {
 LEGACY_MENU_EXPANSIONS["smart.home"] = (
     "smart.comprehensive", "smart.overview", "smart.dimensions", "smart.details",
 )
+LEGACY_MENU_EXPANSIONS.update({
+    "gds_route.overview": ("governance.gds",),
+    "gds_route.routes": ("gds_route.diagnosis",),
+    "gds_route.configurations": ("gds_route.diagnosis",),
+    "gds_route.quality": ("governance.gds",),
+    "gds_route.events": ("gds_route.execution",),
+    "gds_route.actions": ("gds_route.execution",),
+})
 MENU_CODES = {item["code"] for item in MENU_CATALOG}
 MENU_GROUP_BY_CODE = {item["code"]: item["groupCode"] for item in MENU_CATALOG}
 
@@ -280,6 +284,38 @@ class MySqlAuthStore:
         mysql_config = dict(config)
         mysql_config["DATA_MODE"] = "mysql"
         self.source = DataSource(mysql_config)
+        roster_config = dict(mysql_config)
+        roster_config.update({
+            "MYSQL_HOST": config.get("ERP_MYSQL_HOST") or config.get("MYSQL_HOST", ""),
+            "MYSQL_PORT": config.get("ERP_MYSQL_PORT") or config.get("MYSQL_PORT", 3306),
+            "MYSQL_DATABASE": (
+                config.get("ERP_MYSQL_DATABASE")
+                or config.get("ERP_ROSTER_DATABASE")
+                or "sibebd"
+            ),
+            "MYSQL_USER": config.get("ERP_MYSQL_USER") or config.get("MYSQL_USER", ""),
+            "MYSQL_PASSWORD": (
+                config.get("ERP_MYSQL_PASSWORD") or config.get("MYSQL_PASSWORD", "")
+            ),
+            "MYSQL_CHARSET": (
+                config.get("ERP_MYSQL_CHARSET") or config.get("MYSQL_CHARSET", "utf8mb4")
+            ),
+            "MYSQL_CONNECT_TIMEOUT": (
+                config.get("ERP_MYSQL_CONNECT_TIMEOUT")
+                or config.get("MYSQL_CONNECT_TIMEOUT", 10)
+            ),
+            "MYSQL_READ_TIMEOUT": (
+                config.get("ERP_MYSQL_READ_TIMEOUT")
+                or config.get("MYSQL_READ_TIMEOUT", 60)
+            ),
+            "MYSQL_WRITE_TIMEOUT": (
+                config.get("ERP_MYSQL_WRITE_TIMEOUT")
+                or config.get("MYSQL_WRITE_TIMEOUT", 60)
+            ),
+            "MYSQL_POOL_SIZE": config.get("ERP_MYSQL_POOL_SIZE", 4),
+            "MYSQL_POOL_MIN_CACHED": config.get("ERP_MYSQL_POOL_MIN_CACHED", 1),
+        })
+        self.roster_source = DataSource(roster_config)
 
     @staticmethod
     def _missing_rbac(error: Exception) -> bool:
@@ -417,10 +453,13 @@ class MySqlAuthStore:
             if connection is not None:
                 connection.close()
 
-    def _fetchone(self, sql: str, params: tuple[Any, ...] = ()) -> dict[str, Any] | None:
+    @staticmethod
+    def _fetchone_from(
+        source: DataSource, sql: str, params: tuple[Any, ...] = (),
+    ) -> dict[str, Any] | None:
         import pymysql
 
-        connection = self.source.connect()
+        connection = source.connect()
         try:
             with connection.cursor(pymysql.cursors.DictCursor) as cursor:
                 cursor.execute(sql, params)
@@ -429,16 +468,25 @@ class MySqlAuthStore:
         finally:
             connection.close()
 
-    def _fetchall(self, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
+    @staticmethod
+    def _fetchall_from(
+        source: DataSource, sql: str, params: tuple[Any, ...] = (),
+    ) -> list[dict[str, Any]]:
         import pymysql
 
-        connection = self.source.connect()
+        connection = source.connect()
         try:
             with connection.cursor(pymysql.cursors.DictCursor) as cursor:
                 cursor.execute(sql, params)
                 return [dict(row) for row in cursor.fetchall()]
         finally:
             connection.close()
+
+    def _fetchone(self, sql: str, params: tuple[Any, ...] = ()) -> dict[str, Any] | None:
+        return self._fetchone_from(self.source, sql, params)
+
+    def _fetchall(self, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
+        return self._fetchall_from(self.source, sql, params)
 
     def _execute(self, sql: str, params: tuple[Any, ...] = ()) -> int:
         connection = self.source.connect()
@@ -625,7 +673,8 @@ class MySqlAuthStore:
     ) -> list[dict[str, Any]]:
         roster = self._roster_table(database, table)
         token = f"%{keyword.strip()[:100]}%"
-        return self._fetchall(
+        return self._fetchall_from(
+            self.roster_source,
             f"""
             SELECT id,user_name,wechat_id,mobilephone,cname,work_number,
                    status,enabled,start_time,end_time,update_time
@@ -645,25 +694,39 @@ class MySqlAuthStore:
         self, user_id: int, database: str, table: str,
     ) -> dict[str, Any] | None:
         roster = self._roster_table(database, table)
-        return self._fetchone(
-            f"""
-            SELECT b.sys_user_id,b.employee_id,b.status,b.employee_name_snapshot,
-                   b.work_number_snapshot,b.wechat_id_snapshot,b.mobile_snapshot,
-                   e.user_name,e.wechat_id,e.mobilephone,e.cname,e.work_number,
-                   e.status employee_status,e.enabled employee_enabled,
-                   e.start_time,e.end_time,e.update_time
-            FROM sys_user_employee_binding b
-            LEFT JOIN {roster} e ON e.id=b.employee_id
-            WHERE b.sys_user_id=%s
+        binding = self._fetchone(
+            """
+            SELECT sys_user_id,employee_id,status,employee_name_snapshot,
+                   work_number_snapshot,wechat_id_snapshot,mobile_snapshot
+            FROM sys_user_employee_binding
+            WHERE sys_user_id=%s
             """,
             (user_id,),
         )
+        if not binding:
+            return None
+        try:
+            employee = self._fetchone_from(
+                self.roster_source,
+                f"""
+                SELECT user_name,wechat_id,mobilephone,cname,work_number,
+                       status employee_status,enabled employee_enabled,
+                       start_time,end_time,update_time
+                FROM {roster}
+                WHERE id=%s
+                """,
+                (binding["employee_id"],),
+            )
+        except Exception:
+            employee = None
+        return {**binding, **(employee or {})}
 
     def get_employee_by_id(
         self, database: str, table: str, employee_id: int,
     ) -> dict[str, Any] | None:
         roster = self._roster_table(database, table)
-        return self._fetchone(
+        return self._fetchone_from(
+            self.roster_source,
             f"""
             SELECT id,user_name,wechat_id,mobilephone,cname,work_number,
                    status,enabled,start_time,end_time,update_time

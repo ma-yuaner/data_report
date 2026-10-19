@@ -136,6 +136,12 @@ def test_create_task_rejects_reversed_loss_threshold_before_database_access():
     service.source.connect.assert_not_called()
 
 
+def test_loss_thresholds_allow_empty_pair_and_reject_partial_pair():
+    assert smart_placement_module._loss_thresholds({}) == (None, None)
+    with pytest.raises(ValueError, match="必须同时填写或同时留空"):
+        smart_placement_module._loss_thresholds({"lossThresholdMin": 0})
+
+
 def test_review_requires_matching_business_role_before_database_access():
     service, _connection, _cursor = service_with_cursor()
 
@@ -478,6 +484,8 @@ def test_successful_execution_compiles_monitor_rule_in_same_transaction(monkeypa
             "platform_name": "携程",
             "airline_code": "HO",
             "order_source": "平台手工订单",
+            "loss_threshold_min": 0,
+            "loss_threshold_max": 30,
         },
         (1,),
     ]
@@ -502,8 +510,8 @@ def test_successful_execution_compiles_monitor_rule_in_same_transaction(monkeypa
             "longTerm": True,
             "orderSource": [],
             "segmentType": "直达",
-            "lossThresholdMin": 0,
-            "lossThresholdMax": 30,
+            "lossThresholdMin": None,
+            "lossThresholdMax": None,
         },
     )
 
@@ -514,6 +522,8 @@ def test_successful_execution_compiles_monitor_rule_in_same_transaction(monkeypa
     assert compiled_execution["effective_end_at"] is None
     assert compiled_execution["monitoring_start_at"] == registered_at
     assert compiled_execution["order_source"] is None
+    assert compiled_execution["loss_threshold_min"] is None
+    assert compiled_execution["loss_threshold_max"] is None
     insert_query, insert_params = next(
         call.args for call in cursor.execute.call_args_list
         if "INSERT INTO sibebid.smart_placement_execution" in call.args[0]

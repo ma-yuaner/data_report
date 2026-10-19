@@ -82,6 +82,11 @@ AUTH_BOOTSTRAP_ADMIN_DISPLAY_NAME=系统管理员
 `MYSQL_POOL_SIZE`、`MYSQL_POOL_MIN_CACHED` 调整每个 API 进程的连接数。超过
 `PERFORMANCE_SLOW_REQUEST_MS` 的接口会写入慢请求日志，响应头 `Server-Timing` 可用于区分鉴权和业务处理耗时。
 
+ERP花名册允许部署在独立MySQL实例。主业务库继续使用`MYSQL_*`，花名册连接使用
+`ERP_MYSQL_HOST/PORT/DATABASE/USER/PASSWORD`，目标表由`ERP_ROSTER_DATABASE/ERP_ROSTER_TABLE`
+指定。未配置`ERP_MYSQL_*`时会兼容旧部署并复用主库连接。账号绑定信息和企业微信ID快照仍保存在
+`sibebid.sys_user_employee_binding`；ERP临时不可用时已绑定账号可读取快照，但搜索或新绑定员工需要ERP恢复。
+
 经营总览及各业务分析页提供今日、昨日、本月、本年和自定义日期查询，默认展示今日，避免首次打开扫描大时间范围。项目默认使用 `DATA_MODE=mysql` 读取 `sibebid`；在 `.env` 中填写 `MYSQL_HOST`、`MYSQL_USER` 等连接信息即可。MySQL 临时不可用时，将 `DATA_MODE` 手工改成 `hive` 并重启 API。原经营指标和底部的“风控利润核对”都跟随此手工切换，不自动混用两个数据源；核对区默认读取 MySQL 的三张 `bi_order_*_profit_reconcile_year` 表，不纳入上方经营利润合计。连接密码只能保存在部署环境的 `.env`，不得提交到 Git。
 
 “业务分析 → 出票分析”提供利润和业务量趋势、平台/航司/供应商/组织贡献，以及首批 12 个分析字段的非空率体检。退票、改签和增值分析首版只展示数量、利润、单笔利润、负利润记录和趋势，避免在问题尚未明确时堆叠无效维度。

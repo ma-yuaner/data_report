@@ -473,8 +473,8 @@ class MonitorRuleCompiler:
         else:
             add("journey_type", "EQ", "STRING", segment_type)
         add("advance_sale_days", "GTE", "NUMBER", task.get("advance_sale_days"))
-        loss_min = task.get("loss_threshold_min")
-        loss_max = task.get("loss_threshold_max")
+        loss_min = execution.get("loss_threshold_min") if "loss_threshold_min" in execution else task.get("loss_threshold_min")
+        loss_max = execution.get("loss_threshold_max") if "loss_threshold_max" in execution else task.get("loss_threshold_max")
         if loss_min is not None and loss_max is not None:
             # Business users enter loss as a positive absolute interval. The
             # order feature stores profit, so 0-30 CNY maps to -30 <= profit <= 0.

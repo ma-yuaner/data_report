@@ -19,23 +19,15 @@
       <div class="sidebar-menu-scroll">
         <a-menu v-model:openKeys="openKeys" theme="dark" mode="inline" :selected-keys="selectedKeys" @click="handleMenuClick">
           <a-menu-item key="/home"><template #icon><HomeOutlined /></template>工作台</a-menu-item>
-          <a-sub-menu v-if="canSeeGroup('governance')" key="governance">
+          <a-sub-menu v-if="canSeeGroup('governance') || canSeeGroup('gds_route')" key="governance">
             <template #icon><DeploymentUnitOutlined /></template>
             <template #title>资源治理</template>
             <a-menu-item v-if="canSeeMenu('governance.gds')" key="/resource-governance/gds">GDS资源治理</a-menu-item>
             <a-menu-item v-if="canSeeMenu('governance.ota')" key="/resource-governance/ota">OTA渠道质量</a-menu-item>
-          </a-sub-menu>
-          <a-sub-menu v-if="canSeeGroup('gds_route')" key="gds-route-governance">
-            <template #icon><BranchesOutlined /></template>
-            <template #title>GDS航线治理</template>
-            <a-menu-item v-if="canSeeMenu('gds_route.overview')" key="/gds-route-governance/overview">治理总览</a-menu-item>
-            <a-menu-item v-if="canSeeMenu('gds_route.routes')" key="/gds-route-governance/routes">航线分析</a-menu-item>
-            <a-menu-item v-if="canSeeMenu('gds_route.configurations')" key="/gds-route-governance/configurations">配置分析</a-menu-item>
-            <a-menu-item v-if="canSeeMenu('gds_route.quality')" key="/gds-route-governance/quality">接口质量</a-menu-item>
-            <a-menu-item v-if="canSeeMenu('gds_route.whitelist')" key="/gds-route-governance/whitelist">白名单管理</a-menu-item>
-            <a-menu-item v-if="canSeeMenu('gds_route.events')" key="/gds-route-governance/events">异常处置</a-menu-item>
-            <a-menu-item v-if="canSeeMenu('gds_route.actions')" key="/gds-route-governance/actions">上下线任务</a-menu-item>
-            <a-menu-item v-if="canSeeMenu('gds_route.review')" key="/gds-route-governance/review">治理复盘</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('gds_route.diagnosis')" key="/resource-governance/route-diagnosis">航线配置诊断</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('gds_route.whitelist')" key="/resource-governance/whitelist">白名单管理</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('gds_route.execution')" key="/resource-governance/execution">治理执行</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('gds_route.review')" key="/resource-governance/review">治理复盘</a-menu-item>
           </a-sub-menu>
           <a-menu-item v-if="canSeeMenu('overview')" key="/overview"><template #icon><DashboardOutlined /></template>经营总览</a-menu-item>
           <a-sub-menu v-if="canSeeGroup('analysis')" key="analysis">
@@ -147,7 +139,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  BarChartOutlined, BranchesOutlined, ControlOutlined, CustomerServiceOutlined, DashboardOutlined, DatabaseOutlined, DeploymentUnitOutlined, HomeOutlined, LineChartOutlined,
+  BarChartOutlined, ControlOutlined, CustomerServiceOutlined, DashboardOutlined, DatabaseOutlined, DeploymentUnitOutlined, HomeOutlined, LineChartOutlined,
   LockOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, MonitorOutlined, RobotOutlined,
   RadarChartOutlined, SafetyCertificateOutlined, TeamOutlined, WarningOutlined,
 } from '@ant-design/icons-vue'
@@ -162,14 +154,13 @@ const router = useRouter()
 const loggingOut = ref(false)
 const selectedKeys = computed(() => [route.path === '/analysis/profit' ? '/analysis/issue' : route.path])
 const userInitial = computed(() => (authStore.user?.displayName || authStore.user?.username || '数').slice(0, 1))
-const headerTag = computed(() => route.path === '/home' ? '数据工作台' : route.path.startsWith('/business-configuration') ? '业务目标管理' : route.path.startsWith('/gds-route-governance') ? '航线治理演示' : route.path.startsWith('/resource-governance') ? '资源调用治理' : '业务估算利润')
+const headerTag = computed(() => route.path === '/home' ? '数据工作台' : route.path.startsWith('/business-configuration') ? '业务目标管理' : route.path.startsWith('/resource-governance') ? '资源调用治理' : '业务估算利润')
 const canSeeMenu = (code: string) => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.menuCodes?.includes(code))
 const canSeeGroup = (code: string) => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.menuCodes?.some(item => item === code || item.startsWith(`${code}.`)))
 const openKeys = ref<string[]>([])
 watch(() => route.path, path => {
   openKeys.value = path.startsWith('/analysis') ? ['analysis']
     : path.startsWith('/resource-governance') ? ['governance']
-    : path.startsWith('/gds-route-governance') ? ['gds-route-governance']
     : path.startsWith('/risk-analysis') ? ['risk']
       : path.startsWith('/smart-analysis/placement/') ? ['smart', 'smart-placement']
         : path.startsWith('/smart-analysis') ? ['smart', 'smart-overall']

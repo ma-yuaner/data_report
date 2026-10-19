@@ -28,12 +28,57 @@ class Config:
     MYSQL_POOL_SIZE = int(os.getenv("MYSQL_POOL_SIZE", "12"))
     MYSQL_POOL_MIN_CACHED = int(os.getenv("MYSQL_POOL_MIN_CACHED", "2"))
     MYSQL_TIME_ZONE = os.getenv("MYSQL_TIME_ZONE", "+08:00")
-    ERP_ROSTER_MYSQL_HOST = os.getenv("ERP_ROSTER_MYSQL_HOST", MYSQL_HOST)
-    ERP_ROSTER_MYSQL_PORT = int(os.getenv("ERP_ROSTER_MYSQL_PORT", str(MYSQL_PORT)))
-    ERP_ROSTER_MYSQL_USER = os.getenv("ERP_ROSTER_MYSQL_USER", MYSQL_USER)
-    ERP_ROSTER_MYSQL_PASSWORD = os.getenv("ERP_ROSTER_MYSQL_PASSWORD", MYSQL_PASSWORD)
-    ERP_ROSTER_MYSQL_CHARSET = os.getenv("ERP_ROSTER_MYSQL_CHARSET", MYSQL_CHARSET)
-    ERP_ROSTER_DATABASE = os.getenv("ERP_ROSTER_DATABASE", "sibedb")
+    ERP_MYSQL_HOST = (
+        os.getenv("ERP_MYSQL_HOST", "").strip()
+        or os.getenv("ERP_ROSTER_MYSQL_HOST", "").strip()
+        or MYSQL_HOST
+    )
+    ERP_MYSQL_PORT = int(
+        os.getenv("ERP_MYSQL_PORT", "").strip()
+        or os.getenv("ERP_ROSTER_MYSQL_PORT", "").strip()
+        or MYSQL_PORT
+    )
+    ERP_MYSQL_DATABASE = (
+        os.getenv("ERP_MYSQL_DATABASE", "").strip()
+        or os.getenv("ERP_ROSTER_DATABASE", "").strip()
+        or "sibebd"
+    )
+    ERP_MYSQL_USER = (
+        os.getenv("ERP_MYSQL_USER", "").strip()
+        or os.getenv("ERP_ROSTER_MYSQL_USER", "").strip()
+        or MYSQL_USER
+    )
+    ERP_MYSQL_PASSWORD = (
+        os.getenv("ERP_MYSQL_PASSWORD", "")
+        or os.getenv("ERP_ROSTER_MYSQL_PASSWORD", "")
+        or MYSQL_PASSWORD
+    )
+    ERP_MYSQL_CHARSET = (
+        os.getenv("ERP_MYSQL_CHARSET", "").strip()
+        or os.getenv("ERP_ROSTER_MYSQL_CHARSET", "").strip()
+        or MYSQL_CHARSET
+    )
+    ERP_MYSQL_CONNECT_TIMEOUT = int(
+        os.getenv("ERP_MYSQL_CONNECT_TIMEOUT", "").strip() or MYSQL_CONNECT_TIMEOUT
+    )
+    ERP_MYSQL_READ_TIMEOUT = int(
+        os.getenv("ERP_MYSQL_READ_TIMEOUT", "").strip() or MYSQL_READ_TIMEOUT
+    )
+    ERP_MYSQL_WRITE_TIMEOUT = int(
+        os.getenv("ERP_MYSQL_WRITE_TIMEOUT", "").strip() or MYSQL_WRITE_TIMEOUT
+    )
+    ERP_MYSQL_POOL_SIZE = int(os.getenv("ERP_MYSQL_POOL_SIZE", "").strip() or "4")
+    ERP_MYSQL_POOL_MIN_CACHED = int(
+        os.getenv("ERP_MYSQL_POOL_MIN_CACHED", "").strip() or "1"
+    )
+    ERP_ROSTER_MYSQL_HOST = os.getenv("ERP_ROSTER_MYSQL_HOST", "").strip() or ERP_MYSQL_HOST
+    ERP_ROSTER_MYSQL_PORT = int(
+        os.getenv("ERP_ROSTER_MYSQL_PORT", "").strip() or ERP_MYSQL_PORT
+    )
+    ERP_ROSTER_MYSQL_USER = os.getenv("ERP_ROSTER_MYSQL_USER", "").strip() or ERP_MYSQL_USER
+    ERP_ROSTER_MYSQL_PASSWORD = os.getenv("ERP_ROSTER_MYSQL_PASSWORD", "") or ERP_MYSQL_PASSWORD
+    ERP_ROSTER_MYSQL_CHARSET = os.getenv("ERP_ROSTER_MYSQL_CHARSET", "").strip() or ERP_MYSQL_CHARSET
+    ERP_ROSTER_DATABASE = os.getenv("ERP_ROSTER_DATABASE", "").strip() or ERP_MYSQL_DATABASE
     ERP_ROSTER_TABLE = os.getenv("ERP_ROSTER_TABLE", "system_user")
     ERP_ROSTER_USER_TABLE = os.getenv("ERP_ROSTER_USER_TABLE", "system_user")
     ERP_ROSTER_USER_DEPARTMENT_TABLE = os.getenv(
@@ -107,6 +152,9 @@ class Config:
     )
     RESOURCE_GOVERNANCE_GDS_TARGETS = os.getenv("RESOURCE_GOVERNANCE_GDS_TARGETS", "1A:4000")
     RESOURCE_GOVERNANCE_OTA_SUCCESS_TARGETS = os.getenv("RESOURCE_GOVERNANCE_OTA_SUCCESS_TARGETS", "{}")
+    GDS_ROUTE_HIVE_TABLE = os.getenv("GDS_ROUTE_HIVE_TABLE", "dws_gds_airroute_day")
+    GDS_ROUTE_MAX_ROWS = int(os.getenv("GDS_ROUTE_MAX_ROWS", "500"))
+    GDS_ROUTE_MAX_DAYS = int(os.getenv("GDS_ROUTE_MAX_DAYS", "31"))
 
 
 class TestConfig(Config):

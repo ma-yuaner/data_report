@@ -1,35 +1,56 @@
-# GDS航线治理页面验收说明
+# 资源治理明细页面验收说明
 
-- 页面状态：静态交互验收版
-- 数据状态：假数据，不读取或修改正式库
-- 路由前缀：`/gds-route-governance`
-- 与现有模块关系：新增独立模块，不修改GDS资源治理、OTA渠道质量和通用监控中心
+- 页面状态：航线视图已接真实Hive；其余治理流程仍为静态交互验收版
+- 航线数据：`lywz.dws_gds_airroute_day`
+- 路由前缀：`/resource-governance`
+- 与现有模块关系：复用原“资源治理”一级菜单。原GDS资源治理负责总览与接口质量，新增页面只承接航线/配置诊断、白名单、执行和复盘，避免重复建设。
 
 ## 页面
 
 | 页面 | 路由 | 验收重点 |
 |---|---|---|
-| 治理总览 | `/gds-route-governance/overview` | 白名单、异常、任务和复盘的完整导航 |
-| 航线分析 | `/gds-route-governance/routes` | GDS/PCC/平台/航线指标和配置下钻 |
-| 配置分析 | `/gds-route-governance/configurations` | 乘客、行程、提前天数、停留天数和通道组合 |
-| 接口质量 | `/gds-route-governance/quality` | 查询、验价、生单成功率与失败原因 |
-| 白名单管理 | `/gds-route-governance/whitelist` | 最新快照、版本、有效期和配置数量 |
-| 异常处置 | `/gds-route-governance/events` | 确认、观察和生成治理任务 |
-| 上下线任务 | `/gds-route-governance/actions` | 接单、执行、生效、到期和恢复 |
-| 治理复盘 | `/gds-route-governance/review` | 治理前后效果和闭环状态 |
+| GDS资源治理 | `/resource-governance/gds` | 沿用真实总览、GDS/PCC/平台维度与接口质量分析 |
+| OTA渠道质量 | `/resource-governance/ota` | 沿用真实平台接口质量分析 |
+| 航线配置诊断 | `/resource-governance/route-diagnosis` | 航线视图读取真实Hive，配置视图仍为样板 |
+| 白名单管理 | `/resource-governance/whitelist` | 最新快照、版本、有效期和配置数量 |
+| 治理执行 | `/resource-governance/execution` | 同页切换异常处置与上下线任务，保留连续上下文 |
+| 治理复盘 | `/resource-governance/review` | 治理前后效果和闭环状态 |
 
 ## 演示闭环
 
-1. 进入“异常处置”；
-2. 对待处理事件点击“确认”；
-3. 点击“观察”或“生成任务”；
-4. 进入“上下线任务”；
-5. 依次点击“技术接单、开始执行、确认生效、模拟到期、确认恢复”；
-6. 返回“异常处置”确认事件已闭环；
-7. 进入“治理复盘”查看闭环任务数量；
-8. 点击页面右上角“重置演示”恢复初始状态。
+1. 从“GDS资源治理”点击“航线配置诊断”，核对统计范围是否带入；
+2. 在“航线配置诊断”切换航线视图和配置视图；
+3. 进入“治理执行”的“异常处置”；
+4. 对待处理事件点击“确认”；
+5. 点击“观察”或“生成任务”，页面自动切换到“上下线任务”；
+6. 依次点击“技术接单、开始执行、确认生效、模拟到期、确认恢复”；
+7. 切回“异常处置”确认事件已闭环；
+8. 进入“治理复盘”查看闭环任务数量；
+9. 点击页面右上角“重置演示”恢复初始状态。
 
-演示状态只保存在浏览器`localStorage`，不产生服务端记录。正式接入时页面只替换数据API，业务页面结构和状态流转继续沿用。
+原`/gds-route-governance/*`地址保留重定向，用于兼容旧收藏和已经分配的菜单权限。
+
+白名单、治理执行和复盘的演示状态只保存在浏览器`localStorage`，不产生服务端记录。航线视图不使用这些假状态。
+
+## 航线视图V1数据口径
+
+- API：`GET /api/v1/resource-governance/gds/routes`；
+- 数据源：强制使用Hive连接，不跟随全局`DATA_MODE=mysql`切换；
+- 默认期间：昨天一个完整业务日；单次最多31天；
+- 结果上限：按查询请求量降序返回前500个航线组合，可通过筛选继续缩小范围；
+- 聚合粒度：航线、出到达城市/机场、平台、站点、GDS、PCC；
+- 接口阶段：`api_method=search/verify/orderCreate`分别计算查询、验价、生单；
+- 通道结构：接口组名称归一化后按MP、MPIS、NDC互斥拆分；
+- 查询日志不写实际`poi_code`，因此V1不按航司归因查询量；
+- 该表没有出票航段分母，因此V1不计算航线查定比，也不生成上下线结论。
+
+环境变量：
+
+```dotenv
+GDS_ROUTE_HIVE_TABLE=dws_gds_airroute_day
+GDS_ROUTE_MAX_ROWS=500
+GDS_ROUTE_MAX_DAYS=31
+```
 
 ## 正式数据前置条件
 
