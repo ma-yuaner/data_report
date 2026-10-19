@@ -279,6 +279,38 @@ class MySqlAuthStore:
         mysql_config = dict(config)
         mysql_config["DATA_MODE"] = "mysql"
         self.source = DataSource(mysql_config)
+        roster_config = dict(mysql_config)
+        roster_config.update({
+            "MYSQL_HOST": config.get("ERP_MYSQL_HOST") or config.get("MYSQL_HOST", ""),
+            "MYSQL_PORT": config.get("ERP_MYSQL_PORT") or config.get("MYSQL_PORT", 3306),
+            "MYSQL_DATABASE": (
+                config.get("ERP_MYSQL_DATABASE")
+                or config.get("ERP_ROSTER_DATABASE")
+                or "sibebd"
+            ),
+            "MYSQL_USER": config.get("ERP_MYSQL_USER") or config.get("MYSQL_USER", ""),
+            "MYSQL_PASSWORD": (
+                config.get("ERP_MYSQL_PASSWORD") or config.get("MYSQL_PASSWORD", "")
+            ),
+            "MYSQL_CHARSET": (
+                config.get("ERP_MYSQL_CHARSET") or config.get("MYSQL_CHARSET", "utf8mb4")
+            ),
+            "MYSQL_CONNECT_TIMEOUT": (
+                config.get("ERP_MYSQL_CONNECT_TIMEOUT")
+                or config.get("MYSQL_CONNECT_TIMEOUT", 10)
+            ),
+            "MYSQL_READ_TIMEOUT": (
+                config.get("ERP_MYSQL_READ_TIMEOUT")
+                or config.get("MYSQL_READ_TIMEOUT", 60)
+            ),
+            "MYSQL_WRITE_TIMEOUT": (
+                config.get("ERP_MYSQL_WRITE_TIMEOUT")
+                or config.get("MYSQL_WRITE_TIMEOUT", 60)
+            ),
+            "MYSQL_POOL_SIZE": config.get("ERP_MYSQL_POOL_SIZE", 4),
+            "MYSQL_POOL_MIN_CACHED": config.get("ERP_MYSQL_POOL_MIN_CACHED", 1),
+        })
+        self.roster_source = DataSource(roster_config)
 
     @staticmethod
     def _missing_rbac(error: Exception) -> bool:
@@ -416,10 +448,13 @@ class MySqlAuthStore:
             if connection is not None:
                 connection.close()
 
-    def _fetchone(self, sql: str, params: tuple[Any, ...] = ()) -> dict[str, Any] | None:
+    @staticmethod
+    def _fetchone_from(
+        source: DataSource, sql: str, params: tuple[Any, ...] = (),
+    ) -> dict[str, Any] | None:
         import pymysql
 
-        connection = self.source.connect()
+        connection = source.connect()
         try:
             with connection.cursor(pymysql.cursors.DictCursor) as cursor:
                 cursor.execute(sql, params)
@@ -428,16 +463,25 @@ class MySqlAuthStore:
         finally:
             connection.close()
 
-    def _fetchall(self, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
+    @staticmethod
+    def _fetchall_from(
+        source: DataSource, sql: str, params: tuple[Any, ...] = (),
+    ) -> list[dict[str, Any]]:
         import pymysql
 
-        connection = self.source.connect()
+        connection = source.connect()
         try:
             with connection.cursor(pymysql.cursors.DictCursor) as cursor:
                 cursor.execute(sql, params)
                 return [dict(row) for row in cursor.fetchall()]
         finally:
             connection.close()
+
+    def _fetchone(self, sql: str, params: tuple[Any, ...] = ()) -> dict[str, Any] | None:
+        return self._fetchone_from(self.source, sql, params)
+
+    def _fetchall(self, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
+        return self._fetchall_from(self.source, sql, params)
 
     def _execute(self, sql: str, params: tuple[Any, ...] = ()) -> int:
         connection = self.source.connect()
@@ -624,7 +668,8 @@ class MySqlAuthStore:
     ) -> list[dict[str, Any]]:
         roster = self._roster_table(database, table)
         token = f"%{keyword.strip()[:100]}%"
-        return self._fetchall(
+        return self._fetchall_from(
+            self.roster_source,
             f"""
             SELECT id,user_name,wechat_id,mobilephone,cname,work_number,
                    status,enabled,start_time,end_time,update_time
@@ -644,25 +689,39 @@ class MySqlAuthStore:
         self, user_id: int, database: str, table: str,
     ) -> dict[str, Any] | None:
         roster = self._roster_table(database, table)
-        return self._fetchone(
-            f"""
-            SELECT b.sys_user_id,b.employee_id,b.status,b.employee_name_snapshot,
-                   b.work_number_snapshot,b.wechat_id_snapshot,b.mobile_snapshot,
-                   e.user_name,e.wechat_id,e.mobilephone,e.cname,e.work_number,
-                   e.status employee_status,e.enabled employee_enabled,
-                   e.start_time,e.end_time,e.update_time
-            FROM sys_user_employee_binding b
-            LEFT JOIN {roster} e ON e.id=b.employee_id
-            WHERE b.sys_user_id=%s
+        binding = self._fetchone(
+            """
+            SELECT sys_user_id,employee_id,status,employee_name_snapshot,
+                   work_number_snapshot,wechat_id_snapshot,mobile_snapshot
+            FROM sys_user_employee_binding
+            WHERE sys_user_id=%s
             """,
             (user_id,),
         )
+        if not binding:
+            return None
+        try:
+            employee = self._fetchone_from(
+                self.roster_source,
+                f"""
+                SELECT user_name,wechat_id,mobilephone,cname,work_number,
+                       status employee_status,enabled employee_enabled,
+                       start_time,end_time,update_time
+                FROM {roster}
+                WHERE id=%s
+                """,
+                (binding["employee_id"],),
+            )
+        except Exception:
+            employee = None
+        return {**binding, **(employee or {})}
 
     def get_employee_by_id(
         self, database: str, table: str, employee_id: int,
     ) -> dict[str, Any] | None:
         roster = self._roster_table(database, table)
-        return self._fetchone(
+        return self._fetchone_from(
+            self.roster_source,
             f"""
             SELECT id,user_name,wechat_id,mobilephone,cname,work_number,
                    status,enabled,start_time,end_time,update_time
