@@ -60,10 +60,10 @@ def _average(total: int, count: int) -> str | None:
 def _channel_expression(channel: str) -> str:
     normalized = "upper(regexp_replace(coalesce(source_api_group, ''), '[^A-Za-z0-9]', ''))"
     if channel == "MPIS":
-        return f"{normalized} like '%MPIS'"
+        return f"{normalized} rlike 'MPIS$'"
     if channel == "NDC":
-        return f"{normalized} like '%NDC'"
-    return f"{normalized} not like '%MPIS' and {normalized} not like '%NDC'"
+        return f"{normalized} rlike 'NDC$'"
+    return f"not ({normalized} rlike 'MPIS$') and not ({normalized} rlike 'NDC$')"
 
 
 METRIC_SQL = f"""

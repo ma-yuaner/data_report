@@ -80,6 +80,13 @@ def test_route_service_queries_hive_and_keeps_api_stages_separate():
     )
 
 
+def test_route_metric_sql_has_no_literal_percent_conflicting_with_pyhive_params():
+    assert "%MPIS" not in module.METRIC_SQL
+    assert "%NDC" not in module.METRIC_SQL
+    assert "rlike 'MPIS$'" in module.METRIC_SQL
+    assert "rlike 'NDC$'" in module.METRIC_SQL
+
+
 def test_route_service_caps_period_at_yesterday_and_rejects_wide_range():
     source = MagicMock()
     source.database = "lywz"
