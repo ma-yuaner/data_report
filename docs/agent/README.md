@@ -5,7 +5,7 @@
 ## 开始一项工作
 
 1. 确认仓库、分支和已有改动；应用与ETL使用各自仓库。
-2. 读根目录 [AGENTS.md](../../AGENTS.md)、[项目记忆](memory.md)、[当前工作流](workstreams.md)。
+2. 完整读根目录 [AGENTS.md](../../AGENTS.md)；再按标题定位[项目记忆](memory.md)的稳定规则/最新更新与[当前工作流](workstreams.md)中本任务段，历史细节按需取用，不要求全部加载。
 3. 从 [知识索引](knowledge-index.md) 进入相关业务、数据契约、代码；重要已确认规则查 [决策记录](decisions.md)。
 4. 按 [产品交付规范](../product/product-delivery-contract.md) 明确问题、数据和验收；需要时选 [任务提示词](prompts.md)。
 5. 输出事实、推断和待确认项；跨表计算先检查粒度和数据完整性。
@@ -23,6 +23,7 @@
 | `docs/product` | 需求、方案、字段、状态和验收标准 | 草案、确认、实现、验收分开记录 |
 | `prompts.md` | 需求梳理、取数分析、实现和验收的输入模板 | 用真实返工案例改进，不重复系统指令 |
 | `roles/` | 明策、绘景、星桥、磐石、明鉴的能力卡与使用回执约定 | 用户明确增强要求后更新对应卡片与版本 |
+| `orchestration.md` | 主代理委派、模型分档、短交接、证据复用与失败/成本边界 | 任务需要委派/模型选择时读取，不默认整套角色全加载 |
 | `README.md`、`docs/api/README.md` | 项目现状、菜单、完整接口入口 | 明策按能力卡维护，目录块用`scripts/check_readme.py`同步核对 |
 | `CONTRIBUTING.md`、`docs/development` | 开发检查、目录依赖、双仓边界和结构迁移记录 | 与工程规则同步更新 |
 
