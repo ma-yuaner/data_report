@@ -1,7 +1,7 @@
 <template>
   <section class="smart-filter-panel">
     <div class="smart-filter-heading">
-      <div><strong>统计范围</strong><span>三类日期可任选一个或多个；已选范围同时生效，结束日期包含当天</span></div>
+      <div><strong>统计范围</strong><span>{{ page === 'detail' ? '三类日期可任选；填写完整OTA订单号精准查询时自动忽略日期条件' : '三类日期可任选一个或多个；已选范围同时生效，结束日期包含当天' }}</span></div>
       <div class="smart-quick-ranges">
         <a-button size="small" @click="preset('today')">今日</a-button>
         <a-button size="small" @click="preset('yesterday')">昨日</a-button>
@@ -35,6 +35,7 @@ import dateLocale from 'ant-design-vue/es/date-picker/locale/zh_CN'
 import { SearchOutlined } from '@ant-design/icons-vue'
 import { smartAnalysisApi, type SmartFilters } from '@/api/smartAnalysis'
 import { useSmartAnalysisStore, type SmartPage } from '@/stores/smartAnalysis'
+import { normalizeSmartAnalysisFilters, validateSmartAnalysisFilters } from '@/utils/smartAnalysisFilterValidation'
 
 const props = defineProps<{ loading?: boolean; page: SmartPage }>()
 const emit = defineEmits<{ query: []; reset: [] }>()
@@ -73,22 +74,9 @@ async function loadOptions(field: keyof SmartFilters, search = '') {
 function onSearch(field: keyof SmartFilters, value: string) { void loadOptions(field, value) }
 function onDropdown(field: keyof SmartFilters, open: boolean) { if (open) void loadOptions(field) }
 
-function validate() {
-  const ranges = [
-    ['出票日期', pageState.draft.startDate, pageState.draft.endDate],
-    ['首段起飞日期', pageState.draft.firstDepStart, pageState.draft.firstDepEnd],
-    ['进单日期', pageState.draft.orderStart, pageState.draft.orderEnd],
-  ]
-  if (!ranges.some(([, start, end]) => start && end)) return '出票、首段起飞、进单日期至少选择一个完整范围。'
-  for (const [label, start, end] of ranges) {
-    if (Boolean(start) !== Boolean(end)) return `请同时选择${label}的开始和结束日期。`
-    if (start && end && start > end) return `${label}开始日期不能晚于结束日期。`
-  }
-  return ''
-}
-
 function query() {
-  error.value = validate()
+  Object.assign(pageState.draft, normalizeSmartAnalysisFilters(pageState.draft, props.page))
+  error.value = validateSmartAnalysisFilters(pageState.draft, props.page)
   if (error.value) return
   store.apply(props.page)
   emit('query')

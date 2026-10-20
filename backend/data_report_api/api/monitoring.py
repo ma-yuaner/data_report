@@ -293,6 +293,20 @@ def register_routes(api: Blueprint) -> None:
         except MonitoringUnavailable as error:
             return jsonify({"success": False, "message": str(error), "data": None}), 503
 
+    @api.post("/v1/monitoring/message-templates")
+    def create_monitoring_message_template():
+        try:
+            return ok(
+                MonitoringService(current_app.config).create_message_template(g.current_user, json_body()),
+                "消息模板已创建",
+            )
+        except PermissionError as error:
+            return jsonify({"success": False, "message": str(error), "data": None}), 403
+        except ValueError as error:
+            return jsonify({"success": False, "message": str(error), "data": None}), 400
+        except MonitoringUnavailable as error:
+            return jsonify({"success": False, "message": str(error), "data": None}), 503
+
     @api.get("/v1/monitoring/notify-routes")
     def monitoring_notify_routes():
         try:

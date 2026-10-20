@@ -280,11 +280,12 @@ def parse_query_periods(
     start_value: str | None, end_value: str | None,
     first_dep_start: str | None, first_dep_end: str | None,
     order_start: str | None, order_end: str | None,
+    *, allow_empty: bool = False,
 ) -> tuple[date | None, date | None, date | None, date | None, date | None, date | None]:
     issue_first, issue_last = _optional_period(start_value, end_value, "出票日期")
     dep_first, dep_last = _optional_period(first_dep_start, first_dep_end, "首段起飞日期")
     order_first, order_last = _optional_period(order_start, order_end, "进单日期")
-    if not any((issue_first, dep_first, order_first)):
+    if not allow_empty and not any((issue_first, dep_first, order_first)):
         raise ValueError("出票、首段起飞、进单日期至少选择一个完整范围")
     return issue_first, issue_last, dep_first, dep_last, order_first, order_last
 
@@ -323,6 +324,12 @@ def build_where(
         field = FILTERS[key][0]
         if value == NULL_TOKEN:
             conditions.append(f"nullif(trim({prefix}{field}), '') IS NULL")
+        elif key in EXACT_FILTERS:
+            # Exact identifiers must keep the indexed column bare. Wrapping
+            # ota_order_no in TRIM/NULLIF turns a point lookup into a full
+            # secondary-index scan on MySQL 5.7.
+            conditions.append(f"{prefix}{field} = %s")
+            params.append(value)
         else:
             conditions.append(f"nullif(trim({prefix}{field}), '') = %s")
             params.append(value)
@@ -380,6 +387,9 @@ def build_trend_where(
         field = FILTERS[key][0]
         if value == NULL_TOKEN:
             conditions.append(f"nullif(trim({prefix}{field}), '') IS NULL")
+        elif key in EXACT_FILTERS:
+            conditions.append(f"{prefix}{field} = %s")
+            params.append(value)
         else:
             conditions.append(f"nullif(trim({prefix}{field}), '') = %s")
             params.append(value)
@@ -858,8 +868,12 @@ class SmartAnalysisService:
         smart_type="all", stage="all", fields_value=None, page_value=1,
         page_size_value=20,
     ) -> dict[str, Any]:
+        exact_ota_order = str((filters or {}).get("otaOrderNo") or "").strip()
+        if exact_ota_order:
+            start_value = end_value = first_dep_start = first_dep_end = order_start = order_end = None
         first, last, dep_first, dep_last, order_first, order_last = parse_query_periods(
             start_value, end_value, first_dep_start, first_dep_end, order_start, order_end,
+            allow_empty=bool(exact_ota_order),
         )
         if smart_type not in SMART_PREFIXES:
             raise ValueError("智能类型不合法")
@@ -1092,8 +1106,12 @@ class SmartAnalysisService:
         first_dep_end=None, order_start=None, order_end=None, filters=None,
         smart_type="all", stage="all", fields_value=None, all_fields=False,
     ):
+        exact_ota_order = str((filters or {}).get("otaOrderNo") or "").strip()
+        if exact_ota_order:
+            start_value = end_value = first_dep_start = first_dep_end = order_start = order_end = None
         first, last, dep_first, dep_last, order_first, order_last = parse_query_periods(
             start_value, end_value, first_dep_start, first_dep_end, order_start, order_end,
+            allow_empty=bool(exact_ota_order),
         )
         if smart_type not in SMART_PREFIXES:
             raise ValueError("智能类型不合法")

@@ -8,7 +8,7 @@
     "build": "vue-tsc -b && vite build",
     "check:components": "node scripts/check-ant-components.mjs",
     "check:architecture": "node scripts/check-architecture.mjs",
-    "test": "node --test scripts/resource-governance.test.mjs",
+    "test": "node --test scripts/*.test.mjs",
     "lint": "eslint src scripts vite.config.ts eslint.config.mjs --max-warnings=0",
     "format:check": "prettier --check src/features/resource-governance eslint.config.mjs package.json .prettierrc.json",
     "format": "prettier --write src/features/resource-governance eslint.config.mjs package.json .prettierrc.json",

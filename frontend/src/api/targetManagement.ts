@@ -191,6 +191,7 @@ export interface SaveTargetInput {
   status: 'ACTIVE' | 'DRAFT' | 'PAUSED'
   remark?: string
   changeReason?: string
+  copyMode?: boolean
 }
 
 export async function fetchTargets(params: { scene: TargetScene; period: string; status?: string; keyword?: string }) {

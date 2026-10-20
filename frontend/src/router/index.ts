@@ -53,7 +53,19 @@ const router = createRouter({
         { path: 'business-configuration', redirect: '/business-configuration/targets' },
         { path: 'business-configuration/targets', name: 'target-management', component: () => import('@/views/TargetManagementView.vue'), meta: { title: '目标配置', section: '业务配置', menuCode: 'business_config.targets' } },
         { path: 'business-configuration/target-progress', name: 'target-progress', component: () => import('@/views/TargetProgressView.vue'), meta: { title: '目标进度', section: '业务配置', menuCode: 'business_config.target_progress' } },
-        { path: 'monitoring', name: 'monitoring-center', component: () => import('@/views/MonitoringCenterView.vue'), meta: { title: '监控中心', section: '监控中心', menuCode: 'monitor.center' } },
+        { path: 'monitoring', redirect: to => {
+          const legacyPages: Record<string, string> = { rules: 'tasks', events: 'alerts', actions: 'actions', runs: 'runs', notifications: 'notifications', diagnostic: 'diagnostics' }
+          const page = legacyPages[String(to.query.tab || '')] || 'overview'
+          return { path: `/monitoring/${page}`, query: page === 'overview' ? to.query : { ...to.query, tab: undefined } }
+        } },
+        { path: 'monitoring/overview', name: 'monitoring-overview', component: () => import('@/views/MonitoringCenterView.vue'), meta: { title: '监控总览', section: '监控中心', menuCode: 'monitor.center', monitoringPage: 'overview' } },
+        { path: 'monitoring/tasks', name: 'monitoring-tasks', component: () => import('@/views/MonitoringCenterView.vue'), meta: { title: '监控任务', section: '监控中心', menuCode: 'monitor.center', monitoringPage: 'tasks' } },
+        { path: 'monitoring/alerts', name: 'monitoring-alerts', component: () => import('@/views/MonitoringCenterView.vue'), meta: { title: '预警中心', section: '监控中心', menuCode: 'monitor.center', monitoringPage: 'alerts' } },
+        { path: 'monitoring/actions', name: 'monitoring-actions', component: () => import('@/views/MonitoringCenterView.vue'), meta: { title: '技术工单', section: '监控中心', menuCode: 'monitor.center', permission: 'monitor.action.view', monitoringPage: 'actions' } },
+        { path: 'monitoring/templates', name: 'monitoring-templates', component: () => import('@/views/MonitoringCenterView.vue'), meta: { title: '规则模板', section: '监控中心', menuCode: 'monitor.center', monitoringPage: 'templates' } },
+        { path: 'monitoring/runs', name: 'monitoring-runs', component: () => import('@/views/MonitoringCenterView.vue'), meta: { title: '监控运行', section: '监控中心', menuCode: 'monitor.center', monitoringPage: 'runs' } },
+        { path: 'monitoring/notifications', name: 'monitoring-notifications', component: () => import('@/views/MonitoringCenterView.vue'), meta: { title: '通知管理', section: '监控中心', menuCode: 'monitor.center', monitoringPage: 'notifications' } },
+        { path: 'monitoring/diagnostics', name: 'monitoring-diagnostics', component: () => import('@/views/MonitoringCenterView.vue'), meta: { title: '问题诊断', section: '监控中心', menuCode: 'monitor.center', monitoringPage: 'diagnostics' } },
         { path: 'problems', name: 'problems', component: () => import('@/views/ProblemsView.vue'), meta: { title: '问题中心', section: '问题中心', menuCode: 'problems' } },
         { path: 'data-assets', name: 'assets', component: () => import('@/views/AssetsView.vue'), meta: { title: '数据资产', section: '数据资产', menuCode: 'data_assets' } },
         { path: 'admin/behavior', name: 'admin-behavior', component: () => import('@/views/UserBehaviorMonitorView.vue'), meta: { title: '用户行为监控', section: '系统管理', requiresAdmin: true } },
@@ -81,6 +93,7 @@ router.beforeEach(async (to) => {
   }
   if (to.meta.requiresAdmin && !authStore.user.isAdmin) return '/home'
   if (to.meta.menuCode && !authStore.user.isAdmin && !authStore.user.menuCodes?.includes(String(to.meta.menuCode))) return '/home'
+  if (to.meta.permission && !authStore.user.isAdmin && !authStore.user.permissions?.includes(String(to.meta.permission))) return '/monitoring/overview'
   return true
 })
 

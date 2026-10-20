@@ -22,7 +22,7 @@
 | [上传说明](../business/air_ticketing/risk-data-upload.md) / [行为监控](../product/user-behavior-monitoring-v1.md) | 上传队列和行为采集 |
 
 <!-- BEGIN:API_ROUTES -->
-共 **114个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
+共 **115个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
 
 <a id="auth"></a>
 
@@ -164,6 +164,7 @@
 | `POST` | `/api/v1/monitoring/events/<int:event_id>/action-orders` | [create_monitoring_action_order](../../backend/data_report_api/api/monitoring.py) |
 | `PATCH` | `/api/v1/monitoring/events/<int:event_id>/status` | [update_monitoring_event_status](../../backend/data_report_api/api/monitoring.py) |
 | `GET` | `/api/v1/monitoring/message-templates` | [monitoring_message_templates](../../backend/data_report_api/api/monitoring.py) |
+| `POST` | `/api/v1/monitoring/message-templates` | [create_monitoring_message_template](../../backend/data_report_api/api/monitoring.py) |
 | `PUT` | `/api/v1/monitoring/message-templates/<int:template_id>` | [update_monitoring_message_template](../../backend/data_report_api/api/monitoring.py) |
 | `GET` | `/api/v1/monitoring/notify-endpoints` | [monitoring_notify_endpoints](../../backend/data_report_api/api/monitoring.py) |
 | `POST` | `/api/v1/monitoring/notify-endpoints` | [create_monitoring_notify_endpoint](../../backend/data_report_api/api/monitoring.py) |

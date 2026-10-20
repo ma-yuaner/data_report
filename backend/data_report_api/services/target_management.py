@@ -994,6 +994,7 @@ class TargetManagementService:
         _require(user, MANAGE_PERMISSION, "当前账号没有目标配置权限")
         scene = _scene(values.get("scene"))
         period, start, end = _month(values.get("period"))
+        copy_mode = values.get("copyMode") is True
         department_name = _text(values.get("departmentName"), "归属部门", required=True, maximum=100)
         department_code = _text(values.get("departmentCode"), "部门编码", required=True, maximum=64)
         owner_name = _text(values.get("ownerName"), "责任人", maximum=100)
@@ -1186,6 +1187,13 @@ class TargetManagementService:
                 else:
                     item_digest = hashlib.sha1(f"{plan_id}|{metric_code}|{scope_key}".encode()).hexdigest()[:20].upper()
                     item_code = f"TI_{item_digest}"
+                    if copy_mode:
+                        cursor.execute(
+                            f"SELECT id FROM {self._table('biz_target_item')} WHERE item_code=%s LIMIT 1",
+                            (item_code,),
+                        )
+                        if cursor.fetchone():
+                            raise ValueError(f"{period}已存在相同业务对象和指标的目标，请直接编辑原配置")
                     cursor.execute(
                         f"""INSERT INTO {self._table('biz_target_item')}
                             (plan_id,item_code,scope_key,metric_code,metric_version,department_code,

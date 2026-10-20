@@ -231,6 +231,13 @@
     "endpoint": "api.monitoring_message_templates"
   },
   {
+    "path": "/api/v1/monitoring/message-templates",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.create_monitoring_message_template"
+  },
+  {
     "path": "/api/v1/monitoring/message-templates/<int:template_id>",
     "methods": [
       "PUT"

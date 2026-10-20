@@ -40,6 +40,33 @@ export interface MonitorRule {
   updatedAt: string
 }
 
+export interface MonitorRuleTemplateField {
+  id: number
+  templateId: number
+  fieldCode: string
+  fieldName: string
+  valueType: string
+  allowedOperators: string
+  requiredFlag: boolean | number
+  optionSource?: string
+  sortNo: number
+  status: string
+}
+
+export interface MonitorRuleTemplate {
+  id: number
+  templateCode: string
+  templateName: string
+  category: string
+  dataSourceCode: string
+  entityType: string
+  executionMode: string
+  defaultScheduleSeconds: number
+  description?: string
+  status: string
+  fields: MonitorRuleTemplateField[]
+}
+
 export interface MonitorCondition {
   id: number
   fieldCode: string
@@ -163,7 +190,10 @@ export interface MonitorOverview {
   ruleSummary: { totalRules?: number; activeRules?: number; scheduledRules?: number; pausedRules?: number }
   eventSummary: { totalEvents?: number; openEvents?: number; acknowledgedEvents?: number; escalatedEvents?: number; overdueEvents?: number }
   pendingNotifications: number
+  failedRuns: number
   recentRuns: MonitorRun[]
+  attentionEvents: MonitorEvent[]
+  topRules: Array<{ ruleId: number; ruleCode: string; ruleName?: string; eventCount: number }>
 }
 
 export interface PagedResult<T> { rows: T[]; total: number; page: number; pageSize: number }
@@ -219,6 +249,14 @@ export interface MonitorMessageTemplate {
   status: 'ACTIVE' | 'DISABLED'
 }
 
+export interface MonitorMessageTemplateCopyInput {
+  sourceTemplateId: number
+  templateName: string
+  titleTemplate: string
+  bodyTemplate: string
+  status: 'ACTIVE' | 'DISABLED'
+}
+
 export interface MonitorNotifyRoute {
   id: number
   routeCode: string
@@ -270,6 +308,7 @@ export interface MonitorDiagnostic {
 
 export const monitoringApi = {
   overview: () => http.get<ApiEnvelope<MonitorOverview>>('/v1/monitoring/overview').then(response => response.data.data),
+  templates: () => http.get<ApiEnvelope<MonitorRuleTemplate[]>>('/v1/monitoring/templates').then(response => response.data.data),
   createRule: (payload: MonitorRuleInput) => http.post<ApiEnvelope<{ id: number; ruleCode: string; status: string; versionNo: number }>>('/v1/monitoring/rules', payload).then(response => response.data.data),
   rules: (params: Record<string, unknown>) => http.get<ApiEnvelope<PagedResult<MonitorRule>>>('/v1/monitoring/rules', { params }).then(response => response.data.data),
   ruleDetail: (id: number) => http.get<ApiEnvelope<MonitorRuleDetail>>(`/v1/monitoring/rules/${id}`).then(response => response.data.data),
@@ -289,6 +328,7 @@ export const monitoringApi = {
   updateNotifyEndpoint: (id: number, payload: MonitorNotifyEndpointInput) => http.put<ApiEnvelope<{ id: number }>>(`/v1/monitoring/notify-endpoints/${id}`, payload).then(response => response.data.data),
   testNotifyEndpoint: (id: number) => http.post<ApiEnvelope<{ id: number; success: boolean; message: string }>>(`/v1/monitoring/notify-endpoints/${id}/test`).then(response => response.data.data),
   messageTemplates: () => http.get<ApiEnvelope<MonitorMessageTemplate[]>>('/v1/monitoring/message-templates').then(response => response.data.data),
+  createMessageTemplate: (payload: MonitorMessageTemplateCopyInput) => http.post<ApiEnvelope<{ id: number; templateCode: string; eventCode: string; status: string }>>('/v1/monitoring/message-templates', payload).then(response => response.data.data),
   updateMessageTemplate: (id: number, payload: { titleTemplate: string; bodyTemplate: string; status: 'ACTIVE' | 'DISABLED' }) => http.put<ApiEnvelope<{ id: number; versionNo: number; status: string }>>(`/v1/monitoring/message-templates/${id}`, payload).then(response => response.data.data),
   notifyRoutes: () => http.get<ApiEnvelope<MonitorNotifyRoute[]>>('/v1/monitoring/notify-routes').then(response => response.data.data),
   createNotifyRoute: (payload: MonitorNotifyRouteInput) => http.post<ApiEnvelope<{ id: number }>>('/v1/monitoring/notify-routes', payload).then(response => response.data.data),

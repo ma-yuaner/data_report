@@ -172,6 +172,44 @@ def test_monitoring_service_requires_explicit_view_permission():
     source.connect.assert_not_called()
 
 
+def test_template_catalog_only_returns_user_creatable_templates():
+    source, _connection, cursor = source_with_cursor()
+    cursor.fetchall.side_effect = [
+        [{"id": 2, "template_code": "ORDER_SEGMENT_THRESHOLD", "status": "ACTIVE"}],
+        [{"id": 7, "template_id": 2, "field_code": "segment_count", "status": "ACTIVE"}],
+    ]
+
+    result = MonitoringService({}, source=source).templates(
+        {"id": 1, "is_admin": True},
+    )
+
+    assert [item["templateCode"] for item in result] == ["ORDER_SEGMENT_THRESHOLD"]
+    template_query, template_params = cursor.execute.call_args_list[0].args
+    assert "template_code IN" in template_query
+    assert "SMART_PLACEMENT_ORDER" not in template_params
+    assert set(template_params) == {
+        "ORDER_SEGMENT_THRESHOLD",
+        "GDS_QUERY_RATIO_DAILY",
+        "OTA_SUCCESS_RATE_DAILY",
+    }
+
+
+def test_unresolved_event_filter_maps_to_active_event_states():
+    source, _connection, cursor = source_with_cursor()
+    cursor.fetchone.return_value = (0,)
+    cursor.fetchall.return_value = []
+
+    MonitoringService({}, source=source).list_events(
+        {"id": 1, "is_admin": True},
+        status="UNRESOLVED",
+        start_date="2026-10-20",
+        end_date="2026-10-20",
+    )
+
+    count_query = cursor.execute.call_args_list[0].args[0]
+    assert "event_status IN ('OPEN','ACKNOWLEDGED','OBSERVING','ESCALATED','ACTION_PENDING','ACTION_IN_PROGRESS')" in count_query
+
+
 def test_task_monitoring_returns_current_rule_conditions():
     source, _connection, cursor = source_with_cursor()
     service = MonitoringService({}, source=source)
@@ -734,3 +772,38 @@ def test_external_message_template_rejects_unapproved_order_fields():
         )
 
     connection.rollback.assert_called_once()
+
+
+def test_message_template_copy_inherits_registered_event_and_field_schema():
+    source, connection, cursor = source_with_cursor()
+    cursor.fetchone.return_value = {
+        "id": 3,
+        "event_code": "RESOURCE_GOVERNANCE_DAILY_ALERT",
+        "channel": "WECOM",
+        "field_schema_json": '{"allowedFields":["eventNo"],"fieldLabels":{"eventNo":"事件编号"}}',
+        "status": "ACTIVE",
+    }
+    cursor.lastrowid = 18
+    service = MonitoringService({}, source=source)
+
+    result = service.create_message_template(
+        {"id": 1, "display_name": "系统管理员", "is_admin": True},
+        {
+            "sourceTemplateId": 3,
+            "templateName": "资源异常运营群模板",
+            "titleTemplate": "资源异常 {eventNo}",
+            "bodyTemplate": "事件编号：{eventNo}",
+            "status": "ACTIVE",
+        },
+    )
+
+    assert result["id"] == 18
+    assert result["eventCode"] == "RESOURCE_GOVERNANCE_DAILY_ALERT"
+    assert result["templateCode"].startswith("CUSTOM_RESOURCE_GOVERNANCE_DAILY_ALER")
+    insert_call = next(call for call in cursor.execute.call_args_list if "INSERT INTO" in call.args[0])
+    insert_params = insert_call.args[1]
+    assert insert_params[1:4] == (
+        "资源异常运营群模板", "RESOURCE_GOVERNANCE_DAILY_ALERT", "WECOM",
+    )
+    assert '"eventNo"' in insert_params[6]
+    connection.commit.assert_called_once()

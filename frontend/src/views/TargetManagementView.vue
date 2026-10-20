@@ -56,12 +56,12 @@
             <div v-if="gdsMeasure(record, String(column.key))" class="gds-pair"><strong>{{ formatNumber(gdsMeasure(record, String(column.key))?.target ?? 0) }}</strong></div>
             <span v-else>--</span>
           </template>
-          <template v-else-if="column.key === 'actions'"><a-space size="small"><a-button type="link" size="small" @click="openDetail(record)"><EyeOutlined />详情</a-button><a-button type="link" size="small" @click="openEdit(record)"><EditOutlined />编辑</a-button></a-space></template>
+          <template v-else-if="column.key === 'actions'"><a-space size="small"><a-button type="link" size="small" @click="openDetail(record)"><EyeOutlined />详情</a-button><a-button type="link" size="small" @click="openEdit(record)"><EditOutlined />编辑</a-button><a-button type="link" size="small" @click="openCopy(record)"><CopyOutlined />复制</a-button></a-space></template>
         </template>
       </a-table>
     </a-card>
 
-    <a-drawer v-model:open="editorOpen" :title="editingId ? '编辑目标' : '新建目标'" width="560" :destroy-on-close="false">
+    <a-drawer v-model:open="editorOpen" :title="editorTitle" width="560" :destroy-on-close="false">
       <a-alert type="info" show-icon message="目标值保存后立即写入数据库；完成进度由后续ETL独立产出。" class="drawer-alert" />
       <a-form layout="vertical">
         <div class="form-grid two"><a-form-item label="目标场景"><a-input :value="sceneMeta.title" disabled /></a-form-item><a-form-item label="目标月份"><a-input v-model:value="form.period" type="month" /></a-form-item></div>
@@ -96,7 +96,9 @@
           <a-descriptions-item v-if="detailRow.scene === 'policy'" label="政策员">{{ detailRow.policyMemberNames.join(' / ') }}</a-descriptions-item>
           <a-descriptions-item v-if="detailRow.scene === 'policy'" label="组长">{{ detailRow.policyLeaderName }}</a-descriptions-item>
           <a-descriptions-item v-else label="责任人">{{ detailRow.owner }}</a-descriptions-item>
-          <a-descriptions-item label="目标航段">{{ formatNumber(detailRow.target) }}</a-descriptions-item><a-descriptions-item label="配置状态"><a-tag :color="statusColor(detailRow.status)">{{ statusLabel(detailRow.status) }}</a-tag></a-descriptions-item>
+          <a-descriptions-item :label="detailRow.scene === 'policy' ? '目标航段合计' : '目标航段'">{{ formatNumber(detailRow.target) }}</a-descriptions-item>
+          <a-descriptions-item v-for="code in detailRow.scene === 'policy' ? policyGdsCodes : []" :key="code" :label="`${code} 目标航段`">{{ formatNumber(detailRow.gdsBreakdown?.[code]?.target ?? 0) }}</a-descriptions-item>
+          <a-descriptions-item label="配置状态"><a-tag :color="statusColor(detailRow.status)">{{ statusLabel(detailRow.status) }}</a-tag></a-descriptions-item>
           <a-descriptions-item label="统计口径">{{ detailRow.metric }}（{{ detailRow.metricCode }} / {{ detailRow.metricVersion }}）</a-descriptions-item>
           <a-descriptions-item label="配置说明">{{ detailRow.remark || '未填写' }}</a-descriptions-item>
         </a-descriptions>
@@ -113,7 +115,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
-import { ApartmentOutlined, BranchesOutlined, DatabaseOutlined, EditOutlined, EyeOutlined, PlusOutlined, ReloadOutlined, TeamOutlined } from '@ant-design/icons-vue'
+import { ApartmentOutlined, BranchesOutlined, CopyOutlined, DatabaseOutlined, EditOutlined, EyeOutlined, PlusOutlined, ReloadOutlined, TeamOutlined } from '@ant-design/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { fetchTargetMetrics, fetchTargetOptions, fetchTargets, saveTarget, type TargetMetric, type TargetOptions, type TargetRow, type TargetStatus } from '@/api/targetManagement'
 
@@ -138,6 +140,7 @@ const editorOpen = ref(false)
 const detailOpen = ref(false)
 const metricDrawerOpen = ref(false)
 const editingId = ref<string | null>(null)
+const copyingSourcePeriod = ref<string | null>(null)
 const detailRow = ref<TargetRow | null>(null)
 const form = reactive({
   period: currentPeriod, departmentCode: '', departmentName: '', platformCode: '', platformName: '', gdsCode: '', policyCode: '', policyName: '',
@@ -178,19 +181,21 @@ const policyTableMetricName = computed(() => {
   const names = [...new Set(rows.value.map(row => row.metric).filter(Boolean))]
   return names.length === 1 ? names[0] : '航段'
 })
+const editorTitle = computed(() => editingId.value ? '编辑目标' : copyingSourcePeriod.value ? `复制${copyingSourcePeriod.value}目标` : '新建目标')
 
 const baseColumns = {
+  period: { title: '目标月份', dataIndex: 'period', key: 'period', width: 105 },
   owner: { title: '责任人 / 部门', key: 'owner', width: 160 }, metric: { title: '统计口径', key: 'metric', width: 210 }, target: { title: '目标航段', key: 'target', width: 110, align: 'right' as const },
-  status: { title: '状态', key: 'status', width: 100 }, actions: { title: '操作', key: 'actions', width: 140, fixed: 'right' as const },
+  status: { title: '状态', key: 'status', width: 100 }, actions: { title: '操作', key: 'actions', width: 205, fixed: 'right' as const },
 }
 const columns = computed(() => activeScene.value === 'policy' ? [
   { title: '政策员', key: 'policy-members', width: 230, fixed: 'left' as const },
-  { title: '组长', key: 'policy-leader', width: 130 }, { title: '归属部门', key: 'department', width: 150 }, baseColumns.metric,
+  baseColumns.period, { title: '组长', key: 'policy-leader', width: 130 }, { title: '归属部门', key: 'department', width: 150 }, baseColumns.metric,
   ...policyGdsCodes.map(code => ({ title: `${code}${policyTableMetricName.value}目标`, key: `gds-${code}`, width: 145, align: 'right' as const })), baseColumns.target, baseColumns.status, baseColumns.actions,
 ] : [
-  { title: activeScene.value === 'platform' ? '平台' : 'GDS', key: 'object', width: 200, fixed: 'left' as const }, baseColumns.owner, baseColumns.metric, baseColumns.target, baseColumns.status, baseColumns.actions,
+  { title: activeScene.value === 'platform' ? '平台' : 'GDS', key: 'object', width: 200, fixed: 'left' as const }, baseColumns.period, baseColumns.owner, baseColumns.metric, baseColumns.target, baseColumns.status, baseColumns.actions,
 ])
-const tableWidth = computed(() => activeScene.value === 'policy' ? 1750 : 920)
+const tableWidth = computed(() => activeScene.value === 'policy' ? 1930 : 1100)
 
 let keywordTimer: ReturnType<typeof setTimeout> | undefined
 async function loadTargets() {
@@ -211,11 +216,17 @@ function resetForm() {
   Object.assign(form, { period: selectedPeriod.value, departmentCode: '', departmentName: '', platformCode: '', platformName: '', gdsCode: options.value.gds[0]?.code ?? '', policyCode: '', policyName: '', ownerUserId: undefined, ownerName: '', policyLeaderUserId: undefined, policyMemberUserIds: [], metricCode: supportedMetrics.value[0]?.code ?? '', metricVersion: supportedMetrics.value[0]?.version ?? 'V1', target: 0, status: 'ACTIVE', remark: '', changeReason: '', itemId: undefined, itemIds: {} })
   policyGdsCodes.forEach(code => { form.gdsTargets[code] = 0 })
 }
-function openCreate() { editingId.value = null; resetForm(); editorOpen.value = true }
+function openCreate() { editingId.value = null; copyingSourcePeriod.value = null; resetForm(); editorOpen.value = true }
 function openEdit(row: TargetRow) {
-  editingId.value = row.id
+  editingId.value = row.id; copyingSourcePeriod.value = null
   Object.assign(form, { period: row.period, departmentCode: row.departmentCode, departmentName: row.department, platformCode: row.platformCode, platformName: row.platform ?? '', gdsCode: row.gds ?? '', policyCode: row.policyCode, policyName: row.policy ?? '', ownerUserId: row.ownerUserId ?? undefined, ownerName: row.owner, policyLeaderUserId: row.policyLeaderUserId ?? undefined, policyMemberUserIds: [...row.policyMemberUserIds], metricCode: row.metricCode, metricVersion: row.metricVersion, target: row.target, status: ['ACTIVE', 'DRAFT', 'PAUSED'].includes(row.status) ? row.status : 'ACTIVE', remark: row.remark, changeReason: '', itemId: row.itemId, itemIds: { ...row.itemIds } })
   policyGdsCodes.forEach(code => { form.gdsTargets[code] = row.gdsBreakdown?.[code]?.target ?? 0 }); editorOpen.value = true
+}
+function nextMonth(period: string) { const [year, month] = period.split('-').map(Number); const value = new Date(year, month, 1); return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}` }
+function openCopy(row: TargetRow) {
+  openEdit(row); editingId.value = null; copyingSourcePeriod.value = row.period
+  Object.assign(form, { period: nextMonth(row.period), itemId: undefined, itemIds: {}, changeReason: `复制${row.period}目标配置` })
+  editorOpen.value = true
 }
 function openDetail(row: TargetRow) { detailRow.value = row; detailOpen.value = true }
 function selectOwner(id: number) {
@@ -239,7 +250,7 @@ async function submitTarget() {
   if (!selectedMetric) { void message.warning('当前场景没有可用指标口径'); return }
   saving.value = true
   try {
-    await saveTarget({ scene: sceneApi[activeScene.value], period: form.period, departmentCode: form.departmentCode, departmentName: form.departmentName.trim(), platformCode: form.platformCode || undefined, platformName: form.platformName || undefined, gdsCode: form.gdsCode || undefined, policyGroupCode: form.policyCode || undefined, policyGroupName: form.policyName.trim() || undefined, policyLeaderUserId: activeScene.value === 'policy' ? form.policyLeaderUserId : undefined, policyMemberUserIds: activeScene.value === 'policy' ? form.policyMemberUserIds : undefined, ownerUserId: activeScene.value === 'policy' ? form.policyLeaderUserId! : form.ownerUserId!, ownerName: activeScene.value === 'policy' ? options.value.users.find(item => item.id === form.policyLeaderUserId)?.name ?? '' : form.ownerName, metricCode: selectedMetric.code, metricVersion: selectedMetric.version, targetValue: activeScene.value === 'policy' ? undefined : Number(form.target), itemId: editingId.value && activeScene.value !== 'policy' ? form.itemId : undefined, itemIds: activeScene.value === 'policy' ? form.itemIds : undefined, gdsTargets: activeScene.value === 'policy' ? policyGdsCodes.map(code => ({ gdsCode: code, targetValue: Number(form.gdsTargets[code] || 0) })) : undefined, status: form.status, remark: form.remark.trim(), changeReason: form.changeReason.trim() })
+    await saveTarget({ scene: sceneApi[activeScene.value], period: form.period, departmentCode: form.departmentCode, departmentName: form.departmentName.trim(), platformCode: form.platformCode || undefined, platformName: form.platformName || undefined, gdsCode: form.gdsCode || undefined, policyGroupCode: form.policyCode || undefined, policyGroupName: form.policyName.trim() || undefined, policyLeaderUserId: activeScene.value === 'policy' ? form.policyLeaderUserId : undefined, policyMemberUserIds: activeScene.value === 'policy' ? form.policyMemberUserIds : undefined, ownerUserId: activeScene.value === 'policy' ? form.policyLeaderUserId! : form.ownerUserId!, ownerName: activeScene.value === 'policy' ? options.value.users.find(item => item.id === form.policyLeaderUserId)?.name ?? '' : form.ownerName, metricCode: selectedMetric.code, metricVersion: selectedMetric.version, targetValue: activeScene.value === 'policy' ? undefined : Number(form.target), itemId: editingId.value && activeScene.value !== 'policy' ? form.itemId : undefined, itemIds: activeScene.value === 'policy' ? form.itemIds : undefined, gdsTargets: activeScene.value === 'policy' ? policyGdsCodes.map(code => ({ gdsCode: code, targetValue: Number(form.gdsTargets[code] || 0) })) : undefined, status: form.status, remark: form.remark.trim(), changeReason: form.changeReason.trim(), copyMode: Boolean(copyingSourcePeriod.value) })
     editorOpen.value = false; selectedPeriod.value = form.period; await Promise.all([loadTargets(), loadMeta()]); void message.success('目标已写入数据库，可到目标进度点击“立即更新”')
   } catch (error) { void message.error(error instanceof Error ? error.message : '目标保存失败') }
   finally { saving.value = false }

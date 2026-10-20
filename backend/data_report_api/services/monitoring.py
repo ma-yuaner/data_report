@@ -626,17 +626,44 @@ class MonitoringService:
             )
             pending_notifications = int(_first_value(cursor.fetchone()) or 0)
             cursor.execute(
+                f"""SELECT COUNT(1) failed_runs FROM {self._table(RUN_TABLE)}
+                    WHERE status='FAILED' AND started_at>=%s""",
+                (today_start,),
+            )
+            failed_runs = int(_first_value(cursor.fetchone()) or 0)
+            cursor.execute(
                 f"""SELECT * FROM {self._table(RUN_TABLE)}
                     ORDER BY started_at DESC,id DESC LIMIT 8"""
             )
             recent_runs = [_public_row(row) for row in _dict_rows(cursor, list(cursor.fetchall()))]
+            cursor.execute(
+                f"""SELECT * FROM {self._table(EVENT_TABLE)}
+                    WHERE event_status IN ('OPEN','ACKNOWLEDGED','OBSERVING','ESCALATED','ACTION_PENDING','ACTION_IN_PROGRESS')
+                    ORDER BY FIELD(severity,'P0','P1','P2','P3'),occurred_at DESC,id DESC LIMIT 6"""
+            )
+            attention_events = [
+                _public_row(row, scope=_event_scope(row))
+                for row in _dict_rows(cursor, list(cursor.fetchall()))
+            ]
+            cursor.execute(
+                f"""SELECT e.rule_id,e.rule_code,MAX(r.rule_name) rule_name,COUNT(1) event_count
+                    FROM {self._table(EVENT_TABLE)} e
+                    LEFT JOIN {self._table(RULE_TABLE)} r ON r.id=e.rule_id
+                    WHERE e.occurred_at>=%s GROUP BY e.rule_id,e.rule_code
+                    ORDER BY event_count DESC,e.rule_id LIMIT 5""",
+                (today_start,),
+            )
+            top_rules = [_public_row(row) for row in _dict_rows(cursor, list(cursor.fetchall()))]
             return {
                 "available": True,
                 "source": f"MySQL · {self.source.database}",
                 "ruleSummary": rule_summary,
                 "eventSummary": event_summary,
                 "pendingNotifications": pending_notifications,
+                "failedRuns": failed_runs,
                 "recentRuns": recent_runs,
+                "attentionEvents": attention_events,
+                "topRules": top_rules,
             }
         except PermissionError:
             raise
@@ -651,7 +678,11 @@ class MonitoringService:
         connection = cursor = None
         try:
             connection = self.source.connect(); cursor = connection.cursor()
-            cursor.execute(f"SELECT * FROM {self._table(TEMPLATE_TABLE)} ORDER BY id")
+            placeholders = ",".join(["%s"] * len(MANUAL_RULE_TEMPLATES))
+            cursor.execute(
+                f"SELECT * FROM {self._table(TEMPLATE_TABLE)} WHERE status='ACTIVE' AND template_code IN ({placeholders}) ORDER BY id",
+                tuple(sorted(MANUAL_RULE_TEMPLATES)),
+            )
             templates = _dict_rows(cursor, list(cursor.fetchall()))
             cursor.execute(
                 f"SELECT * FROM {self._table(TEMPLATE_FIELD_TABLE)} WHERE status='ACTIVE' ORDER BY template_id,sort_no,id"
@@ -1213,9 +1244,12 @@ class MonitoringService:
         params: list[Any] = [datetime.combine(first, time.min), datetime.combine(last + timedelta(days=1), time.min)]
         if status:
             normalized = status.strip().upper()
-            if normalized not in EVENT_STATUSES:
+            if normalized == "UNRESOLVED":
+                where.append("event_status IN ('OPEN','ACKNOWLEDGED','OBSERVING','ESCALATED','ACTION_PENDING','ACTION_IN_PROGRESS')")
+            elif normalized not in EVENT_STATUSES:
                 raise ValueError("事件状态不支持")
-            where.append("event_status=%s"); params.append(normalized)
+            else:
+                where.append("event_status=%s"); params.append(normalized)
         if template:
             where.append("template_code=%s"); params.append(template.strip().upper())
         if keyword:
@@ -1994,6 +2028,79 @@ class MonitoringService:
         except Exception as error:
             if connection is not None: connection.rollback()
             raise self._unavailable(error, "通知模板保存失败") from error
+        finally:
+            if cursor is not None: cursor.close()
+            if connection is not None: connection.close()
+
+    def create_message_template(
+        self, user: dict[str, Any], values: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Copy a registered event template without widening its event or field contract."""
+        _require(user, "monitor.rule.manage", "当前账号没有通知模板配置权限")
+        try:
+            source_template_id = int(values.get("sourceTemplateId") or 0)
+        except Exception as error:
+            raise ValueError("请选择基础消息模板") from error
+        if source_template_id <= 0:
+            raise ValueError("请选择基础消息模板")
+        template_name = _clean_text(values.get("templateName"))[:100]
+        title = _clean_text(values.get("titleTemplate"))[:300]
+        body = _clean_text(values.get("bodyTemplate"))
+        status = _clean_text(values.get("status") or "ACTIVE").upper()
+        if not template_name:
+            raise ValueError("消息模板名称不能为空")
+        if not title or not body:
+            raise ValueError("消息标题和正文模板不能为空")
+        if len(body) > 4000:
+            raise ValueError("消息正文模板不能超过4000个字符")
+        if status not in ENDPOINT_STATUSES:
+            raise ValueError("消息模板状态不支持")
+        actor_id = int(user.get("id") or 0)
+        actor_name = str(user.get("display_name") or user.get("username") or "SYSTEM")[:100]
+        connection = cursor = None
+        try:
+            connection = self.source.connect(); connection.begin(); cursor = connection.cursor()
+            cursor.execute(
+                f"SELECT * FROM {self._table(MESSAGE_TEMPLATE_TABLE)} WHERE id=%s AND status IN ('ACTIVE','DISABLED') FOR UPDATE",
+                (source_template_id,),
+            )
+            source = _dict_row(cursor, cursor.fetchone())
+            if not source:
+                raise ValueError("基础消息模板不存在")
+            schema_text = str(source.get("field_schema_json") or "{}")
+            schema = json.loads(schema_text)
+            allowed = {str(item) for item in schema.get("allowedFields") or []}
+            placeholders = set(re.findall(r"\{([A-Za-z][A-Za-z0-9_]*)\}", f"{title}\n{body}"))
+            invalid = sorted(placeholders - allowed)
+            if invalid:
+                raise ValueError(f"消息模板包含未授权变量：{','.join(invalid)}")
+            event_code = str(source.get("event_code") or "").upper()
+            channel = str(source.get("channel") or "WECOM").upper()
+            template_code = f"CUSTOM_{event_code[:32]}_{uuid.uuid4().hex[:12].upper()}"
+            cursor.execute(
+                f"""INSERT INTO {self._table(MESSAGE_TEMPLATE_TABLE)} (
+                    template_code,template_name,event_code,channel,title_template,body_template,
+                    field_schema_json,version_no,status,created_by_id,created_by_name,
+                    updated_by_id,updated_by_name,created_at,updated_at
+                ) VALUES ({','.join(['%s'] * 15)})""",
+                (
+                    template_code, template_name, event_code, channel, title, body,
+                    schema_text, 1, status, actor_id, actor_name, actor_id, actor_name,
+                    business_now_naive(), business_now_naive(),
+                ),
+            )
+            saved_id = int(cursor.lastrowid)
+            connection.commit()
+            return {
+                "id": saved_id, "templateCode": template_code,
+                "eventCode": event_code, "status": status,
+            }
+        except (ValueError, PermissionError):
+            if connection is not None: connection.rollback()
+            raise
+        except Exception as error:
+            if connection is not None: connection.rollback()
+            raise self._unavailable(error, "消息模板创建失败") from error
         finally:
             if cursor is not None: cursor.close()
             if connection is not None: connection.close()

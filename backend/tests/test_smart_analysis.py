@@ -162,14 +162,33 @@ def test_detail_ota_order_number_is_an_exact_bound_filter(source):
     cursor.fetchall.return_value = []
 
     module.SmartAnalysisService({}, source=source).details(
-        start_value="2026-10-09", end_value="2026-10-09",
         filters={"otaOrderNo": "OTA-20261009-001"},
     )
 
     query, params = cursor.execute.call_args_list[0].args
-    assert "nullif(trim(src.ota_order_no), '') = %s" in query
+    assert "src.ota_order_no = %s" in query
+    assert "trim(src.ota_order_no)" not in query.lower()
+    assert "src.issue_ticket_date" not in query
+    assert "src.first_dep_date" not in query
+    assert "src.order_create_date" not in query
     assert "OTA-20261009-001" not in query
-    assert params[-1] == "OTA-20261009-001"
+    assert params == ("OTA-20261009-001",)
+
+
+def test_detail_ota_order_number_ignores_supplied_dates(source):
+    cursor = source.connect.return_value.cursor.return_value
+    cursor.fetchone.return_value = (0, 0, None, None)
+    cursor.fetchall.return_value = []
+
+    module.SmartAnalysisService({}, source=source).details(
+        start_value="2026-10-09", end_value="2026-10-09",
+        first_dep_start="2026-12-01", first_dep_end="2026-12-31",
+        filters={"otaOrderNo": " OTA-OLD-001 "},
+    )
+
+    query, params = cursor.execute.call_args_list[0].args
+    assert "_date" not in query.split("WHERE", 1)[1]
+    assert params == ("OTA-OLD-001",)
 
 
 def test_detail_unused_stage_includes_null_smart_confirm(source):
