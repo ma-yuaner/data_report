@@ -1,13 +1,18 @@
 <template>
   <section class="filter-panel">
     <div class="filter-fields"><slot /></div>
-    <div class="filter-actions"><span><FilterOutlined /> 条件即时生效</span><a-button @click="$emit('reset')"><ReloadOutlined />重置</a-button></div>
+    <div class="filter-actions">
+      <span><FilterOutlined /> {{ instant ? '条件即时生效' : '修改条件后点击查询' }}</span>
+      <slot name="actions" />
+      <a-button @click="$emit('reset')"><ReloadOutlined />重置</a-button>
+    </div>
   </section>
 </template>
 
 <script setup lang="ts">
 import { FilterOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 
+withDefaults(defineProps<{ instant?: boolean }>(), { instant: true })
 defineEmits<{ reset: [] }>()
 </script>
 

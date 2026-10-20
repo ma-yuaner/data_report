@@ -386,10 +386,11 @@ const routeDiagnosisQuery = (scope: GovernanceScope) => ({
     resourceChannel: scope.resourceChannel || undefined,
     apiGroup: scope.apiGroup || undefined,
 })
-const openRouteDiagnosis = () => router.push({
-  path: '/resource-governance/route-diagnosis',
-  query: routeDiagnosisQuery(applied.value),
+const routeDiagnosisNavigationQuery = (scope: GovernanceScope) => ({
+  ...routeDiagnosisQuery(scope),
+  entry: 'gds-analysis',
 })
+const openRouteDiagnosis = () => router.push('/resource-governance/route-diagnosis')
 const layerLabel = (layer: GovernanceLayer) => layer === 'gds' ? 'GDS资源层' : 'OTA渠道层'
 const selectOptions = (values?: string[]) => (values || []).map(value => ({ label: value, value }))
 const resourceChannelOptions = [{ label: 'MP（含普通MP、NDC）', value: 'MP' }, { label: 'MPIS', value: 'MPIS' }]
@@ -768,13 +769,13 @@ function openAnalysisRoutes(record?: { value: string; name: string }) {
     scope[current] = record.value
   }
   drawerOpen.value = false
-  void router.push({ path: '/resource-governance/route-diagnosis', query: routeDiagnosisQuery(scope) })
+  void router.push({ path: '/resource-governance/route-diagnosis', query: routeDiagnosisNavigationQuery(scope) })
 }
 function openAnalysisRoute(record: GdsRouteMetricRow) {
   drawerOpen.value = false
   void router.push({
     path: '/resource-governance/route-diagnosis',
-    query: { ...routeDiagnosisQuery(analysisScope.value), route: record.route },
+    query: { ...routeDiagnosisNavigationQuery(analysisScope.value), route: record.route },
   })
 }
 async function backAnalysis() {
