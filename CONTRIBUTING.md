@@ -25,6 +25,7 @@ python -m pip install -r backend/requirements-dev.txt
 python scripts/check_backend_lint.py
 python -m ruff format --check backend/data_report_api/api backend/data_report_api/shared backend/data_report_api/jobs scripts
 python scripts/check_architecture.py
+python scripts/check_readme.py --check
 python -m pytest -q
 npm --prefix frontend ci
 npm --prefix frontend run lint
@@ -41,3 +42,5 @@ git diff --check
 可在激活开发虚拟环境后执行`pre-commit install`，启用本地钩子；CI始终执行同样的门禁，钩子安装不作为协作前提。Windows测试临时目录若受历史权限影响，可使用新建的`.test-artifacts`子目录，勿清理无关目录。
 
 本次任务的代码、验证、剩余项记入`docs/agent/workstreams.md`；提交只包含当前范围，本地验证后直接推送两个已核对远端。按用户2026-10-20最新要求，默认不查询或等待CI；用户单独要求时再核验。
+
+README由明策负责。菜单或接口变化后用`python scripts/check_readme.py --write`同步目录块，再以`--check`核对；脚本静态解析源码，不启动应用。产品状态、权限、数据源和启动说明仍按实际实现人工审核。脚本自身测试使用`python -m unittest discover -s scripts/tests -p test_check_readme.py`。

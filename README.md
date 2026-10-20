@@ -1,141 +1,184 @@
-# 企业数据中心 MVP
+# 企业数据中心（data_report）
 
-项目协作从[项目入口](docs/agent/README.md)开始，当前进度与待办见[工作流](docs/agent/workstreams.md)。GDS本轮讨论基线为[业务闭环复评V3](docs/product/gds-resource-governance-reassessment-v3.md)，页面和流程设计遵循[产品交付规范](docs/product/product-delivery-contract.md)。
+面向机票业务的经营分析、资源治理、监控协作和目标管理平台。前端采用Vue 3、TypeScript、Ant Design Vue与ECharts，后端采用Flask，按模块访问MySQL或Hive。金额默认属于业务估算，正式财务口径以已确认的数据契约为准。
 
-开发角色、目录和质量检查见[贡献指南](CONTRIBUTING.md)；模块入口见[后端](backend/README.md)、[前端](frontend/README.md)；应用/ETL边界见[仓库说明](docs/development/repositories.md)。本轮结构迁移与存量问题见[结构优化记录](docs/development/structure-optimization.md)。
+本页按2026-10-20仓库代码核对。页面、接口存在只证明有相应实现；部署、数据同步、通知调度和业务验收分别记录在[当前工作流](docs/agent/workstreams.md)。
 
-下方“MVP菜单”保留初版背景；后续模块的实际成熟度以专题文档、当前代码与验收证据为准，不能用初版概述推断现有功能未开发或已部署。
+| 入口 | 内容 |
+|---|---|
+| [项目协作入口](docs/agent/README.md) / [AGENTS.md](AGENTS.md) | 项目记忆、工作边界、角色与交接 |
+| [贡献指南](CONTRIBUTING.md) | 目录规范、本地验证、提交与推送流程 |
+| [后端说明](backend/README.md) / [前端说明](frontend/README.md) | 模块入口与开发命令 |
+| [产品交付规范](docs/product/product-delivery-contract.md) | 页面、数据、API、权限和验收要求 |
+| [业务知识入口](docs/business/air_ticketing/README.md) | 指标口径与专题说明 |
+| [完整接口目录](docs/api/README.md) | 全部已注册HTTP方法、路径及源码入口 |
+| [仓库边界](docs/development/repositories.md) | 应用与独立ETL仓库的职责 |
 
-面向机票业务的独立数据中心。经营总览第一版默认从 MySQL `sibebid` 汇总出票、退票、改签、增值利润，并保留 Hive 人工切换能力；指标属于业务估算，不作为正式财务结算口径。
+## 当前菜单与实现边界
 
-## MVP菜单
+菜单名称及层级来自[侧栏布局](frontend/src/layouts/AppLayout.vue)，页面路径以[前端路由](frontend/src/router/index.ts)为准。下列为全量菜单配置；实际显示受账号菜单权限控制，系统管理仅管理员可见。
 
-- 工作台：登录默认首页，只展示欢迎语、常用入口和数据口径，不自动触发经营查询；
-- 经营总览：统一查看出、退、改、增利润及总预估利润；
-- 业务分析：出票、退票、改签、增值四个实际数据入口；
-- 风控分析：预留 ADM、平台罚单、投诉及高风险售后等风控分析入口，指标与数据待确认后接入；
-- 智能分析：基于Hive真实数据提供智能总览、维度分析和出票明细；规则配置与智能投放仍待后续接入；
-- 问题中心：统一查看四类业务负利润规模和 Top 证据明细；
-- 数据资产：四张核心业务表、当前指标口径和最新数据时间。
-
-尚无可靠数据支撑的全链路、异常工作台和明细查询暂不放入菜单；风控分析按当前建设计划保留一级入口，并明确显示为待接入。平台、航司、供应商、人员、PCC等属于筛选和下钻维度，不作为一级菜单。
-
-## 技术结构
+<!-- BEGIN:CURRENT_MENU -->
+<details>
+<summary>完整菜单：33个页面入口、3个禁用预留项</summary>
 
 ```text
-浏览器
-  -> Nginx / Vue 3 + TypeScript + ECharts
-  -> Flask API
-  -> 默认：MySQL sibebid 看板表（5分钟查询缓存）
-  -> 备用及最终解释：Hive业务宽表
-  -> 后续：MySQL ADS / Hive按数据量继续分层，API结构保持稳定
+工作台  [/home]
+资源治理
+  GDS资源治理  [/resource-governance/gds]
+  OTA渠道质量  [/resource-governance/ota]
+  航线配置诊断  [/resource-governance/route-diagnosis]
+  白名单管理  [/resource-governance/whitelist]
+  治理执行  [/resource-governance/execution]
+  治理复盘  [/resource-governance/review]
+经营总览  [/overview]
+业务分析
+  综合分析  [/analysis/comprehensive]
+  出票分析  [/analysis/issue]
+  退票分析  [/analysis/refund]
+  改签分析  [/analysis/change]
+  增值分析  [/analysis/ancillary]
+风控分析
+  风控总览  [/risk-analysis]
+  出票利润分析  [/risk-analysis/issue]
+  退票利润分析  [/risk-analysis/refund]
+  改签利润分析  [/risk-analysis/change]
+  差错分析  [/risk-analysis/errors]
+  订单明细  [/risk-analysis/orders]
+  数据上传  [/risk-analysis/upload]
+客服分析
+  退票分析  [预留/禁用，无页面路由]
+  改签分析  [预留/禁用，无页面路由]
+  清Q/航变分析  [预留/禁用，无页面路由]
+智能分析
+  智能整体分析
+    综合分析  [/smart-analysis/comprehensive]
+    智能总览  [/smart-analysis/overview]
+    维度分析  [/smart-analysis/dimensions]
+    出票明细  [/smart-analysis/details]
+  智能投放
+    投放政策  [/smart-analysis/placement/policies]
+    收单情况  [/smart-analysis/placement/orders]
+业务配置
+  目标配置  [/business-configuration/targets]
+  目标进度  [/business-configuration/target-progress]
+监控中心  [/monitoring]
+问题中心  [/problems]
+数据资产  [/data-assets]
+系统管理
+  用户行为监控  [/admin/behavior]
+  账号管理  [/admin/users]
 ```
+
+</details>
+<!-- END:CURRENT_MENU -->
+
+需要结合以下实现边界理解菜单：
+
+- **工作台、经营与业务分析**：工作台是默认首页；业务分析包括综合、出票、退票、改签和增值。经营利润与风控核对利润分开展示，不能合并为同一口径。
+- **资源治理**：GDS/OTA总览有服务端实现；航线诊断的航线视图读取Hive。配置视图、白名单、治理执行和复盘页面仍含localStorage演示；正式事件及技术工单在监控中心。详见[页面边界](docs/business/air_ticketing/gds-route-governance-preview.md)和[本轮复评](docs/product/gds-resource-governance-reassessment-v3.md)。
+- **风控分析**：已有总览、出退改利润、差错、订单明细和数据上传入口。上传由独立Worker执行Hive增量合并；网络、目标表、精度变更及真实文件仍需按[上传说明](docs/business/air_ticketing/risk-data-upload.md)核验。
+- **客服分析**：退票、改签、清Q/航变分析为禁用预留项，尚无对应页面路由。
+- **智能分析**：采用“智能整体分析”和“智能投放”两组三级菜单。智能分析现已固定读取MySQL年度指标及明细表；投放政策与收单情况有页面和服务端流程，生产表、规则计算与通知调度需按[智能投放说明](docs/business/air_ticketing/smart-placement-mvp.md)核对。
+- **业务配置与监控**：目标配置、目标进度、手动刷新，以及规则、事件、技术工单和通知配置已有实现。完成量依赖ETL，通知和资源日检查依赖独立调度；详见[目标管理](docs/business/air_ticketing/target-management-v1.md)和[监控中心](docs/business/air_ticketing/monitoring-center-v1.md)。
+- **问题中心、数据资产与系统管理**：分别提供负利润证据、表与指标目录、行为监控及账号管理。账号管理包含角色、菜单、功能权限和审计；当前授权模型见[权限说明](docs/access-control.md)。
+
+登录与修改密码是配套页面；旧`/gds-route-governance/*`地址保留重定向，`/analysis/profit`保留为出票分析别名，不作为新增菜单重复列出。
+
+## 技术与数据来源
+
+```text
+浏览器 → Nginx / Vue → Flask API → MySQL / Hive
+                            ├─ 风控上传Worker → Hive
+                            └─ 目标进度后台任务 → MySQL
+独立ETL仓库 → 数据同步、规则计算、资源日检查与通知发送
+```
+
+| 模块 | 当前数据源与边界 |
+|---|---|
+| 经营总览、基础利润分析、问题中心、数据资产 | 支持的查询跟随`DATA_MODE`，默认MySQL；兼容Hive人工切换，不静默补数，详见[切换说明](docs/business/air_ticketing/data-source-switch.md) |
+| 业务综合分析 | 固定MySQL ADS及配套业务宽表，详见[综合分析](docs/business/air_ticketing/comprehensive-analysis-live.md) |
+| 风控专题、月度与订单查询 | 固定MySQL利润核对表；文件上传Worker另行写入Hive |
+| GDS/OTA资源总览 | 固定MySQL资源服务表；独立航线诊断固定Hive日汇总表 |
+| 智能分析与智能投放 | 固定MySQL；智能分析使用`bi_smart_issue_dimension_year`和`bi_smart_issue_detail_year`，详见[智能分析](docs/business/air_ticketing/smart-analysis-live.md) |
+| 认证、目标、监控、行为记录 | MySQL服务与授权写入；ERP花名册、目标进度任务可使用独立连接 |
+
+`DATA_MODE`不是所有模块的全局数据库开关。未同步、缺失、无权限与真实0分别展示；演示交互不能作为交易系统执行或治理效果证据。
 
 ## 本地开发
 
-后端：
+Python 3.12、Node 22。首次从[.env.example](.env.example)创建项目根`.env`并填写开发环境配置，已有文件保留；数据库密码、令牌和Webhook仅保存在授权环境，不提交Git。
+
+后端（在仓库根目录执行）：
 
 ```powershell
-cd backend
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
-.\.venv\Scripts\python.exe app.py
+.\.venv\Scripts\python.exe -m pip install -r backend/requirements-dev.txt
+cd backend
+..\.venv\Scripts\python.exe app.py
 ```
 
-前端：
+另开终端启动前端：
 
 ```powershell
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
-访问 `http://127.0.0.1:5173`，Vite会将 `/api` 代理至 `http://127.0.0.1:5160`。
+开发地址为`http://127.0.0.1:5173`，Vite将`/api`代理至`http://127.0.0.1:5160`。启动会按配置连接数据源，只在获授权的开发环境运行。
 
-## Docker启动
+## Docker与首次配置
 
 ```powershell
 docker compose up -d --build
 ```
 
-访问：
+| 服务 | 作用 | 默认端口 |
+|---|---|---|
+| `web` | Nginx与前端静态资源 | 1818 |
+| `api` | Flask/Gunicorn接口 | 5160 |
+| `worker` | 风控上传队列、ORC/WebHDFS与Hive合并 | 无外部端口 |
+| `target-etl` | 目标进度定时任务，默认间隔900秒 | 无外部端口 |
 
-- 数据中心：`http://127.0.0.1:1818`
-- 后端健康检查：`http://127.0.0.1:5160/api/health`
+访问`http://127.0.0.1:1818`；健康检查为`http://127.0.0.1:5160/api/health`。默认业务时间为Asia/Shanghai。
 
-### 首次登录初始化
+- 账号复用`sys_user`，采用角色菜单、功能权限和个人例外。新环境按[本地认证技术方案](docs/product/local-account-auth-technical-design.md)初始化；仅在账号表为空时使用`AUTH_BOOTSTRAP_ADMIN_*`，首次改密后移除临时密码。
+- 认证扩展表由`AUTH_AUTO_CREATE_TABLES`控制；没有DDL权限时先按方案执行[认证表SQL](docs/sql/local-auth-schema.sql)。其他业务表、ETL与调度逐专题核对，不因启动容器就假定已完成。
+- 生产启用HTTPS时核对安全Cookie、密钥及访问配置。数据库、ERP、Hive和上传参数见模板；实际部署值以环境为准。
+- SQL、生产调度和服务器部署按授权执行，分别记录结果；代码推送不代表部署或验收。
 
-本地账号直接复用 MySQL `sibebid.sys_user`；角色 `admin` 对应系统管理员，
-`analyst`、`viewer` 当前均按普通用户处理。密码沿用该表的 bcrypt 哈希。
-`sys_user_menu` 已用于普通账号的一级菜单控制；工作台始终可见，管理员自动拥有全部菜单。智能投放岗位及权限使用
-`sys_role`、`sys_role_permission`、`sys_user_role`，由管理员在账号管理页面配置。失败锁定、会话和审计分别保存在
-`auth_user_security`、`auth_session`、`auth_audit_log`。应用默认自动建立这三张认证扩展表；若部署账号没有DDL权限，先手工执行
-[本地认证表DDL](docs/sql/local-auth-schema.sql)，再将 `AUTH_AUTO_CREATE_TABLES=false`。
-完整字段适配、接口、权限和验收标准见[本地账号登录技术方案](docs/product/local-account-auth-technical-design.md)。
+## 接口索引
 
-仅当 `sys_user` 还是空表时，第一次启动前才需要在服务器 `.env` 临时配置：
+API统一前缀为`/api`。认证与账号管理使用`/api/auth/*`、`/api/admin/*`；业务接口主要使用`/api/v1/*`。登录后使用会话Cookie，非安全方法需携带CSRF头；JSON通常返回`success/message/data`，导出接口返回文件。具体权限、参数与错误见[完整接口目录](docs/api/README.md)及对应源码。
 
-```dotenv
-AUTH_BOOTSTRAP_ADMIN_USERNAME=admin
-AUTH_BOOTSTRAP_ADMIN_PASSWORD=
-AUTH_BOOTSTRAP_ADMIN_DISPLAY_NAME=系统管理员
-```
+<!-- BEGIN:API_SUMMARY -->
+当前静态登记 **114个HTTP方法/路径条目**（含认证与管理接口，不重复列自动HEAD/OPTIONS）。
 
-请在等号后填写仅部署人员知道的初始密码（至少8位且包含字母和数字）。启动后使用该账号登录并按提示修改密码，再从 `.env` 删除
-`AUTH_BOOTSTRAP_ADMIN_PASSWORD` 并重新创建容器。系统不开放自助注册；后续账号由管理员在右上角“账号管理”中创建。
-会话闲置4小时失效，单次登录最长24小时；管理员禁用账号或重置密码后，该账号已有会话立即失效。
-登录成功后默认进入“工作台”，不会自动查询经营总览。API 使用 MySQL 连接池复用物理连接；可通过
-`MYSQL_POOL_SIZE`、`MYSQL_POOL_MIN_CACHED` 调整每个 API 进程的连接数。超过
-`PERFORMANCE_SLOW_REQUEST_MS` 的接口会写入慢请求日志，响应头 `Server-Timing` 可用于区分鉴权和业务处理耗时。
+| 接口领域 | 条目数 | 完整清单 |
+|---|---:|---|
+| 账号认证与权限管理 | 24 | [auth](docs/api/README.md#auth) |
+| 基础信息、资产与兼容入口 | 5 | [core](docs/api/README.md#core) |
+| 经营总览与利润核对 | 3 | [dashboard](docs/api/README.md#dashboard) |
+| 业务、风控分析与问题中心 | 9 | [analysis](docs/api/README.md#analysis) |
+| GDS/OTA资源治理与航线诊断 | 5 | [resource_governance](docs/api/README.md#resource_governance) |
+| 智能分析、导出与视图模板 | 13 | [smart_analysis](docs/api/README.md#smart_analysis) |
+| 智能投放与收单 | 17 | [smart_placement](docs/api/README.md#smart_placement) |
+| 监控、规则、事件、工单与通知 | 25 | [monitoring](docs/api/README.md#monitoring) |
+| 目标配置、进度与刷新 | 7 | [targets](docs/api/README.md#targets) |
+| 风控文件上传 | 2 | [risk_upload](docs/api/README.md#risk_upload) |
+| 行为采集与管理看板 | 4 | [telemetry](docs/api/README.md#telemetry) |
+<!-- END:API_SUMMARY -->
 
-ERP花名册允许部署在独立MySQL实例。主业务库继续使用`MYSQL_*`，花名册连接使用
-`ERP_MYSQL_HOST/PORT/DATABASE/USER/PASSWORD`，目标表由`ERP_ROSTER_DATABASE/ERP_ROSTER_TABLE`
-指定。未配置`ERP_MYSQL_*`时会兼容旧部署并复用主库连接。账号绑定信息和企业微信ID快照仍保存在
-`sibebid.sys_user_employee_binding`；ERP临时不可用时已绑定账号可读取快照，但搜索或新绑定员工需要ERP恢复。
+## 开发交付与README维护
 
-经营总览及各业务分析页提供今日、昨日、本月、本年和自定义日期查询，默认展示今日，避免首次打开扫描大时间范围。项目默认使用 `DATA_MODE=mysql` 读取 `sibebid`；在 `.env` 中填写 `MYSQL_HOST`、`MYSQL_USER` 等连接信息即可。MySQL 临时不可用时，将 `DATA_MODE` 手工改成 `hive` 并重启 API。原经营指标和底部的“风控利润核对”都跟随此手工切换，不自动混用两个数据源；核对区默认读取 MySQL 的三张 `bi_order_*_profit_reconcile_year` 表，不纳入上方经营利润合计。连接密码只能保存在部署环境的 `.env`，不得提交到 Git。
+本地验证按[贡献指南](CONTRIBUTING.md)执行，完成后直接提交并推送GitLab、GitHub，默认不查询或等待CI；服务器部署另行授权。
 
-“业务分析 → 出票分析”提供利润和业务量趋势、平台/航司/供应商/组织贡献，以及首批 12 个分析字段的非空率体检。退票、改签和增值分析首版只展示数量、利润、单笔利润、负利润记录和趋势，避免在问题尚未明确时堆叠无效维度。
-
-“数据资产”展示当前所选数据源的四张业务表、字段数、已登记指标、业务条件和最新业务时间；未来日期等明显质量问题会显示为异常。MySQL 字段数由运行时读取表结构，不能沿用 Hive 宽表字段数。
-
-经营总览底部核对区只保留时间筛选，与上方估算利润共用今日、昨日、本月、本年及自定义期间；不展示平台、站点、部门、航司、供应商等维度筛选。历史维度接口与索引参考保留，应用不会自动执行索引DDL。
-
-“风控分析”接入MySQL三张利润核对表，提供出退改票数/预估利润、月度趋势和逐月并列对比；默认今日，可快速选择年份、业务、盈亏范围和月份日期口径。新页默认源核对日期，可切换与经营总览一致，详见[风控月度对比口径](docs/business/air_ticketing/risk-monthly-analysis.md)。
-
-基础索引只包含日期，不包含票数或利润列；若已创建上一版 `idx_reconcile_date_sum`，请使用 [替换旧索引SQL](docs/sql/risk-profit-reconcile-remove-metric-index-columns.sql)，而不是重复执行新建SQL。
-
-## 当前核心接口
-
-- `GET /api/v1/dashboard/overview`：出退改增经营总览；
-- `GET /api/v1/dashboard/risk-profit-summary`：出票、退票、改签利润核对汇总（默认 MySQL，保留 Hive 手工切换）；
-- `GET /api/v1/dashboard/risk-profit-filter-options`：核对筛选名称建议（field、search、日期及其他维度条件）；
-- `GET /api/v1/analysis/issue-profit`：出票利润与维度分析；
-- `GET /api/v1/analysis/risk-monthly`：MySQL出退改核对月度票数与预估利润对比；
-- `GET /api/v1/analysis/business-profit/{refund|change|ancillary}`：退改增统一分析契约；
-- `GET /api/v1/smart-analysis/overview`：Hive智能出票总览及日/月趋势；
-- `GET /api/v1/smart-analysis/dimensions`：Hive智能出票多维组合分析；
-- `GET /api/v1/smart-analysis/details`：Hive智能出票明细分页与证据字段；
-- `GET /api/v1/smart-analysis/filter-options`：智能分析筛选值建议；
-- `GET /api/v1/problems/profit-loss`：四类业务负利润问题及证据；
-- `GET /api/v1/assets/catalog`：核心表、指标和更新状态。
-
-## 验证
+README由产品经理**明策**负责。菜单、路由、功能状态、启动配置变化时，先核对当前源码与[工作流](docs/agent/workstreams.md)，再更新本页和相关专题。目录块可用以下脚本同步或检查，业务状态仍需人工审核：
 
 ```powershell
-cd backend
-python -m pytest -q
-
-cd ..\frontend
-npm run type-check
-npm run build
+python scripts/check_readme.py --write
+python scripts/check_readme.py --check
 ```
 
-## 数据接入原则
-
-- 未接入的数据展示“待接入”，不能展示为0；
-- 未确认的指标展示“口径待确认”，不能作为正式KPI；
-- 所有金额区分预期、业务估算和已结算；
-- 生产数据通过只读账号和指标查询服务接入；
-- MySQL 为默认经营看板及利润核对查询源，Hive 为最终解释来源；两者通过 `DATA_MODE` 人工整体切换，不静默补数；利润核对独立展示，不参与原经营利润合计；
-- 演示数据带有明确的 `mock` 标识。
+脚本只解析源文件并更新指定的文档目录块，不启动应用、读取真实`.env`或连接数据库。可复用的[明策README提示词](docs/agent/prompts.md#6-明策维护项目readme)和[能力卡](docs/agent/roles/product.md)用于后续维护。
