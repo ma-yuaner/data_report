@@ -5,7 +5,9 @@
 | 主题 | 权威入口/证据 | 状态和边界 |
 |---|---|---|
 | 公司机票知识 | [业务目录](../business/air_ticketing/README.md)、`sources/2026-09-11-meeting.md` | 会议部分仍待确认；不代表所有新模块口径都未确认 |
+| 销售报表平台替换 | [开发交接](workstreams.md#销售报表上海妤芯替换开发2026-10-20)、[真实验收交接](workstreams.md#明鉴v2与销售报表真实测试2026-10-20)、SALES-001/002；ETL仓库`docs/development/README.md`，验收脚本`analysis/tests/verify_business_sales_delivery.py`仅本地忽略保留、不随Git交付 | CX单列、UNIFIFI归其他；两张主报表已真实ERP只读汇总核对并发测试群，副本仅离线验证；未部署、未写快照、未发业务群。原始数据/图片不入Git，计时和回执留在忽略目录 |
 | GDS本轮方案 | [业务闭环复评V3](../product/gds-resource-governance-reassessment-v3.md) | 人工闭环与首个分析课题已确认；细项待继续审核 |
+| 平台站点航线双零异常 | [数据静态评估与首版清单V1](../product/gds-route-anomaly-data-readiness-v1.md) | 小时源有条件可复用，日聚合丢平台/站点，分钟DDL与产出不一致，查询机场为空；3/7候选仅完成合成场景推演，真实回测和正式参数未确认 |
 | 历史需求和表接口 | [PRD V2](../product/gds-resource-governance-prd-v2.md) | 历史实现基线，新增提议不视作已开发 |
 | 服务表口径 | [数据契约](../business/air_ticketing/gds-resource-metric-table-contract.md) | 结合实际源结构及本轮完整性风险读取 |
 | 页面/API现状 | [实现说明](../business/air_ticketing/gds-resource-governance-live.md)、`backend/data_report_api/services/resource_governance.py` | 已检查代码，未连接生产重新验数 |
