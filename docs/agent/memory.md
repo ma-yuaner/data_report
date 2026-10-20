@@ -17,9 +17,9 @@
 - 方案先讨论再实现；用户明确授权开发后执行到交付。需要用户配合的DDL、ETL、字段和技术对接先列明。
 - 开发角色与交接见根AGENTS.md；目录依赖和检查命令见CONTRIBUTING.md。HTTP领域在`backend/data_report_api/api`，公共契约在`shared`，应用任务在`jobs`；前端资源治理已迁入`features/resource-governance`并保留兼容入口。
 - 角色固定名字：明策(product)、绘景(ui)、星桥(frontend)、磐石(backend)、明鉴(qa)。能力卡在`docs/agent/roles`，可按用户要求单独增强并记录版本。实际启用时标明名字、任务与主会话/独立子代理方式；没有实际启动工具记录不声称调用独立子代理。
-- 明策当前为product v3：按高级产品经理标准验证问题、目标与护栏、方案取舍、优化前后效果、开发交接和验收复盘；需求提问模板在`docs/agent/prompts.md`第7节。保留v2的README维护：核对实际菜单、全部API、实现/演示/预留状态和数据源；`scripts/check_readme.py --write/--check`同步或静态核对生成目录，完整接口在`docs/api/README.md`，维护提示词在第6节。版本表示工作要求更新，不等于模型升级或已验证的业务收益。
+- 明策当前product v4：先判断紧急程度/难度/影响，再裁剪流程；难任务在范围和开发授权明确时也可直接开发，不强制完整产品流程或复杂测试。v3高级产品清单仅按需用，保留v2 README能力和`check_readme.py --write/--check`。模板在`docs/agent/prompts.md`第7节，完整API在`docs/api/README.md`。版本不是模型升级或收益证明。
 - 发布偏好（用户2026-10-20最新确认）：完成必要本地验证后直接提交并推送GitLab/GitHub，默认不查询、不等待CI。现有自动CI配置保留；用户单独要求时再核验，服务器部署仍需独立授权。
-- 明鉴现为qa v2：用户要求实际效果发指定测试群、记录各阶段耗时，提交后按样板发版通知；data_report目标测试服务247，报表data-team-repo目标生产服务216，不等于已在服务器执行。Webhook保存在忽略的私密配置，不入Git；真实@需确认userid，接口errcode=0不等于人工已验收。详见`docs/agent/roles/qa.md`。
+- 明鉴现为qa v3：只做必要验证，实际效果/计时可发指定测试群，提交后样板通知；data_report目标测试247，报表目标生产216，不等于已在服务器执行。公共数据库默认连接服务生产，本地验收用用户确认的外部连接、仅进程内切换不改公共库。新test文件与产物留本地不入Git；本次3个验收文件取消跟踪，不删本地、不改写历史。发版前确认申请人为马远尔、徐楠楠、陈艳、泽展之一，不@且不需userid；本次用户已确认马远尔。Webhook忽略私密保存，errcode=0不等于人工验收。
 
 ## 销售报表已确认变更
 

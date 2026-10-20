@@ -18,6 +18,8 @@ Python文件用snake_case、Vue组件用PascalCase、TypeScript模块用camelCas
 
 ## 本地检查
 
+用户2026-10-20最新约定：先按紧急程度/难度/影响裁剪流程，难任务也可直接按明确授权开发；以下是可选命令目录，不代表每轮全跑。只做与本次改动直接相关的必要验证，文档/通知字段小改不重查生产库、不重跑全套应用或图片测试。新test文件与临时验收脚本/产物留本地不上传Git，已有正式测试库不批量删除。公共连接默认供生产，本地用已确认外部连接，不改公共配置。
+
 后端Python 3.12，前端Node 22。依赖分别由`backend/requirements-dev.txt`和`frontend/package-lock.json`管理。
 
 ```powershell
