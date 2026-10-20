@@ -11,7 +11,7 @@
 - 方案先讨论再实现；用户明确授权开发后执行到交付。需要用户配合的DDL、ETL、字段和技术对接先列明。
 - 开发角色与交接见根AGENTS.md；目录依赖和检查命令见CONTRIBUTING.md。HTTP领域在`backend/data_report_api/api`，公共契约在`shared`，应用任务在`jobs`；前端资源治理已迁入`features/resource-governance`并保留兼容入口。
 - 角色固定名字：明策(product)、绘景(ui)、星桥(frontend)、磐石(backend)、明鉴(qa)。能力卡在`docs/agent/roles`，可按用户要求单独增强并记录版本。实际启用时标明名字、任务与主会话/独立子代理方式；没有实际启动工具记录不声称调用独立子代理。
-- README维护已交明策（product v2）：核对实际菜单、全部API、实现/演示/预留状态和数据源。`scripts/check_readme.py --write/--check`同步或静态核对生成目录，完整接口在`docs/api/README.md`，简短提示词在`docs/agent/prompts.md`第6节。
+- 明策当前为product v3：按高级产品经理标准验证问题、目标与护栏、方案取舍、优化前后效果、开发交接和验收复盘；需求提问模板在`docs/agent/prompts.md`第7节。保留v2的README维护：核对实际菜单、全部API、实现/演示/预留状态和数据源；`scripts/check_readme.py --write/--check`同步或静态核对生成目录，完整接口在`docs/api/README.md`，维护提示词在第6节。版本表示工作要求更新，不等于模型升级或已验证的业务收益。
 - 发布偏好（用户2026-10-20最新确认）：完成必要本地验证后直接提交并推送GitLab/GitHub，默认不查询、不等待CI。现有自动CI配置保留；用户单独要求时再核验，服务器部署仍需独立授权。
 
 ## GDS必须保留的业务口径
