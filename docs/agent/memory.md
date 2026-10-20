@@ -15,6 +15,7 @@
 - Vue 3/TypeScript/Ant Design Vue/ECharts前端，Flask后端；MySQL主业务库`sibebid`，Hive主要库`lywz`。端口1818/5160，业务时间Asia/Shanghai。
 - 应用配置位于应用根目录`.env`，不得将其值写入文档、提示词或Git。ERP是独立连接，库名按实际部署核对，历史对话存在拼写差异，不据此硬编码。
 - 方案先讨论再实现；用户明确授权开发后执行到交付。需要用户配合的DDL、ETL、字段和技术对接先列明。
+- 用户最新要求复用脚本以减少token：先定位已有入口直接调用，不每轮重写脚本；确实缺功能时只最小补齐。发版直接调用ETL已有`qa_wecom_delivery.py`的内置模板参数，不另建临时发送脚本。
 - 开发角色与交接见根AGENTS.md；目录依赖和检查命令见CONTRIBUTING.md。HTTP领域在`backend/data_report_api/api`，公共契约在`shared`，应用任务在`jobs`；前端资源治理已迁入`features/resource-governance`并保留兼容入口。
 - 角色固定名字：明策(product)、绘景(ui)、星桥(frontend)、磐石(backend)、明鉴(qa)。能力卡在`docs/agent/roles`，可按用户要求单独增强并记录版本。实际启用时标明名字、任务与主会话/独立子代理方式；没有实际启动工具记录不声称调用独立子代理。
 - 明策当前product v4：先判断紧急程度/难度/影响，再裁剪流程；难任务在范围和开发授权明确时也可直接开发，不强制完整产品流程或复杂测试。v3高级产品清单仅按需用，保留v2 README能力和`check_readme.py --write/--check`。模板在`docs/agent/prompts.md`第7节，完整API在`docs/api/README.md`。版本不是模型升级或收益证明。
