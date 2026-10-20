@@ -8,6 +8,8 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
+from ..shared.periods import parse_profit_period
+
 from .data_source import DataSource, TABLE_SPECS, data_mode, is_live_mode
 from ..time_utils import business_now
 
@@ -67,26 +69,12 @@ def _number(value: Any) -> int | float | None:
     return value
 
 
-def _period(start_value: str | None, end_value: str | None) -> tuple[date, date]:
-    today = business_now().date()
-    try:
-        start = date.fromisoformat(start_value) if start_value else today
-        end = date.fromisoformat(end_value) if end_value else today
-    except ValueError as error:
-        raise ValueError("日期格式必须为 YYYY-MM-DD") from error
-    if start > end:
-        raise ValueError("开始日期不能晚于结束日期")
-    if (end - start).days > 366:
-        raise ValueError("单次查询范围不能超过 366 天")
-    return start, end
-
-
 class ProfitOverviewService:
     def __init__(self, config: dict[str, Any]):
         self.config = config
 
     def overview(self, start_value: str | None, end_value: str | None) -> dict[str, Any]:
-        start, end = _period(start_value, end_value)
+        start, end = parse_profit_period(start_value, end_value)
         mode = data_mode(self.config)
         cache_key = (mode, start.isoformat(), end.isoformat())
         ttl = max(int(self.config.get("PROFIT_CACHE_TTL", 300)), 0)

@@ -10,7 +10,7 @@ from decimal import Decimal
 from typing import Any
 
 from .data_source import DataSource, data_mode, is_live_mode
-from .profit_overview import _period
+from ..shared.periods import parse_profit_period
 from ..time_utils import business_now
 
 
@@ -132,7 +132,7 @@ class RiskProfitSummaryService:
     def summary(
         self, start_value: str | None, end_value: str | None, filters: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        start, end = _period(start_value, end_value)
+        start, end = parse_profit_period(start_value, end_value)
         filters = normalize_risk_filters(filters)
         source = self._source()
         cache_key = ("summary", source.cache_key, start.isoformat(), end.isoformat(), json.dumps(filters, sort_keys=True))
@@ -224,7 +224,7 @@ class RiskProfitSummaryService:
         search = search or ""
         if len(search) > 150:
             raise ValueError("筛选搜索不能超过150字符")
-        start, end = _period(start_value, end_value)
+        start, end = parse_profit_period(start_value, end_value)
         filters = normalize_risk_filters(filters)
         filters[field] = ""  # Other active dimensions constrain suggestions, not the edited dimension itself.
         source = self._source()

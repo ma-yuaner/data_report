@@ -6,7 +6,7 @@ import os
 import signal
 import threading
 
-from .target_management_daily import TargetManagementDailyJob, _config_dict
+from .jobs.target_management import TargetManagementDailyJob, job_config
 
 
 LOGGER = logging.getLogger(__name__)
@@ -26,7 +26,7 @@ def main() -> int:
     while not STOP.is_set():
         lock_connection = None
         try:
-            job = TargetManagementDailyJob(_config_dict())
+            job = TargetManagementDailyJob(job_config())
             lock_connection = job.acquire_run_lock()
             if lock_connection is None:
                 LOGGER.info("Target progress ETL skipped; another run is active")

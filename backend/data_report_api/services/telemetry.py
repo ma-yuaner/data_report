@@ -8,7 +8,7 @@ from collections import defaultdict
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 
-from .comprehensive_analysis import parse_period
+from ..shared.periods import parse_analysis_period
 from .data_source import DataSource
 
 
@@ -307,7 +307,7 @@ class TelemetryService:
     def dashboard(self, actor: dict[str, Any], start_value=None, end_value=None) -> dict[str, Any]:
         if not bool(actor.get("is_admin")):
             raise PermissionError("只有管理员可以查看用户行为监控")
-        first, last = parse_period(start_value, end_value)
+        first, last = parse_analysis_period(start_value, end_value)
         start_utc = datetime.combine(first, time.min) - timedelta(hours=8)
         end_utc = datetime.combine(last + timedelta(days=1), time.min) - timedelta(hours=8)
         response = self._empty_dashboard(first, last)

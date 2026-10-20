@@ -6,7 +6,7 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
-from .comprehensive_analysis import parse_period
+from ..shared.periods import parse_analysis_period
 from .data_source import DataSource
 
 DEFINITIONS = (
@@ -61,7 +61,7 @@ class RiskMonthlyAnalysisService:
         self.source = DataSource({**config, "DATA_MODE": "mysql"})
 
     def analysis(self, start_value=None, end_value=None, business_type="all", profit_status="all", date_basis="reconcile"):
-        first, last = parse_period(start_value, end_value)
+        first, last = parse_analysis_period(start_value, end_value)
         if business_type not in {"all", *(item["key"] for item in DEFINITIONS)}:
             raise ValueError("业务类型只支持全部、出票、改签或退票")
         if profit_status not in PROFIT_CONDITIONS:
@@ -130,7 +130,7 @@ class RiskMonthlyAnalysisService:
         return result
 
     def daily(self, start_value=None, end_value=None, business_type="all", profit_status="all", date_basis="reconcile"):
-        first, last = parse_period(start_value, end_value)
+        first, last = parse_analysis_period(start_value, end_value)
         if (last - first).days > 30:
             raise ValueError("每日明细单次最多查询31天")
         if business_type not in {"all", *(item["key"] for item in DEFINITIONS)}:

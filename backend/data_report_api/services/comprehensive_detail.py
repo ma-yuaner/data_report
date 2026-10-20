@@ -8,7 +8,8 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from .comprehensive_analysis import BUSINESSES, DIMENSIONS, parse_period
+from .comprehensive_analysis import BUSINESSES, DIMENSIONS
+from ..shared.periods import parse_analysis_period
 from .data_source import DataSource
 
 
@@ -293,7 +294,7 @@ class ComprehensiveDetailService:
     ) -> dict[str, Any]:
         if business not in BUSINESSES:
             raise ValueError("不支持的业务类型")
-        first, last = parse_period(start_value, end_value)
+        first, last = parse_analysis_period(start_value, end_value)
         if (last - first).days > 30:
             raise ValueError("宽表明细单次最多查询31天，请从日汇总进入或缩小日期范围")
         try:

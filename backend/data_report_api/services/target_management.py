@@ -17,32 +17,27 @@ from typing import Any
 
 from .data_source import DataSource
 from ..time_utils import business_now
+from ..shared.permissions import permission_codes
+from ..shared.target_permissions import MANAGE_PERMISSION, PROGRESS_PERMISSION, VIEW_PERMISSION
 
 
 LOGGER = logging.getLogger(__name__)
 SCENES = frozenset({"PLATFORM", "GDS", "POLICY"})
 EDIT_STATUSES = frozenset({"DRAFT", "ACTIVE", "PAUSED"})
-VIEW_PERMISSION = "business_config.targets.view"
-MANAGE_PERMISSION = "business_config.targets.manage"
-PROGRESS_PERMISSION = "business_config.target_progress.view"
 
 
 class TargetManagementUnavailable(RuntimeError):
     pass
 
 
-def _permissions(user: dict[str, Any]) -> set[str]:
-    return {str(value) for value in (user.get("permissions") or user.get("permission_codes") or [])}
-
-
 def _require(user: dict[str, Any], permission: str, message: str) -> None:
-    if bool(user.get("is_admin")) or permission in _permissions(user):
+    if bool(user.get("is_admin")) or permission in permission_codes(user):
         return
     raise PermissionError(message)
 
 
 def _require_any(user: dict[str, Any], permissions: set[str], message: str) -> None:
-    if bool(user.get("is_admin")) or permissions.intersection(_permissions(user)):
+    if bool(user.get("is_admin")) or permissions.intersection(permission_codes(user)):
         return
     raise PermissionError(message)
 

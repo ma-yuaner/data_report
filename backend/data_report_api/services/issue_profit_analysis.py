@@ -9,7 +9,7 @@ from decimal import Decimal
 from typing import Any
 
 from .data_source import DataSource, data_mode, is_live_mode
-from .profit_overview import _period
+from ..shared.periods import parse_profit_period
 from ..time_utils import business_now
 
 
@@ -73,7 +73,7 @@ class IssueProfitAnalysisService:
         self.config = config
 
     def analysis(self, start_value: str | None, end_value: str | None) -> dict[str, Any]:
-        start, end = _period(start_value, end_value)
+        start, end = parse_profit_period(start_value, end_value)
         mode = data_mode(self.config)
         cache_key = (mode, start.isoformat(), end.isoformat())
         ttl = max(int(self.config.get("PROFIT_CACHE_TTL", 300)), 0)

@@ -263,7 +263,7 @@ class ResourceGovernanceTests(unittest.TestCase):
 
     def test_separate_routes_fix_their_own_data_layer(self):
         app = create_app(TestConfig)
-        with patch("data_report_api.routes.ResourceGovernanceService") as service_class:
+        with patch("data_report_api.api.resource_governance.ResourceGovernanceService") as service_class:
             service_class.return_value.overview.return_value = {"available": True}
             client = app.test_client()
             self.assertEqual(client.get("/api/v1/resource-governance/gds/overview").status_code, 200)
@@ -273,7 +273,7 @@ class ResourceGovernanceTests(unittest.TestCase):
 
     def test_route_passes_breach_only_flag(self):
         app = create_app(TestConfig)
-        with patch("data_report_api.routes.ResourceGovernanceService") as service_class:
+        with patch("data_report_api.api.resource_governance.ResourceGovernanceService") as service_class:
             service_class.return_value.overview.return_value = {"available": True}
             client = app.test_client()
             client.get("/api/v1/resource-governance/gds/overview?breachOnly=true")
@@ -315,7 +315,7 @@ class ResourceGovernanceTests(unittest.TestCase):
 
     def test_export_route_downloads_workbook_for_fixed_layer(self):
         app = create_app(TestConfig)
-        with patch("data_report_api.routes.ResourceGovernanceService") as service_class:
+        with patch("data_report_api.api.resource_governance.ResourceGovernanceService") as service_class:
             service_class.return_value.export_report.return_value = (
                 BytesIO(b"report"), "GDS资源治理分析.xlsx"
             )

@@ -1,0 +1,16 @@
+[
+  {
+    "path": "backend/data_report_api/services/monitoring.py",
+    "code": "F821",
+    "message": "Undefined name `canonical_platform_name`",
+    "source": "replacement = canonical_platform_name if legacy_field == \"platform_code\" else canonical_site_name",
+    "issue": "STRUCT-001: existing diagnose_rule legacy-name resolution; requires separate behavior regression"
+  },
+  {
+    "path": "backend/data_report_api/services/monitoring.py",
+    "code": "F821",
+    "message": "Undefined name `canonical_site_name`",
+    "source": "replacement = canonical_platform_name if legacy_field == \"platform_code\" else canonical_site_name",
+    "issue": "STRUCT-001: existing diagnose_rule legacy-name resolution; requires separate behavior regression"
+  }
+]

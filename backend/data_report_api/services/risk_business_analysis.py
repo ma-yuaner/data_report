@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
-from .comprehensive_analysis import parse_period
+from ..shared.periods import parse_analysis_period
 from .data_source import DataSource
 
 
@@ -240,7 +240,7 @@ class RiskBusinessAnalysisService:
         if business_type not in SPECS:
             raise ValueError("业务类型只支持出票、退票或改签")
         spec = SPECS[business_type]
-        first, last = parse_period(start_value, end_value)
+        first, last = parse_analysis_period(start_value, end_value)
         groups = available_groups(spec)
         if group not in {item["key"] for item in groups}:
             raise ValueError(f"{spec.label}不支持当前分析维度")

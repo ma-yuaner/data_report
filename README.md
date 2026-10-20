@@ -2,6 +2,8 @@
 
 项目协作从[项目入口](docs/agent/README.md)开始，当前进度与待办见[工作流](docs/agent/workstreams.md)。GDS本轮讨论基线为[业务闭环复评V3](docs/product/gds-resource-governance-reassessment-v3.md)，页面和流程设计遵循[产品交付规范](docs/product/product-delivery-contract.md)。
 
+开发角色、目录和质量检查见[贡献指南](CONTRIBUTING.md)；模块入口见[后端](backend/README.md)、[前端](frontend/README.md)；应用/ETL边界见[仓库说明](docs/development/repositories.md)。本轮结构迁移与存量问题见[结构优化记录](docs/development/structure-optimization.md)。
+
 下方“MVP菜单”保留初版背景；后续模块的实际成熟度以专题文档、当前代码与验收证据为准，不能用初版概述推断现有功能未开发或已部署。
 
 面向机票业务的独立数据中心。经营总览第一版默认从 MySQL `sibebid` 汇总出票、退票、改签、增值利润，并保留 Hive 人工切换能力；指标属于业务估算，不作为正式财务结算口径。

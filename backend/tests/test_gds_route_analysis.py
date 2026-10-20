@@ -174,7 +174,7 @@ def test_route_endpoint_returns_service_data_and_unavailable_status():
     client = app.test_client()
     payload = {"available": True, "rows": []}
     with patch(
-        "data_report_api.routes.GdsRouteAnalysisService.overview", return_value=payload
+        "data_report_api.api.resource_governance.GdsRouteAnalysisService.overview", return_value=payload
     ) as overview:
         response = client.get(
             "/api/v1/resource-governance/gds/routes?startDate=2026-10-14&endDate=2026-10-15&gds=1A"
@@ -185,7 +185,7 @@ def test_route_endpoint_returns_service_data_and_unavailable_status():
     assert "resourceChannel" in overview.call_args.kwargs["filters"]
 
     with patch(
-        "data_report_api.routes.GdsRouteAnalysisService.overview",
+        "data_report_api.api.resource_governance.GdsRouteAnalysisService.overview",
         side_effect=module.GdsRouteAnalysisUnavailable("Hive失败"),
     ):
         response = client.get("/api/v1/resource-governance/gds/routes")

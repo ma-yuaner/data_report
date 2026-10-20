@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from data_report_api.target_management_daily import (
+from data_report_api.jobs.target_management import (
     Scope,
     TargetManagementDailyJob,
     _datetime,

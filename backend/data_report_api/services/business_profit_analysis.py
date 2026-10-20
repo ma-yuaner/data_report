@@ -9,7 +9,7 @@ from decimal import Decimal
 from typing import Any
 
 from .data_source import DataSource, TABLE_SPECS, data_mode, is_live_mode
-from .profit_overview import _period
+from ..shared.periods import parse_profit_period
 from ..time_utils import business_now
 
 
@@ -66,7 +66,7 @@ class BusinessProfitAnalysisService:
     def analysis(self, business_type: str, start_value: str | None, end_value: str | None) -> dict[str, Any]:
         if business_type not in BUSINESS_DEFINITIONS:
             raise ValueError("不支持的业务类型")
-        start, end = _period(start_value, end_value)
+        start, end = parse_profit_period(start_value, end_value)
         mode = data_mode(self.config)
         cache_key = (mode, business_type, start.isoformat(), end.isoformat())
         ttl = max(int(self.config.get("PROFIT_CACHE_TTL", 300)), 0)

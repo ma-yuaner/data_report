@@ -4,9 +4,11 @@ from __future__ import annotations
 import json
 import logging
 from collections import defaultdict
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
+
+from ..shared.periods import parse_analysis_period
 
 from .data_source import DataSource
 
@@ -40,20 +42,6 @@ NOTES = [
     "返点、后返、汇率、实际结算、ADM及增值退款完整性尚未确认；无缺失利润字段不等于财务数据完整。",
     "本中间层不含订单编号、亏损原因和风险标签，不自动认定亏损原因或高风险收益可持续。",
 ]
-
-
-def parse_period(start: str | None, end: str | None) -> tuple[date, date]:
-    today = datetime.now(timezone(timedelta(hours=8))).date()
-    try:
-        first = date.fromisoformat(start or today.isoformat())
-        last = date.fromisoformat(end or first.isoformat())
-        if start and first.isoformat() != start or end and last.isoformat() != end:
-            raise ValueError
-    except (ValueError, TypeError):
-        raise ValueError("日期必须为YYYY-MM-DD格式") from None
-    if last < first or (last - first).days > 365:
-        raise ValueError("结束日期不能早于开始日期，单次范围不能超过366天")
-    return first, last
 
 
 def dimension_value(row: dict, key: str) -> str:
@@ -189,7 +177,7 @@ class ComprehensiveAnalysisService:
         self.source = DataSource({**config, "DATA_MODE": "mysql"})
 
     def analysis(self, start_value=None, end_value=None, group="platform", filters=None, sort="segments"):
-        first, last = parse_period(start_value, end_value)
+        first, last = parse_analysis_period(start_value, end_value)
         if group not in DIMENSIONS:
             raise ValueError("不支持的分组维度")
         if sort not in SORT_FIELDS:
@@ -290,7 +278,7 @@ class ComprehensiveAnalysisService:
                 connection.close()
 
     def diagnosis(self, start_value=None, end_value=None, group="platform", filters=None):
-        first, last = parse_period(start_value, end_value)
+        first, last = parse_analysis_period(start_value, end_value)
         filters = dict(filters or {})
         current = self.analysis(first.isoformat(), last.isoformat(), group, dict(filters))
         day_count = (last - first).days + 1

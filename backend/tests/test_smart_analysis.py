@@ -329,8 +329,8 @@ def test_comprehensive_route_combines_metrics_dimensions_and_visible_placement_t
     overview = {"available": True, "hasData": True, "metrics": {"ticketCount": 8}}
     dimensions = {"available": True, "hasData": True, "rows": [{"key": "携程"}]}
     placement = {"available": True, "rows": [{"id": 7}], "summary": {"taskCount": 1}}
-    with patch("data_report_api.routes.SmartAnalysisService") as analysis_class, patch(
-        "data_report_api.routes.SmartPlacementService"
+    with patch("data_report_api.api.smart_analysis.SmartAnalysisService") as analysis_class, patch(
+        "data_report_api.api.smart_analysis.SmartPlacementService"
     ) as placement_class:
         analysis_class.return_value.overview.return_value = overview
         analysis_class.return_value.dimensions.return_value = dimensions

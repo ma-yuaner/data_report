@@ -1,0 +1,632 @@
+[
+  {
+    "path": "/api/health",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.health"
+  },
+  {
+    "path": "/api/v1/admin/telemetry/dashboard",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.telemetry_dashboard"
+  },
+  {
+    "path": "/api/v1/analysis/business-profit/<business_type>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.business_profit_analysis"
+  },
+  {
+    "path": "/api/v1/analysis/comprehensive",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.comprehensive_analysis"
+  },
+  {
+    "path": "/api/v1/analysis/comprehensive/details",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.comprehensive_details"
+  },
+  {
+    "path": "/api/v1/analysis/comprehensive/diagnosis",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.comprehensive_diagnosis"
+  },
+  {
+    "path": "/api/v1/analysis/issue-profit",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.issue_profit_analysis"
+  },
+  {
+    "path": "/api/v1/analysis/risk-business/<business_type>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.risk_business_analysis"
+  },
+  {
+    "path": "/api/v1/analysis/risk-daily",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.risk_daily_analysis"
+  },
+  {
+    "path": "/api/v1/analysis/risk-monthly",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.risk_monthly_analysis"
+  },
+  {
+    "path": "/api/v1/assets/catalog",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.asset_catalog"
+  },
+  {
+    "path": "/api/v1/assets/coverage",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.asset_coverage"
+  },
+  {
+    "path": "/api/v1/business-configuration/target-progress",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.target_progress_dashboard"
+  },
+  {
+    "path": "/api/v1/business-configuration/target-progress/refresh",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.target_progress_refresh"
+  },
+  {
+    "path": "/api/v1/business-configuration/target-progress/refresh/status",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.target_progress_refresh_status"
+  },
+  {
+    "path": "/api/v1/business-configuration/targets",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.target_management_list"
+  },
+  {
+    "path": "/api/v1/business-configuration/targets",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.target_management_save"
+  },
+  {
+    "path": "/api/v1/business-configuration/targets/metrics",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.target_management_metrics"
+  },
+  {
+    "path": "/api/v1/business-configuration/targets/options",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.target_management_options"
+  },
+  {
+    "path": "/api/v1/dashboard/overview",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.overview"
+  },
+  {
+    "path": "/api/v1/dashboard/risk-profit-filter-options",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.risk_profit_filter_options"
+  },
+  {
+    "path": "/api/v1/dashboard/risk-profit-summary",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.risk_profit_summary"
+  },
+  {
+    "path": "/api/v1/issues",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.issues"
+  },
+  {
+    "path": "/api/v1/meta",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.meta"
+  },
+  {
+    "path": "/api/v1/monitoring/action-orders",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.monitoring_action_orders"
+  },
+  {
+    "path": "/api/v1/monitoring/action-orders/<int:action_order_id>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.monitoring_action_order_detail"
+  },
+  {
+    "path": "/api/v1/monitoring/action-orders/<int:action_order_id>/status",
+    "methods": [
+      "PATCH"
+    ],
+    "endpoint": "api.update_monitoring_action_order"
+  },
+  {
+    "path": "/api/v1/monitoring/event-assignees",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.monitoring_event_assignees"
+  },
+  {
+    "path": "/api/v1/monitoring/events",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.monitoring_events"
+  },
+  {
+    "path": "/api/v1/monitoring/events/<int:event_id>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.monitoring_event_detail"
+  },
+  {
+    "path": "/api/v1/monitoring/events/<int:event_id>/action-orders",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.create_monitoring_action_order"
+  },
+  {
+    "path": "/api/v1/monitoring/events/<int:event_id>/status",
+    "methods": [
+      "PATCH"
+    ],
+    "endpoint": "api.update_monitoring_event_status"
+  },
+  {
+    "path": "/api/v1/monitoring/message-templates",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.monitoring_message_templates"
+  },
+  {
+    "path": "/api/v1/monitoring/message-templates/<int:template_id>",
+    "methods": [
+      "PUT"
+    ],
+    "endpoint": "api.update_monitoring_message_template"
+  },
+  {
+    "path": "/api/v1/monitoring/notify-endpoints",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.monitoring_notify_endpoints"
+  },
+  {
+    "path": "/api/v1/monitoring/notify-endpoints",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.create_monitoring_notify_endpoint"
+  },
+  {
+    "path": "/api/v1/monitoring/notify-endpoints/<int:endpoint_id>",
+    "methods": [
+      "PUT"
+    ],
+    "endpoint": "api.update_monitoring_notify_endpoint"
+  },
+  {
+    "path": "/api/v1/monitoring/notify-endpoints/<int:endpoint_id>/test",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.test_monitoring_notify_endpoint"
+  },
+  {
+    "path": "/api/v1/monitoring/notify-routes",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.monitoring_notify_routes"
+  },
+  {
+    "path": "/api/v1/monitoring/notify-routes",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.create_monitoring_notify_route"
+  },
+  {
+    "path": "/api/v1/monitoring/notify-routes/<int:route_id>",
+    "methods": [
+      "PUT"
+    ],
+    "endpoint": "api.update_monitoring_notify_route"
+  },
+  {
+    "path": "/api/v1/monitoring/overview",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.monitoring_overview"
+  },
+  {
+    "path": "/api/v1/monitoring/rules",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.monitoring_rules"
+  },
+  {
+    "path": "/api/v1/monitoring/rules",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.create_monitoring_rule"
+  },
+  {
+    "path": "/api/v1/monitoring/rules/<int:rule_id>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.monitoring_rule_detail"
+  },
+  {
+    "path": "/api/v1/monitoring/rules/<int:rule_id>/diagnose",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.diagnose_monitoring_rule"
+  },
+  {
+    "path": "/api/v1/monitoring/rules/<int:rule_id>/status",
+    "methods": [
+      "PATCH"
+    ],
+    "endpoint": "api.update_monitoring_rule_status"
+  },
+  {
+    "path": "/api/v1/monitoring/runs",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.monitoring_runs"
+  },
+  {
+    "path": "/api/v1/monitoring/templates",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.monitoring_templates"
+  },
+  {
+    "path": "/api/v1/problems/profit-loss",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.profit_loss_problems"
+  },
+  {
+    "path": "/api/v1/resource-governance/gds/export",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.gds_resource_governance_export"
+  },
+  {
+    "path": "/api/v1/resource-governance/gds/overview",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.gds_resource_governance_overview"
+  },
+  {
+    "path": "/api/v1/resource-governance/gds/routes",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.gds_route_analysis"
+  },
+  {
+    "path": "/api/v1/resource-governance/ota/export",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.ota_resource_governance_export"
+  },
+  {
+    "path": "/api/v1/resource-governance/ota/overview",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.ota_resource_governance_overview"
+  },
+  {
+    "path": "/api/v1/risk-uploads",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.risk_upload_status"
+  },
+  {
+    "path": "/api/v1/risk-uploads",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.create_risk_upload"
+  },
+  {
+    "path": "/api/v1/smart-analysis/comprehensive",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.smart_analysis_comprehensive"
+  },
+  {
+    "path": "/api/v1/smart-analysis/details",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.smart_analysis_details"
+  },
+  {
+    "path": "/api/v1/smart-analysis/dimensions",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.smart_analysis_dimensions"
+  },
+  {
+    "path": "/api/v1/smart-analysis/exports/details",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.smart_analysis_export_details"
+  },
+  {
+    "path": "/api/v1/smart-analysis/exports/dimensions",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.smart_analysis_export_dimensions"
+  },
+  {
+    "path": "/api/v1/smart-analysis/exports/trend",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.smart_analysis_export_trend"
+  },
+  {
+    "path": "/api/v1/smart-analysis/filter-options",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.smart_analysis_filter_options"
+  },
+  {
+    "path": "/api/v1/smart-analysis/overview",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.smart_analysis_overview"
+  },
+  {
+    "path": "/api/v1/smart-analysis/templates",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.smart_analysis_templates"
+  },
+  {
+    "path": "/api/v1/smart-analysis/templates",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.save_smart_analysis_template"
+  },
+  {
+    "path": "/api/v1/smart-analysis/templates/<int:template_id>",
+    "methods": [
+      "DELETE"
+    ],
+    "endpoint": "api.delete_smart_analysis_template"
+  },
+  {
+    "path": "/api/v1/smart-analysis/tickets/<issue_id>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.smart_analysis_ticket"
+  },
+  {
+    "path": "/api/v1/smart-analysis/trends",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.smart_analysis_trends"
+  },
+  {
+    "path": "/api/v1/smart-placement/dimensions",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.smart_placement_dimensions"
+  },
+  {
+    "path": "/api/v1/smart-placement/orders",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.smart_placement_orders"
+  },
+  {
+    "path": "/api/v1/smart-placement/orders/<int:match_id>/attention",
+    "methods": [
+      "PATCH"
+    ],
+    "endpoint": "api.update_smart_placement_attention"
+  },
+  {
+    "path": "/api/v1/smart-placement/tasks",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.smart_placement_tasks"
+  },
+  {
+    "path": "/api/v1/smart-placement/tasks",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.create_smart_placement_task"
+  },
+  {
+    "path": "/api/v1/smart-placement/tasks/<int:task_id>",
+    "methods": [
+      "DELETE"
+    ],
+    "endpoint": "api.delete_smart_placement_task"
+  },
+  {
+    "path": "/api/v1/smart-placement/tasks/<int:task_id>",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.smart_placement_task_detail"
+  },
+  {
+    "path": "/api/v1/smart-placement/tasks/<int:task_id>",
+    "methods": [
+      "PATCH"
+    ],
+    "endpoint": "api.update_smart_placement_task"
+  },
+  {
+    "path": "/api/v1/smart-placement/tasks/<int:task_id>/cancel",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.cancel_smart_placement_task"
+  },
+  {
+    "path": "/api/v1/smart-placement/tasks/<int:task_id>/claim",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.claim_smart_placement_task"
+  },
+  {
+    "path": "/api/v1/smart-placement/tasks/<int:task_id>/effect-reviews",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.create_smart_placement_effect_review"
+  },
+  {
+    "path": "/api/v1/smart-placement/tasks/<int:task_id>/executions",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.register_smart_placement_execution"
+  },
+  {
+    "path": "/api/v1/smart-placement/tasks/<int:task_id>/monitoring",
+    "methods": [
+      "GET"
+    ],
+    "endpoint": "api.smart_placement_task_monitoring"
+  },
+  {
+    "path": "/api/v1/smart-placement/tasks/<int:task_id>/reviews",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.review_smart_placement_task"
+  },
+  {
+    "path": "/api/v1/smart-placement/tasks/<int:task_id>/stop",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.stop_smart_placement_monitoring"
+  },
+  {
+    "path": "/api/v1/smart-placement/tasks/<int:task_id>/withdraw",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.withdraw_smart_placement_task"
+  },
+  {
+    "path": "/api/v1/smart-placement/tasks/reviews/batch",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.batch_review_smart_placement_tasks"
+  },
+  {
+    "path": "/api/v1/telemetry/events",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.record_telemetry_events"
+  },
+  {
+    "path": "/api/v1/telemetry/visits",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.start_telemetry_visit"
+  },
+  {
+    "path": "/api/v1/telemetry/visits/<visit_id>",
+    "methods": [
+      "PATCH"
+    ],
+    "endpoint": "api.update_telemetry_visit"
+  }
+]

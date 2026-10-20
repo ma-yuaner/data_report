@@ -6,10 +6,11 @@ import threading
 from datetime import datetime, timedelta
 from typing import Any
 
-from ..target_management_daily import TargetManagementDailyJob
+from ..jobs.target_management import TargetManagementDailyJob
 from ..time_utils import business_now
 from .data_source import DataSource
-from .target_management import MANAGE_PERMISSION, PROGRESS_PERMISSION, VIEW_PERMISSION, _permissions
+from ..shared.permissions import permission_codes
+from ..shared.target_permissions import MANAGE_PERMISSION, PROGRESS_PERMISSION, VIEW_PERMISSION
 
 
 LOGGER = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ class TargetEtlTriggerConflict(RuntimeError):
 
 
 def _require_any(user: dict[str, Any], allowed: set[str], message: str) -> None:
-    if user.get("is_admin") or user.get("isAdmin") or (_permissions(user) & allowed):
+    if user.get("is_admin") or user.get("isAdmin") or (permission_codes(user) & allowed):
         return
     raise PermissionError(message)
 
