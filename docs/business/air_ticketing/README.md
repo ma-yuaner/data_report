@@ -5,7 +5,7 @@
 ## 当前成熟度
 
 - 知识版本：`v0.2`
-- 当前状态：会议纪要结构化完成，尚待业务、财务和数据负责人逐项确认
+- 当前状态：初始会议纪要已结构化，会议内容尚待逐项确认；后续已确认的模块规则以各专题文档及[项目决策记录](../../agent/decisions.md)为准，不能因本目录初版状态否定后续确认。
 - 可用于：业务理解、分析方案设计、数据盘点、指标讨论、看板原型
 - 暂不可直接用于：财务结算、正式绩效、合同判断、对外口径或自动化业务决策
 
@@ -22,6 +22,10 @@
 除非文档明确标为“已确认”，本版内容默认属于“会议陈述”或“整理推导”。
 
 ## 阅读路由
+
+- 项目协作、记忆、任务交接与提示词：阅读[项目入口](../../agent/README.md)
+- GDS治理当前业务闭环复评、真实分析优先级与数据缺口：阅读[闭环复评V3](../../product/gds-resource-governance-reassessment-v3.md)
+- 页面字段、组件、状态和跨层验收约定：阅读[产品交付规范](../../product/product-delivery-contract.md)
 
 - 理解公司机票业务全流程：阅读 [business-model.md](business-model.md)
 - 计算或分析利润：阅读 [profit-model.md](profit-model.md) 和 [analysis-rules.md](analysis-rules.md)

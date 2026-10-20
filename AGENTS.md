@@ -1,5 +1,16 @@
 # 数据团队项目指引
 
+## 项目入口与工作边界
+
+- 本仓库是企业数据中台 `data_report`，常用检出目录为 `D:\data_center_code\data_report`；ETL在独立仓库 `D:\data_center_code\data-team-repo`。先用Git确认当前仓库，不能在旧副本开发后误报为已交付。
+- 新会话先读 `docs/agent/README.md`、`docs/agent/memory.md`、`docs/agent/workstreams.md`；只按当前任务读取相关知识，不把整个历史放入上下文。
+- 已确认的重要业务决策记入 `docs/agent/decisions.md`，业务来源索引见 `docs/agent/knowledge-index.md`。`memory.md`等是项目约定文件，需要按入口读取，不是额外启用的自动记忆服务。
+- 产品、流程、页面和跨层需求使用 `docs/product/product-delivery-contract.md`；可复用任务模板见 `docs/agent/prompts.md`。
+- GDS当前复评基线是 `docs/product/gds-resource-governance-reassessment-v3.md`：先完成人工闭环，首个复盘回答“缩减白名单、增加MPIS后查定比为何反而升高”。方案讨论不等于实现授权；用户已授权的步骤直接完成。
+- ETL任务只能在确认的ETL仓库修改指定脚本；用户约定公共配置、连接工具不随单个需求改动。数据库DDL、生产配置和交易系统动作单独列明交付及执行人，不因代码提交假定已执行。
+- 实现、模拟、已部署、已验收四种状态分开报告；原型/localStorage数据不能作为正式业务结果。仅有回执状态不代表生产系统已执行，效果结论需要真实指标支持。
+- 每次工作结束更新受影响的记忆、决策或工作流状态，记录证据和下一步；没有变化不制造重复记录。不得保存密码、Webhook密钥、token或原始个人数据。
+
 ## 机票业务分析 Agent
 
 处理机票业务的数据分析、数据建模、指标、SQL、报表或看板任务前：
@@ -20,6 +31,6 @@
 
 来源：用户2026-09-18明确要求“开发都需要CI上去”。
 
-data_report每次开发完成后，先执行相关测试、完整后端测试及前端类型检查/构建，再将本次已验证需求提交推送到已配置的GitHub（origin）和GitLab（gitlab），检查CI。核对依赖与本地/已提交差异，避免遗漏已开发的路由、页面或服务；不盲目提交无关改动、凭据或数据文件。
+data_report业务代码每次开发完成后，执行相关测试、完整后端测试及前端类型检查/构建。纯文档变更检查事实、相对链接和`git diff --check`，不为文档运行数据库任务。将本次已验证需求提交推送到已配置的GitHub和GitLab；先核对`git remote -v`，当前`origin`为GitLab、`github`为GitHub，不按别名猜平台。检查CI。核对依赖与本地/已提交差异，避免遗漏路由、页面或服务；不提交无关改动、凭据或数据文件。
 
 只在看到实际结果后报告CI通过；没有查询权限时明确说明未核验，不把Git推送成功当成CI通过。CI不等于服务器部署；没有服务器操作授权时仅提供拉取与重建指令，不自行登录、改配置或部署。保持现有1818/5160端口。

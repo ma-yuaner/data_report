@@ -1,5 +1,7 @@
 # GDS/OTA资源治理 V1 实现说明
 
+> 2026-10-20代码复核：总览、Hive航线和监控中心有真实实现；白名单、配置、治理执行与复盘的新页面仍含localStorage演示。全业务闭环、同步完整性、技术纯表回执和效果验证的当前边界以[闭环复评V3](../../product/gds-resource-governance-reassessment-v3.md)为准。本文“已实现”不等于本次已在服务器验收。
+
 - 更新时间：2026-10-16
 - 当前状态：资源总览、OTA/GDS分层、趋势、维度连续下钻和日汇总已接入正式项目
 - GDS页面：`/resource-governance/gds`
@@ -72,7 +74,7 @@ GDS服务表字段与ETL约束见[GDS资源指标服务表数据契约](gds-reso
 
 部署前依次执行[resource-governance-daily-monitor-v1.sql](../../sql/resource-governance-daily-monitor-v1.sql)、[resource-governance-analysis-grain-v2.sql](../../sql/resource-governance-analysis-grain-v2.sql)、[resource-governance-segment-denominator-v3.sql](../../sql/resource-governance-segment-denominator-v3.sql)和[resource-governance-event-lifecycle-v4.sql](../../sql/resource-governance-event-lifecycle-v4.sql)，调度说明见`data-team-repo/etl_scripts/automation/monitoring/README.md`。
 
-当前已完成“日规则→异常事件→责任人→观察/处理→逾期升级→限流/下线工单→技术回执→到期待恢复→通知”的执行闭环。系统只生成控制指令和记录回执，不直接操作生产交易系统。业务恢复申请审批、治理前后效果快照与月度治理复盘仍属于后续版本。
+当前有“日规则→异常事件→责任人→观察/处理→逾期升级→人工创建限流/下线工单→人工回填技术结果→到期待恢复→通知”的服务端实现。技术系统自动消费和纯表回执未完成；白名单、策略变更、治理前后效果快照与复盘尚未接真数据，不能宣称整个业务闭环已完成。系统只生成控制指令和记录回执，不直接操作生产交易系统。
 
 技术工单部署需执行[resource-governance-action-work-order-v5.sql](../../sql/resource-governance-action-work-order-v5.sql)。数据部从事件生成工单，技术人员在“监控中心→技术工单”接单并回写变更单号和结果；同一事件存在未结束工单时禁止重复创建。
 
