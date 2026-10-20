@@ -36,4 +36,4 @@ Python检查源码中的显式本地import，frontend检查import/export及字�
 3. 目标管理：目标配置与进度读取分离，任务与调度继续按现有部署归属。
 4. 前端后续领域采用本轮features边界，重复行为成立后再抽公共组件。
 
-每批独立验证HTTP、权限、空态和交互，并按AGENTS.md核验两端CI。发布与验收证据持续记入[工作流](../agent/workstreams.md)。
+每批独立验证HTTP、权限、空态和交互，并按AGENTS.md直接提交推送两端。用户2026-10-20最新要求默认不查询或等待CI，现有自动CI配置保留。发布与验收证据持续记入[工作流](../agent/workstreams.md)。
