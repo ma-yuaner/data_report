@@ -62,7 +62,7 @@
           <template v-if="column.key === 'order'">
             <button class="order-link" type="button" @click="openDetail(record)">
               <strong>{{ record.otaOrderNo }}</strong>
-              <small>{{ record.ticketNo || '暂无票号' }} · {{ record.passengerName || '暂无乘客' }}</small>
+              <small>{{ currentValue(record.currentTicketNo, record.ticketNo, record) || '暂无票号' }} · {{ record.passengerName || '暂无乘客' }}</small>
             </button>
           </template>
           <template v-else-if="column.key === 'scope'">
@@ -75,14 +75,14 @@
             <div class="two-line"><strong>{{ record.externalPolicyId }}</strong><span>任务 #{{ record.taskId }} · {{ attributionLabel(record) }}</span></div>
           </template>
           <template v-else-if="column.key === 'volume'">
-            <div class="two-line"><strong>{{ quantity(currentValue(record.currentTicketCount, record.ticketCount), '票') }}</strong><span>{{ quantity(currentValue(record.currentSegmentCount, record.segmentCount), '航段') }}</span></div>
+            <div class="two-line"><strong>{{ quantity(currentValue(record.currentTicketCount, record.ticketCount, record), '票') }}</strong><span>{{ quantity(currentValue(record.currentSegmentCount, record.segmentCount, record), '航段') }}</span></div>
           </template>
           <template v-else-if="column.key === 'profit'">
-            <strong v-if="currentValue(record.currentEstimatedProfitCny, record.estimatedProfitCny) !== null" :class="profitClass(currentValue(record.currentEstimatedProfitCny, record.estimatedProfitCny))">{{ money(currentValue(record.currentEstimatedProfitCny, record.estimatedProfitCny)) }} 元</strong>
+            <strong v-if="currentValue(record.currentEstimatedProfitCny, record.estimatedProfitCny, record) !== null" :class="profitClass(currentValue(record.currentEstimatedProfitCny, record.estimatedProfitCny, record))">{{ money(currentValue(record.currentEstimatedProfitCny, record.estimatedProfitCny, record)) }} 元</strong>
             <a-tag v-else color="orange">待同步</a-tag>
           </template>
           <template v-else-if="column.key === 'outcome'">
-            <div class="two-line"><a-tag :color="outcomeMeta[record.outcomeStatus || 'WAITING_SYNC']?.color || 'default'">{{ outcomeMeta[record.outcomeStatus || 'WAITING_SYNC']?.label || record.outcomeStatus }}</a-tag><span :class="{ 'stale-text': record.dataFreshnessStatus === 'STALE' }">{{ freshnessLabel(record) }}</span></div>
+            <div class="two-line"><a-tag :color="outcomeMeta[record.outcomeStatus || 'WAITING_SYNC']?.color || 'default'">{{ outcomeLabel(record) }}</a-tag><span :class="{ 'stale-text': record.dataFreshnessStatus === 'STALE' }">{{ freshnessLabel(record) }}</span></div>
           </template>
           <template v-else-if="column.key === 'message'">
             <a-tag :color="messageMeta[record.messageStatus]?.color || 'default'">{{ messageMeta[record.messageStatus]?.label || record.messageStatus }}</a-tag>
@@ -107,13 +107,13 @@
       <template v-if="activeOrder">
         <div class="order-detail-hero"><span>OTA订单号</span><h2>{{ activeOrder.otaOrderNo }}</h2><p>{{ activeOrder.platformName || '—' }} · {{ activeOrder.airlineCode || '—' }} · {{ activeOrder.routeText || routeName(activeOrder) }}</p></div>
         <section class="order-detail-section"><h3>订单与命中信息</h3><div class="order-detail-grid">
-          <div><label>出票票号</label><span>{{ currentValue(activeOrder.currentTicketNo, activeOrder.ticketNo) || '待同步' }}</span></div><div><label>乘客姓名</label><span>{{ currentValue(activeOrder.currentPassengerName, activeOrder.passengerName) || '待同步' }}</span></div>
+          <div><label>出票票号</label><span>{{ currentValue(activeOrder.currentTicketNo, activeOrder.ticketNo, activeOrder) || '待同步' }}</span></div><div><label>乘客姓名</label><span>{{ currentValue(activeOrder.currentPassengerName, activeOrder.passengerName, activeOrder) || '待同步' }}</span></div>
           <div><label>外部政策 ID</label><span>{{ activeOrder.externalPolicyId }}</span></div><div><label>平台 / 站点</label><span>{{ activeOrder.platformName || '—' }} / {{ activeOrder.siteName || '全部站点' }}</span></div>
           <div><label>航司 / 航程</label><span>{{ activeOrder.airlineCode || '—' }} / {{ activeOrder.routeText || routeName(activeOrder) }}</span></div><div><label>实际舱位</label><span>{{ activeOrder.cabinCodes || '—' }}</span></div>
-          <div><label>产品类型</label><span>{{ activeOrder.productType || '—' }}</span></div><div><label>票数 / 航段</label><span>{{ quantity(currentValue(activeOrder.currentTicketCount, activeOrder.ticketCount), '票') }} / {{ quantity(currentValue(activeOrder.currentSegmentCount, activeOrder.segmentCount), '航段') }}</span></div>
-          <div><label>预估利润</label><span>{{ nullableMoney(currentValue(activeOrder.currentEstimatedProfitCny, activeOrder.estimatedProfitCny)) }}</span></div><div><label>命中时间</label><span>{{ displayTime(activeOrder.matchedAt) }}</span></div>
-          <div><label>当前订单结果</label><span>{{ outcomeMeta[activeOrder.outcomeStatus || 'WAITING_SYNC']?.label || activeOrder.outcomeStatus }}</span></div><div><label>当前出票时间</label><span>{{ displayTime(activeOrder.currentTicketTime) }}</span></div>
-          <div><label>智能参与 / 成功</label><span>{{ triState(activeOrder.smartParticipated) }} / {{ triState(activeOrder.smartSucceeded) }}</span></div><div><label>宽表更新</label><span>{{ displayTime(activeOrder.outcomeSourceUpdatedAt) }}（{{ freshnessLabel(activeOrder) }}）</span></div>
+          <div><label>产品类型</label><span>{{ activeOrder.productType || '—' }}</span></div><div><label>票数 / 航段</label><span>{{ quantity(currentValue(activeOrder.currentTicketCount, activeOrder.ticketCount, activeOrder), '票') }} / {{ quantity(currentValue(activeOrder.currentSegmentCount, activeOrder.segmentCount, activeOrder), '航段') }}</span></div>
+          <div><label>预估利润</label><span>{{ nullableMoney(currentValue(activeOrder.currentEstimatedProfitCny, activeOrder.estimatedProfitCny, activeOrder)) }}</span></div><div><label>命中时间</label><span>{{ displayTime(activeOrder.matchedAt) }}</span></div>
+          <div><label>当前订单结果</label><span>{{ outcomeLabel(activeOrder) }}</span></div><div><label>当前出票时间</label><span>{{ displayTime(activeOrder.currentTicketTime) }}</span></div>
+          <div><label>智能参与 / 成功</label><span>{{ triState(activeOrder.smartParticipated) }} / {{ triState(activeOrder.smartSucceeded) }}</span></div><div><label>结果来源更新</label><span>{{ displayTime(activeOrder.outcomeSourceUpdatedAt) }}（{{ freshnessLabel(activeOrder) }}）</span></div><div><label>最近核对</label><span>{{ displayTime(activeOrder.outcomeLastCheckedAt) }}</span></div><div><label>结果来源</label><span>{{ activeOrder.outcomeSourceTable || '尚未取得' }}</span></div>
           <div><label>政策归属</label><span>{{ attributionLabel(activeOrder) }}</span></div><div><label>命中政策数</label><span>{{ quantity(activeOrder.matchedPolicyCount, '个') }}</span></div>
         </div></section>
         <section class="order-detail-section"><h3>提醒与关注记录</h3><div class="order-timeline"><article><strong>订单命中投放规则</strong><p>{{ activeOrder.matchDetail || '平台、航司、航程及有效期满足匹配条件' }}</p><time>{{ displayTime(activeOrder.matchedAt) }}</time></article><article><strong>{{ messageMeta[activeOrder.messageStatus]?.label || activeOrder.messageStatus }}</strong><p>系统记录当前群提醒发送状态</p></article><article><strong>{{ attentionMeta[activeOrder.attentionStatus]?.label || activeOrder.attentionStatus }}</strong><p>{{ activeOrder.resolutionNote || '等待业务人员补充处理结果' }}</p></article></div></section>
@@ -139,7 +139,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import {
   Drawer as ADrawer,
   Empty as AEmpty,
@@ -199,12 +199,22 @@ const updateAttentionOptions = [
 const number = (value: unknown) => new Intl.NumberFormat('zh-CN').format(Number(value || 0))
 const moneyFormatter = new Intl.NumberFormat('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 function money(value: unknown) { return moneyFormatter.format(Number(value || 0)) }
-function currentValue<T>(current: T | null | undefined, snapshot: T | null | undefined): T | null { return current !== null && current !== undefined ? current : (snapshot !== null && snapshot !== undefined ? snapshot : null) }
+function currentValue<T>(current: T | null | undefined, snapshot: T | null | undefined, record?: PlacementOrderRow): T | null {
+  if (record?.dataFreshnessStatus === 'MISSING' && record.outcomeSourceTable) return current ?? null
+  return current !== null && current !== undefined ? current : (snapshot !== null && snapshot !== undefined ? snapshot : null)
+}
 function quantity(value: unknown, unit: string) { return value === null || value === undefined || value === '' ? '待同步' : `${number(value)} ${unit}` }
 function nullableMoney(value: unknown) { return value === null || value === undefined || value === '' ? '待同步' : `${money(value)} 元` }
 function triState(value: unknown) { return value === null || value === undefined ? '待同步' : Number(value) === 1 ? '是' : '否' }
 function attributionLabel(record: PlacementOrderRow) { return record.attributionType === 'SECONDARY' ? `次归属（主命中 #${record.primaryMatchId || '—'}）` : record.matchedPolicyCount && record.matchedPolicyCount > 1 ? '主归属' : '唯一归属' }
-function freshnessLabel(record: PlacementOrderRow) { return record.dataFreshnessStatus === 'FRESH' ? '数据新鲜' : record.dataFreshnessStatus === 'STALE' ? '数据已延迟' : '等待同步' }
+function outcomeLabel(record: PlacementOrderRow) {
+  const label = outcomeMeta[record.outcomeStatus || 'WAITING_SYNC']?.label || record.outcomeStatus
+  return record.outcomeStatus === 'TICKETED' && record.dataFreshnessStatus === 'MISSING' ? '已出票 · 明细待补齐' : label
+}
+function freshnessLabel(record: PlacementOrderRow) {
+  if (record.dataFreshnessStatus === 'MISSING' && record.outcomeSourceTable) return record.outcomeSourceTable.endsWith('.rt_order_monitor_feature') ? '出票状态来自采集快照' : '沿用上次结果，本轮源表缺单'
+  return record.dataFreshnessStatus === 'FRESH' ? '数据新鲜' : record.dataFreshnessStatus === 'STALE' ? '数据已延迟' : '等待同步'
+}
 const summaryCards = [
   { key: 'primaryOrderCount', label: '归属订单', note: '按订单主归属去重', tone: 'blue', format: number },
   { key: 'ticketCount', label: '命中票数', note: '匹配订单票数合计', tone: 'blue', format: number },
@@ -212,7 +222,7 @@ const summaryCards = [
   { key: 'estimatedProfit', label: '预估利润', note: '命中订单业务估算利润', tone: 'green', format: (value: unknown) => `${money(value)} 元` },
   { key: 'pendingCount', label: '待关注', note: '待处理及已升级订单', tone: 'orange', format: number },
   { key: 'activePolicyCount', label: '活跃政策', note: '期间内命中的政策数', tone: 'violet', format: number },
-  { key: 'waitingSyncCount', label: '等待同步', note: '尚未获取当前订单结果', tone: 'orange', format: number },
+  { key: 'waitingSyncCount', label: '明细待同步', note: '结果源缺单，含已出票兜底记录', tone: 'orange', format: number },
   { key: 'staleCount', label: '宽表延迟', note: '最后更新超过时效阈值', tone: 'red', format: number },
 ] as const
 const columns = [
@@ -235,19 +245,32 @@ function displayTime(value: unknown) { return value ? String(value).replace('T',
 function routeName(record?: PlacementOrderRow) { return [record?.departureCode, record?.arrivalCode].filter(Boolean).join('-') || '不限航程' }
 function profitClass(value: unknown) { return Number(value || 0) < 0 ? 'negative' : 'positive' }
 
-async function load(targetPage = page.value) {
+let lastQuery: Record<string, string | number> | undefined
+let loadVersion = 0
+async function load(targetPage = page.value, automatic = false) {
+  const params = automatic ? lastQuery : {
+    startDate: dateRange.value[0], endDate: dateRange.value[1],
+    ...filters.value, page: targetPage, pageSize: pageSize.value,
+  }
+  if (!params) return
+  if (!automatic) lastQuery = params
+  const version = ++loadVersion
   loading.value = true
   error.value = ''
   page.value = targetPage
   try {
-    data.value = await fetchPlacementOrders({
-      startDate: dateRange.value[0], endDate: dateRange.value[1],
-      ...filters.value, page: page.value, pageSize: pageSize.value,
-    })
+    const result = await fetchPlacementOrders(params)
+    if (version !== loadVersion) return
+    data.value = result
+    if (detailOpen.value && !attentionOpen.value && activeOrder.value) {
+      const current = data.value.rows.find(row => row.id === activeOrder.value?.id)
+      if (current) activeOrder.value = current
+    }
   } catch (failure) {
+    if (version !== loadVersion) return
     data.value = undefined
     error.value = failure instanceof Error ? failure.message : '收单情况查询失败'
-  } finally { loading.value = false }
+  } finally { if (version === loadVersion) loading.value = false }
 }
 function resetFilters() {
   dateRange.value = [`${today.slice(0, 7)}-01`, today]
@@ -279,7 +302,14 @@ async function saveAttention() {
   } finally { saving.value = false }
 }
 
-onMounted(() => { void load(1) })
+let refreshTimer: ReturnType<typeof setInterval> | undefined
+onMounted(() => {
+  void load(1)
+  refreshTimer = setInterval(() => {
+    if (!document.hidden && !loading.value && !attentionOpen.value && !saving.value) void load(page.value, true)
+  }, 300_000)
+})
+onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
 </script>
 
 <style scoped>
