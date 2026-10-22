@@ -6,7 +6,7 @@
 
 验证：原23项综合分析离线回归、7项本地容量/金额/跨批次重复/超限/繁忙/中断/预算检查通过。61天恰好100万行含244条coverage、999756条data，合计与日趋势对齐，本机合成计时14.956秒，不含真实MySQL/网络。验证脚本在.test-artifacts/test_comprehensive_capacity.py，仅本地忽略、不入Git。宽表明细回归因本机缺pytest未运行，本轮不改该模块；真实对账、峰值内存和多人并发由247验收，不查生产库。
 
-不改ETL、DDL、业务口径、权限或宽表导出；只需更新API，端口1818/5160不变。详细能力/回退见[综合分析契约](../business/air_ticketing/comprehensive-analysis-live.md)。提交、双端推送和发版群回执在本轮交付后补记，不把提交推送当部署。
+不改ETL、DDL、业务口径、权限或宽表导出；只需更新API，端口1818/5160不变。详细能力/回退见[综合分析契约](../business/air_ticketing/comprehensive-analysis-live.md)。代码提交668f034已推GitLab/GitHub main；2026-10-22 14:08（上海）复用原通知脚本发送一次发版群通知，申请人马远尔、不@，HTTP200且errcode=0。脱敏回执本地.test-artifacts/comprehensive-release-20261022，不入Git。此后文档补记不重复通知；247尚未由本轮部署，不把推送/接口接收当业务验收。
 
 ## 智能收单出票结果缺单兜底（2026-10-21）
 
