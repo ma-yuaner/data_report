@@ -25,6 +25,7 @@ class Config:
     MYSQL_CONNECT_TIMEOUT = int(os.getenv("MYSQL_CONNECT_TIMEOUT", "10"))
     MYSQL_READ_TIMEOUT = int(os.getenv("MYSQL_READ_TIMEOUT", "60"))
     MYSQL_WRITE_TIMEOUT = int(os.getenv("MYSQL_WRITE_TIMEOUT", "60"))
+    COMPREHENSIVE_MAX_ROWS = int(os.getenv('COMPREHENSIVE_MAX_ROWS', '1000000'))
     MYSQL_POOL_SIZE = int(os.getenv("MYSQL_POOL_SIZE", "12"))
     MYSQL_POOL_MIN_CACHED = int(os.getenv("MYSQL_POOL_MIN_CACHED", "2"))
     MYSQL_TIME_ZONE = os.getenv("MYSQL_TIME_ZONE", "+08:00")

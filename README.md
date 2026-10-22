@@ -105,7 +105,7 @@
 | 模块 | 当前数据源与边界 |
 |---|---|
 | 经营总览、基础利润分析、问题中心、数据资产 | 支持的查询跟随`DATA_MODE`，默认MySQL；兼容Hive人工切换，不静默补数，详见[切换说明](docs/business/air_ticketing/data-source-switch.md) |
-| 业务综合分析 | 固定MySQL ADS及配套业务宽表，详见[综合分析](docs/business/air_ticketing/comprehensive-analysis-live.md) |
+| 业务综合分析 | 固定MySQL ADS及配套业务宽表；ADS默认100万行上限、分批校验汇总，超限不截取冒充总额；真实长周期性能待部署验收，详见[综合分析](docs/business/air_ticketing/comprehensive-analysis-live.md) |
 | 风控专题、月度与订单查询 | 固定MySQL利润核对表；文件上传Worker另行写入Hive |
 | GDS/OTA资源总览 | 固定MySQL资源服务表；独立航线诊断固定Hive日汇总表 |
 | 智能分析与智能投放 | 固定MySQL；智能分析使用`bi_smart_issue_dimension_year`和`bi_smart_issue_detail_year`，详见[智能分析](docs/business/air_ticketing/smart-analysis-live.md) |
