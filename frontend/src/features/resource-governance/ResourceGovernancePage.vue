@@ -423,11 +423,11 @@
         <template #title>
           <div class="dimension-header">
             <div>
-              <strong>维度资源对比</strong
+              <strong>{{ applied.groupBy === 'combination' ? '四维组合超标观察榜' : '维度资源对比' }}</strong
               ><small>{{
                 applied.breachOnly
                   ? `仅显示超过治理目标的异常对象，共 ${integer(data?.breachObjectCount)} 项`
-                  : `默认按查询请求量降序，当前有 ${integer(data?.breachObjectCount)} 项超过治理目标`
+                  : `${applied.groupBy === 'combination' ? '默认按超额查询量降序；当前榜单' : '默认按查询请求量降序，当前'}有 ${integer(data?.breachObjectCount)} 项超过治理目标`
               }}</small>
             </div>
             <a-segmented
@@ -439,6 +439,14 @@
             />
           </div>
         </template>
+        <a-alert
+          v-if="applied.groupBy === 'combination'"
+          type="info"
+          show-icon
+          class="state-alert"
+          message="当前仅四维组合，不是航线榜；超标待人工核对，不代表应关闭。"
+          :description="`日数据截至${data?.period.endDate || applied.endDate}；${data?.dimension.truncated ? '结果超过500项，仅展示排序前500项，请缩小筛选范围。' : '最多展示500项，导出与当前查询榜单范围一致。'} 航线分母、预定归属和换配关联待补数据。`"
+        />
         <a-table
           :columns="dimensionColumns"
           :data-source="data?.dimension.rows || []"
@@ -449,11 +457,21 @@
             pageSizeOptions: ['20', '50', '100'],
             showTotal: (total: number) => `共 ${total} 项`,
           }"
-          :scroll="{ x: 1120 }"
+          :scroll="{ x: applied.groupBy === 'combination' ? 2050 : 1120 }"
           :locale="{ emptyText: '所选维度暂无数据' }"
         >
           <template #bodyCell="{ column, record }">
-            <template v-if="column.key === 'name'"
+            <template v-if="['gds', 'pcc', 'platform', 'site'].includes(column.key)">{{
+              record[column.key] || '未知编码'
+            }}</template>
+            <template v-else-if="column.key === 'quality'">{{
+              !record.preciseScope
+                ? '缺编码，不能精准定位'
+                : ['ready', 'denominator_zero'].includes(record.status)
+                  ? '同步标记正常，批次待核验'
+                  : '航段未完整同步'
+            }}</template>
+            <template v-else-if="column.key === 'name'"
               ><div class="resource-name">
                 <strong>{{ record.name }}</strong
                 ><small>{{ data?.dimension.label }}</small>
@@ -462,9 +480,10 @@
             <template v-else-if="column.key === 'ratio'"
               ><strong :class="ratioClass(record)">{{ ratioText(record) }}</strong></template
             >
-            <template v-else-if="column.key === 'target'">{{
-              record.targetRatio == null ? '未配置' : `${integer(record.targetRatio)} : 1`
-            }}</template>
+            <template v-else-if="column.key === 'target'"
+              >{{ record.targetRatio == null ? '未配置' : `${integer(record.targetRatio)} : 1`
+              }}<small v-if="record.targetSource" style="display: block">{{ record.targetSource }}</small></template
+            >
             <template v-else-if="column.key === 'search'">{{ integer(record.searchRequests) }}</template>
             <template v-else-if="column.key === 'searchSuccess'">{{ integer(record.searchSuccess) }}</template>
             <template v-else-if="column.key === 'segment'">{{ nullableCount(record.segmentCount) }}</template>
@@ -485,7 +504,13 @@
               ><a-tag :color="record.breach ? 'red' : 'default'">{{ breachText(record) }}</a-tag></template
             >
             <template v-else-if="column.key === 'action'"
-              ><a-button type="link" size="small" @click="openAnalysis(record)">分析此项</a-button></template
+              ><a-button
+                type="link"
+                size="small"
+                :disabled="applied.groupBy === 'combination' && !record.preciseScope"
+                @click="openAnalysis(record)"
+                >分析此项</a-button
+              ></template
             >
           </template>
         </a-table>

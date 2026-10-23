@@ -19,6 +19,16 @@ export const gdsDimensionColumns = [
   { title: '操作', key: 'action', fixed: 'right' as const, width: 100 },
 ]
 
+export const gdsCombinationColumns = [
+  { title: 'GDS', key: 'gds', fixed: 'left' as const, width: 90 },
+  { title: 'PCC', key: 'pcc', width: 140 },
+  { title: '平台编码', key: 'platform', width: 140 },
+  { title: '站点编码', key: 'site', width: 150 },
+  ...gdsDimensionColumns.slice(1, -1),
+  { title: '数据提示', key: 'quality', width: 200 },
+  gdsDimensionColumns[gdsDimensionColumns.length - 1],
+]
+
 export const otaDimensionColumns = [
   { title: '资源', key: 'name', fixed: 'left' as const, width: 170 },
   {

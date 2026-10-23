@@ -1,4 +1,5 @@
 export const gdsDimensions = [
+  { label: '四维组合排行', value: 'combination' },
   { label: 'GDS', value: 'gds' },
   { label: 'PCC', value: 'pcc' },
   { label: '平台', value: 'platform' },

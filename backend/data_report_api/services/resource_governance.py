@@ -14,6 +14,7 @@ from openpyxl.utils import get_column_letter
 
 from ..time_utils import business_now
 from .data_source import DataSource
+from . import gds_combinations
 
 
 REQUEST_TABLE_NAME = "bi_ota_gds_request_day"
@@ -33,8 +34,9 @@ DIMENSIONS = {
     "resourceChannel": {"field": "source_api_group", "label": "资源通道"},
     "pcc": {"field": "pcc_code", "label": "PCC"},
     "apiGroup": {"field": "source_api_group", "label": "接口分组"},
+    "combination": {"field": "", "label": "GDS / PCC / 平台 / 站点组合"},
 }
-FILTER_FIELDS = {key: value["field"] for key, value in DIMENSIONS.items()}
+FILTER_FIELDS = {key: value["field"] for key, value in DIMENSIONS.items() if value["field"]}
 METRIC_SELECT = """
 COUNT(1),
 SUM(search_request_count_all), SUM(search_request_success),
@@ -149,6 +151,9 @@ def _governance_workbook(result: dict[str, Any]) -> BinaryIO:
     _append_report_sheet(workbook, "日趋势", trend_headers, trend_rows)
 
     dimension_headers = [result["dimension"]["label"]]
+    combination = result['dimension']['key'] == 'combination'
+    if combination:
+        dimension_headers.extend(['GDS编码','PCC编码','平台编码','站点编码','阈值来源','编码完整'])
     if result.get("ratioApplicable"):
         dimension_headers.extend(["MP查询量", "航段数", "查定比", "治理目标", "超额查询量"])
     dimension_metric_columns = REPORT_COLUMNS[1:] if result.get("ratioApplicable") else REPORT_COLUMNS
@@ -157,6 +162,9 @@ def _governance_workbook(result: dict[str, Any]) -> BinaryIO:
     dimension_rows: list[list[Any]] = []
     for metric in result["dimension"].get("rows", []):
         row = [metric.get("name") or metric.get("value")]
+        if combination:
+            row.extend([*(metric.get(key) for key in ('gds','pcc','platform','site')),
+                        metric.get('targetSource'), '是' if metric.get('preciseScope') else '否'])
         if result.get("ratioApplicable"):
             ratio = "∞" if metric.get("ratioInfinite") else metric.get("queryToSegmentRatio")
             row.extend([
@@ -170,6 +178,17 @@ def _governance_workbook(result: dict[str, Any]) -> BinaryIO:
         ])
         dimension_rows.append(row)
     _append_report_sheet(workbook, "维度对比", dimension_headers, dimension_rows)
+    if combination:
+        for cells in workbook['维度对比'].iter_rows():
+            for cell in cells:
+                if isinstance(cell.value, str):
+                    cell.data_type = 's'
+        _append_report_sheet(workbook, '榜单范围与口径', ['项目', '说明'], [
+            ['范围', 'GDS＋PCC＋平台＋站点；不含航线'],
+            ['上限', '排序前500项，非全部组合' if result['dimension'].get('truncated') else '当前查询榜单，最多500项'],
+            ['数据更新时间', result.get('summary', {}).get('sourceUpdatedAt')],
+            *[['说明', note] for note in result.get('notes', [])],
+        ])
 
     if result["dataSource"]["key"] == "gds":
         channel_headers = [
@@ -403,6 +422,7 @@ class ResourceGovernanceService:
             config.get("RESOURCE_GOVERNANCE_GDS_TABLE"), DEFAULT_GDS_METRIC_TABLE
         )
         self.gds_targets = _parse_gds_targets(config.get("RESOURCE_GOVERNANCE_GDS_TARGETS", "1A:4000"))
+        self.combination_targets = gds_combinations.parse_targets(config.get("RESOURCE_GOVERNANCE_COMBINATION_TARGETS", "[]"))
         self.ota_targets = _parse_ota_targets(config.get("RESOURCE_GOVERNANCE_OTA_SUCCESS_TARGETS", "{}"))
 
     @staticmethod
@@ -648,7 +668,26 @@ class ResourceGovernanceService:
             iso_dates=True,
         )
         dimension_rows = []
-        if dimension_key == "resourceChannel":
+        if dimension_key == "combination":
+            aliases = ('row_count','searches','search_success','verify_requests','verify_success',
+                       'order_requests','order_success','segments','missing_rows','search_cache',
+                       'verify_cache','order_cache','search_time','verify_time','order_time',
+                       'search_price','verify_price','order_price')
+            expressions = [part.strip() for part in dimension_select.split(',')]
+            aliased = ', '.join(f'{expr} AS {alias}' for expr, alias in zip(expressions, aliases))
+            dimension_rows, truncated = gds_combinations.ranking(
+                cursor, table, dimension_where, dimension_params, self.gds_targets,
+                self.combination_targets, {'aliased': aliased, 'build': _metric}, breach_only,
+            )
+            result['dimension'].update(limit=500, truncated=truncated, order='excessQueryCount',
+                                      rankingScope='四维组合，不含航线')
+            result['notes'].extend([
+                '组合榜按生效阈值计算超额查询后排序，最多展示500项；仅当前榜单，不代表全部组合。',
+                '组合专属阈值优先于GDS默认；不同GDS不共用目标，阈值不等于外部合同标准。',
+                '当前为昨日及以前日数据；同步标记不能替代全批次完整性证明。',
+                '预定/航线航段及换配关联待补数据；超标仅供人工核对，不自动关闭配置。',
+            ])
+        elif dimension_key == "resourceChannel":
             dimension_rows = [dict(row) for row in result["resourceChannels"]]
         else:
             dimension = DIMENSIONS[dimension_key]
@@ -663,7 +702,7 @@ class ResourceGovernanceService:
                 value = str(row[0])
                 row_target = (
                     self.gds_targets.get(value.upper())
-                    if dimension_ratio_applicable and dimension_key == "gds"
+                    if dimension_ratio_applicable and dimension_key == "gds" and not all(cleaned_filters[k] for k in gds_combinations.KEYS)
                     else selected_target if dimension_ratio_applicable else None
                 )
                 dimension_rows.append(
@@ -830,11 +869,15 @@ class ResourceGovernanceService:
         dimension_key = str(group_by or default_group).strip()
         if dimension_key not in DIMENSIONS:
             raise ValueError("不支持的分析维度")
+        if dimension_key == 'combination' and source_key != 'gds':
+            raise ValueError('四维组合榜仅用于GDS资源层')
         if source_key == "ota" and dimension_key in {"gds", "pcc", "resourceChannel"}:
             dimension_key = "platform"
         cleaned_filters = {
             key: _clean_filter((filters or {}).get(key)) for key in FILTER_FIELDS
         }
+        if dimension_key == 'combination' and (cleaned_filters['apiGroup'] or cleaned_filters['resourceChannel'] == GDS_CHANNEL_MPIS):
+            raise ValueError('组合查定比仅支持MP总体，请清除具体接口组及MPIS筛选')
         if cleaned_filters["resourceChannel"] and cleaned_filters["resourceChannel"] not in {
             GDS_CHANNEL_MP, GDS_CHANNEL_MPIS
         }:
@@ -847,6 +890,9 @@ class ResourceGovernanceService:
             and cleaned_filters["resourceChannel"] != GDS_CHANNEL_MPIS
         )
         selected_target = self.gds_targets.get(cleaned_filters["gds"].upper()) if source_key == "gds" and cleaned_filters["gds"] else None
+        combination_key = tuple(cleaned_filters[k].upper() for k in gds_combinations.KEYS)
+        if source_key == 'gds' and all(combination_key):
+            selected_target = self.combination_targets.get(combination_key, selected_target)
         selected_success_targets = self.ota_targets.get(cleaned_filters["platform"], {}) if source_key == "ota" and cleaned_filters["platform"] else {}
 
         result = {

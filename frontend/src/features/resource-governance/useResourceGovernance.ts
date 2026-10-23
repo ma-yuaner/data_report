@@ -10,7 +10,7 @@ import {
   type GovernanceMetric,
   type GovernanceScope,
 } from './api'
-import { gdsDimensionColumns, otaDimensionColumns, interfaceDimensionColumns } from './columns'
+import { gdsDimensionColumns, gdsCombinationColumns, otaDimensionColumns, interfaceDimensionColumns } from './columns'
 import { integer, hasOtaTarget } from './formatters'
 import { gdsDimensions, otaDimensions } from './dimensions'
 import { useGovernanceAnalysis } from './useGovernanceAnalysis'
@@ -30,7 +30,7 @@ export function useResourceGovernance() {
     startDate: monthStart,
     endDate: reportingCutoff,
     dataSource: layer,
-    groupBy: layer === 'gds' ? 'gds' : 'platform',
+    groupBy: layer === 'gds' ? 'combination' : 'platform',
     platform: '',
     site: '',
     gds: '',
@@ -145,7 +145,13 @@ export function useResourceGovernance() {
   const { funnel, trendOption } = useGovernanceCharts(data, isGdsRatioScope)
 
   const dimensionColumns = computed(() =>
-    isGdsRatioScope.value ? gdsDimensionColumns : isGds.value ? interfaceDimensionColumns : otaDimensionColumns,
+    isGdsRatioScope.value
+      ? applied.value.groupBy === 'combination'
+        ? gdsCombinationColumns
+        : gdsDimensionColumns
+      : isGds.value
+        ? interfaceDimensionColumns
+        : otaDimensionColumns,
   )
 
   function applyPreset(value: string | number) {
@@ -180,6 +186,10 @@ export function useResourceGovernance() {
   }
   function applyFilters() {
     draft.value.groupBy = draftGroup.value
+    if (draft.value.groupBy === 'combination' && (draft.value.apiGroup || draft.value.resourceChannel === 'MPIS')) {
+      draft.value.groupBy = 'gds'
+      draftGroup.value = 'gds'
+    }
     void load({ ...draft.value })
   }
   async function exportReport() {
@@ -195,6 +205,10 @@ export function useResourceGovernance() {
   }
   function changeDimension(value: string | number) {
     draft.value.groupBy = String(value) as GovernanceDimension
+    if (draft.value.groupBy === 'combination') {
+      draft.value.apiGroup = ''
+      draft.value.resourceChannel = 'MP'
+    }
     void load({ ...draft.value })
   }
   async function load(scope: GovernanceScope) {

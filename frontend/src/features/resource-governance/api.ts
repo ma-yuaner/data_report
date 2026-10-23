@@ -1,7 +1,7 @@
 import { http, type ApiEnvelope } from '@/api/http'
 
 export type GovernanceLayer = 'ota' | 'gds'
-export type GovernanceDimension = 'platform' | 'site' | 'gds' | 'resourceChannel' | 'pcc' | 'apiGroup'
+export type GovernanceDimension = 'platform' | 'site' | 'gds' | 'resourceChannel' | 'pcc' | 'apiGroup' | 'combination'
 
 export interface GovernanceScope {
   startDate: string
@@ -15,6 +15,7 @@ export interface GovernanceScope {
   pcc: string
   apiGroup: string
   breachOnly?: boolean
+  combination?: string
 }
 
 export interface GovernanceMetric {
@@ -61,6 +62,12 @@ export interface GovernanceMetric {
   breach: boolean
   breachReasons: string[]
   sourceUpdatedAt?: string | null
+  gds?: string
+  pcc?: string
+  platform?: string
+  site?: string
+  targetSource?: string
+  preciseScope?: boolean
 }
 
 export interface GovernanceChannelMetric extends GovernanceMetric {
@@ -102,6 +109,9 @@ export interface GovernanceData {
     key: GovernanceDimension
     label: string
     rows: Array<{ value: string; name: string } & GovernanceMetric>
+    limit?: number
+    truncated?: boolean
+    rankingScope?: string
   }
   notes: string[]
 }
