@@ -26,6 +26,12 @@ class Config:
     MYSQL_READ_TIMEOUT = int(os.getenv("MYSQL_READ_TIMEOUT", "60"))
     MYSQL_WRITE_TIMEOUT = int(os.getenv("MYSQL_WRITE_TIMEOUT", "60"))
     COMPREHENSIVE_MAX_ROWS = int(os.getenv('COMPREHENSIVE_MAX_ROWS', '1000000'))
+    COMPREHENSIVE_EXPORT_ROOT = os.getenv(
+        "COMPREHENSIVE_EXPORT_ROOT", "/app/var/comprehensive-exports"
+    )
+    COMPREHENSIVE_EXPORT_RETENTION_HOURS = int(
+        os.getenv("COMPREHENSIVE_EXPORT_RETENTION_HOURS", "24")
+    )
     MYSQL_POOL_SIZE = int(os.getenv("MYSQL_POOL_SIZE", "12"))
     MYSQL_POOL_MIN_CACHED = int(os.getenv("MYSQL_POOL_MIN_CACHED", "2"))
     MYSQL_TIME_ZONE = os.getenv("MYSQL_TIME_ZONE", "+08:00")
@@ -168,5 +174,6 @@ class TestConfig(Config):
     HIVE_USER = ""
     RISK_UPLOAD_ENABLED = False
     RISK_UPLOAD_ROOT = "/tmp/data-report-risk-upload-tests"
+    COMPREHENSIVE_EXPORT_ROOT = "/tmp/data-report-comprehensive-export-tests"
     AUTH_ENABLED = False
     AUTH_COOKIE_SECURE = False

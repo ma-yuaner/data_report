@@ -139,7 +139,7 @@
 
           <template v-else>
             <a-alert class="workspace-alert" type="info" show-icon :message="detailData?.source || 'MySQL宽表明细'" description="仅展示源表真实存在的字段；关键信息靠前，业务备注置后。" />
-            <div class="drawer-scope detail-scope"><div><span>业务日期</span><strong>{{ detailDate }}</strong><p>{{ detailScopeText }}</p></div><label><span>查看宽表</span><a-select v-model:value="detailBusiness" :options="businessOptions" :disabled="detailLoading" @change="changeDetailBusiness" /></label></div>
+            <div class="drawer-scope detail-scope"><div><span>业务日期</span><strong>{{ detailDate }}</strong><p>{{ detailScopeText }}</p></div><div class="detail-actions"><label><span>查看宽表</span><a-select v-model:value="detailBusiness" :options="businessOptions" :disabled="detailLoading" @change="changeDetailBusiness" /></label><a-button v-if="canExport" type="primary" :loading="exportCreating" :disabled="detailLoading || !detailData?.available || !detailData.total" @click="requestExport"><DownloadOutlined />导出全部 {{ count(detailData?.total || 0) }} 条</a-button></div></div>
             <a-alert v-if="detailError" class="range-error" type="error" :message="detailError" show-icon />
             <a-table class="wide-detail-table" size="small" :loading="detailLoading" :columns="detailColumns" :data-source="detailData?.rows || []" row-key="recordKey"
               :pagination="detailPagination" :sticky="detailSticky"
@@ -159,13 +159,19 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { DatePicker as ADatePicker, Drawer as ADrawer, Empty as AEmpty } from 'ant-design-vue'
+import { DatePicker as ADatePicker, Drawer as ADrawer, Empty as AEmpty, Modal, message } from 'ant-design-vue'
 import dateLocale from 'ant-design-vue/es/date-picker/locale/zh_CN'
-import { ArrowLeftOutlined, ArrowRightOutlined, InfoCircleOutlined, SearchOutlined, UndoOutlined } from '@ant-design/icons-vue'
+import { ArrowLeftOutlined, ArrowRightOutlined, DownloadOutlined, InfoCircleOutlined, SearchOutlined, UndoOutlined } from '@ant-design/icons-vue'
 import type { EChartsCoreOption } from 'echarts/core'
 import PageHeader from '@/components/PageHeader.vue'
 import BaseChart from '@/components/BaseChart.vue'
 import { fetchComprehensive, fetchComprehensiveDiagnosis, fetchComprehensiveDetails, type BusinessKey, type ComparisonSortKey, type ComprehensiveData, type ComprehensiveDiagnosisData, type ComprehensiveDetailData, type ComprehensiveDetailRow, type ComprehensiveDetailValueType, type DimensionKey, type DimensionRow, type FilterScope } from '@/api/comprehensive'
+import { useAuthStore } from '@/stores/auth'
+import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
+
+const authStore = useAuthStore()
+const exportStore = useComprehensiveExportStore()
+const canExport = computed(() => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.permissions?.includes('analysis.comprehensive.export')))
 
 const businesses: { key: BusinessKey; label: string; countLabel: string; color: string }[] = [
   { key: 'issue', label: '出票', countLabel: '出票数', color: '#397cf6' },
@@ -442,6 +448,7 @@ const detailPage = ref(1)
 const detailPageSize = ref(50)
 const detailFilterScope = ref<FilterScope>(todayScope())
 const detailScopeText = ref('全部范围')
+const exportCreating = ref(false)
 const detailPagination = computed(() => ({ current: detailPage.value, pageSize: detailPageSize.value, total: detailData.value?.total || 0, showSizeChanger: true, pageSizeOptions: ['20', '50', '100'], showTotal: (total: number) => `共 ${count(total)} 条` }))
 let detailRequestId = 0
 const detailColumns = computed(() => (detailData.value?.columns || []).map((column, index) => ({
@@ -496,6 +503,29 @@ function changeDetailPage(pagination: { current?: number; pageSize?: number }) {
   detailPage.value = nextSize === detailPageSize.value ? pagination.current || 1 : 1
   detailPageSize.value = nextSize
   void loadWideDetail()
+}
+async function createDetailExport() {
+  exportCreating.value = true
+  try {
+    const scope = { ...detailFilterScope.value, preset: 'custom', startDate: detailDate.value, endDate: detailDate.value }
+    const task = await exportStore.create(scope, detailBusiness.value)
+    message.success(task.reused ? '相同条件的任务正在进行，已打开任务进度' : '导出任务已创建')
+  } catch (failure) {
+    message.error(failure instanceof Error ? failure.message : '导出任务创建失败')
+  } finally { exportCreating.value = false }
+}
+function requestExport() {
+  const total = detailData.value?.total || 0
+  if (total > 500_000) { message.error('当前数据超过 500,000 条，请缩小筛选范围后再导出'); return }
+  if (total > 300_000) {
+    Modal.confirm({
+      title: `确认导出 ${count(total)} 条数据？`,
+      content: '数据量较大，任务将在后台执行；切换页面不会中断，可随时在“导出任务”中取消。',
+      okText: '继续导出', cancelText: '返回', onOk: createDetailExport,
+    })
+    return
+  }
+  void createDetailExport()
 }
 onMounted(() => { void load({ ...draft.value }) })
 </script>
@@ -588,6 +618,7 @@ onMounted(() => { void load({ ...draft.value }) })
 .detail-scope > div { min-width: 0; }
 .detail-scope > div > span, .daily-scope span { display: block; margin-bottom: 5px; color: #98a4b5; font-size: 10px; }
 .detail-scope label { flex: none; display: flex; align-items: center; gap: 8px; color: #64728a; font-size: 12px; }
+.detail-actions { display: flex; align-items: center; gap: 10px; }
 .detail-scope :deep(.ant-select) { width: 132px; }
 .daily-scope, .detail-scope { padding: 14px 16px; border: 1px solid #e3e9f1; border-radius: 11px; background: #fff; box-shadow: 0 5px 18px rgb(41 61 91 / 4%); }
 .daily-scope { display: flex; align-items: center; justify-content: space-between; gap: 18px; }

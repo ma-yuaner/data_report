@@ -105,7 +105,7 @@
 | 模块 | 当前数据源与边界 |
 |---|---|
 | 经营总览、基础利润分析、问题中心、数据资产 | 支持的查询跟随`DATA_MODE`，默认MySQL；兼容Hive人工切换，不静默补数，详见[切换说明](docs/business/air_ticketing/data-source-switch.md) |
-| 业务综合分析 | 固定MySQL ADS及配套业务宽表；ADS默认100万行上限、分批校验汇总，超限不截取冒充总额；真实长周期性能待部署验收，详见[综合分析](docs/business/air_ticketing/comprehensive-analysis-live.md) |
+| 业务综合分析 | 固定MySQL ADS及配套业务宽表；ADS默认100万行上限、分批校验汇总；宽表支持50万条以内后台导出、全局进度与取消；真实长周期和大文件性能待部署验收，详见[综合分析](docs/business/air_ticketing/comprehensive-analysis-live.md) |
 | 风控专题、月度与订单查询 | 固定MySQL利润核对表；文件上传Worker另行写入Hive |
 | GDS/OTA资源总览 | 固定MySQL资源服务表；独立航线诊断固定Hive日汇总表 |
 | 智能分析与智能投放 | 固定MySQL；智能分析使用`bi_smart_issue_dimension_year`和`bi_smart_issue_detail_year`，详见[智能分析](docs/business/air_ticketing/smart-analysis-live.md) |
@@ -161,14 +161,14 @@ docker compose up -d --build
 API统一前缀为`/api`。认证与账号管理使用`/api/auth/*`、`/api/admin/*`；业务接口主要使用`/api/v1/*`。登录后使用会话Cookie，非安全方法需携带CSRF头；JSON通常返回`success/message/data`，导出接口返回文件。具体权限、参数与错误见[完整接口目录](docs/api/README.md)及对应源码。
 
 <!-- BEGIN:API_SUMMARY -->
-当前静态登记 **115个HTTP方法/路径条目**（含认证与管理接口，不重复列自动HEAD/OPTIONS）。
+当前静态登记 **119个HTTP方法/路径条目**（含认证与管理接口，不重复列自动HEAD/OPTIONS）。
 
 | 接口领域 | 条目数 | 完整清单 |
 |---|---:|---|
 | 账号认证与权限管理 | 24 | [auth](docs/api/README.md#auth) |
 | 基础信息、资产与兼容入口 | 5 | [core](docs/api/README.md#core) |
 | 经营总览与利润核对 | 3 | [dashboard](docs/api/README.md#dashboard) |
-| 业务、风控分析与问题中心 | 9 | [analysis](docs/api/README.md#analysis) |
+| 业务、风控分析与问题中心 | 13 | [analysis](docs/api/README.md#analysis) |
 | GDS/OTA资源治理与航线诊断 | 5 | [resource_governance](docs/api/README.md#resource_governance) |
 | 智能分析、导出与视图模板 | 13 | [smart_analysis](docs/api/README.md#smart_analysis) |
 | 智能投放与收单 | 17 | [smart_placement](docs/api/README.md#smart_placement) |

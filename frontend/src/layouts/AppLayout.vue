@@ -123,6 +123,9 @@
         </div>
         <div class="header-actions">
           <a-tag color="blue">{{ headerTag }}</a-tag>
+          <a-badge v-if="canExport" :count="exportStore.activeCount" :show-zero="false" size="small">
+            <a-button type="text" class="export-entry" @click="exportStore.drawerOpen = true"><DownloadOutlined />导出任务</a-button>
+          </a-badge>
           <a-dropdown placement="bottomRight">
             <div class="user-entry">
               <a-avatar size="small">{{ userInitial }}</a-avatar>
@@ -142,24 +145,28 @@
 
       <a-layout-content class="app-content"><router-view /></a-layout-content>
     </a-layout>
+    <ComprehensiveExportDrawer v-if="canExport" />
     <div v-if="loggingOut" class="logout-mask"><a-spin size="large" tip="正在安全退出..." /></div>
   </a-layout>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   BarChartOutlined, ControlOutlined, CustomerServiceOutlined, DashboardOutlined, DatabaseOutlined, DeploymentUnitOutlined, HomeOutlined, LineChartOutlined,
-  LockOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, MonitorOutlined, RobotOutlined,
+  DownloadOutlined, LockOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, MonitorOutlined, RobotOutlined,
   RadarChartOutlined, SafetyCertificateOutlined, TeamOutlined, WarningOutlined,
 } from '@ant-design/icons-vue'
 import type { MenuProps } from 'ant-design-vue'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
+import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
+import ComprehensiveExportDrawer from '@/components/ComprehensiveExportDrawer.vue'
 
 const appStore = useAppStore()
 const authStore = useAuthStore()
+const exportStore = useComprehensiveExportStore()
 const route = useRoute()
 const router = useRouter()
 const loggingOut = ref(false)
@@ -169,6 +176,9 @@ const headerTag = computed(() => route.path === '/home' ? '数据工作台' : ro
 const canSeeMenu = (code: string) => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.menuCodes?.includes(code))
 const canSeeGroup = (code: string) => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.menuCodes?.some(item => item === code || item.startsWith(`${code}.`)))
 const canViewMonitorActions = computed(() => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.permissions?.includes('monitor.action.view')))
+const canExport = computed(() => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.permissions?.includes('analysis.comprehensive.export')))
+watch(canExport, allowed => { if (allowed) exportStore.startPolling(); else exportStore.stopPolling() }, { immediate: true })
+onBeforeUnmount(() => exportStore.stopPolling())
 const openKeys = ref<string[]>([])
 watch(() => route.path, path => {
   openKeys.value = path.startsWith('/analysis') ? ['analysis']

@@ -21,6 +21,8 @@ services:
       MYSQL_WRITE_TIMEOUT: ${MYSQL_WRITE_TIMEOUT:-60}
       MYSQL_POOL_SIZE: ${MYSQL_POOL_SIZE:-12}
       COMPREHENSIVE_MAX_ROWS: ${COMPREHENSIVE_MAX_ROWS:-1000000}
+      COMPREHENSIVE_EXPORT_ROOT: /app/var/comprehensive-exports
+      COMPREHENSIVE_EXPORT_RETENTION_HOURS: ${COMPREHENSIVE_EXPORT_RETENTION_HOURS:-24}
       MYSQL_POOL_MIN_CACHED: ${MYSQL_POOL_MIN_CACHED:-2}
       MYSQL_TIME_ZONE: ${MYSQL_TIME_ZONE:-+08:00}
       ERP_MYSQL_HOST: ${ERP_MYSQL_HOST:-}
@@ -92,6 +94,7 @@ services:
       - "${API_PORT:-5160}:5160"
     volumes:
       - risk_upload_data:/app/var/risk-uploads
+      - comprehensive_export_data:/app/var/comprehensive-exports
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5160/api/health', timeout=3)"]
@@ -194,3 +197,4 @@ services:
 
 volumes:
   risk_upload_data:
+  comprehensive_export_data:

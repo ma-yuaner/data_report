@@ -22,7 +22,7 @@
 | [上传说明](../business/air_ticketing/risk-data-upload.md) / [行为监控](../product/user-behavior-monitoring-v1.md) | 上传队列和行为采集 |
 
 <!-- BEGIN:API_ROUTES -->
-共 **115个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
+共 **119个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
 
 <a id="auth"></a>
 
@@ -87,6 +87,10 @@
 | `GET` | `/api/v1/analysis/comprehensive` | [comprehensive_analysis](../../backend/data_report_api/api/analysis.py) |
 | `GET` | `/api/v1/analysis/comprehensive/details` | [comprehensive_details](../../backend/data_report_api/api/analysis.py) |
 | `GET` | `/api/v1/analysis/comprehensive/diagnosis` | [comprehensive_diagnosis](../../backend/data_report_api/api/analysis.py) |
+| `GET` | `/api/v1/analysis/comprehensive/exports` | [comprehensive_export_list](../../backend/data_report_api/api/analysis.py) |
+| `POST` | `/api/v1/analysis/comprehensive/exports` | [comprehensive_export_create](../../backend/data_report_api/api/analysis.py) |
+| `POST` | `/api/v1/analysis/comprehensive/exports/<task_id>/cancel` | [comprehensive_export_cancel](../../backend/data_report_api/api/analysis.py) |
+| `GET` | `/api/v1/analysis/comprehensive/exports/<task_id>/download` | [comprehensive_export_download](../../backend/data_report_api/api/analysis.py) |
 | `GET` | `/api/v1/analysis/issue-profit` | [issue_profit_analysis](../../backend/data_report_api/api/analysis.py) |
 | `GET` | `/api/v1/analysis/risk-business/<business_type>` | [risk_business_analysis](../../backend/data_report_api/api/analysis.py) |
 | `GET` | `/api/v1/analysis/risk-daily` | [risk_daily_analysis](../../backend/data_report_api/api/analysis.py) |
