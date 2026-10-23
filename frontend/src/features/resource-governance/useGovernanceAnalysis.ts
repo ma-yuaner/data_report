@@ -9,6 +9,7 @@ import {
   type GovernanceLayer,
   type GdsRouteAnalysisData,
   type GdsRouteMetricRow,
+  type GovernanceMetric,
 } from './api'
 import {
   gdsDimensionColumns,
@@ -123,9 +124,19 @@ export function useGovernanceAnalysis(applied: Ref<GovernanceScope>, data: Ref<G
     analysisView.value = String(value) as AnalysisView
     if (analysisView.value === 'route') await loadAnalysisRouteData()
   }
-  async function openAnalysis(record: { value: string; name: string }) {
+  async function openAnalysis(record: { value: string; name: string } & Partial<GovernanceMetric>) {
     const dimension = applied.value.groupBy
-    const scope = { ...applied.value, [dimension]: record.value }
+    if (dimension === 'combination' && !record.preciseScope) return
+    const scope =
+      dimension === 'combination'
+        ? {
+            ...applied.value,
+            gds: record.gds || '',
+            pcc: record.pcc || '',
+            platform: record.platform || '',
+            site: record.site || '',
+          }
+        : { ...applied.value, [dimension]: record.value }
     scope.groupBy = nextAnalysisGroup(scope, dimension) || dimension
     drawerTitle.value = `${record.name} · ${data.value?.dimension.label || '资源'}分析`
     drawerOpen.value = true
