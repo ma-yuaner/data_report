@@ -674,7 +674,7 @@
             type="info"
             show-icon
             message="已把当前分析条件带入Hive航线数据"
-            description="航线数据直接读取lywz.dws_gds_airroute_day；保留日期、GDS、PCC、平台、站点、资源通道和接口分组。"
+            description="三阶段按出发城市＋到达城市及四维编码横向汇总，不使用原航线或机场字段；城市缺失单列，不能据此认定其他阶段为真实零。日期、资源通道和接口组条件保留。"
           />
           <a-alert
             v-if="analysisRouteError"

@@ -90,7 +90,7 @@
           <label><span>资源通道</span><a-select v-model:value="filters.resourceChannel" allow-clear placeholder="全部通道" :options="resourceChannelOptions" @change="changeResourceChannel" /></label>
           <label><span>接口分组</span><a-select v-model:value="filters.apiGroup" allow-clear placeholder="全部接口组" :options="apiGroupOptions" /></label>
           <label><span>航线</span><a-input v-model:value="filters.route" allow-clear placeholder="例如 HKG-ICN" /></label>
-          <label><span>航线/机场/城市/航司</span><a-input v-model:value="filters.keyword" allow-clear placeholder="例如 HKG-ICN / 7C" /></label>
+          <label><span>出发城市 / 到达城市</span><a-input v-model:value="filters.keyword" allow-clear placeholder="例如 ABJ-SHA / SHA" /></label>
           <template #actions><a-button type="primary" :loading="routeLoading" @click="loadRouteAnalysis"><ReloadOutlined />查询 / 刷新</a-button></template>
         </FilterPanel>
 

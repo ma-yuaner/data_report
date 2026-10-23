@@ -20,7 +20,7 @@ class GdsRouteAnalysisUnavailable(RuntimeError):
 
 REQUIRED_COLUMNS = {
     "operator_date", "data_source", "api_method", "source_api_group",
-    "gds_code", "pcc_code", "airroute_code", "dep_airport", "arr_airport",
+    "gds_code", "pcc_code",
     "dep_city", "arr_city", "ota_code", "ota_site_code", "poi_code",
     "poi_list", "api_request_count_all", "api_request_success",
     "api_request_error", "api_execute_time", "api_result_success",
@@ -33,6 +33,18 @@ DIMENSION_COLUMNS = (
     "airroute_code", "dep_city", "arr_city", "dep_airport", "arr_airport",
     "ota_code", "ota_site_code", "gds_code", "pcc_code",
 )
+CITY_EXPRESSIONS = tuple(
+    f"CASE WHEN upper(trim(coalesce({field}, ''))) IN ('', 'NULL') THEN NULL ELSE upper(trim({field})) END"
+    for field in ("dep_city", "arr_city")
+)
+CITY_ROUTE_SQL = f"concat(coalesce({CITY_EXPRESSIONS[0]}, '未知'), '-', coalesce({CITY_EXPRESSIONS[1]}, '未知'))"
+CITY_GROUP_SQL = ", ".join((*CITY_EXPRESSIONS, *(f"trim({field})" for field in DIMENSION_COLUMNS[5:])))
+CITY_SELECT_SQL = ", ".join((
+    f"{CITY_ROUTE_SQL} AS airroute_code",
+    f"{CITY_EXPRESSIONS[0]} AS dep_city", f"{CITY_EXPRESSIONS[1]} AS arr_city",
+    "CAST(NULL AS STRING) AS dep_airport", "CAST(NULL AS STRING) AS arr_airport",
+    *(f"trim({field}) AS {field}" for field in DIMENSION_COLUMNS[5:]),
+))
 
 
 def _identifier(value: Any, default: str) -> str:
@@ -213,10 +225,10 @@ class GdsRouteAnalysisService:
             summary_row = cursor.fetchone()
             summary = _metric(summary_row or [0] * 27)
 
-            dimensions = ", ".join(DIMENSION_COLUMNS)
+            dimensions = CITY_GROUP_SQL
             check()
             cursor.execute(
-                f"SELECT {dimensions}, {METRIC_SQL} FROM {self.table} WHERE {where_sql} "
+                f"SELECT {CITY_SELECT_SQL}, {METRIC_SQL} FROM {self.table} WHERE {where_sql} "
                 f"GROUP BY {dimensions} ORDER BY sum(case when {SEARCH_METHOD_CONDITION} "
                 f"then api_request_count_all else 0 end) DESC, {dimensions} LIMIT {limit + 1}",
                 tuple(params),
@@ -247,6 +259,7 @@ class GdsRouteAnalysisService:
                     "查询、验价、生单分别按api_method=search、verify、orderCreate统计。",
                     "查询日志不写实际航司，首版不使用poi_code拆分查询量。",
                     "本表没有出票航段分母，航线页不计算查定比，避免产生错误结论。",
+                    "三阶段按四维编码＋出发城市＋到达城市汇总；不使用原航线或机场字段关联。城市缺失单列，不能据此认定其他阶段为真实零。",
                 ],
             }
         except ValueError:
@@ -277,7 +290,7 @@ class GdsRouteAnalysisService:
             progress(0, total)
         columns = [
             ("GDS", "gdsCode"), ("PCC", "pccCode"), ("平台", "platform"), ("站点", "site"),
-            ("有方向航线", "route"), ("出发机场", "depAirport"), ("到达机场", "arrAirport"),
+            ("城市航线（有方向）", "route"), ("城市完整性", "cityStatus"),
             ("出发城市", "depCity"), ("到达城市", "arrCity"),
             ("查询请求量", "searchRequests"), ("查询成功量", "searchSuccess"), ("查询失败量", "searchFailure"),
             ("查询成功率(%)", "searchSuccessRate"), ("查询结果成功率(%)", "searchResultSuccessRate"),
@@ -308,7 +321,7 @@ class GdsRouteAnalysisService:
                 if progress:
                     progress(index, total)
             append(sheet, [row.get(key) for _, key in columns])
-        sheet.auto_filter.ref = f"A1:Z{len(result['rows']) + 1}"
+        sheet.auto_filter.ref = f"A1:{get_column_letter(len(columns))}{len(result['rows']) + 1}"
         scope = workbook.create_sheet("统计范围")
         scope.column_dimensions["A"].width = 24
         scope.column_dimensions["B"].width = 100
@@ -319,7 +332,7 @@ class GdsRouteAnalysisService:
             ["最近源数据时间", result["summary"].get("sourceUpdatedAt")], ["名单条数", len(result["rows"])],
             ["导出上限", self.export_limit], ["范围说明", "按筛选重新查询全部匹配组合，不限当前分页；超限拒绝导出"],
             ["完整性提示", "最近源数据时间不代表全批次完整；日汇总同步覆盖仍需核实"],
-            ["口径说明", "按方向航线及四维聚合；各阶段请求不是同一批订单的转化漏斗；不含航段、查定比或关闭建议"],
+            ["口径说明", "按出发城市＋到达城市及四维聚合；忽略原航线/机场。城市缺失单列，不能据此认定其他阶段真实零；各阶段不是同批订单转化漏斗；不含航段或关闭建议"],
             *[[key, value] for key, value in result["filters"].items() if value],
         ]:
             append(scope, row)
@@ -380,27 +393,27 @@ class GdsRouteAnalysisService:
         clauses = [
             "dt >= %s", "dt <= %s",
             "(trim(data_source) = '1' or upper(trim(data_source)) = 'GDS')",
-            "coalesce(trim(airroute_code), '') <> ''",
         ]
         params: list[Any] = [start_date.strftime("%Y%m%d"), end_date.strftime("%Y%m%d")]
         mappings = {
             "platform": "ota_code", "site": "ota_site_code", "gds": "gds_code",
-            "pcc": "pcc_code", "apiGroup": "source_api_group", "route": "airroute_code",
+            "pcc": "pcc_code", "apiGroup": "source_api_group",
         }
         for key, field in mappings.items():
             value = filters.get(key, "")
             if value:
                 clauses.append(f"trim({field}) = %s")
                 params.append(value)
+        if filters.get("route"):
+            clauses.append(f"{CITY_ROUTE_SQL} = %s")
+            params.append(filters["route"].upper())
         resource_channel = filters.get("resourceChannel", "").upper()
         if resource_channel:
             clauses.append(_resource_channel_expression(resource_channel))
         keyword = filters.get("keyword", "").upper()
         if keyword:
             clauses.append(
-                "upper(concat_ws('|', coalesce(airroute_code,''), coalesce(dep_airport,''), "
-                "coalesce(arr_airport,''), coalesce(dep_city,''), coalesce(arr_city,''), "
-                "coalesce(poi_code,''), coalesce(poi_list,''))) like %s"
+                f"upper({CITY_ROUTE_SQL}) like %s"
             )
             params.append(f"%{keyword}%")
         return " AND ".join(clauses), params
@@ -473,4 +486,5 @@ class GdsRouteAnalysisService:
             "gdsCode": payload.pop("gds_code"),
             "pccCode": payload.pop("pcc_code"),
         })
+        payload['cityStatus'] = '完整' if payload['depCity'] and payload['arrCity'] else '城市缺失，阶段不可直接对比'
         return payload
