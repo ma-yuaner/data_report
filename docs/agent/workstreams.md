@@ -2,6 +2,8 @@
 
 ## 综合分析供应商与最终出票GDS筛选（2026-10-23，代码完成待升级数据）
 
+交付回执：业务代码data_report `abc4cb7`已推GitLab/GitHub，ETL `beba0f6`已推其GitLab。马远尔申请的一次合并发版通知于2026-10-23 16:09（Asia/Shanghai）发送，HTTP200/errcode=0，仅证明群接口接收；脱敏回执在ETL忽略目录.codex_tmp/qa-notify-receipts，task_id=comprehensive-supplier-gds-20261023-abc4cb7。通知明确仅代码/SQL交付，生产字段、ETL、全量同步与247部署仍由用户执行；本条文档补记不再次通知。
+
 用户确认供应商按出退改增各业务实际供应商、GDS按最终出票系统，授权开发、简单测试后发版，申请人马远尔；随后已提供四张完整源DDL，解除字段阻塞。最终映射：出/退issue_gds_channel，改签新issue_gds_code（非old_issue_gds_code），增值源无GDS，明确NULL未知，不推定订单关联。供应商出票issue_supplier_cname→MySQL supplier_name，其他supplier_cname。应用扩展两筛选、维度、诊断/日汇总/四业务明细及原后台导出条件继承；ADS新增supplier_name/gds_code、V3门槛，旧V1/V2不伪装就绪。宽表通过原产品源视图统一analysis_gds_code消费，需部署人补同步映射。
 
 ETL在独立仓库扩展原SQL分组/row_key及字段前置检查，末尾追加物理列、metric_version=v3，不改日期/利润/数量/coverage。交付Hive增量DDL及MySQL追加DDL；先备份核对字段、完整年度重跑原ETL、全量替换ADS承接（不只upsert遗留旧键），再同步宽表统一GDS、部署API/web。同步任务配置不在仓库，本轮不改服务器配置、不执行DDL/清洗/同步或查生产。局部合成应用66项通过（包含继承重复，不是66个新场景）、ETL 21项通过（3个新场景+18个既有测试，3.623秒），验证扩维后数量金额守恒、新GDS/未知增值保留、四业务明细与原导出筛选继承；类型/相关lint/45页组件/Ruff通过，真实数据及部署另验。测试保留忽略目录，不上传。按马远尔申请交付两仓及一次通知，不把代码推送当数据升级完成。
