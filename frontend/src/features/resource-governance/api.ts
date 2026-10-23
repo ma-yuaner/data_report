@@ -123,7 +123,6 @@ export async function fetchResourceGovernance(scope: GovernanceScope): Promise<G
   if (!response.data.success) throw new Error(response.data.message)
   return response.data.data
 }
-
 function downloadResponse(response: { data: Blob; headers: Record<string, unknown> }, fallbackName: string) {
   const disposition = String(response.headers['content-disposition'] || '')
   const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
@@ -240,11 +239,4 @@ export async function fetchGdsRouteAnalysis(scope: GdsRouteScope): Promise<GdsRo
   })
   if (!response.data.success) throw new Error(response.data.message)
   return response.data.data
-}
-
-export async function exportGdsRouteAnalysis(scope: GdsRouteScope): Promise<void> {
-  const response = await http.get('/v1/resource-governance/gds/routes/export', {
-    params: scope, responseType: 'blob', timeout: 180_000,
-  })
-  downloadResponse(response, `GDS航线名单_${scope.startDate}_${scope.endDate}.xlsx`)
 }

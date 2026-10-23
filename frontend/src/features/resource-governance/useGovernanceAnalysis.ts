@@ -1,5 +1,7 @@
 import { computed, ref, type Ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { message } from 'ant-design-vue'
+import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
 import {
   fetchResourceGovernance,
   fetchGdsRouteAnalysis,
@@ -23,6 +25,7 @@ import { routeDiagnosisQuery, routeDiagnosisNavigationQuery } from './navigation
 
 export function useGovernanceAnalysis(applied: Ref<GovernanceScope>, data: Ref<GovernanceData | undefined>) {
   const router = useRouter()
+  const analysisRouteExporting = ref(false)
   const drawerOpen = ref(false)
   const drawerLoading = ref(false)
   const drawerError = ref('')
@@ -119,6 +122,17 @@ export function useGovernanceAnalysis(applied: Ref<GovernanceScope>, data: Ref<G
     } finally {
       analysisRouteLoading.value = false
     }
+  }
+  async function exportAnalysisRoutes() {
+    if (analysisRouteExporting.value || drawerLoading.value || analysisRouteLoading.value || analysisScope.value.dataSource !== 'gds') return
+    const scope = routeDiagnosisQuery({ ...analysisScope.value })
+    analysisRouteExporting.value = true
+    try {
+      const task = await useComprehensiveExportStore().createRoutes(scope)
+      message.success(task.reused ? '相同条件的任务正在进行，已打开导出任务' : '已加入导出任务，可在页头查看进度、取消或下载')
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '创建导出任务失败')
+    } finally { analysisRouteExporting.value = false }
   }
   async function changeAnalysisView(value: string | number) {
     analysisView.value = String(value) as AnalysisView
@@ -219,6 +233,8 @@ export function useGovernanceAnalysis(applied: Ref<GovernanceScope>, data: Ref<G
     analysisRouteData,
     analysisRouteError,
     analysisRouteLoading,
+    analysisRouteExporting,
+    exportAnalysisRoutes,
     analysisScope,
     analysisScopeTags,
     analysisView,

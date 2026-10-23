@@ -528,6 +528,9 @@
     <a-drawer v-model:open="drawerOpen" width="1080" :title="drawerTitle">
       <template #extra>
         <a-space>
+          <a-button v-if="analysisScope.dataSource === 'gds'" type="primary" :loading="analysisRouteExporting" :disabled="drawerLoading || analysisRouteLoading || !!drawerError" @click="exportAnalysisRoutes">
+            <DownloadOutlined />导出航线名单
+          </a-button>
           <a-button v-if="analysisScope.dataSource === 'gds'" type="link" @click="openAnalysisRoutes()"
             ><BranchesOutlined />按当前条件查看航线</a-button
           >
@@ -786,6 +789,8 @@ const {
   analysisRouteData,
   analysisRouteError,
   analysisRouteLoading,
+  analysisRouteExporting,
+  exportAnalysisRoutes,
   analysisScope,
   analysisScopeTags,
   analysisView,

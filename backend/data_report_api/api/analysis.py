@@ -72,6 +72,7 @@ def register_routes(api: Blueprint) -> None:
             status = 503
         return jsonify({"success": False, "message": str(error), "data": None}), status
 
+    @api.get("/v1/exports")
     @api.get("/v1/analysis/comprehensive/exports")
     def comprehensive_export_list():
         try:
@@ -83,10 +84,16 @@ def register_routes(api: Blueprint) -> None:
         except (PermissionError, ValueError, ComprehensiveExportUnavailable) as error:
             return _export_error(error)
 
+    @api.post("/v1/exports")
     @api.post("/v1/analysis/comprehensive/exports")
     def comprehensive_export_create():
         try:
-            task = ComprehensiveExportService(current_app.config).create(g.current_user, json_body())
+            service = ComprehensiveExportService(current_app.config)
+            values = json_body()
+            kind = values.get("kind", "comprehensive")
+            if kind not in {"comprehensive", "gds_routes"}:
+                raise ValueError("不支持的导出任务类型")
+            task = (service.create_gds_routes if kind == "gds_routes" else service.create)(g.current_user, values)
             message = "相同条件的导出任务正在进行" if task.get("reused") else "导出任务已创建"
             return ok(task, message), (200 if task.get("reused") else 202)
         except (
@@ -94,6 +101,7 @@ def register_routes(api: Blueprint) -> None:
         ) as error:
             return _export_error(error)
 
+    @api.post("/v1/exports/<task_id>/cancel")
     @api.post("/v1/analysis/comprehensive/exports/<task_id>/cancel")
     def comprehensive_export_cancel(task_id: str):
         try:
@@ -106,6 +114,7 @@ def register_routes(api: Blueprint) -> None:
         ) as error:
             return _export_error(error)
 
+    @api.get("/v1/exports/<task_id>/download")
     @api.get("/v1/analysis/comprehensive/exports/<task_id>/download")
     def comprehensive_export_download(task_id: str):
         try:

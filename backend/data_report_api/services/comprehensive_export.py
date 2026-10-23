@@ -34,6 +34,7 @@ ACTIVE_STATUSES = ("QUEUED", "RUNNING", "CANCEL_REQUESTED")
 MAX_EXPORT_ROWS = 500_000
 MAX_ACTIVE_TASKS_PER_USER = 3
 BATCH_SIZE = 2_000
+GDS_ROUTE_KIND = "gds_routes"
 
 
 class ComprehensiveExportUnavailable(RuntimeError):
@@ -60,6 +61,15 @@ def _require_export(user: dict[str, Any]) -> None:
     if _is_admin(user) or EXPORT_PERMISSION in permission_codes(user):
         return
     raise PermissionError("当前账号没有宽表明细导出权限")
+
+
+def _require_kind(user: dict[str, Any], kind: str) -> None:
+    if kind != GDS_ROUTE_KIND:
+        _require_export(user)
+        if not (_is_admin(user) or "analysis.comprehensive" in (user.get("menu_codes") or user.get("menuCodes") or [])):
+            raise PermissionError("当前账号没有综合分析菜单权限")
+    elif not (_is_admin(user) or "gds_route.diagnosis" in (user.get("menu_codes") or user.get("menuCodes") or [])):
+        raise PermissionError("当前账号没有航线诊断导出权限")
 
 
 def _user_id(user: dict[str, Any]) -> int:
@@ -133,7 +143,8 @@ class ComprehensiveExportStore:
         return {
             "id": item["id"],
             "businessType": item["business_type"],
-            "businessLabel": BUSINESS_LABELS.get(item["business_type"], item["business_type"]),
+            "businessLabel": "GDS航线名单" if item["business_type"] == GDS_ROUTE_KIND else BUSINESS_LABELS.get(item["business_type"], item["business_type"]),
+            "taskLabel": "GDS航线名单" if item["business_type"] == GDS_ROUTE_KIND else BUSINESS_LABELS.get(item["business_type"], item["business_type"]) + "宽表明细",
             "startDate": item["start_date"],
             "endDate": item["end_date"],
             "status": item["status"],
@@ -152,7 +163,7 @@ class ComprehensiveExportStore:
 
     def create(
         self, *, user_id: int, requested_by: str, fingerprint: str,
-        business: str, start_date: str, end_date: str, filters: dict[str, list[str | None]],
+        business: str, start_date: str, end_date: str, filters: dict[str, Any],
         total_rows: int,
     ) -> dict[str, Any]:
         connection = self.connect()
@@ -309,11 +320,18 @@ class ComprehensiveExportStore:
     def finish(self, task_id: str, path: Path, download_name: str, processed: int) -> None:
         now = _now_text()
         with self.connect() as connection:
-            connection.execute(
+            changed = connection.execute(
                 "UPDATE comprehensive_export_jobs SET status='SUCCEEDED',processed_rows=?,"
-                "finished_at=?,updated_at=?,file_path=?,download_name=?,message='导出完成' WHERE id=?",
+                "finished_at=?,updated_at=?,file_path=?,download_name=?,message='导出完成' WHERE id=? AND status='RUNNING'",
                 (processed, now, now, str(path), download_name, task_id),
-            )
+            ).rowcount
+            if changed != 1:
+                raise ComprehensiveExportCancelled()
+
+    def set_total(self, task_id: str, total: int) -> None:
+        with self.connect() as connection:
+            connection.execute("UPDATE comprehensive_export_jobs SET total_rows=?,updated_at=? WHERE id=? AND status='RUNNING'",
+                               (total, _now_text(), task_id))
 
     def fail(self, task_id: str, message: str, *, cancelled: bool = False) -> None:
         now = _now_text()
@@ -356,7 +374,7 @@ class ComprehensiveExportService:
 
     @staticmethod
     def _fingerprint(user_id: int, business: str, start_date: str, end_date: str,
-                     filters: dict[str, list[str | None]]) -> str:
+                     filters: dict[str, Any]) -> str:
         payload = json.dumps(
             {"user": user_id, "business": business, "start": start_date, "end": end_date,
              "filters": filters, "fields": "v1"},
@@ -394,7 +412,7 @@ class ComprehensiveExportService:
             if connection is not None:
                 connection.close()
     def create(self, user: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
-        _require_export(user)
+        _require_kind(user, "comprehensive")
         business, first, last, filters = self._validated_scope(values)
         user_id = _user_id(user)
         fingerprint = self._fingerprint(user_id, business, first.isoformat(), last.isoformat(), filters)
@@ -426,24 +444,32 @@ class ComprehensiveExportService:
         return task
 
     def list(self, user: dict[str, Any], limit: int = 30) -> list[dict[str, Any]]:
-        _require_export(user)
-        tasks = self.store.list(_user_id(user), limit)
+        tasks = []
+        for task in self.store.list(_user_id(user), limit):
+            try:
+                _require_kind(user, task["businessType"])
+            except PermissionError:
+                continue
+            tasks.append(task)
         if any(task["status"] == "QUEUED" for task in tasks):
             self._start_worker()
         return tasks
 
     def cancel(self, user: dict[str, Any], task_id: str) -> dict[str, Any]:
-        _require_export(user)
+        row = self.store.get(_user_id(user), task_id)
+        if row is None:
+            raise ValueError("导出任务不存在")
+        _require_kind(user, row["business_type"])
         result = self.store.cancel(_user_id(user), task_id)
         self._start_worker()
         return result
 
     def download(self, user: dict[str, Any], task_id: str) -> tuple[Path, str]:
-        _require_export(user)
         self.store.expire_files()
         row = self.store.get(_user_id(user), task_id)
         if row is None:
             raise ValueError("导出任务不存在")
+        _require_kind(user, row["business_type"])
         if row["status"] != "SUCCEEDED" or not row["file_path"]:
             raise ComprehensiveExportConflict("导出文件尚不可下载")
         path = Path(row["file_path"])
@@ -467,14 +493,60 @@ class ComprehensiveExportService:
         task_id = str(task["id"])
         output_path = self.store.files / f"{task_id}.xlsx"
         try:
-            self._write_xlsx(task, output_path)
+            if task["business_type"] == GDS_ROUTE_KIND:
+                self._write_gds_routes(task, output_path)
+            else:
+                self._write_xlsx(task, output_path)
         except ComprehensiveExportCancelled:
             output_path.unlink(missing_ok=True)
             self.store.fail(task_id, "已取消", cancelled=True)
+        except ValueError as error:
+            output_path.unlink(missing_ok=True)
+            self.store.fail(task_id, str(error))
         except Exception as error:
             output_path.unlink(missing_ok=True)
             LOGGER.exception("Comprehensive export failed; task_id=%s", task_id)
             self.store.fail(task_id, "导出失败，请稍后重试")
+
+    def create_gds_routes(self, user: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
+        from .gds_route_analysis import GdsRouteAnalysisService
+        _require_kind(user, GDS_ROUTE_KIND)
+        service = GdsRouteAnalysisService(self.config)
+        first, last, filters = service.export_scope(values.get("startDate"), values.get("endDate"), values)
+        fingerprint = self._fingerprint(_user_id(user), GDS_ROUTE_KIND, first.isoformat(), last.isoformat(), filters)
+        task = self.store.create(user_id=_user_id(user), requested_by=_display_name(user), fingerprint=fingerprint,
+                                 business=GDS_ROUTE_KIND, start_date=first.isoformat(), end_date=last.isoformat(),
+                                 filters=filters, total_rows=0)
+        self._start_worker()
+        return task
+
+    def _write_gds_routes(self, task: dict[str, Any], output_path: Path) -> None:
+        from .gds_route_analysis import GdsRouteAnalysisService
+        import shutil
+        task_id = str(task["id"])
+
+        def check():
+            if self.store.cancellation_requested(task_id):
+                raise ComprehensiveExportCancelled()
+
+        def progress(done, total):
+            self.store.set_total(task_id, total)
+            self.store.progress(task_id, done)
+
+        check()
+        self.store.progress(task_id, 0)
+        content, name = GdsRouteAnalysisService(self.config).export_report(
+            task["start_date"], task["end_date"], json.loads(task["filters_json"]),
+            check_cancel=check, progress=progress)
+        try:
+            check()
+            with output_path.open("wb") as output:
+                shutil.copyfileobj(content, output)
+            check()
+            row = self.store.get(int(task["user_id"]), task_id)
+            self.store.finish(task_id, output_path, name, int(row["total_rows"]))
+        finally:
+            content.close()
 
     def _write_xlsx(self, task: dict[str, Any], output_path: Path) -> None:
         import pymysql

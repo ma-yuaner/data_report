@@ -190,26 +190,31 @@ class GdsRouteAnalysisService:
         start_value: str | None,
         end_value: str | None,
         filters: dict[str, str] | None = None,
-        *, _export: bool = False,
+        *, _export: bool = False, check_cancel=None,
     ) -> dict[str, Any]:
         start_date, end_date = self._period(start_value, end_value)
         normalized_filters = {key: str(value or "").strip() for key, value in (filters or {}).items()}
         if _export and not self._query_ready(normalized_filters):
             raise ValueError("请先选择GDS、PCC、平台、站点、通道、接口组或航线范围再导出")
         limit = self.export_limit if _export else self.max_rows
+        check = check_cancel or (lambda: None)
+        check()
         connection = self.source.connect()
         cursor = connection.cursor()
         try:
+            check()
             self._validate_schema(cursor)
             options = {} if _export else self._options(cursor, start_date, end_date)
             if not self._query_ready(normalized_filters):
                 return self._empty_response(start_date, end_date, normalized_filters, options)
             where_sql, params = self._where(start_date, end_date, normalized_filters)
+            check()
             cursor.execute(f"SELECT {METRIC_SQL} FROM {self.table} WHERE {where_sql}", tuple(params))
             summary_row = cursor.fetchone()
             summary = _metric(summary_row or [0] * 27)
 
             dimensions = ", ".join(DIMENSION_COLUMNS)
+            check()
             cursor.execute(
                 f"SELECT {dimensions}, {METRIC_SQL} FROM {self.table} WHERE {where_sql} "
                 f"GROUP BY {dimensions} ORDER BY sum(case when {SEARCH_METHOD_CONDITION} "
@@ -217,6 +222,7 @@ class GdsRouteAnalysisService:
                 tuple(params),
             )
             raw_rows = list(cursor.fetchall())
+            check()
             truncated = len(raw_rows) > limit
             if _export and truncated:
                 raise ValueError(f"航线名单超过导出上限{limit}项，请缩小日期或筛选范围；未导出部分名单")
@@ -246,6 +252,7 @@ class GdsRouteAnalysisService:
         except ValueError:
             raise
         except Exception as error:
+            check()
             raise GdsRouteAnalysisUnavailable(f"GDS航线Hive查询失败：{error}") from error
         finally:
             try:
@@ -253,8 +260,21 @@ class GdsRouteAnalysisService:
             finally:
                 connection.close()
 
-    def export_report(self, start_value, end_value, filters=None):
-        result = self.overview(start_value, end_value, filters, _export=True)
+    def export_scope(self, start_value, end_value, filters):
+        first, last = self._period(start_value, end_value)
+        normalized = {key: str(filters.get(key) or "").strip() for key in (
+            "gds", "pcc", "platform", "site", "resourceChannel", "apiGroup", "route", "keyword")}
+        if not self._query_ready(normalized):
+            raise ValueError("请先选择航线分析范围再导出")
+        self._where(first, last, normalized)
+        return first, last, normalized
+
+    def export_report(self, start_value, end_value, filters=None, *, check_cancel=None, progress=None):
+        result = self.overview(start_value, end_value, filters, _export=True, check_cancel=check_cancel)
+        check = check_cancel or (lambda: None)
+        total = len(result["rows"])
+        if progress:
+            progress(0, total)
         columns = [
             ("GDS", "gdsCode"), ("PCC", "pccCode"), ("平台", "platform"), ("站点", "site"),
             ("有方向航线", "route"), ("出发机场", "depAirport"), ("到达机场", "arrAirport"),
@@ -283,7 +303,10 @@ class GdsRouteAnalysisService:
         for index in range(1, len(columns) + 1):
             sheet.column_dimensions[get_column_letter(index)].width = 22
         append(sheet, [label for label, _ in columns])
-        for row in result["rows"]:
+        for index, row in enumerate(result["rows"], 1):
+            if index % 200 == 0:
+                if progress:
+                    progress(index, total)
             append(sheet, [row.get(key) for _, key in columns])
         sheet.auto_filter.ref = f"A1:Z{len(result['rows']) + 1}"
         scope = workbook.create_sheet("统计范围")
@@ -302,7 +325,12 @@ class GdsRouteAnalysisService:
             append(scope, row)
         content = SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode="w+b")
         try:
+            # Finish the bounded write-only workbook before checking cancellation,
+            # so OpenXML temporary writers are closed even when its result is discarded.
             workbook.save(content)
+            check()
+            if progress:
+                progress(total, total)
             content.seek(0)
         except Exception:
             content.close()

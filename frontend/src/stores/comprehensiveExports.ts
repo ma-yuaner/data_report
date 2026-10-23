@@ -2,10 +2,12 @@ import { defineStore } from 'pinia'
 import {
   cancelComprehensiveExport,
   createComprehensiveExport,
+  createGdsRouteExport,
   listComprehensiveExports,
   type ComprehensiveExportTask,
 } from '@/api/comprehensiveExport'
 import type { BusinessKey, FilterScope } from '@/api/comprehensive'
+import type { GdsRouteScope } from '@/api/resourceGovernance'
 
 const activeStatuses = new Set(['QUEUED', 'RUNNING', 'CANCEL_REQUESTED'])
 
@@ -51,6 +53,12 @@ export const useComprehensiveExportStore = defineStore('comprehensive-exports', 
     async cancel(id: string) {
       await cancelComprehensiveExport(id)
       await this.refresh()
+    },
+    async createRoutes(scope: GdsRouteScope) {
+      const task = await createGdsRouteExport(scope)
+      this.drawerOpen = true
+      await this.refresh()
+      return task
     },
   },
 })

@@ -1,17 +1,17 @@
 <template>
   <a-drawer v-model:open="store.drawerOpen" title="导出任务" width="480">
-    <a-alert class="task-note" type="info" show-icon message="后台独立导出" description="切换或刷新页面不会中断任务；排队中和导出中的任务均可取消。" />
+    <a-alert class="task-note" type="info" show-icon message="后台导出" description="切换或刷新页面不会中断任务；任务可取消。Hive正在执行的查询需等返回后取消，不生成可下载文件。" />
     <a-alert v-if="store.lastError" class="task-note" type="error" show-icon :message="store.lastError" />
     <a-spin :spinning="store.loading">
       <a-empty v-if="!store.tasks.length" description="暂无导出任务" />
       <div v-else class="task-list">
         <article v-for="task in store.tasks" :key="task.id" class="task-card">
           <header>
-            <div><strong>{{ task.businessLabel }}宽表明细</strong><span>{{ task.startDate }}<template v-if="task.endDate !== task.startDate"> 至 {{ task.endDate }}</template></span></div>
+            <div><strong>{{ task.taskLabel || task.businessLabel + '宽表明细' }}</strong><span>{{ task.startDate }}<template v-if="task.endDate !== task.startDate"> 至 {{ task.endDate }}</template></span></div>
             <a-tag :color="statusMeta(task.status).color">{{ statusMeta(task.status).label }}</a-tag>
           </header>
           <a-progress v-if="isActive(task.status)" :percent="percent(task)" :status="task.status === 'CANCEL_REQUESTED' ? 'exception' : 'active'" />
-          <div class="task-meta"><span>{{ task.message || statusMeta(task.status).label }}</span><span>{{ number(task.processedRows) }} / {{ number(task.totalRows) }} 条</span></div>
+          <div class="task-meta"><span>{{ task.businessType === 'gds_routes' && task.status === 'RUNNING' && !task.totalRows ? '正在查询Hive；取消在当前查询返回后生效' : task.message || statusMeta(task.status).label }}</span><span>{{ number(task.processedRows) }} / {{ task.businessType === 'gds_routes' && isActive(task.status) && !task.totalRows ? '待查询' : number(task.totalRows) }} 条</span></div>
           <footer>
             <a-button v-if="task.canCancel" size="small" danger :disabled="task.status === 'CANCEL_REQUESTED'" @click="cancel(task)">
               {{ task.status === 'CANCEL_REQUESTED' ? '正在取消' : '取消任务' }}

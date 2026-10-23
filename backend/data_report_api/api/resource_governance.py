@@ -29,14 +29,11 @@ def register_routes(api: Blueprint) -> None:
     def gds_resource_governance_overview():
         return _resource_governance_overview("gds")
 
-    @api.get("/v1/resource-governance/gds/routes/export")
     @api.get("/v1/resource-governance/gds/routes")
     def gds_route_analysis():
         try:
-            exporting = request.path.endswith("/export")
-            service = GdsRouteAnalysisService(current_app.config)
-            return (smart_excel_response if exporting else ok)(
-                (service.export_report if exporting else service.overview)(
+            return ok(
+                GdsRouteAnalysisService(current_app.config).overview(
                     start_value=request.args.get("startDate"),
                     end_value=request.args.get("endDate"),
                     filters={

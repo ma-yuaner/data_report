@@ -310,7 +310,8 @@ import {
 } from '@ant-design/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import FilterPanel from '@/components/FilterPanel.vue'
-import { fetchGdsRouteAnalysis, exportGdsRouteAnalysis, type GdsRouteScope, type GdsRouteAnalysisData, type GdsRouteMetricRow } from '@/api/resourceGovernance'
+import { fetchGdsRouteAnalysis, type GdsRouteScope, type GdsRouteAnalysisData, type GdsRouteMetricRow } from '@/api/resourceGovernance'
+import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
 import { useGdsRouteGovernanceStore, type GovernanceActionStatus, type GovernanceEventStatus, type RouteMetric, type RouteRiskStatus } from '@/stores/gdsRouteGovernance'
 
 type PageKey = 'overview' | 'routes' | 'configurations' | 'quality' | 'whitelist' | 'events' | 'actions' | 'execution' | 'review'
@@ -318,6 +319,7 @@ type PageKey = 'overview' | 'routes' | 'configurations' | 'quality' | 'whitelist
 const route = useRoute()
 const router = useRouter()
 const store = useGdsRouteGovernanceStore()
+const exportStore = useComprehensiveExportStore()
 const page = computed(() => String(route.meta.gdsRoutePage || 'overview') as PageKey)
 const isLiveRouteView = computed(() => page.value === 'routes' && diagnosisView.value === 'route')
 const hasAnalysisEntry = computed(() => route.query.entry === 'gds-analysis')
@@ -352,8 +354,8 @@ const exportRoutes = async () => {
   if (routeLoading.value || routeExporting.value || routeScopeChanged.value || !loadedRouteScope.value) return
   routeExporting.value = true
   try {
-    await exportGdsRouteAnalysis({ ...loadedRouteScope.value })
-    message.success('航线名单已导出')
+    const task = await exportStore.createRoutes({ ...loadedRouteScope.value })
+    message.success(task.reused ? '相同条件的导出任务正在进行' : '已加入导出任务，可在页头查看进度、取消或下载')
   } catch (error) {
     message.error(error instanceof Error ? error.message : '导出失败，请缩小范围后重试')
   } finally { routeExporting.value = false }

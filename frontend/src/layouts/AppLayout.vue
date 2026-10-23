@@ -176,7 +176,7 @@ const headerTag = computed(() => route.path === '/home' ? '数据工作台' : ro
 const canSeeMenu = (code: string) => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.menuCodes?.includes(code))
 const canSeeGroup = (code: string) => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.menuCodes?.some(item => item === code || item.startsWith(`${code}.`)))
 const canViewMonitorActions = computed(() => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.permissions?.includes('monitor.action.view')))
-const canExport = computed(() => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.permissions?.includes('analysis.comprehensive.export')))
+const canExport = computed(() => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.permissions?.includes('analysis.comprehensive.export')) || Boolean(authStore.user?.menuCodes?.includes('gds_route.diagnosis')))
 watch(canExport, allowed => { if (allowed) exportStore.startPolling(); else exportStore.stopPolling() }, { immediate: true })
 onBeforeUnmount(() => exportStore.stopPolling())
 const openKeys = ref<string[]>([])
