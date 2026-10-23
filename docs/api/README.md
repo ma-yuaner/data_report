@@ -22,7 +22,7 @@
 | [上传说明](../business/air_ticketing/risk-data-upload.md) / [行为监控](../product/user-behavior-monitoring-v1.md) | 上传队列和行为采集 |
 
 <!-- BEGIN:API_ROUTES -->
-共 **119个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
+共 **120个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
 
 <a id="auth"></a>
 
@@ -106,6 +106,7 @@
 | `GET` | `/api/v1/resource-governance/gds/export` | [gds_resource_governance_export](../../backend/data_report_api/api/resource_governance.py) |
 | `GET` | `/api/v1/resource-governance/gds/overview` | [gds_resource_governance_overview](../../backend/data_report_api/api/resource_governance.py) |
 | `GET` | `/api/v1/resource-governance/gds/routes` | [gds_route_analysis](../../backend/data_report_api/api/resource_governance.py) |
+| `GET` | `/api/v1/resource-governance/gds/routes/export` | [gds_route_analysis](../../backend/data_report_api/api/resource_governance.py) |
 | `GET` | `/api/v1/resource-governance/ota/export` | [ota_resource_governance_export](../../backend/data_report_api/api/resource_governance.py) |
 | `GET` | `/api/v1/resource-governance/ota/overview` | [ota_resource_governance_overview](../../backend/data_report_api/api/resource_governance.py) |
 

@@ -112,7 +112,8 @@
         </section>
 
         <a-card class="panel-card" :bordered="false" :loading="routeLoading">
-          <div class="section-title"><div><span>ROUTE PERFORMANCE</span><h2>航线接口质量明细</h2><p>按航线、平台/站点、GDS/PCC聚合；点击“分析此项”查看接口阶段与资源通道结构。</p></div><a-space><a-tag color="blue">{{ routeAnalysis?.queryReady ? routeAnalysis.rowCount : 0 }} 个组合</a-tag><a-tag v-if="routeAnalysis?.truncated" color="orange">仅展示前{{ routeAnalysis.resultLimit }}项</a-tag></a-space></div>
+<div class="section-title"><div><span>ROUTE PERFORMANCE</span><h2>航线接口质量明细</h2><p>按航线、平台/站点、GDS/PCC聚合；点击“分析此项”查看接口阶段与资源通道结构。</p></div><a-space><a-tag color="blue">{{ routeAnalysis?.queryReady ? routeAnalysis.rowCount : 0 }} 个组合</a-tag><a-tag v-if="routeAnalysis?.truncated" color="orange">仅展示前{{ routeAnalysis.resultLimit }}项</a-tag><a-button :loading="routeExporting" :disabled="routeLoading || routeExporting || !routeAnalysis?.queryReady || !routeAnalysis.rows.length || routeScopeChanged" @click="exportRoutes">导出航线名单</a-button></a-space></div>
+          <p class="data-footnote">导出已查询范围的全部匹配组合，不限当前分页或页面前500项；默认最多2万项，超限请缩小范围。{{ routeScopeChanged ? '筛选已变更，请先查询再导出。' : '' }}</p>
           <a-table :data-source="routeAnalysis?.rows || []" :pagination="{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '20', '50'] }" row-key="id" :scroll="{ x: 1900 }">
             <a-table-column title="航线" fixed="left" :width="170"><template #default="{ record }"><button class="link-cell" @click="openLiveRoute(record)"><strong>{{ record.route }}</strong><small>{{ record.depCity || record.depAirport || '—' }} → {{ record.arrCity || record.arrAirport || '—' }}</small></button></template></a-table-column>
             <a-table-column title="平台 / 站点" :width="180"><template #default="{ record }"><strong>{{ record.platform || '—' }}</strong><div class="cell-sub">{{ record.site || '全部站点' }}</div></template></a-table-column>
@@ -309,7 +310,7 @@ import {
 } from '@ant-design/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import FilterPanel from '@/components/FilterPanel.vue'
-import { fetchGdsRouteAnalysis, type GdsRouteAnalysisData, type GdsRouteMetricRow } from '@/api/resourceGovernance'
+import { fetchGdsRouteAnalysis, exportGdsRouteAnalysis, type GdsRouteScope, type GdsRouteAnalysisData, type GdsRouteMetricRow } from '@/api/resourceGovernance'
 import { useGdsRouteGovernanceStore, type GovernanceActionStatus, type GovernanceEventStatus, type RouteMetric, type RouteRiskStatus } from '@/stores/gdsRouteGovernance'
 
 type PageKey = 'overview' | 'routes' | 'configurations' | 'quality' | 'whitelist' | 'events' | 'actions' | 'execution' | 'review'
@@ -340,6 +341,23 @@ const filters = reactive({
 const routeAnalysis = ref<GdsRouteAnalysisData | null>(null)
 const routeLoading = ref(false)
 const routeError = ref('')
+const routeExporting = ref(false)
+const loadedRouteScope = ref<GdsRouteScope | null>(null)
+const currentRouteScope = computed<GdsRouteScope>(() => ({
+  startDate: dateRange.value?.[0] || '', endDate: dateRange.value?.[1] || '',
+  ...filters, keyword: filters.keyword.trim(),
+}))
+const routeScopeChanged = computed(() => JSON.stringify(currentRouteScope.value) !== JSON.stringify(loadedRouteScope.value))
+const exportRoutes = async () => {
+  if (routeLoading.value || routeExporting.value || routeScopeChanged.value || !loadedRouteScope.value) return
+  routeExporting.value = true
+  try {
+    await exportGdsRouteAnalysis({ ...loadedRouteScope.value })
+    message.success('航线名单已导出')
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '导出失败，请缩小范围后重试')
+  } finally { routeExporting.value = false }
+}
 
 const pageDefinitions: Record<PageKey, { title: string; description: string }> = {
   overview: { title: 'GDS航线治理', description: '从最新白名单、航线效率和接口质量发现问题，形成可审计的上下线闭环。' },
@@ -430,13 +448,10 @@ const loadRouteAnalysis = async () => {
   if (!hasAnalysisEntry.value || !isLiveRouteView.value || !dateRange.value?.[0] || !dateRange.value?.[1]) return
   routeLoading.value = true
   routeError.value = ''
+  const scope = { ...currentRouteScope.value }
   try {
-    routeAnalysis.value = await fetchGdsRouteAnalysis({
-      startDate: dateRange.value[0], endDate: dateRange.value[1],
-      gds: filters.gds, pcc: filters.pcc, platform: filters.platform,
-      site: filters.site, resourceChannel: filters.resourceChannel,
-      apiGroup: filters.apiGroup, route: filters.route, keyword: filters.keyword.trim(),
-    })
+    routeAnalysis.value = await fetchGdsRouteAnalysis(scope)
+    loadedRouteScope.value = scope
   } catch (error) {
     routeAnalysis.value = null
     routeError.value = error instanceof Error ? error.message : '查询失败，请检查Hive连接与dws_gds_airroute_day数据。'

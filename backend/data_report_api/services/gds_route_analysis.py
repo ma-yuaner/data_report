@@ -3,7 +3,12 @@ from __future__ import annotations
 import re
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from tempfile import SpooledTemporaryFile
 from typing import Any, Iterable
+
+from openpyxl import Workbook
+from openpyxl.cell import WriteOnlyCell
+from openpyxl.utils import get_column_letter
 
 from ..time_utils import business_now
 from .data_source import DataSource
@@ -178,20 +183,25 @@ class GdsRouteAnalysisService:
         self.table = f"{self.source.database}.{self.table_name}"
         self.max_rows = max(50, min(int(config.get("GDS_ROUTE_MAX_ROWS", 500)), 2000))
         self.max_days = max(1, min(int(config.get("GDS_ROUTE_MAX_DAYS", 31)), 92))
+        self.export_limit = max(1, min(int(config.get("GDS_ROUTE_EXPORT_MAX_ROWS", 20000)), 50000))
 
     def overview(
         self,
         start_value: str | None,
         end_value: str | None,
         filters: dict[str, str] | None = None,
+        *, _export: bool = False,
     ) -> dict[str, Any]:
         start_date, end_date = self._period(start_value, end_value)
         normalized_filters = {key: str(value or "").strip() for key, value in (filters or {}).items()}
+        if _export and not self._query_ready(normalized_filters):
+            raise ValueError("请先选择GDS、PCC、平台、站点、通道、接口组或航线范围再导出")
+        limit = self.export_limit if _export else self.max_rows
         connection = self.source.connect()
         cursor = connection.cursor()
         try:
             self._validate_schema(cursor)
-            options = self._options(cursor, start_date, end_date)
+            options = {} if _export else self._options(cursor, start_date, end_date)
             if not self._query_ready(normalized_filters):
                 return self._empty_response(start_date, end_date, normalized_filters, options)
             where_sql, params = self._where(start_date, end_date, normalized_filters)
@@ -203,12 +213,14 @@ class GdsRouteAnalysisService:
             cursor.execute(
                 f"SELECT {dimensions}, {METRIC_SQL} FROM {self.table} WHERE {where_sql} "
                 f"GROUP BY {dimensions} ORDER BY sum(case when {SEARCH_METHOD_CONDITION} "
-                f"then api_request_count_all else 0 end) DESC LIMIT {self.max_rows + 1}",
+                f"then api_request_count_all else 0 end) DESC, {dimensions} LIMIT {limit + 1}",
                 tuple(params),
             )
             raw_rows = list(cursor.fetchall())
-            truncated = len(raw_rows) > self.max_rows
-            rows = [self._route_row(row) for row in raw_rows[: self.max_rows]]
+            truncated = len(raw_rows) > limit
+            if _export and truncated:
+                raise ValueError(f"航线名单超过导出上限{limit}项，请缩小日期或筛选范围；未导出部分名单")
+            rows = [self._route_row(row) for row in raw_rows[:limit]]
             return {
                 "source": self.source.label,
                 "table": self.table,
@@ -220,7 +232,7 @@ class GdsRouteAnalysisService:
                 "summary": summary,
                 "rows": rows,
                 "rowCount": len(rows),
-                "resultLimit": self.max_rows,
+                "resultLimit": limit,
                 "truncated": truncated,
                 "options": options,
                 "notes": [
@@ -240,6 +252,65 @@ class GdsRouteAnalysisService:
                 cursor.close()
             finally:
                 connection.close()
+
+    def export_report(self, start_value, end_value, filters=None):
+        result = self.overview(start_value, end_value, filters, _export=True)
+        columns = [
+            ("GDS", "gdsCode"), ("PCC", "pccCode"), ("平台", "platform"), ("站点", "site"),
+            ("有方向航线", "route"), ("出发机场", "depAirport"), ("到达机场", "arrAirport"),
+            ("出发城市", "depCity"), ("到达城市", "arrCity"),
+            ("查询请求量", "searchRequests"), ("查询成功量", "searchSuccess"), ("查询失败量", "searchFailure"),
+            ("查询成功率(%)", "searchSuccessRate"), ("查询结果成功率(%)", "searchResultSuccessRate"),
+            ("验价请求量", "verifyRequests"), ("验价成功量", "verifySuccess"), ("验价失败量", "verifyFailure"),
+            ("验价成功率(%)", "verifySuccessRate"), ("生单请求量", "orderRequests"),
+            ("生单成功量", "orderSuccess"), ("生单失败量", "orderFailure"), ("生单成功率(%)", "orderSuccessRate"),
+            ("普通MP查询量", "mpSearchRequests"), ("MPIS查询量", "mpisSearchRequests"),
+            ("NDC查询量", "ndcSearchRequests"), ("源数据时间", "sourceUpdatedAt"),
+        ]
+        workbook = Workbook(write_only=True)
+
+        def append(sheet, values):
+            cells = []
+            for value in values:
+                cell = WriteOnlyCell(sheet, value=value)
+                if isinstance(value, str):
+                    cell.data_type = "s"  # Codes and untrusted labels must never become Excel formulas.
+                cells.append(cell)
+            sheet.append(cells)
+
+        sheet = workbook.create_sheet("航线名单")
+        sheet.freeze_panes = "E2"
+        for index in range(1, len(columns) + 1):
+            sheet.column_dimensions[get_column_letter(index)].width = 22
+        append(sheet, [label for label, _ in columns])
+        for row in result["rows"]:
+            append(sheet, [row.get(key) for _, key in columns])
+        sheet.auto_filter.ref = f"A1:Z{len(result['rows']) + 1}"
+        scope = workbook.create_sheet("统计范围")
+        scope.column_dimensions["A"].width = 24
+        scope.column_dimensions["B"].width = 100
+        append(scope, ["项目", "内容"])
+        for row in [
+            ["开始日期", result["period"]["startDate"]], ["结束日期", result["period"]["endDate"]],
+            ["生成时间", result["generatedAt"]], ["数据源", result["table"]],
+            ["最近源数据时间", result["summary"].get("sourceUpdatedAt")], ["名单条数", len(result["rows"])],
+            ["导出上限", self.export_limit], ["范围说明", "按筛选重新查询全部匹配组合，不限当前分页；超限拒绝导出"],
+            ["完整性提示", "最近源数据时间不代表全批次完整；日汇总同步覆盖仍需核实"],
+            ["口径说明", "按方向航线及四维聚合；各阶段请求不是同一批订单的转化漏斗；不含航段、查定比或关闭建议"],
+            *[[key, value] for key, value in result["filters"].items() if value],
+        ]:
+            append(scope, row)
+        content = SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode="w+b")
+        try:
+            workbook.save(content)
+            content.seek(0)
+        except Exception:
+            content.close()
+            raise
+        finally:
+            workbook.close()
+        period = result["period"]
+        return content, f"GDS航线名单_{period['startDate']}_{period['endDate']}.xlsx"
 
     def _period(self, start_value: str | None, end_value: str | None) -> tuple[date, date]:
         yesterday = business_now().date() - timedelta(days=1)

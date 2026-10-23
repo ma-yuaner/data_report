@@ -62,11 +62,16 @@ http.interceptors.response.use(
     publishApiResult(response.config, response.status, true, undefined, emptyResult)
     return response
   },
-  (error) => {
+  async (error) => {
+    // Downloads also return JSON errors (e.g. export limits), wrapped as Blob by Axios.
+    let payload = error.response?.data
+    if (payload instanceof Blob && payload.size < 65536 && payload.type.includes('json')) {
+      try { payload = JSON.parse(await payload.text()) } catch { /* Keep the normal HTTP fallback. */ }
+    }
     const apiError = new ApiError(
-      error.response?.data?.message ?? error.message ?? '请求失败',
+      payload?.message ?? error.message ?? '请求失败',
       error.response?.status,
-      error.response?.data?.code,
+      payload?.code,
     )
     if (apiError.code === 'AUTH_REQUIRED' || apiError.code === 'PASSWORD_CHANGE_REQUIRED' || apiError.code === 'MENU_FORBIDDEN') {
       authFailureHandler?.(apiError)
