@@ -1,6 +1,6 @@
 <template>
   <div class="page-wrap comprehensive-page">
-    <PageHeader eyebrow="BUSINESS PERFORMANCE" title="综合分析" description="从出退改增的经营结果，逐层定位平台、站点、航司和产品">
+    <PageHeader eyebrow="BUSINESS PERFORMANCE" title="综合分析" description="从出退改增的经营结果，逐层定位平台、站点、航司、产品、供应商和最终出票GDS">
       <a-tag color="blue">实际数据 · MySQL ADS</a-tag>
     </PageHeader>
     <a-alert class="source-banner" type="info" show-icon :message="data?.source || 'MySQL · sibebid.bi_business_profit_dimension_day'"
@@ -16,13 +16,14 @@
       </div>
       <div class="dimension-fields">
         <label v-for="dimension in dimensions" :key="dimension.key"><span>{{ dimension.label }}<small v-if="dimension.key === 'product'">平台内原值</small></span>
-          <a-select v-model:value="draft[dimension.key]" :aria-label="dimension.label + '筛选'" :options="filterOptions(dimension.key)" show-search option-filter-prop="label" :disabled="loading" />
+          <a-select v-model:value="draft[dimension.key]" :aria-label="dimension.label + '筛选'" :options="filterOptions(dimension.key)" show-search option-filter-prop="label" :disabled="loading || (['supplier', 'gds'].includes(dimension.key) && !data?.extendedFiltersReady)" />
         </label>
       </div>
-      <div class="scope-actions"><span>{{ hasPending ? '条件已变更，点击查询后生效' : '时间与五个分析维度可组合筛选；结束日期包含当天' }}</span>
+      <div class="scope-actions"><span>{{ hasPending ? '条件已变更，点击查询后生效' : '时间与分析维度可组合筛选；GDS按最终出票系统；结束日期包含当天' }}</span>
         <div><a-button data-telemetry-code="comprehensive-filter-reset" data-telemetry-name="重置筛选" :disabled="loading" @click="resetFilters"><UndoOutlined />重置</a-button><a-button type="primary" data-telemetry-code="comprehensive-filter-query" data-telemetry-name="应用筛选" data-telemetry-event="filter_apply" :loading="loading" @click="applyFilters"><SearchOutlined />查询</a-button></div>
       </div>
       <a-alert v-if="rangeError" class="range-error" type="error" show-icon :message="rangeError" />
+      <a-alert v-if="data?.available && !data.extendedFiltersReady" class="range-error" type="info" show-icon message="供应商与GDS筛选待数据升级" description="所选日期须完成V3汇总及同步后启用；GDS须取最终出票系统，不以原预定系统代替。现有筛选仍可使用。" />
     </section>
     <div class="applied-scope"><strong>{{ applied.startDate }} 至 {{ applied.endDate }}</strong>
       <div><a-tag v-if="!scopeItems.length" color="blue">全部范围</a-tag><a-tag v-for="item in scopeItems" :key="item.key" color="blue" :closable="!loading" @close="removeDimension(item.key)">{{ item.label }}：{{ optionLabel(item.key, applied[item.key]) }}</a-tag></div>
@@ -102,7 +103,7 @@
                   <template #title><div class="panel-title"><span>继续定位问题维度</span><small>当前利润较低项优先 · 每页10项，完整展示</small></div></template>
                   <template #extra><a-button type="primary" ghost @click="openDiagnosisDaily">查看当前诊断日汇总</a-button></template>
                   <div v-if="diagnosisGroupOptions.length" class="comparison-toolbar"><a-segmented v-model:value="diagnosisGroup" :options="diagnosisGroupOptions" :disabled="diagnosisLoading" @change="changeDiagnosisGroup" /><span>选择下一维度，或点击某项继续缩小范围</span></div>
-                  <a-alert v-else type="success" show-icon message="五个维度已全部限定" description="可查看当前诊断日汇总，并继续下钻出退改增宽表订单。" />
+                  <a-alert v-else type="success" show-icon message="可用维度已全部限定" description="可查看当前诊断日汇总，并继续下钻出退改增宽表订单。" />
                   <a-table v-if="diagnosisGroupOptions.length" class="dimension-table" :columns="diagnosisColumns" :data-source="diagnosisRows" row-key="key" :pagination="diagnosisPagination" :scroll="{ x: 1050 }" :locale="{ emptyText: '当前条件在该维度下没有可分析数据' }" @change="changeDiagnosisPage">
                     <template #bodyCell="{ column, record }">
                       <template v-if="column.key === 'name'"><strong>{{ record.name }}</strong></template>
@@ -181,11 +182,11 @@ const businesses: { key: BusinessKey; label: string; countLabel: string; color: 
 ]
 const businessOptions = businesses.map(business => ({ label: `${business.label}宽表`, value: business.key }))
 const dailyBusinessOptions = [{ label: '全部业务', value: '' }, ...businesses.map(business => ({ label: business.label, value: business.key }))]
-const dimensions: { key: DimensionKey; label: string }[] = [{ key: 'platform', label: '平台' }, { key: 'site', label: '站点' }, { key: 'airline', label: '航司' }, { key: 'product', label: '产品' }, { key: 'policy', label: '政策员' }]
+const dimensions: { key: DimensionKey; label: string }[] = [{ key: 'platform', label: '平台' }, { key: 'site', label: '站点' }, { key: 'airline', label: '航司' }, { key: 'product', label: '产品' }, { key: 'policy', label: '政策员' }, { key: 'supplier', label: '供应商' }, { key: 'gds', label: 'GDS系统' }]
 const periodOptions = [{ label: '今日', value: 'today' }, { label: '昨日', value: 'yesterday' }, { label: '本月', value: 'month' }, { label: '本年', value: 'year' }, { label: '自定义', value: 'custom' }]
 // Calendar dates always use the company's UTC+8 business timezone.
 function businessToday() { return new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' }) }
-function todayScope(): FilterScope { const day = businessToday(); return { preset: 'today', startDate: day, endDate: day, platform: '', site: '', airline: '', product: '', policy: '' } }
+function todayScope(): FilterScope { const day = businessToday(); return { preset: 'today', startDate: day, endDate: day, platform: '', site: '', airline: '', product: '', policy: '', supplier: '', gds: '' } }
 const draft = ref<FilterScope>(todayScope())
 const applied = ref<FilterScope>({ ...draft.value })
 const groupDimension = ref<DimensionKey>('platform')
@@ -202,7 +203,7 @@ const hasPending = computed(() => JSON.stringify(draft.value) !== JSON.stringify
 const scopeItems = computed(() => dimensions.filter(d => applied.value[d.key]))
 const hasMissingProfit = computed(() => businesses.some(b => (metric(b.key)?.profitMissingCount || 0) > 0))
 const groupLabel = computed(() => dimensions.find(d => d.key === groupDimension.value)!.label)
-const dimensionOptions = dimensions.map(d => ({ label: '按' + d.label, value: d.key }))
+const dimensionOptions = computed(() => dimensions.filter(d => data.value?.extendedFiltersReady || !['supplier', 'gds'].includes(d.key)).map(d => ({ label: '按' + d.label, value: d.key })))
 const formatter = new Intl.NumberFormat('zh-CN', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 const money = (amount: string | number | null | undefined) => amount == null ? '—' : formatter.format(Number(amount))
 const count = (amount: number | null | undefined) => amount == null ? '—' : new Intl.NumberFormat('zh-CN').format(amount)
@@ -254,7 +255,7 @@ const diagnosisGroup = ref<DimensionKey>('platform')
 const diagnosisPage = ref(1)
 const diagnosisTitle = ref('经营诊断')
 let diagnosisRequestId = 0
-const diagnosisGroupOptions = computed(() => dimensions.filter(dimension => !diagnosisScope.value[dimension.key]).map(dimension => ({ label: '按' + dimension.label, value: dimension.key })))
+const diagnosisGroupOptions = computed(() => dimensions.filter(dimension => !diagnosisScope.value[dimension.key] && (data.value?.extendedFiltersReady || !['supplier', 'gds'].includes(dimension.key))).map(dimension => ({ label: '按' + dimension.label, value: dimension.key })))
 const diagnosisScopeText = computed(() => dimensions.filter(dimension => diagnosisScope.value[dimension.key]).map(dimension => `${dimension.label}：${optionLabel(dimension.key, diagnosisScope.value[dimension.key])}`).join(' → ') || '全部范围')
 const diagnosisRows = computed(() => [...(diagnosisData.value?.current.comparison || [])].sort((left, right) => {
   if (left.totalProfit == null) return right.totalProfit == null ? left.name.localeCompare(right.name, 'zh-CN') : 1
@@ -330,7 +331,7 @@ function removeDimension(key: DimensionKey) { draft.value = { ...applied.value, 
 function changeGroup() { void load({ ...applied.value }) }
 function changeSort() { void load({ ...applied.value }) }
 function nextDiagnosisGroup(scope: FilterScope, fallback: DimensionKey) {
-  return dimensions.find(dimension => !scope[dimension.key])?.key || fallback
+  return dimensions.find(dimension => !scope[dimension.key] && (data.value?.extendedFiltersReady || !['supplier', 'gds'].includes(dimension.key)))?.key || fallback
 }
 async function loadDiagnosis() {
   const id = ++diagnosisRequestId
@@ -540,7 +541,7 @@ onMounted(() => { void load({ ...draft.value }) })
 .period-fields { margin: 16px 0; display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
 .date-fields { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; color: #6c7a91; font-size: 12px; }
 .date-fields :deep(.ant-picker) { width: 142px; }
-.dimension-fields { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; }
+.dimension-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; }
 .dimension-fields label { display: grid; gap: 7px; min-width: 0; color: #64728a; font-size: 12px; }
 .dimension-fields label > span { display: flex; justify-content: space-between; }
 .dimension-fields small { color: #a4aebe; font-size: 10px; }

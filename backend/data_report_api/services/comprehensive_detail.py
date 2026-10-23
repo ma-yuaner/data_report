@@ -236,6 +236,8 @@ def build_detail_queries(
             (f"src.{spec.product_field}", 2),
         ),
         "policy": ((f"src.{spec.policy_field}", 0),),
+        "supplier": (("src.supplier_name" if business == "issue" else "src.supplier_cname", 0),),
+        "gds": (("src.analysis_gds_code", 0),),
     }
     for key, expressions in mappings.items():
         if key not in filters:

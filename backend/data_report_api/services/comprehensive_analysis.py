@@ -21,6 +21,8 @@ DIMENSIONS = {
     "airline": ("airline_code",),
     "product": ("ota_code", "ota_cname", "ticket_product_raw"),
     "policy": ("policy_operator",),
+    "supplier": ("supplier_name",),
+    "gds": ("gds_code",),
 }
 COLUMNS = (
     "row_key", "dt", "business_date", "row_type", "business_type", "ota_code", "ota_cname",
@@ -28,6 +30,7 @@ COLUMNS = (
     "segment_count", "segment_missing_count", "known_profit_cny", "estimated_profit_cny",
     "profit_missing_count", "source_row_count", "metric_version", "etl_run_id", "etl_updated_at",
     "policy_operator",
+    "supplier_name", "gds_code",
 )
 SORT_FIELDS = ("segments", "profit")
 MAX_ROWS = 1_000_000
@@ -37,7 +40,8 @@ QUERY_BUDGET_SECONDS = 45
 QUERY_SLOTS = BoundedSemaphore(2)
 TABLE_NAME = "bi_business_profit_dimension_day"
 NOTES = [
-    "粒度：业务日 × 业务类型 × 平台 × 站点 × 政策员 × 源业务航司 × 机票产品原值；部门暂不纳入。",
+    "粒度：业务日 × 业务类型 × 平台 × 站点 × 政策员 × 源业务航司 × 机票产品原值 × 实际供应商 × 最终出票GDS；部门暂不纳入。",
+    "GDS：出票/退票取issue_gds_channel，改签取新issue_gds_code；增值源无GDS字段，保留未知，不按订单猜配。",
     "时间：出票时间、退票申请时间、改签出票时间、增值创建时间；结束日包含当天。",
     "金额：沿用源字段的CNY业务估算口径与正负号，不代表已结算利润；不并入风控核对区利润。",
     "数量：四类业务的business_count分别按票展示，不合计为总票数或据此计算退票率。",
@@ -64,6 +68,10 @@ def dimension_label(row: dict, key: str) -> str:
         return str(row.get("airline_code") or "未知航司")
     if key == "policy":
         return str(row.get("policy_operator") or "未知政策员")
+    if key == "supplier":
+        return str(row.get("supplier_name") or "未知供应商")
+    if key == "gds":
+        return str(row.get("gds_code") or "未知最终出票GDS")
     return f"{row.get('ticket_product_raw') or '待补充产品'} · {platform}"
 
 
@@ -130,7 +138,7 @@ def check_snapshot(rows: Iterable[dict], days: list[str]) -> dict:
     for row in rows:
         if row["dt"] not in day_set or row["business_date"] != row["dt"]:
             raise RuntimeError("中间层业务日期与dt不一致，请重新同步")
-        if row["metric_version"] not in ("v1", "v2") or not row["etl_run_id"] or row["business_type"] not in BUSINESSES:
+        if row["metric_version"] not in ("v1", "v2", "v3") or not row["etl_run_id"] or row["business_type"] not in BUSINESSES:
             raise RuntimeError("中间层版本或业务运行标记异常，请重新清洗")
         if row["row_type"] not in ("data", "coverage"):
             raise RuntimeError("中间层行类型异常")
@@ -253,6 +261,7 @@ class ComprehensiveAnalysisService:
             "source": f"MySQL · {self.source.database}.{TABLE_NAME}",
             "available": False, "error": "", "period": {"startDate": first.isoformat(), "endDate": last.isoformat()},
             "coverage": {"missingDays": [], "availableDays": [], "updatedAt": ""},
+            "extendedFiltersReady": False,
             "metrics": aggregate([], False), "totalProfit": None, "trend": [], "comparison": [],
             "options": {key: [] for key in DIMENSIONS},
             "notes": [*NOTES, f'本次最多读取{self.max_rows:,}条ADS汇总行（含完整性标记），不是订单条数；超限不展示截取总额。'],
@@ -262,6 +271,7 @@ class ComprehensiveAnalysisService:
             return response
         connection = cursor = None
         started, row_count = perf_counter(), 0
+        extended_ready = True
         try:
             from pymysql.cursors import SSCursor
             connection = self.source.connect()
@@ -279,7 +289,7 @@ class ComprehensiveAnalysisService:
             options = {key: {} for key in DIMENSIONS}
 
             def rows():
-                nonlocal row_count
+                nonlocal row_count, extended_ready
                 while True:
                     batch = cursor.fetchmany(FETCH_BATCH_SIZE)
                     if perf_counter() - started > QUERY_BUDGET_SECONDS:
@@ -291,6 +301,8 @@ class ComprehensiveAnalysisService:
                         if row_count > self.max_rows:
                             raise RuntimeError(f'所选范围超过{self.max_rows:,}条ADS汇总行，请缩小时间范围；未截取部分数据冒充总额。')
                         row = dict(zip(COLUMNS, raw))
+                        if row.get('metric_version') != 'v3':
+                            extended_ready = False
                         # Validator consumes the row before it is accumulated below.
                         yield row
                         if row['row_type'] != 'data':
@@ -314,11 +326,16 @@ class ComprehensiveAnalysisService:
 
             coverage = check_snapshot(rows(), days)
             response['coverage'] = coverage
+            response['extendedFiltersReady'] = extended_ready
             missing = response["coverage"]["missingDays"]
             if missing:
                 response["error"] = f"所选期间有{len(missing)}天尚未生成中间层（如{missing[0]}）。请先回补这些日期，或缩小统计范围；未生成不等于零业务。"
                 return response
+            if not extended_ready and (group in ('supplier', 'gds') or filters.get('supplier') or filters.get('gds')):
+                raise RuntimeError('供应商/GDS筛选需要完整V3数据，请先升级字段并重跑同步所选日期；未返回部分统计。')
             for key in DIMENSIONS:
+                if not extended_ready and key in ('supplier', 'gds'):
+                    continue
                 response['options'][key] = sorted(options[key].values(), key=lambda item: (item['label'], item['value']))
             response["metrics"] = overall.metrics()
             response["totalProfit"] = total_profit(response["metrics"])
@@ -358,7 +375,7 @@ class ComprehensiveAnalysisService:
             logging.getLogger(__name__).exception("MySQL ADS comprehensive analysis failed")
             # Do not expose connection details, SQL diagnostics, or credentials to the browser.
             response.update(available=False, metrics=aggregate([], False), totalProfit=None, trend=[], comparison=[],
-                            options={key: [] for key in DIMENSIONS})
+                            options={key: [] for key in DIMENSIONS}, extendedFiltersReady=False)
             response["error"] = str(error) if isinstance(error, RuntimeError) else (
                 '综合分析查询超时或连接中断，请缩小范围后重试；未返回部分统计。'
                 if getattr(error, 'args', ()) and error.args[0] in (2006, 2013, 3024)

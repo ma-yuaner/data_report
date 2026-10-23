@@ -1,7 +1,7 @@
 import { http, type ApiEnvelope } from './http'
 
 export type BusinessKey = 'issue' | 'refund' | 'change' | 'ancillary'
-export type DimensionKey = 'platform' | 'site' | 'airline' | 'product' | 'policy'
+export type DimensionKey = 'platform' | 'site' | 'airline' | 'product' | 'policy' | 'supplier' | 'gds'
 export type ComparisonSortKey = 'segments' | 'profit'
 export interface Metric {
   count: number | null
@@ -24,6 +24,7 @@ export interface DimensionRow {
 export interface ComprehensiveData {
   source: string
   available: boolean
+  extendedFiltersReady?: boolean
   error: string
   period: { startDate: string; endDate: string }
   coverage: { missingDays: string[]; availableDays: string[]; updatedAt: string }
@@ -43,6 +44,8 @@ export interface FilterScope {
   airline: string
   product: string
   policy: string
+  supplier: string
+  gds: string
 }
 export type ComprehensiveDetailValueType = 'text' | 'date' | 'datetime' | 'count' | 'money'
 export interface ComprehensiveDetailColumn {
