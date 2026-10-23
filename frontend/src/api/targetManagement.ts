@@ -44,6 +44,9 @@ export interface TargetGdsMeasure {
   target: number
   actual: number | null
   yesterday: number | null
+  actualThroughYesterday?: number | null
+  todayActual?: number | null
+  completionRate?: number | null
   dataStatus: string
 }
 
@@ -70,6 +73,7 @@ export interface TargetRow {
   metric: string
   metricCode: string
   metricVersion: string
+  dimensionKey?: string
   target: number
   actual: number | null
   yesterday: number | null
@@ -119,6 +123,10 @@ export type TargetProgressRow = Omit<TargetRow, 'status' | 'itemId' | 'planId'> 
   lossSegmentCount: number | null
   lossShare: number | null
   totalTicketCount: number | null
+  actualThroughYesterday: number | null
+  todayActual: number | null
+  todayRequired: number | null
+  todayRemaining: number | null
   reportDate?: string | null
   previousDate?: string | null
 }
@@ -136,6 +144,14 @@ export interface TargetProgressResult {
     target: number
     actual: number | null
     completionRate: number | null
+    actualThroughYesterday: number | null
+    todayActual: number | null
+    todayRequired: number | null
+    todayRemaining: number | null
+    expectedRate: number | null
+    progressGapRate: number | null
+    remaining: number | null
+    requiredDaily: number | null
     profit: number | null
     lossAmount: number | null
   }

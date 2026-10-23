@@ -52,6 +52,27 @@ def test_metric_value_keeps_missing_distinct_from_real_zero():
     assert service()._metric_value({}, "LOSS_AMOUNT") is None
 
 
+def test_dashboard_metric_filters_escape_percent_for_pymysql_interpolation():
+    class Cursor:
+        def execute(self, query, params):
+            # PyMySQL applies Python-style percent interpolation when parameters
+            # are supplied. Literal LIKE wildcards must therefore be escaped.
+            self.rendered_query = query % tuple(repr(value) for value in params)
+
+        def fetchall(self):
+            return []
+
+    instance = service()
+    instance.database = "sibebid"
+
+    for scene in ("GDS", "POLICY"):
+        cursor = Cursor()
+        assert instance._dashboard_metric_rows(
+            cursor, scene, date(2026, 10, 1), date(2026, 10, 22)
+        ) == []
+        assert "LIKE" in cursor.rendered_query
+
+
 def test_include_unconfigured_query_defaults_to_false_and_validates_values():
     assert _boolean_query(None) is False
     assert _boolean_query("false") is False
@@ -216,13 +237,79 @@ def test_progress_metrics_derives_remaining_without_inventing_loss(monkeypatch):
     row = service()._progress_metrics(date(2026, 10, 1), date(2026, 10, 31), metrics, base)
 
     assert row["actual"] == 40
+    assert row["actualThroughYesterday"] == 40
+    assert row["todayActual"] is None
     assert row["completionRate"] == 0.4
+    assert row["expectedRate"] == 16 / 31
     assert row["remaining"] == 60
     assert row["requiredDaily"] == 3.75
     assert row["yesterday"] == 10
     assert row["dayBefore"] == 30
     assert row["profit"] == 80
     assert row["lossAmount"] is None
+
+
+def test_progress_metrics_prefers_current_dws_metrics_over_stale_ads_snapshot(monkeypatch):
+    monkeypatch.setattr(
+        target_management,
+        "business_now",
+        lambda: datetime(2026, 10, 16, 8, tzinfo=timezone.utc),
+    )
+    base = {
+        "metricCode": "REWARD_SEGMENT", "target": 100, "actual": 0,
+        "completionRate": 0, "expectedRate": 0.5, "progressGapRate": -0.5,
+        "remaining": 100, "requiredDaily": 10, "profit": None,
+        "profitPerSegment": None, "yesterday": 0, "dataStatus": "READY",
+        "dataThroughDate": "2026-10-01",
+    }
+    metrics = {
+        "REWARD_SEGMENT": [
+            {"business_date": date(2026, 10, 15), "actual_value": 12, "ticket_count": 8},
+        ],
+    }
+
+    row = service()._progress_metrics(date(2026, 10, 1), date(2026, 10, 31), metrics, base)
+
+    assert row["actual"] == 12
+    assert row["actualThroughYesterday"] == 12
+    assert row["completionRate"] == 0.12
+    assert row["remaining"] == 88
+    assert row["dataThroughDate"] == "2026-10-15"
+
+
+def test_policy_progress_keeps_each_gds_completion_breakdown(monkeypatch):
+    monkeypatch.setattr(
+        target_management,
+        "business_now",
+        lambda: datetime(2026, 10, 2, 8, tzinfo=timezone.utc),
+    )
+    target = {
+        "id": "POLICY:1:SD01:PG:318", "policyCode": "PG", "dimensionKey": "",
+        "ownerUserId": 318, "metricCode": "REWARD_SEGMENT", "target": 30,
+        "actual": 0, "completionRate": 0, "expectedRate": None, "progressGapRate": None,
+        "remaining": 30, "requiredDaily": None, "profit": None, "profitPerSegment": None,
+        "yesterday": 0, "dataStatus": "READY", "dataThroughDate": "2026-10-01",
+        "gdsBreakdown": {
+            "1A": {"itemId": 1, "target": 20, "actual": 0, "yesterday": 0, "dataStatus": "READY"},
+            "1G": {"itemId": 2, "target": 10, "actual": 0, "yesterday": 0, "dataStatus": "READY"},
+        },
+    }
+    metric_rows = [
+        {"scope_code": "PG", "metric_code": "REWARD_SEGMENT", "gds_code": "1A", "business_date": date(2026, 10, 1), "actual_value": 4, "ticket_count": 2, "data_status": "READY"},
+        {"scope_code": "PG", "metric_code": "REWARD_SEGMENT", "gds_code": "1A", "business_date": date(2026, 10, 2), "actual_value": 3, "ticket_count": 2, "data_status": "READY"},
+        {"scope_code": "PG", "metric_code": "REWARD_SEGMENT", "gds_code": "1G", "business_date": date(2026, 10, 1), "actual_value": 2, "ticket_count": 1, "data_status": "READY"},
+        {"scope_code": "PG", "metric_code": "REWARD_SEGMENT", "gds_code": "1G", "business_date": date(2026, 10, 2), "actual_value": 3, "ticket_count": 2, "data_status": "READY"},
+    ]
+
+    rows = service()._configured_progress_rows(
+        "POLICY", "2026-10", date(2026, 10, 1), date(2026, 10, 31),
+        [target], metric_rows, {},
+    )
+
+    assert rows[0]["actual"] == 12
+    assert rows[0]["gdsBreakdown"]["1A"]["actual"] == 7
+    assert rows[0]["gdsBreakdown"]["1A"]["todayActual"] == 3
+    assert rows[0]["gdsBreakdown"]["1G"]["actual"] == 5
 
 
 def test_platform_dashboard_keeps_unconfigured_master_platform_visible():
@@ -281,12 +368,18 @@ def test_platform_dashboard_defaults_to_configured_and_searches_current_scope(mo
             "id": "PLATFORM:OTA-1", "configured": True, "platformCode": "OTA-1", "platform": "平台一",
             "gds": None, "policyCode": "", "policy": None, "policyLeaderName": "", "policyMemberNames": [],
             "department": "业务部", "owner": "张三", "target": 100.0, "actual": 40.0,
+            "actualThroughYesterday": 30.0, "todayActual": 10.0,
+            "todayRequired": 12.0, "todayRemaining": 2.0,
+            "expectedRate": 0.5, "remaining": 60.0, "requiredDaily": 3.75,
             "profit": 80.0, "lossAmount": None, "dataThroughDate": "2026-10-19",
         },
         {
             "id": "PLATFORM:OTA-2", "configured": False, "platformCode": "OTA-2", "platform": "平台二",
             "gds": None, "policyCode": "", "policy": None, "policyLeaderName": "", "policyMemberNames": [],
             "department": "", "owner": "", "target": 0.0, "actual": None,
+            "actualThroughYesterday": None, "todayActual": None,
+            "todayRequired": None, "todayRemaining": None,
+            "expectedRate": None, "remaining": None, "requiredDaily": None,
             "profit": None, "lossAmount": None, "dataThroughDate": None,
         },
     ]
@@ -304,7 +397,12 @@ def test_platform_dashboard_defaults_to_configured_and_searches_current_scope(mo
     assert [row["platformCode"] for row in default_result["rows"]] == ["OTA-1"]
     assert default_result["summary"] == {
         "scopeCount": 2, "visibleCount": 1, "configuredCount": 1, "progressReadyCount": 1,
-        "target": 100.0, "actual": 40.0, "completionRate": 0.4, "profit": 80.0, "lossAmount": None,
+        "target": 100.0, "actual": 40.0, "completionRate": 0.4,
+        "actualThroughYesterday": 30.0, "todayActual": 10.0,
+        "todayRequired": 12.0, "todayRemaining": 2.0,
+        "expectedRate": 0.5, "progressGapRate": -0.1,
+        "remaining": 60.0, "requiredDaily": 3.75,
+        "profit": 80.0, "lossAmount": None,
     }
     assert [row["platformCode"] for row in expanded_result["rows"]] == ["OTA-2"]
     assert expanded_result["summary"]["scopeCount"] == 2

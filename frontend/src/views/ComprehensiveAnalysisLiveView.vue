@@ -122,6 +122,10 @@
             <a-alert class="workspace-alert" type="info" show-icon message="真实日汇总" description="保留当前时间和维度条件；选择业务日后可继续追溯对应MySQL宽表。" />
             <div class="drawer-scope daily-scope"><div><span>统计期间</span><strong>{{ drawerFilterScope.startDate }} 至 {{ drawerFilterScope.endDate }}</strong></div><p>{{ drawerScope }}</p></div>
             <a-alert v-if="drawerError" class="range-error" type="error" :message="drawerError" show-icon />
+            <div class="daily-table-toolbar">
+              <strong>日汇总明细</strong>
+              <label><span>业务类型</span><a-select v-model:value="drawerBusiness" :options="dailyBusinessOptions" :disabled="drawerLoading" /></label>
+            </div>
             <a-table class="daily-detail-table" size="middle" :loading="drawerLoading" :columns="drawerColumns" :data-source="drawerRows" row-key="key" :pagination="{ pageSize: 20, hideOnSinglePage: true }" :scroll="{ x: 650 }">
               <template #bodyCell="{ column, record }">
                 <template v-if="column.key === 'business'"><span class="business-pill" :style="{ '--business-color': businessColor(record.businessKey) }">{{ record.label }}</span></template>
@@ -170,6 +174,7 @@ const businesses: { key: BusinessKey; label: string; countLabel: string; color: 
   { key: 'ancillary', label: '增值', countLabel: '增值购买数', color: '#3aada0' },
 ]
 const businessOptions = businesses.map(business => ({ label: `${business.label}宽表`, value: business.key }))
+const dailyBusinessOptions = [{ label: '全部业务', value: '' }, ...businesses.map(business => ({ label: business.label, value: business.key }))]
 const dimensions: { key: DimensionKey; label: string }[] = [{ key: 'platform', label: '平台' }, { key: 'site', label: '站点' }, { key: 'airline', label: '航司' }, { key: 'product', label: '产品' }, { key: 'policy', label: '政策员' }]
 const periodOptions = [{ label: '今日', value: 'today' }, { label: '昨日', value: 'yesterday' }, { label: '本月', value: 'month' }, { label: '本年', value: 'year' }, { label: '自定义', value: 'custom' }]
 // Calendar dates always use the company's UTC+8 business timezone.
@@ -381,14 +386,14 @@ const compositionOption = computed<EChartsCoreOption>(() => ({
 const drawerLoading = ref(false)
 const drawerError = ref('')
 const drawerData = ref<ComprehensiveData>()
-const drawerBusiness = ref<BusinessKey>()
+const drawerBusiness = ref<BusinessKey | ''>('')
 const drawerTitle = ref('日汇总明细')
 const drawerScope = ref('')
 const drawerFilterScope = ref<FilterScope>(todayScope())
 let drawerRequestId = 0
 async function openDailySummary(scope: FilterScope, title: string, business?: BusinessKey, cached?: ComprehensiveData, group: DimensionKey = groupDimension.value, resetNavigation = false) {
   const id = ++drawerRequestId
-  drawerBusiness.value = business
+  drawerBusiness.value = business || ''
   drawerData.value = cached
   drawerError.value = cached?.error || ''
   drawerLoading.value = !cached
@@ -587,9 +592,14 @@ onMounted(() => { void load({ ...draft.value }) })
 .daily-scope, .detail-scope { padding: 14px 16px; border: 1px solid #e3e9f1; border-radius: 11px; background: #fff; box-shadow: 0 5px 18px rgb(41 61 91 / 4%); }
 .daily-scope { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
 .daily-scope p, .detail-scope p { margin: 5px 0 0; color: #7a899f; line-height: 1.6; }
+.daily-table-toolbar { min-height: 52px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border: 1px solid #e4e9f0; border-bottom: 0; border-radius: 12px 12px 0 0; background: #fff; }
+.daily-table-toolbar > strong { color: #435168; font-size: 13px; }
+.daily-table-toolbar label { display: flex; align-items: center; gap: 9px; color: #7a899f; font-size: 11px; }
+.daily-table-toolbar :deep(.ant-select) { width: 132px; }
 .business-pill { --business-color: #397cf6; display: inline-flex; align-items: center; gap: 6px; color: #3e4f67; font-weight: 600; }
 .business-pill::before { width: 7px; height: 7px; border-radius: 50%; background: var(--business-color); content: ''; }
 .daily-detail-table, .wide-detail-table { overflow: hidden; border: 1px solid #e4e9f0; border-radius: 12px; background: #fff; }
+.daily-table-toolbar + .daily-detail-table { border-radius: 0 0 12px 12px; }
 .daily-detail-table :deep(.ant-table-thead > tr > th), .wide-detail-table :deep(.ant-table-thead > tr > th) { color: #69778c; font-size: 11px; font-weight: 600; background: #f5f8fc; }
 .daily-detail-table :deep(.ant-table-tbody > tr > td), .wide-detail-table :deep(.ant-table-tbody > tr > td) { color: #435168; border-color: #edf1f5; }
 .daily-detail-table :deep(.ant-table-tbody > tr:hover > td), .wide-detail-table :deep(.ant-table-tbody > tr:hover > td) { background: #f7faff; }
@@ -599,5 +609,5 @@ onMounted(() => { void load({ ...draft.value }) })
 .key-value { color: #244c83; font-weight: 600; font-variant-numeric: tabular-nums; }
 @media (max-width: 1200px) { .summary-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } .summary-total { grid-column: 1 / -1; } }
 @media (max-width: 900px) { .dimension-fields, .summary-grid, .diagnosis-summary-grid, .diagnosis-business-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .charts-grid { grid-template-columns: minmax(0, 1fr); } .section-heading, .scope-actions { flex-wrap: wrap; } }
-@media (max-width: 560px) { .scope-panel { padding: 15px 12px; } .date-fields :deep(.ant-picker) { width: 124px; } .business-card { padding-inline: 12px; } .analysis-panel :deep(.ant-card-body) { padding: 14px 12px; } .diagnosis-summary-grid, .diagnosis-business-grid { grid-template-columns: 1fr; } .workspace-nav { align-items: flex-start; padding: 10px 14px; flex-direction: column; } .workspace-steps { width: 100%; justify-content: flex-start; } .workspace-content { padding: 14px 12px 24px; } .daily-scope, .detail-scope { align-items: flex-start; flex-direction: column; } }
+@media (max-width: 560px) { .scope-panel { padding: 15px 12px; } .date-fields :deep(.ant-picker) { width: 124px; } .business-card { padding-inline: 12px; } .analysis-panel :deep(.ant-card-body) { padding: 14px 12px; } .diagnosis-summary-grid, .diagnosis-business-grid { grid-template-columns: 1fr; } .workspace-nav { align-items: flex-start; padding: 10px 14px; flex-direction: column; } .workspace-steps { width: 100%; justify-content: flex-start; } .workspace-content { padding: 14px 12px 24px; } .daily-scope, .detail-scope { align-items: flex-start; flex-direction: column; } .daily-table-toolbar { align-items: flex-start; flex-direction: column; } .daily-table-toolbar label, .daily-table-toolbar :deep(.ant-select) { width: 100%; } }
 </style>

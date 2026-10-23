@@ -15,6 +15,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
+from ..jobs.target_management import calendar_progress_rate, target_dimension_key
 from .data_source import DataSource
 from ..time_utils import business_now
 from ..shared.permissions import permission_codes
@@ -83,6 +84,12 @@ def _stable_code(prefix: str, value: str) -> str:
 
 def _decimal(value: Any) -> float | None:
     return None if value is None else float(value)
+
+
+def _rate_gap(actual: float | None, expected: float | None) -> float | None:
+    if actual is None or expected is None:
+        return None
+    return round(actual - expected, 10)
 
 
 def _iso(value: Any) -> str | None:
@@ -637,6 +644,30 @@ class TargetManagementService:
             configured_rows = [row for row in rows if row["configured"]]
             target_total = sum(float(row["target"] or 0) for row in configured_rows)
             actual_total = sum(float(row["actual"] or 0) for row in progress_rows) if progress_rows else None
+            actual_through_yesterday_values = [
+                float(row["actualThroughYesterday"])
+                for row in rows
+                if row["actualThroughYesterday"] is not None
+            ]
+            today_actual_values = [float(row["todayActual"]) for row in rows if row["todayActual"] is not None]
+            today_required_values = [
+                float(row["todayRequired"])
+                for row in configured_rows
+                if row["todayRequired"] is not None
+            ]
+            today_remaining_values = [
+                float(row["todayRemaining"])
+                for row in configured_rows
+                if row["todayRemaining"] is not None
+            ]
+            remaining_values = [float(row["remaining"]) for row in configured_rows if row["remaining"] is not None]
+            required_daily_values = [
+                float(row["requiredDaily"])
+                for row in configured_rows
+                if row["requiredDaily"] is not None
+            ]
+            expected_rates = [float(row["expectedRate"]) for row in configured_rows if row["expectedRate"] is not None]
+            expected_rate = max(expected_rates) if expected_rates else None
             profits = [float(row["profit"]) for row in rows if row["profit"] is not None]
             losses = [float(row["lossAmount"]) for row in rows if row["lossAmount"] is not None]
             through_dates = [row["dataThroughDate"] for row in rows if row["dataThroughDate"]]
@@ -654,6 +685,19 @@ class TargetManagementService:
                     "target": target_total,
                     "actual": actual_total,
                     "completionRate": actual_total / target_total if actual_total is not None and target_total else None,
+                    "actualThroughYesterday": (
+                        sum(actual_through_yesterday_values) if actual_through_yesterday_values else None
+                    ),
+                    "todayActual": sum(today_actual_values) if today_actual_values else None,
+                    "todayRequired": sum(today_required_values) if today_required_values else None,
+                    "todayRemaining": sum(today_remaining_values) if today_remaining_values else None,
+                    "expectedRate": expected_rate,
+                    "progressGapRate": _rate_gap(
+                        actual_total / target_total if actual_total is not None and target_total else None,
+                        expected_rate,
+                    ),
+                    "remaining": sum(remaining_values) if remaining_values else None,
+                    "requiredDaily": sum(required_daily_values) if required_daily_values else None,
                     "profit": sum(profits) if profits else None,
                     "lossAmount": sum(losses) if losses else None,
                 },
@@ -663,7 +707,7 @@ class TargetManagementService:
                 "metricAvailability": {
                     "hasEtlData": bool(metric_rows or progress_rows),
                     "lossMetricsReady": any(row["lossAmount"] is not None for row in rows),
-                    "message": "亏损指标尚未由ETL写入时保持为空，不按0展示。",
+                    "message": "完成量或利润尚未由ETL写入时保持为空，不按0展示。",
                 },
             }
         except (PermissionError, ValueError):
@@ -727,7 +771,18 @@ class TargetManagementService:
             row["policy_member_names"] = [member["name"] for member in selected]
 
     def _dashboard_metric_rows(self, cursor: Any, scene: str, start: date, end: date) -> list[dict[str, Any]]:
-        dimension_column = {"PLATFORM": "platform_code", "GDS": "gds_code", "POLICY": "policy_group_code"}[scene]
+        dimension_column = {
+            "PLATFORM": "platform_code",
+            "GDS": "dimension_key",
+            "POLICY": "policy_group_code",
+        }[scene]
+        dimension_filter = {
+            "PLATFORM": "",
+            "GDS": "AND dimension_key LIKE 'GDS:%%:DEPT:%%:OWNER:%%'",
+            "POLICY": "AND dimension_key LIKE 'POLICY_LEADER:%%'",
+        }[scene]
+        gds_select = ", gds_code" if scene == "POLICY" else ""
+        gds_group = ", gds_code" if scene == "POLICY" else ""
         cursor.execute(
             f"""SELECT {dimension_column} AS scope_code, metric_code, business_date,
                        sum(actual_value) AS actual_value, sum(issue_profit) AS issue_profit,
@@ -736,13 +791,14 @@ class TargetManagementService:
                             WHEN sum(data_status='PARTIAL')>0 THEN 'PARTIAL'
                             ELSE 'READY' END AS data_status,
                        max(source_max_time) AS source_max_time,
-                       max(etl_updated_at) AS etl_updated_at
+                       max(etl_updated_at) AS etl_updated_at{gds_select}
                 FROM {self._table('dws_target_metric_day')}
                 WHERE business_date BETWEEN %s AND %s
                   AND coalesce({dimension_column}, '')<>''
-                  AND metric_code IN ('ISSUED_AIRLIFT_SEGMENT','REWARD_SEGMENT','GDS_1A_ELIGIBLE_SEGMENT',
+                  {dimension_filter}
+                  AND metric_code IN ('ISSUED_AIRLIFT_SEGMENT','REWARD_SEGMENT','GDS_1A_ELIGIBLE_SEGMENT','POLICY_TOTAL_SEGMENT',
                                       'ISSUE_PROFIT','LOSS_AMOUNT','LOSS_TICKET_COUNT','LOSS_SEGMENT_COUNT')
-                GROUP BY {dimension_column}, metric_code, business_date""",
+                GROUP BY {dimension_column}, metric_code, business_date{gds_group}""",
             (start, end),
         )
         return [dict(row) for row in cursor.fetchall()]
@@ -796,6 +852,18 @@ class TargetManagementService:
         return sum(float(value) for value in values)
 
     @staticmethod
+    def _metric_value_through(
+        metrics: dict[str, list[dict[str, Any]]], code: str, through_date: date
+    ) -> float | None:
+        rows = [row for row in metrics.get(code, []) if row["business_date"] <= through_date]
+        if not rows or any(str(row.get("data_status") or "READY") != "READY" for row in rows):
+            return None
+        values = [row["actual_value"] for row in rows]
+        if any(value is None for value in values):
+            return None
+        return sum(float(value) for value in values)
+
+    @staticmethod
     def _ticket_value(metrics: dict[str, list[dict[str, Any]]], code: str) -> float | None:
         rows = metrics.get(code, [])
         if any(str(row.get("data_status") or "READY") != "READY" for row in rows):
@@ -816,53 +884,88 @@ class TargetManagementService:
         report_date, previous_date = self._report_dates(start, end)
         segment_code = str(base.get("metricCode") or "ISSUED_AIRLIFT_SEGMENT")
         segments = self._metric_value(metrics, segment_code)
-        if segments is None and segment_code != "ISSUED_AIRLIFT_SEGMENT":
-            segments = self._metric_value(metrics, "ISSUED_AIRLIFT_SEGMENT")
-        actual = base.get("actual") if base.get("actual") is not None else segments
+        actual = segments if segments is not None else base.get("actual")
+        today = business_now().date()
+        is_current_period = start <= today <= end
+        today_actual = self._metric_value(metrics, segment_code, on_date=today) if is_current_period else None
+        if is_current_period and today == start:
+            actual_through_yesterday = 0.0
+        elif is_current_period:
+            actual_through_yesterday = self._metric_value_through(metrics, segment_code, today - timedelta(days=1))
+            if actual_through_yesterday is None and actual is not None and today_actual is not None:
+                actual_through_yesterday = max(float(actual) - today_actual, 0.0)
+        else:
+            actual_through_yesterday = actual
         profit = self._metric_value(metrics, "ISSUE_PROFIT")
         if profit is None:
             profit = base.get("profit")
         yesterday = self._metric_value(metrics, segment_code, on_date=report_date) if report_date else None
-        if yesterday is None and report_date and segment_code != "ISSUED_AIRLIFT_SEGMENT":
-            yesterday = self._metric_value(metrics, "ISSUED_AIRLIFT_SEGMENT", on_date=report_date)
-        if yesterday is None:
+        if yesterday is None and base.get("statDate") == _iso(report_date):
             yesterday = base.get("yesterday")
         day_before = self._metric_value(metrics, segment_code, on_date=previous_date) if previous_date else None
         yesterday_profit = self._metric_value(metrics, "ISSUE_PROFIT", on_date=report_date) if report_date else None
+        profit_segment_code = "POLICY_TOTAL_SEGMENT" if base.get("scene") == "policy" else segment_code
+        profit_segments = self._metric_value(metrics, profit_segment_code)
+        yesterday_profit_segments = (
+            self._metric_value(metrics, profit_segment_code, on_date=report_date) if report_date else None
+        )
         loss_amount = self._metric_value(metrics, "LOSS_AMOUNT")
         loss_tickets = self._metric_value(metrics, "LOSS_TICKET_COUNT")
         loss_segments = self._metric_value(metrics, "LOSS_SEGMENT_COUNT")
         total_tickets = self._ticket_value(metrics, segment_code)
-        if total_tickets is None and segment_code != "ISSUED_AIRLIFT_SEGMENT":
-            total_tickets = self._ticket_value(metrics, "ISSUED_AIRLIFT_SEGMENT")
         target = float(base.get("target") or 0)
-        completion = base.get("completionRate")
-        if completion is None and actual is not None and target:
+        completion = None if segments is not None else base.get("completionRate")
+        if actual is not None and target and (completion is None or segments is not None):
             completion = float(actual) / target
         expected = base.get("expectedRate")
-        remaining = base.get("remaining")
-        if remaining is None and actual is not None and target:
+        if is_current_period:
+            expected = float(calendar_progress_rate(start, end, today))
+        remaining = None if segments is not None else base.get("remaining")
+        if actual is not None and target and (remaining is None or segments is not None):
             remaining = max(target - float(actual), 0.0)
-        required_daily = base.get("requiredDaily")
+        required_daily = None if segments is not None else base.get("requiredDaily")
         if required_daily is None and remaining is not None and report_date:
             days_left = max((end - report_date).days, 0)
             required_daily = remaining / days_left if days_left else (0.0 if remaining == 0 else None)
+        today_required = (
+            max(target * float(expected) - actual_through_yesterday, 0.0)
+            if is_current_period and expected is not None and actual_through_yesterday is not None
+            else None
+        )
+        today_remaining = (
+            max(today_required - today_actual, 0.0)
+            if today_required is not None and today_actual is not None
+            else None
+        )
         metric_dates = [row["business_date"] for rows in metrics.values() for row in rows if row.get("business_date")]
-        data_through_date = base.get("dataThroughDate") or (_iso(max(metric_dates)) if metric_dates else None)
+        data_through_date = _iso(max(metric_dates)) if metric_dates else base.get("dataThroughDate")
         return {
             **base,
             "actual": actual,
+            "actualThroughYesterday": actual_through_yesterday,
+            "todayActual": today_actual,
+            "todayRequired": today_required,
+            "todayRemaining": today_remaining,
             "completionRate": completion,
-            "progressGapRate": (completion - expected) if completion is not None and expected is not None else base.get("progressGapRate"),
+            "expectedRate": expected,
+            "progressGapRate": _rate_gap(completion, expected) if completion is not None and expected is not None else base.get("progressGapRate"),
             "remaining": remaining,
             "requiredDaily": required_daily,
             "profit": profit,
-            "profitPerSegment": (profit / actual) if profit is not None and actual else base.get("profitPerSegment"),
+            "profitPerSegment": (
+                profit / profit_segments
+                if profit is not None and profit_segments
+                else base.get("profitPerSegment")
+            ),
             "yesterday": yesterday,
             "dayBefore": day_before,
             "dayOverDayRate": ((yesterday - day_before) / day_before) if yesterday is not None and day_before else None,
             "yesterdayProfit": yesterday_profit,
-            "yesterdayProfitPerSegment": (yesterday_profit / yesterday) if yesterday_profit is not None and yesterday else None,
+            "yesterdayProfitPerSegment": (
+                yesterday_profit / yesterday_profit_segments
+                if yesterday_profit is not None and yesterday_profit_segments
+                else None
+            ),
             "lossAmount": loss_amount,
             "lossTicketCount": loss_tickets,
             "lossSegmentCount": loss_segments,
@@ -871,7 +974,9 @@ class TargetManagementService:
             "reportDate": _iso(report_date),
             "previousDate": _iso(previous_date),
             "dataThroughDate": data_through_date,
-            "dataStatus": base.get("dataStatus") if actual is not None else ("READY" if metrics else "PENDING_ETL"),
+            "dataStatus": "READY" if segments is not None else (
+                base.get("dataStatus") if actual is not None else ("READY" if metrics else "PENDING_ETL")
+            ),
         }
 
     def _platform_progress_rows(self, period: str, start: date, end: date,
@@ -910,11 +1015,41 @@ class TargetManagementService:
         metric_index = self._metric_index(metric_rows)
         result = []
         for target in targets:
-            scope_code = str(target.get("gds") if scene == "GDS" else target.get("policyCode") or "")
+            scope_code = str(
+                target.get("dimensionKey") if scene == "GDS" else target.get("policyCode") or ""
+            )
             owner_id = target.get("ownerUserId")
             employee = roster.get(int(owner_id)) if owner_id is not None else None
             base = {**target, "configured": True, "platformFullName": "", "wechatConfigured": bool(employee and employee.get("wechat_id"))}
-            result.append(self._progress_metrics(start, end, metric_index.get(scope_code, {}), base))
+            scope_metrics = metric_index.get(scope_code, {})
+            progress = self._progress_metrics(start, end, scope_metrics, base)
+            if scene == "POLICY":
+                breakdown: dict[str, dict[str, Any]] = {}
+                for gds_code, item in (base.get("gdsBreakdown") or {}).items():
+                    gds_metrics = {
+                        metric_code: [
+                            metric_row for metric_row in metric_values
+                            if str(metric_row.get("gds_code") or "").upper() == str(gds_code).upper()
+                        ]
+                        for metric_code, metric_values in scope_metrics.items()
+                    }
+                    detail = self._progress_metrics(start, end, gds_metrics, {
+                        **base,
+                        "target": item.get("target", 0),
+                        "actual": item.get("actual"),
+                        "yesterday": item.get("yesterday"),
+                        "dataStatus": item.get("dataStatus", "PENDING_ETL"),
+                    })
+                    breakdown[str(gds_code).upper()] = {
+                        **item,
+                        "actual": detail["actual"],
+                        "actualThroughYesterday": detail["actualThroughYesterday"],
+                        "todayActual": detail["todayActual"],
+                        "completionRate": detail["completionRate"],
+                        "dataStatus": detail["dataStatus"],
+                    }
+                progress["gdsBreakdown"] = breakdown
+            result.append(progress)
         return result
 
     def _public_rows(self, scene: str, period: str, raw_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -954,7 +1089,7 @@ class TargetManagementService:
                                if raw["id"] in row["itemIds"].values() and raw["planned_cumulative_rate"] is not None]
             if expected_values:
                 row["expectedRate"] = float(max(expected_values))
-                row["progressGapRate"] = row["completionRate"] - row["expectedRate"] if row["completionRate"] is not None else None
+                row["progressGapRate"] = _rate_gap(row["completionRate"], row["expectedRate"])
         return list(grouped.values())
 
     @staticmethod
@@ -976,7 +1111,16 @@ class TargetManagementService:
             "ownerUserId": int(row["owner_user_id"]) if row["owner_user_id"] is not None else None,
             "owner": row["owner_name_snapshot"], "metric": row["metric_name"] or row["metric_code"],
             "metricCode": row["metric_code"], "metricVersion": row["metric_version"],
+            "dimensionKey": target_dimension_key(
+                scene,
+                platform_code=str(row["platform_code"] or ""),
+                gds_code=str(row["gds_code"] or ""),
+                policy_group_code=str(row["policy_group_code"] or ""),
+                department_code=str(row["department_code"] or ""),
+                owner_user_id=int(row["owner_user_id"]) if row["owner_user_id"] is not None else None,
+            ),
             "target": _decimal(row["target_value"]) or 0.0, "actual": actual,
+            "statDate": _iso(row["stat_date"]),
             "yesterday": _decimal(row["actual_today"]) if row["stat_date"] is not None else None,
             "expectedRate": _decimal(row["planned_cumulative_rate"]),
             "completionRate": _decimal(row["completion_rate"]),

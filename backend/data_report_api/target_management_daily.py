@@ -4,10 +4,10 @@ from .jobs.target_management import (
     TargetManagementDailyJob,
     main,
     source_daily_sql,
-    weekday_progress_rate,
+    calendar_progress_rate,
 )
 
-__all__ = ['Scope', 'TargetManagementDailyJob', 'main', 'source_daily_sql', 'weekday_progress_rate']
+__all__ = ['Scope', 'TargetManagementDailyJob', 'main', 'source_daily_sql', 'calendar_progress_rate']
 
 if __name__ == "__main__":
     raise SystemExit(main())
