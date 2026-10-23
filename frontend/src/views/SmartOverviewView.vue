@@ -70,9 +70,11 @@ import BaseChart from '@/components/BaseChart.vue'
 import SmartAnalysisFilters from '@/components/SmartAnalysisFilters.vue'
 import { smartAnalysisApi, type SmartOverviewData, type SmartStage } from '@/api/smartAnalysis'
 import { useSmartAnalysisStore } from '@/stores/smartAnalysis'
+import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
 import { guardSmartExport } from '@/utils/smartExportGuard'
 
 const store = useSmartAnalysisStore()
+const exportTasks = useComprehensiveExportStore()
 const pageState = store.pages.overview
 const router = useRouter()
 const data = ref<SmartOverviewData>()
@@ -141,7 +143,7 @@ async function loadOverview() { loading.value = true; try { data.value = await s
 async function loadTrends() { trendLoading.value = true; try { trendData.value = await smartAnalysisApi.trends({ ...pageState.applied }, store.trendDate) } catch (error) { trendData.value = undefined; message.error(error instanceof Error ? error.message : '智能趋势加载失败') } finally { trendLoading.value = false } }
 function load() { void loadOverview(); void loadTrends() }
 function openDetail(stage: SmartStage) { if (!data.value?.hasData) return; const label = stages.value.find(item => item.key === stage)?.label || '全部出票'; store.beginDrill({ sourcePath: '/smart-analysis/overview', sourceTitle: '智能总览', sourcePage: 'overview', stage, tags: [{ label: '票单范围', value: label }] }); void router.push({ path: '/smart-analysis/details', query: { stage, smartType: pageState.smartType, drill: '1' } }) }
-async function runTrendExport(kind: 'daily' | 'monthly') { exporting.value = kind; try { await smartAnalysisApi.exportTrend({ ...pageState.applied }, { kind, smartType: pageState.smartType, trendDate: store.trendDate }); message.success('导出文件已开始下载') } catch (error) { message.error(error instanceof Error ? error.message : '趋势导出失败') } finally { exporting.value = '' } }
+async function runTrendExport(kind: 'daily' | 'monthly') { exporting.value = kind; try { const task = await exportTasks.createBackground(kind === 'daily' ? 'smart_trend_daily' : 'smart_trend_monthly', { ...pageState.applied, smartType: pageState.smartType, trendDate: store.trendDate }); message.success(task.reused ? '相同条件的任务正在进行，已打开导出任务' : '已加入导出任务，可在页头查看进度') } catch (error) { message.error(error instanceof Error ? error.message : '趋势导出失败') } finally { exporting.value = '' } }
 function exportTrend(kind: 'daily' | 'monthly') {
   const total = kind === 'daily' ? trendData.value?.dailyTrend.length : trendData.value?.monthlyTrend.length
   guardSmartExport(total ?? 0, () => runTrendExport(kind))

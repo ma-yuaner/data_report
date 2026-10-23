@@ -99,6 +99,7 @@ import DataStateBar from '@/components/DataStateBar.vue'
 import SmartAnalysisFilters from '@/components/SmartAnalysisFilters.vue'
 import { smartAnalysisApi, type SmartDetailColumn, type SmartDetailData, type SmartDetailValueType, type SmartStage, type SmartTicketData, type SmartType, type SmartViewTemplate } from '@/api/smartAnalysis'
 import { useSmartAnalysisStore } from '@/stores/smartAnalysis'
+import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
 import { useAuthStore } from '@/stores/auth'
 import { guardSmartExport } from '@/utils/smartExportGuard'
 import { loadViewTemplates } from '@/utils/smartViewTemplates'
@@ -273,8 +274,8 @@ async function openTicket(issueId: unknown) {
 async function runExport() {
   exporting.value = true
   try {
-    await smartAnalysisApi.exportDetails({ ...pageState.applied }, { smartType: pageState.smartType, stage: stage.value, fields: selectedFields.value, scope: exportScope.value })
-    message.success('导出文件已开始下载')
+    const task = await useComprehensiveExportStore().createBackground('smart_details', { ...pageState.applied, smartType: pageState.smartType, stage: stage.value, fields: selectedFields.value, scope: exportScope.value })
+    message.success(task.reused ? '相同条件的任务正在进行，已打开导出任务' : '已加入导出任务，可在页头查看进度')
   } catch (error) {
     message.error(error instanceof Error ? error.message : '出票明细导出失败')
   } finally {

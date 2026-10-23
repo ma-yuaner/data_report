@@ -1,7 +1,5 @@
 import { http, type ApiEnvelope } from './http'
 
-const SMART_EXPORT_TIMEOUT_MS = 30 * 60_000
-
 export type SmartType = 'all' | 'down' | 'void'
 export type SmartStage = 'all' | 'participation' | 'unparticipated' | 'success' | 'use' | 'unsuccessful' | 'unused' | 'refund'
 export type SmartTrendDate = 'issue' | 'departure' | 'order'
@@ -215,21 +213,6 @@ function cleanFilters(filters: SmartFilters) {
   return Object.fromEntries(Object.entries(filters).filter(([, value]) => value !== ''))
 }
 
-function downloadResponse(response: { data: Blob; headers: Record<string, unknown> }, fallbackName: string) {
-  const disposition = String(response.headers['content-disposition'] || '')
-  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
-  const plain = disposition.match(/filename="?([^";]+)"?/i)?.[1]
-  const filename = encoded ? decodeURIComponent(encoded) : plain || fallbackName
-  const url = URL.createObjectURL(response.data)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename
-  document.body.appendChild(link)
-  link.click()
-  link.remove()
-  URL.revokeObjectURL(url)
-}
-
 export const smartAnalysisApi = {
   comprehensive: (filters: SmartFilters, params: { groupBy: string; smartType: SmartType; sortBy: string; direction: 'asc' | 'desc'; page: number; pageSize: number }) => http.get<ApiEnvelope<SmartComprehensiveData>>('/v1/smart-analysis/comprehensive', { params: { ...cleanFilters(filters), ...params } }).then(response => response.data.data),
   overview: (filters: SmartFilters, trendDate: SmartTrendDate) => http.get<ApiEnvelope<SmartOverviewData>>('/v1/smart-analysis/overview', { params: { ...cleanFilters(filters), trendDate } }).then(response => response.data.data),
@@ -241,7 +224,4 @@ export const smartAnalysisApi = {
   templates: <T extends Record<string, unknown>>(scope: 'dimension-analysis' | 'detail-fields') => http.get<ApiEnvelope<{ scope: string; rows: SmartViewTemplate<T>[] }>>('/v1/smart-analysis/templates', { params: { scope } }).then(response => response.data.data.rows),
   saveTemplate: <T extends Record<string, unknown>>(input: { id?: number; scope: 'dimension-analysis' | 'detail-fields'; name: string; value: T; isPublic: boolean }) => http.post<ApiEnvelope<SmartViewTemplate<T>>>('/v1/smart-analysis/templates', input).then(response => response.data.data),
   deleteTemplate: (id: number) => http.delete<ApiEnvelope<{ id: number }>>(`/v1/smart-analysis/templates/${id}`).then(response => response.data.data),
-  exportTrend: (filters: SmartFilters, params: { kind: 'daily' | 'monthly'; smartType: SmartType; trendDate: SmartTrendDate }) => http.get('/v1/smart-analysis/exports/trend', { params: { ...cleanFilters(filters), ...params }, responseType: 'blob', timeout: SMART_EXPORT_TIMEOUT_MS }).then(response => downloadResponse(response, `智能分析_${params.kind === 'daily' ? '每日' : '每月'}趋势.xlsx`)),
-  exportDimensions: (filters: SmartFilters, params: { groupBy: string[]; metrics: string[]; smartType: SmartType; sortBy: string; direction: 'asc' | 'desc' }) => http.get('/v1/smart-analysis/exports/dimensions', { params: { ...cleanFilters(filters), ...params, groupBy: params.groupBy.join(','), metrics: params.metrics.join(',') }, responseType: 'blob', timeout: SMART_EXPORT_TIMEOUT_MS }).then(response => downloadResponse(response, '智能分析_维度分析.xlsx')),
-  exportDetails: (filters: SmartFilters, params: { smartType: SmartType; stage: SmartStage; fields: string[]; scope: 'visible' | 'all' }) => http.get('/v1/smart-analysis/exports/details', { params: { ...cleanFilters(filters), ...params, fields: params.fields.join(',') }, responseType: 'blob', timeout: SMART_EXPORT_TIMEOUT_MS }).then(response => downloadResponse(response, '智能分析_出票明细.xlsx')),
 }

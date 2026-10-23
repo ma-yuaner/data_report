@@ -91,9 +91,12 @@ def register_routes(api: Blueprint) -> None:
             service = ComprehensiveExportService(current_app.config)
             values = json_body()
             kind = values.get("kind", "comprehensive")
-            if kind not in {"comprehensive", "gds_routes"}:
-                raise ValueError("不支持的导出任务类型")
-            task = (service.create_gds_routes if kind == "gds_routes" else service.create)(g.current_user, values)
+            if kind == "comprehensive":
+                task = service.create(g.current_user, values)
+            elif kind == "gds_routes":
+                task = service.create_gds_routes(g.current_user, values)
+            else:
+                task = service.create_background(g.current_user, values)
             message = "相同条件的导出任务正在进行" if task.get("reused") else "导出任务已创建"
             return ok(task, message), (200 if task.get("reused") else 202)
         except (
@@ -118,16 +121,33 @@ def register_routes(api: Blueprint) -> None:
     @api.get("/v1/analysis/comprehensive/exports/<task_id>/download")
     def comprehensive_export_download(task_id: str):
         try:
-            path, name = ComprehensiveExportService(current_app.config).download(
-                g.current_user, task_id
-            )
-            return send_file(
+            service = ComprehensiveExportService(current_app.config)
+            current_user = dict(g.current_user)
+            path, name = service.download(current_user, task_id)
+            response = send_file(
                 path,
                 mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 as_attachment=True,
                 download_name=name,
                 max_age=0,
             )
+            file_iterator = response.response
+
+            def stream_and_cleanup():
+                completed = False
+                try:
+                    yield from file_iterator
+                    completed = True
+                finally:
+                    close = getattr(file_iterator, "close", None)
+                    if close:
+                        close()
+                    if completed:
+                        service.mark_downloaded(current_user, task_id)
+
+            response.response = stream_and_cleanup()
+            response.direct_passthrough = False
+            return response
         except (
             PermissionError, ValueError, ComprehensiveExportConflict, ComprehensiveExportUnavailable
         ) as error:

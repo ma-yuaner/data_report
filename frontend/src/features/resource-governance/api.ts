@@ -123,33 +123,6 @@ export async function fetchResourceGovernance(scope: GovernanceScope): Promise<G
   if (!response.data.success) throw new Error(response.data.message)
   return response.data.data
 }
-function downloadResponse(response: { data: Blob; headers: Record<string, unknown> }, fallbackName: string) {
-  const disposition = String(response.headers['content-disposition'] || '')
-  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
-  const plain = disposition.match(/filename="?([^";]+)"?/i)?.[1]
-  const filename = encoded ? decodeURIComponent(encoded) : plain || fallbackName
-  const url = URL.createObjectURL(response.data)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename
-  document.body.appendChild(link)
-  link.click()
-  link.remove()
-  URL.revokeObjectURL(url)
-}
-
-export async function exportResourceGovernance(scope: GovernanceScope): Promise<void> {
-  const response = await http.get(`/v1/resource-governance/${scope.dataSource}/export`, {
-    params: scope,
-    responseType: 'blob',
-    timeout: 180_000,
-  })
-  downloadResponse(
-    response,
-    `${scope.dataSource === 'gds' ? 'GDS资源治理' : 'OTA渠道质量'}_${scope.startDate}_${scope.endDate}.xlsx`,
-  )
-}
-
 export interface GdsRouteScope {
   startDate: string
   endDate: string

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import {
   cancelComprehensiveExport,
+  createBackgroundExport,
   createComprehensiveExport,
   createGdsRouteExport,
   listComprehensiveExports,
@@ -56,6 +57,15 @@ export const useComprehensiveExportStore = defineStore('comprehensive-exports', 
     },
     async createRoutes(scope: GdsRouteScope) {
       const task = await createGdsRouteExport(scope)
+      this.drawerOpen = true
+      await this.refresh()
+      return task
+    },
+    async createBackground(
+      kind: 'resource_governance_gds' | 'resource_governance_ota' | 'smart_trend_daily' | 'smart_trend_monthly' | 'smart_dimensions' | 'smart_details',
+      payload: Record<string, unknown>,
+    ) {
+      const task = await createBackgroundExport(kind, payload)
       this.drawerOpen = true
       await this.refresh()
       return task

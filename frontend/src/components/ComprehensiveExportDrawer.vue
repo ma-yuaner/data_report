@@ -1,6 +1,6 @@
 <template>
   <a-drawer v-model:open="store.drawerOpen" title="导出任务" width="480">
-    <a-alert class="task-note" type="info" show-icon message="后台导出" description="切换或刷新页面不会中断任务；任务可取消。Hive正在执行的查询需等返回后取消，不生成可下载文件。" />
+    <a-alert class="task-note" type="info" show-icon message="后台导出" description="切换或刷新页面不会中断任务；任务可取消。文件首次下载完成后会自动从服务器清理。查询正在执行时需等当前查询返回后完成取消。" />
     <a-alert v-if="store.lastError" class="task-note" type="error" show-icon :message="store.lastError" />
     <a-spin :spinning="store.loading">
       <a-empty v-if="!store.tasks.length" description="暂无导出任务" />
@@ -11,7 +11,7 @@
             <a-tag :color="statusMeta(task.status).color">{{ statusMeta(task.status).label }}</a-tag>
           </header>
           <a-progress v-if="isActive(task.status)" :percent="percent(task)" :status="task.status === 'CANCEL_REQUESTED' ? 'exception' : 'active'" />
-          <div class="task-meta"><span>{{ task.businessType === 'gds_routes' && task.status === 'RUNNING' && !task.totalRows ? '正在查询Hive；取消在当前查询返回后生效' : task.message || statusMeta(task.status).label }}</span><span>{{ number(task.processedRows) }} / {{ task.businessType === 'gds_routes' && isActive(task.status) && !task.totalRows ? '待查询' : number(task.totalRows) }} 条</span></div>
+          <div class="task-meta"><span>{{ task.message || statusMeta(task.status).label }}</span><span>{{ awaitingTotal(task) ? '处理中' : `${number(task.processedRows)} / ${number(task.totalRows)} 条` }}</span></div>
           <footer>
             <a-button v-if="task.canCancel" size="small" danger :disabled="task.status === 'CANCEL_REQUESTED'" @click="cancel(task)">
               {{ task.status === 'CANCEL_REQUESTED' ? '正在取消' : '取消任务' }}
@@ -34,6 +34,7 @@ const store = useComprehensiveExportStore()
 const formatter = new Intl.NumberFormat('zh-CN')
 const number = (value: number) => formatter.format(value || 0)
 const isActive = (status: ComprehensiveExportStatus) => ['QUEUED', 'RUNNING', 'CANCEL_REQUESTED'].includes(status)
+const awaitingTotal = (task: ComprehensiveExportTask) => isActive(task.status) && !task.totalRows
 const percent = (task: ComprehensiveExportTask) => task.status === 'QUEUED' ? 0 : Math.min(99, Math.round(task.processedRows * 100 / Math.max(1, task.totalRows)))
 const statusMeta = (status: ComprehensiveExportStatus) => ({
   QUEUED: { label: '排队中', color: 'default' },
@@ -41,6 +42,7 @@ const statusMeta = (status: ComprehensiveExportStatus) => ({
   CANCEL_REQUESTED: { label: '正在取消', color: 'warning' },
   CANCELLED: { label: '已取消', color: 'default' },
   SUCCEEDED: { label: '已完成', color: 'success' },
+  DOWNLOADED: { label: '已下载', color: 'blue' },
   FAILED: { label: '失败', color: 'error' },
   EXPIRED: { label: '已过期', color: 'default' },
 }[status])

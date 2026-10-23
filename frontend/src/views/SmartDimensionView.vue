@@ -65,6 +65,7 @@ import DataStateBar from '@/components/DataStateBar.vue'
 import SmartAnalysisFilters from '@/components/SmartAnalysisFilters.vue'
 import { dimensionOptions, smartAnalysisApi, type SmartDimensionData, type SmartDimensionPath, type SmartFilters, type SmartMetrics, type SmartStage, type SmartType, type SmartViewTemplate } from '@/api/smartAnalysis'
 import { useSmartAnalysisStore } from '@/stores/smartAnalysis'
+import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
 import { useAuthStore } from '@/stores/auth'
 import { guardSmartExport } from '@/utils/smartExportGuard'
 import { loadViewTemplates } from '@/utils/smartViewTemplates'
@@ -253,7 +254,7 @@ function beginDetails(path: SmartDimensionPath[], stage: SmartStage, metricLabel
 }
 function openDetails(path: SmartDimensionPath[]) { beginDetails(path, 'all', '全部出票') }
 function openMetricDetails(path: SmartDimensionPath[], metric: MetricOption) { if (metric.stage) beginDetails(path, metric.stage, metric.title, metric.smartType || pageState.smartType) }
-async function runExport() { exporting.value = true; try { await smartAnalysisApi.exportDimensions({ ...pageState.applied }, { groupBy: groups.value, metrics: selectedMetrics.value, smartType: pageState.smartType, sortBy: sortBy.value, direction: direction.value }); message.success('导出文件已开始下载') } catch (error) { message.error(error instanceof Error ? error.message : '维度分析导出失败') } finally { exporting.value = false } }
+async function runExport() { exporting.value = true; try { const task = await useComprehensiveExportStore().createBackground('smart_dimensions', { ...pageState.applied, groupBy: groups.value, metrics: selectedMetrics.value, smartType: pageState.smartType, sortBy: sortBy.value, direction: direction.value }); message.success(task.reused ? '相同条件的任务正在进行，已打开导出任务' : '已加入导出任务，可在页头查看进度') } catch (error) { message.error(error instanceof Error ? error.message : '维度分析导出失败') } finally { exporting.value = false } }
 function exportRows() { guardSmartExport(data.value?.total ?? 0, runExport) }
 onMounted(() => { void load(); void loadDimensionTemplates() })
 </script>

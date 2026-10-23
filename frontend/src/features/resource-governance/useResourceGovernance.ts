@@ -3,7 +3,6 @@ import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import {
   fetchResourceGovernance,
-  exportResourceGovernance,
   type GovernanceData,
   type GovernanceDimension,
   type GovernanceLayer,
@@ -15,6 +14,7 @@ import { integer, hasOtaTarget } from './formatters'
 import { gdsDimensions, otaDimensions } from './dimensions'
 import { useGovernanceAnalysis } from './useGovernanceAnalysis'
 import { useGovernanceCharts } from './useGovernanceCharts'
+import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
 
 export function useResourceGovernance() {
   const shanghaiDate = (value = new Date()) => value.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
@@ -195,8 +195,11 @@ export function useResourceGovernance() {
   async function exportReport() {
     exporting.value = true
     try {
-      await exportResourceGovernance({ ...applied.value })
-      message.success('资源治理汇报已开始下载')
+      const task = await useComprehensiveExportStore().createBackground(
+        applied.value.dataSource === 'gds' ? 'resource_governance_gds' : 'resource_governance_ota',
+        { ...applied.value },
+      )
+      message.success(task.reused ? '相同条件的任务正在进行，已打开导出任务' : '已加入导出任务，可在页头查看进度')
     } catch (failure) {
       message.error(failure instanceof Error ? failure.message : '资源治理汇报导出失败')
     } finally {

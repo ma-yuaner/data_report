@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import shutil
 import sqlite3
 import threading
 import uuid
@@ -35,6 +36,30 @@ MAX_EXPORT_ROWS = 500_000
 MAX_ACTIVE_TASKS_PER_USER = 3
 BATCH_SIZE = 2_000
 GDS_ROUTE_KIND = "gds_routes"
+RESOURCE_GDS_KIND = "resource_governance_gds"
+RESOURCE_OTA_KIND = "resource_governance_ota"
+SMART_TREND_DAILY_KIND = "smart_trend_daily"
+SMART_TREND_MONTHLY_KIND = "smart_trend_monthly"
+SMART_DIMENSIONS_KIND = "smart_dimensions"
+SMART_DETAILS_KIND = "smart_details"
+BACKGROUND_EXPORT_KINDS = {
+    GDS_ROUTE_KIND,
+    RESOURCE_GDS_KIND,
+    RESOURCE_OTA_KIND,
+    SMART_TREND_DAILY_KIND,
+    SMART_TREND_MONTHLY_KIND,
+    SMART_DIMENSIONS_KIND,
+    SMART_DETAILS_KIND,
+}
+TASK_LABELS = {
+    GDS_ROUTE_KIND: "GDS航线名单",
+    RESOURCE_GDS_KIND: "GDS资源治理汇报",
+    RESOURCE_OTA_KIND: "OTA渠道质量汇报",
+    SMART_TREND_DAILY_KIND: "智能分析每日趋势",
+    SMART_TREND_MONTHLY_KIND: "智能分析每月趋势",
+    SMART_DIMENSIONS_KIND: "智能分析维度分析",
+    SMART_DETAILS_KIND: "智能分析出票明细",
+}
 
 
 class ComprehensiveExportUnavailable(RuntimeError):
@@ -64,12 +89,25 @@ def _require_export(user: dict[str, Any]) -> None:
 
 
 def _require_kind(user: dict[str, Any], kind: str) -> None:
-    if kind != GDS_ROUTE_KIND:
+    menu_codes = set(user.get("menu_codes") or user.get("menuCodes") or [])
+    if kind == "comprehensive" or kind in BUSINESSES:
         _require_export(user)
-        if not (_is_admin(user) or "analysis.comprehensive" in (user.get("menu_codes") or user.get("menuCodes") or [])):
+        if not (_is_admin(user) or "analysis.comprehensive" in menu_codes):
             raise PermissionError("当前账号没有综合分析菜单权限")
-    elif not (_is_admin(user) or "gds_route.diagnosis" in (user.get("menu_codes") or user.get("menuCodes") or [])):
-        raise PermissionError("当前账号没有航线诊断导出权限")
+        return
+    required_menu = {
+        GDS_ROUTE_KIND: "gds_route.diagnosis",
+        RESOURCE_GDS_KIND: "governance.gds",
+        RESOURCE_OTA_KIND: "governance.ota",
+        SMART_TREND_DAILY_KIND: "smart.overview",
+        SMART_TREND_MONTHLY_KIND: "smart.overview",
+        SMART_DIMENSIONS_KIND: "smart.dimensions",
+        SMART_DETAILS_KIND: "smart.details",
+    }.get(kind)
+    if required_menu is None:
+        raise ValueError("不支持的导出任务类型")
+    if not (_is_admin(user) or required_menu in menu_codes):
+        raise PermissionError("当前账号没有该导出任务的菜单权限")
 
 
 def _user_id(user: dict[str, Any]) -> int:
@@ -140,11 +178,13 @@ class ComprehensiveExportStore:
     @staticmethod
     def public(row: sqlite3.Row | dict[str, Any], *, reused: bool = False) -> dict[str, Any]:
         item = dict(row)
+        task_label = TASK_LABELS.get(item["business_type"])
+        business_label = task_label or BUSINESS_LABELS.get(item["business_type"], item["business_type"])
         return {
             "id": item["id"],
             "businessType": item["business_type"],
-            "businessLabel": "GDS航线名单" if item["business_type"] == GDS_ROUTE_KIND else BUSINESS_LABELS.get(item["business_type"], item["business_type"]),
-            "taskLabel": "GDS航线名单" if item["business_type"] == GDS_ROUTE_KIND else BUSINESS_LABELS.get(item["business_type"], item["business_type"]) + "宽表明细",
+            "businessLabel": business_label,
+            "taskLabel": task_label or business_label + "宽表明细",
             "startDate": item["start_date"],
             "endDate": item["end_date"],
             "status": item["status"],
@@ -344,6 +384,23 @@ class ComprehensiveExportStore:
                 (status, now, now, safe_message, task_id),
             )
 
+    def mark_downloaded(self, user_id: int, task_id: str) -> None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT status,file_path FROM comprehensive_export_jobs WHERE id=? AND user_id=?",
+                (task_id, user_id),
+            ).fetchone()
+            if row is None or row["status"] != "SUCCEEDED":
+                return
+            path = Path(row["file_path"]) if row["file_path"] else None
+            if path:
+                path.unlink(missing_ok=True)
+            connection.execute(
+                "UPDATE comprehensive_export_jobs SET status='DOWNLOADED',file_path=NULL,"
+                "updated_at=?,message='已下载，服务器文件已清理' WHERE id=? AND user_id=?",
+                (_now_text(), task_id, user_id),
+            )
+
     def expire_files(self) -> None:
         threshold = (business_now() - timedelta(hours=self.retention_hours)).isoformat(timespec="seconds")
         with self.connect() as connection:
@@ -477,6 +534,13 @@ class ComprehensiveExportService:
             raise ComprehensiveExportUnavailable("导出文件不存在或已清理")
         return path, str(row["download_name"] or path.name)
 
+    def mark_downloaded(self, user: dict[str, Any], task_id: str) -> None:
+        row = self.store.get(_user_id(user), task_id)
+        if row is None:
+            return
+        _require_kind(user, str(row["business_type"]))
+        self.store.mark_downloaded(_user_id(user), task_id)
+
     def _start_worker(self) -> None:
         threading.Thread(
             target=self._worker_loop, name="comprehensive-export-worker", daemon=True
@@ -495,6 +559,8 @@ class ComprehensiveExportService:
         try:
             if task["business_type"] == GDS_ROUTE_KIND:
                 self._write_gds_routes(task, output_path)
+            elif task["business_type"] in BACKGROUND_EXPORT_KINDS:
+                self._write_background(task, output_path)
             else:
                 self._write_xlsx(task, output_path)
         except ComprehensiveExportCancelled:
@@ -520,6 +586,22 @@ class ComprehensiveExportService:
         self._start_worker()
         return task
 
+    def create_background(self, user: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
+        kind = str(values.get("kind") or "")
+        if kind not in BACKGROUND_EXPORT_KINDS - {GDS_ROUTE_KIND}:
+            raise ValueError("不支持的导出任务类型")
+        _require_kind(user, kind)
+        payload = {str(key): value for key, value in values.items() if key != "kind"}
+        start_date = str(payload.get("startDate") or payload.get("orderStart") or payload.get("firstDepStart") or "")
+        end_date = str(payload.get("endDate") or payload.get("orderEnd") or payload.get("firstDepEnd") or "")
+        fingerprint = self._fingerprint(_user_id(user), kind, start_date, end_date, payload)
+        task = self.store.create(
+            user_id=_user_id(user), requested_by=_display_name(user), fingerprint=fingerprint,
+            business=kind, start_date=start_date, end_date=end_date, filters=payload, total_rows=0,
+        )
+        self._start_worker()
+        return task
+
     def _write_gds_routes(self, task: dict[str, Any], output_path: Path) -> None:
         from .gds_route_analysis import GdsRouteAnalysisService
         import shutil
@@ -540,11 +622,77 @@ class ComprehensiveExportService:
             check_cancel=check, progress=progress)
         try:
             check()
-            with output_path.open("wb") as output:
-                shutil.copyfileobj(content, output)
+            content.seek(0)
+            with output_path.open("wb") as target:
+                shutil.copyfileobj(content, target)
             check()
             row = self.store.get(int(task["user_id"]), task_id)
             self.store.finish(task_id, output_path, name, int(row["total_rows"]))
+        finally:
+            content.close()
+
+    def _write_background(self, task: dict[str, Any], output_path: Path) -> None:
+        from .resource_governance import ResourceGovernanceService
+        from .smart_analysis import DIMENSIONS as SMART_DIMENSIONS, SmartAnalysisService
+
+        task_id = str(task["id"])
+        kind = str(task["business_type"])
+        values = json.loads(task["filters_json"])
+        if self.store.cancellation_requested(task_id):
+            raise ComprehensiveExportCancelled()
+        if kind in {RESOURCE_GDS_KIND, RESOURCE_OTA_KIND}:
+            data_source = "gds" if kind == RESOURCE_GDS_KIND else "ota"
+            content, name = ResourceGovernanceService(self.config).export_report(
+                start_value=values.get("startDate"), end_value=values.get("endDate"),
+                data_source=data_source, group_by=values.get("groupBy"),
+                filters={key: values.get(key, "") for key in (
+                    "platform", "site", "gds", "resourceChannel", "pcc", "apiGroup"
+                )},
+                breach_only=bool(values.get("breachOnly")),
+            )
+        else:
+            service = SmartAnalysisService(self.config)
+            period_args = {
+                "start_value": values.get("startDate"), "end_value": values.get("endDate"),
+                "first_dep_start": values.get("firstDepStart"), "first_dep_end": values.get("firstDepEnd"),
+                "order_start": values.get("orderStart"), "order_end": values.get("orderEnd"),
+            }
+            filters = {key: values.get(key) for key in (*SMART_DIMENSIONS, "otaOrderNo")}
+            if kind in {SMART_TREND_DAILY_KIND, SMART_TREND_MONTHLY_KIND}:
+                content, name = service.export_trend(
+                    **period_args, filters=filters,
+                    kind="daily" if kind == SMART_TREND_DAILY_KIND else "monthly",
+                    smart_type=values.get("smartType", "all"),
+                    trend_date=values.get("trendDate", "issue"),
+                )
+            elif kind == SMART_DIMENSIONS_KIND:
+                content, name = service.export_dimensions(
+                    **period_args, filters=filters,
+                    group_by=",".join(values.get("groupBy") or []),
+                    metrics_value=",".join(values.get("metrics") or []),
+                    smart_type=values.get("smartType", "all"),
+                    sort_by=values.get("sortBy", "smartProfit"),
+                    direction=values.get("direction", "desc"),
+                )
+            elif kind == SMART_DETAILS_KIND:
+                content, name = service.export_details(
+                    **period_args, filters=filters,
+                    smart_type=values.get("smartType", "all"), stage=values.get("stage", "all"),
+                    fields_value=",".join(values.get("fields") or []),
+                    all_fields=values.get("scope", "visible") == "all",
+                )
+            else:
+                raise ValueError("不支持的导出任务类型")
+        if self.store.cancellation_requested(task_id):
+            raise ComprehensiveExportCancelled()
+        try:
+            content.seek(0)
+            with output_path.open("wb") as target:
+                shutil.copyfileobj(content, target)
+            if self.store.cancellation_requested(task_id):
+                raise ComprehensiveExportCancelled()
+            self.store.set_total(task_id, 1)
+            self.store.finish(task_id, output_path, name, 1)
         finally:
             content.close()
 

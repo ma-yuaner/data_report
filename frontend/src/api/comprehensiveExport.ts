@@ -4,11 +4,15 @@ import type { GdsRouteScope } from './resourceGovernance'
 
 export type ComprehensiveExportStatus =
   | 'QUEUED' | 'RUNNING' | 'CANCEL_REQUESTED' | 'CANCELLED'
-  | 'SUCCEEDED' | 'FAILED' | 'EXPIRED'
+  | 'SUCCEEDED' | 'DOWNLOADED' | 'FAILED' | 'EXPIRED'
+
+export type ExportTaskKind = BusinessKey | 'gds_routes'
+  | 'resource_governance_gds' | 'resource_governance_ota'
+  | 'smart_trend_daily' | 'smart_trend_monthly' | 'smart_dimensions' | 'smart_details'
 
 export interface ComprehensiveExportTask {
   id: string
-  businessType: BusinessKey | 'gds_routes'
+  businessType: ExportTaskKind
   taskLabel?: string
   businessLabel: string
   startDate: string
@@ -57,5 +61,13 @@ export function comprehensiveExportDownloadUrl(id: string) {
 
 export async function createGdsRouteExport(scope: GdsRouteScope): Promise<ComprehensiveExportTask> {
   const response = await http.post<ApiEnvelope<ComprehensiveExportTask>>('/v1/exports', { ...scope, kind: 'gds_routes' })
+  return response.data.data
+}
+
+export async function createBackgroundExport(
+  kind: Exclude<ExportTaskKind, BusinessKey | 'gds_routes'>,
+  payload: Record<string, unknown>,
+): Promise<ComprehensiveExportTask> {
+  const response = await http.post<ApiEnvelope<ComprehensiveExportTask>>('/v1/exports', { ...payload, kind })
   return response.data.data
 }
