@@ -8,6 +8,8 @@
 
 部署/DDL/Secret权限/人工步骤见[交付指南](../development/hr-report-mail.md)，需用户执行三表SQL、账号授权及可选Compose overlay，无新增端口、不动旧ERP数据。浏览器工具被Work设置禁用，未绕过；真实SMTP/企微投递、生产MySQL、服务器镜像/字体、旧JSON日志回灌未验或未执行。未确认申请人，不发群通知；提交与双端推送以实际回执为准。
 
+交付回执：实现提交`f8c15ea`已推送GitLab origin和GitHub github的main（均由`24c6e2c`前进），未部署/发邮件/群通知。39文件新增5219行中约2900行为按用户要求复用的四个旧业务模块，其余为前后端、权限持久化与部署说明，不包含测试/HR原始数据/密钥。合并Compose配置静态检查通过（本机Docker配置读取权限警告，不涉及镜像构建或启动）；README清单47菜单/163接口、Python82模块依赖/13文件AST及diff检查通过。
+
 ### 前期核对历史（接入问题已由后续回复确认）
 
 用户要求完整迁为中台独立板块，保留周/月报Excel、收抄送、主题HTML、图表及部门附件拆分，不再发EXE。明策/磐石主会话只读核对：指定dist为EXE包，相邻D:\clean_source\core/ui存在源码与spec；月报固定列及文本扣罚已在源码实现，现有周/月附件对未识别Sheet原样保留。规则和六文件hash见[迁移基线](../product/hr-report-mail-migration.md)。源码与EXE版本关系需用户确认，不反编译或启动EXE。
