@@ -6,6 +6,7 @@
 - 新会话先读 `docs/agent/README.md`，再读 `memory.md` 的稳定规则/最新更新与 `workstreams.md` 中本任务段；先用标题定位，历史证据按需展开，不把整个工作流历史放入上下文。适用AGENTS/技能必读要求仍完整遵守，不能为省token跳读所选指令。
 - 已确认的重要业务决策记入 `docs/agent/decisions.md`，业务来源索引见 `docs/agent/knowledge-index.md`。`memory.md`等是项目约定文件，需要按入口读取，不是额外启用的自动记忆服务。
 - 产品、流程、页面和跨层需求使用 `docs/product/product-delivery-contract.md`；可复用任务模板见 `docs/agent/prompts.md`。
+- 页面、表格、新建/编辑窗口开发先读 `docs/product/ui-consistency-standard.md`，复用现有组件与固定交互；内网HTTP、中文输入、滚动与保存反馈为必查影响点。规范不表示旧页已全部改造，禁止每个模块另造风格。
 - GDS当前复评基线是 `docs/product/gds-resource-governance-reassessment-v3.md`：先完成人工闭环，首个复盘回答“缩减白名单、增加MPIS后查定比为何反而升高”。方案讨论不等于实现授权；用户已授权的步骤直接完成。
 - ETL任务只能在确认的ETL仓库修改指定脚本；用户约定公共配置、连接工具不随单个需求改动。数据库DDL、生产配置和交易系统动作单独列明交付及执行人，不因代码提交假定已执行。
 - 实现、模拟、已部署、已验收四种状态分开报告；原型/localStorage数据不能作为正式业务结果。仅有回执状态不代表生产系统已执行，效果结论需要真实指标支持。
