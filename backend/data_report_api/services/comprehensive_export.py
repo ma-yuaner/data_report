@@ -660,6 +660,7 @@ class ComprehensiveExportService:
         task_id = str(task["id"])
         kind = str(task["business_type"])
         values = json.loads(task["filters_json"])
+        exported_rows = 1
         if self.store.cancellation_requested(task_id):
             raise ComprehensiveExportCancelled()
         if kind in {ADM_CASES_KIND, ADM_LINES_KIND}:
@@ -707,11 +708,17 @@ class ComprehensiveExportService:
                     direction=values.get("direction", "desc"),
                 )
             elif kind == SMART_DETAILS_KIND:
+                def update_detail_total(total: int) -> None:
+                    nonlocal exported_rows
+                    exported_rows = total
+                    self.store.set_total(task_id, total)
+
                 content, name = service.export_details(
                     **period_args, filters=filters,
                     smart_type=values.get("smartType", "all"), stage=values.get("stage", "all"),
                     fields_value=",".join(values.get("fields") or []),
                     all_fields=values.get("scope", "visible") == "all",
+                    on_total=update_detail_total,
                 )
             else:
                 raise ValueError("不支持的导出任务类型")
@@ -723,8 +730,8 @@ class ComprehensiveExportService:
                 shutil.copyfileobj(content, target)
             if self.store.cancellation_requested(task_id):
                 raise ComprehensiveExportCancelled()
-            self.store.set_total(task_id, 1)
-            self.store.finish(task_id, output_path, name, 1)
+            self.store.set_total(task_id, exported_rows)
+            self.store.finish(task_id, output_path, name, exported_rows)
         finally:
             content.close()
 

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from tempfile import SpooledTemporaryFile
-from typing import Any, BinaryIO, Iterable, Sequence
+from typing import Any, BinaryIO, Callable, Iterable, Sequence
 from zoneinfo import ZoneInfo
 
 from openpyxl import Workbook
@@ -1105,6 +1105,7 @@ class SmartAnalysisService:
         self, *, start_value=None, end_value=None, first_dep_start=None,
         first_dep_end=None, order_start=None, order_end=None, filters=None,
         smart_type="all", stage="all", fields_value=None, all_fields=False,
+        on_total: Callable[[int], None] | None = None,
     ):
         exact_ota_order = str((filters or {}).get("otaOrderNo") or "").strip()
         if exact_ota_order:
@@ -1149,6 +1150,8 @@ class SmartAnalysisService:
             count_cursor = connection.cursor()
             count_cursor.execute(count_query, tuple(params))
             total = int((count_cursor.fetchone() or (0,))[0] or 0)
+            if on_total is not None:
+                on_total(total)
             if total > MAX_DETAIL_EXPORT_ROWS:
                 raise ValueError(f"当前匹配{total}条，超过{MAX_DETAIL_EXPORT_ROWS}条导出上限，请缩小筛选范围后再导出。")
             count_cursor.close()

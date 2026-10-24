@@ -17,6 +17,7 @@ export const useComprehensiveExportStore = defineStore('comprehensive-exports', 
     tasks: [] as ComprehensiveExportTask[],
     drawerOpen: false,
     loading: false,
+    refreshing: false,
     lastError: '',
     pollingTimer: undefined as number | undefined,
   }),
@@ -24,22 +25,24 @@ export const useComprehensiveExportStore = defineStore('comprehensive-exports', 
     activeCount: state => state.tasks.filter(task => activeStatuses.has(task.status)).length,
   },
   actions: {
-    async refresh() {
-      if (this.loading) return
-      this.loading = true
+    async refresh(silent = false) {
+      if (this.refreshing) return
+      this.refreshing = true
+      if (!silent) this.loading = true
       try {
         this.tasks = await listComprehensiveExports()
         this.lastError = ''
       } catch (error) {
         this.lastError = error instanceof Error ? error.message : '导出任务状态获取失败'
       } finally {
-        this.loading = false
+        if (!silent) this.loading = false
+        this.refreshing = false
       }
     },
     startPolling() {
       if (this.pollingTimer != null || typeof window === 'undefined') return
       void this.refresh()
-      this.pollingTimer = window.setInterval(() => { void this.refresh() }, 2_000)
+      this.pollingTimer = window.setInterval(() => { void this.refresh(true) }, 2_000)
     },
     stopPolling() {
       if (this.pollingTimer != null) window.clearInterval(this.pollingTimer)
@@ -48,17 +51,17 @@ export const useComprehensiveExportStore = defineStore('comprehensive-exports', 
     async create(scope: FilterScope, business: BusinessKey) {
       const task = await createComprehensiveExport(scope, business)
       this.drawerOpen = true
-      await this.refresh()
+      await this.refresh(true)
       return task
     },
     async cancel(id: string) {
       await cancelComprehensiveExport(id)
-      await this.refresh()
+      await this.refresh(true)
     },
     async createRoutes(scope: GdsRouteScope) {
       const task = await createGdsRouteExport(scope)
       this.drawerOpen = true
-      await this.refresh()
+      await this.refresh(true)
       return task
     },
     async createBackground(
@@ -67,7 +70,7 @@ export const useComprehensiveExportStore = defineStore('comprehensive-exports', 
     ) {
       const task = await createBackgroundExport(kind, payload)
       this.drawerOpen = true
-      await this.refresh()
+      await this.refresh(true)
       return task
     },
   },
