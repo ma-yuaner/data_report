@@ -184,6 +184,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
 import CaseFields from './CaseFields.vue'
 import InitialOrderLines from './InitialOrderLines.vue'
+import { createAdmKey } from './identifier'
 import { admApi, allowed, errorText, label, options, saveBlob, type AdmCase, type AdmConfig, type Fields } from './api'
 import './adm.css'
 const auth = useAuthStore(),
@@ -303,6 +304,12 @@ const createOpen = ref(false),
   createError = ref('')
 let createKey = ''
 function openCreate() {
+  try {
+    createKey = createAdmKey()
+  } catch (cause) {
+    message.error(errorText(cause))
+    return
+  }
   copySource.value = null
   initialLines.value = []
   draft.value = {
@@ -314,7 +321,6 @@ function openCreate() {
     analysis: {},
   }
   createError.value = ''
-  createKey = crypto.randomUUID()
   createOpen.value = true
 }
 function openCopy(source: AdmCase) {
@@ -400,8 +406,8 @@ async function previewImport() {
   importError.value = ''
   importResult.value = null
   try {
+    importKey = createAdmKey()
     importResult.value = await admApi.importPreview(importFile.value)
-    importKey = crypto.randomUUID()
   } catch (cause) {
     importError.value = errorText(cause)
   } finally {
