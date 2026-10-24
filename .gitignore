@@ -12,6 +12,8 @@ pip-metadata-*/
 pip-unpack-*/
 .test-artifacts/
 var/data-workbench/
+var/hr-mail/
+secrets/
 .ruff_cache/
 .coverage
 .coverage.*

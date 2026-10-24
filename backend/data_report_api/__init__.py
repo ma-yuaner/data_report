@@ -17,6 +17,8 @@ SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
 def required_menu_code(path: str) -> str | None:
+    if path.startswith("/api/v1/hr-mail"):
+        return "hr.mail"
     if path.startswith("/api/v1/adm"):
         return "adm.center"
     if path.startswith("/api/v1/data-workbench"):

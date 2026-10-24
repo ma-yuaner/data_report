@@ -13,6 +13,8 @@
 
 ## 稳定背景
 
+- HR报表邮件迁为独立`/hr-mail`模块，源码版本与只读Docker Secret已获用户确认；后续必须复用原解析/正文/拆分规则，不重做口径、不发布EXE。三张专用表和发信worker需部署人执行，默认发信关闭，真实投递/部署不冒充已验；入口见[交付指南](../development/hr-report-mail.md)。
+
 - 负责人：数据部马远尔。企业数据中台支持业务自主分析、逐层定位问题、规则监控和处理记录。
 - 应用：`D:\data_center_code\data_report`；ETL：`D:\data_center_code\data-team-repo`。不要把历史目录或发布副本当活动仓库。
 - Vue 3/TypeScript/Ant Design Vue/ECharts前端，Flask后端；MySQL主业务库`sibebid`，Hive主要库`lywz`。端口1818/5160，业务时间Asia/Shanghai。

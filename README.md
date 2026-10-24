@@ -8,6 +8,8 @@ ADM独立接管增量：新单多订单分别处理，补正式业务字段、�
 
 新增[数据加工工作台 V1](docs/product/data-workbench-v1.md)：真实CSV/XLSX导入、受控清洗/派生/汇总/关联、版本化流程、独立后台计算和结果复用。需管理员显式授权`data_workbench`菜单，数据按本人隔离；与业务库分离，API和独立Worker共用持久卷。代码交付不代表部署或真实财务宽表性能验收。
 
+新增[HR报表邮件](docs/development/hr-report-mail.md)：复用原Python周/月报解析、邮件正文、图表及部门Excel拆分；上传→部门预览→最终确认→后台发送→历史审计。需执行三表DDL、授权`hr.mail`并按指南挂载Docker Secret；默认关闭发信，无需发布EXE。真实邮箱投递及服务器部署待人工验收。
+
 | 入口 | 内容 |
 |---|---|
 | [项目协作入口](docs/agent/README.md) / [AGENTS.md](AGENTS.md) | 项目记忆、工作边界、角色与交接 |
@@ -24,7 +26,7 @@ ADM独立接管增量：新单多订单分别处理，补正式业务字段、�
 
 <!-- BEGIN:CURRENT_MENU -->
 <details>
-<summary>完整菜单：43个页面入口、3个禁用预留项</summary>
+<summary>完整菜单：44个页面入口、3个禁用预留项</summary>
 
 ```text
 工作台  [/home]
@@ -81,6 +83,7 @@ ADM 管理
 问题中心  [/problems]
 数据资产  [/data-assets]
 数据加工工作台  [/data-workbench]
+HR报表邮件  [/hr-mail]
 系统管理
   用户行为监控  [/admin/behavior]
   账号管理  [/admin/users]
@@ -169,7 +172,7 @@ docker compose up -d --build
 API统一前缀为`/api`。认证与账号管理使用`/api/auth/*`、`/api/admin/*`；业务接口主要使用`/api/v1/*`。登录后使用会话Cookie，非安全方法需携带CSRF头；JSON通常返回`success/message/data`，导出接口返回文件。具体权限、参数与错误见[完整接口目录](docs/api/README.md)及对应源码。
 
 <!-- BEGIN:API_SUMMARY -->
-当前静态登记 **155个HTTP方法/路径条目**（含认证与管理接口，不重复列自动HEAD/OPTIONS）。
+当前静态登记 **163个HTTP方法/路径条目**（含认证与管理接口，不重复列自动HEAD/OPTIONS）。
 
 | 接口领域 | 条目数 | 完整清单 |
 |---|---:|---|
@@ -184,6 +187,7 @@ API统一前缀为`/api`。认证与账号管理使用`/api/auth/*`、`/api/admi
 | 目标配置、进度与刷新 | 7 | [targets](docs/api/README.md#targets) |
 | 风控文件上传 | 2 | [risk_upload](docs/api/README.md#risk_upload) |
 | 数据加工工作台 | 12 | [data_workbench](docs/api/README.md#data_workbench) |
+| HR报表邮件 | 8 | [hr_mail](docs/api/README.md#hr_mail) |
 | 行为采集与管理看板 | 4 | [telemetry](docs/api/README.md#telemetry) |
 | adm | 13 | [adm](docs/api/README.md#adm) |
 | adm_exchange | 3 | [adm_exchange](docs/api/README.md#adm_exchange) |

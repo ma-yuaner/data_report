@@ -73,6 +73,7 @@ const router = createRouter({
         { path: 'problems', name: 'problems', component: () => import('@/views/ProblemsView.vue'), meta: { title: '问题中心', section: '问题中心', menuCode: 'problems' } },
         { path: 'data-assets', name: 'assets', component: () => import('@/views/AssetsView.vue'), meta: { title: '数据资产', section: '数据资产', menuCode: 'data_assets' } },
         { path: 'data-workbench', name: 'data-workbench', component: () => import('@/features/data-workbench/DataWorkbenchView.vue'), meta: { title: '数据加工工作台', section: '数据加工', menuCode: 'data_workbench' } },
+        { path: 'hr-mail', name: 'hr-mail', component: () => import('@/features/hr-mail/HrMailView.vue'), meta: { title: 'HR报表邮件', section: 'HR报表邮件', menuCode: 'hr.mail' } },
         { path: 'admin/behavior', name: 'admin-behavior', component: () => import('@/views/UserBehaviorMonitorView.vue'), meta: { title: '用户行为监控', section: '系统管理', requiresAdmin: true } },
         { path: 'admin/users', name: 'admin-users', component: () => import('@/views/AdminUsersView.vue'), meta: { title: '账号管理', section: '系统管理', requiresAdmin: true } },
       ],

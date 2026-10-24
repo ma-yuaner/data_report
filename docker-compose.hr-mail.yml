@@ -1,0 +1,37 @@
+# Optional Secret/worker overlay. The default deployment keeps HR sending off.
+# docker compose -p data_report -f docker-compose.yml -f docker-compose.hr-mail.yml up -d --build api web hr-mail-worker
+services:
+  api:
+    environment:
+      HR_MAIL_SECRET_FILE: /run/secrets/hr_mail_config
+      HR_MAIL_SEND_ENABLED: ${HR_MAIL_SEND_ENABLED:-false}
+    secrets:
+      - hr_mail_config
+  hr-mail-worker:
+    build:
+      context: ./backend
+      args:
+        DOCKERHUB_MIRROR: ${DOCKERHUB_MIRROR:-docker.io}
+    command: ["python", "-m", "data_report_api.hr_mail_worker"]
+    environment:
+      TZ: Asia/Shanghai
+      APP_TIMEZONE: Asia/Shanghai
+      APP_ENV: production
+      HR_MAIL_ROOT: /app/var/hr-mail
+      HR_MAIL_SECRET_FILE: /run/secrets/hr_mail_config
+      HR_MAIL_SEND_ENABLED: ${HR_MAIL_SEND_ENABLED:-false}
+      MYSQL_HOST: ${MYSQL_HOST:-}
+      MYSQL_PORT: ${MYSQL_PORT:-3306}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-sibebid}
+      MYSQL_USER: ${MYSQL_USER:-}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-}
+      MYSQL_CHARSET: ${MYSQL_CHARSET:-utf8mb4}
+      MYSQL_TIME_ZONE: ${MYSQL_TIME_ZONE:-+08:00}
+    secrets:
+      - hr_mail_config
+    volumes:
+      - hr_mail_data:/app/var/hr-mail
+    restart: unless-stopped
+secrets:
+  hr_mail_config:
+    file: ${HR_MAIL_SECRET_SOURCE:-./secrets/hr_mail_config.json}

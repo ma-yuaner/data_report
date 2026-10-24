@@ -100,6 +100,7 @@
           <a-menu-item v-if="canSeeMenu('problems')" key="/problems"><template #icon><WarningOutlined /></template>问题中心</a-menu-item>
           <a-menu-item v-if="canSeeMenu('data_assets')" key="/data-assets"><template #icon><DatabaseOutlined /></template>数据资产</a-menu-item>
           <a-menu-item v-if="canSeeMenu('data_workbench')" key="/data-workbench"><template #icon><ControlOutlined /></template>数据加工工作台</a-menu-item>
+          <a-menu-item v-if="canSeeMenu('hr.mail')" key="/hr-mail"><template #icon><MailOutlined /></template>HR报表邮件</a-menu-item>
           <a-sub-menu v-if="authStore.user?.isAdmin" key="system">
             <template #icon><MonitorOutlined /></template>
             <template #title>系统管理</template>
@@ -162,7 +163,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   BarChartOutlined, ControlOutlined, CustomerServiceOutlined, DashboardOutlined, DatabaseOutlined, DeploymentUnitOutlined, HomeOutlined, LineChartOutlined,
-  DownloadOutlined, LockOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, MonitorOutlined, RobotOutlined,
+  DownloadOutlined, LockOutlined, LogoutOutlined, MailOutlined, MenuFoldOutlined, MenuUnfoldOutlined, MonitorOutlined, RobotOutlined,
   RadarChartOutlined, SafetyCertificateOutlined, TeamOutlined, WarningOutlined,
 } from '@ant-design/icons-vue'
 import type { MenuProps } from 'ant-design-vue'
@@ -179,7 +180,7 @@ const router = useRouter()
 const loggingOut = ref(false)
 const selectedKeys = computed(() => [route.path.startsWith('/adm/cases/') ? '/adm/cases' : route.path === '/analysis/profit' ? '/analysis/issue' : route.path])
 const userInitial = computed(() => (authStore.user?.displayName || authStore.user?.username || '数').slice(0, 1))
-const headerTag = computed(() => route.path === '/home' ? '数据工作台' : route.path.startsWith('/adm') ? 'ADM 管理中心' : route.path.startsWith('/business-configuration') ? '业务目标管理' : route.path.startsWith('/resource-governance') ? '资源调用治理' : route.path.startsWith('/monitoring') ? '统一监控治理' : '业务估算利润')
+const headerTag = computed(() => route.path === '/home' ? '数据工作台' : route.path.startsWith('/hr-mail') ? 'HR报表邮件' : route.path.startsWith('/adm') ? 'ADM 管理中心' : route.path.startsWith('/business-configuration') ? '业务目标管理' : route.path.startsWith('/resource-governance') ? '资源调用治理' : route.path.startsWith('/monitoring') ? '统一监控治理' : '业务估算利润')
 const canSeeMenu = (code: string) => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.menuCodes?.includes(code))
 const canSeeGroup = (code: string) => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.menuCodes?.some(item => item === code || item.startsWith(`${code}.`)))
 const canViewMonitorActions = computed(() => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.permissions?.includes('monitor.action.view')))

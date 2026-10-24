@@ -140,6 +140,10 @@ class Config:
     JSON_AS_ASCII = False
     # Business schema upgrades are explicit; ADM never creates production tables.
     ADM_STORAGE_MODE = os.getenv("ADM_STORAGE_MODE", "mysql")
+    HR_MAIL_ROOT = os.getenv("HR_MAIL_ROOT", "/app/var/hr-mail")
+    HR_MAIL_SECRET_FILE = os.getenv("HR_MAIL_SECRET_FILE", "/run/secrets/hr_mail_config")
+    HR_MAIL_SEND_ENABLED = env_bool("HR_MAIL_SEND_ENABLED", False)
+    HR_MAIL_UPLOAD_BYTES = int(os.getenv("HR_MAIL_UPLOAD_BYTES", "20971520"))
     ADM_MYSQL_HOST = os.getenv("ADM_MYSQL_HOST", "")
     ADM_MYSQL_PORT = os.getenv("ADM_MYSQL_PORT", "")
     ADM_MYSQL_DATABASE = os.getenv("ADM_MYSQL_DATABASE", "")
