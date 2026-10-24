@@ -107,6 +107,11 @@ def create_app(config: type[Config] = Config, auth_store=None) -> Flask:
             return user
 
         app.config["ADM_USER_RESOLVER"] = resolve_adm_user
+        def adm_user_options():
+            return [{"id": str(user["id"]), "name": user.get("display_name") or user.get("username") or str(user["id"])}
+                    for user in manager.store.list_users()
+                    if user.get("is_enabled", True) and (user.get("is_admin") or ({"adm.view", "adm.handle"} <= set(user.get("permissions") or []) and "adm.center" in (user.get("menu_codes") or [])))]
+        app.config["ADM_USER_OPTIONS"] = adm_user_options
         if not configured:
             app.logger.warning(
                 "认证表中没有账号；请配置AUTH_BOOTSTRAP_ADMIN_USERNAME和"

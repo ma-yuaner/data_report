@@ -8,7 +8,9 @@ from contextlib import contextmanager
 
 
 class StoreUnavailable(Exception):
-    pass
+    def __init__(self, message, code="ADM_UNAVAILABLE"):
+        super().__init__(message)
+        self.code = code
 
 
 class Conflict(Exception):
@@ -58,12 +60,30 @@ class AdmStore:
             conn.commit()
         except (Conflict, StoreUnavailable):
             if conn:
-                conn.rollback()
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
             raise
         except Exception as exc:
             if conn:
-                conn.rollback()
-            raise StoreUnavailable("ADM存储不可用，请检查连接及已执行的DDL") from exc
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+            number = exc.args[0] if exc.args and isinstance(exc.args[0], int) else None
+            errors = {
+                1146: ("ADM_TABLE_MISSING", "ADM专用表尚未建立，请在实际连接的sibebid库执行ADM新建DDL"),
+                1054: ("ADM_SCHEMA_UPGRADE_REQUIRED", "ADM表结构尚未升级，请执行ADM索引升级DDL"),
+                1045: ("ADM_DATABASE_AUTH_FAILED", "ADM数据库认证失败，请核对账号配置"),
+                1044: ("ADM_DATABASE_PERMISSION", "ADM账号没有目标库访问权限"),
+                1142: ("ADM_DATABASE_PERMISSION", "ADM账号缺少当前操作所需的表权限"),
+                1049: ("ADM_DATABASE_NOT_FOUND", "ADM目标数据库不存在，请核对实际连接库"),
+                2003: ("ADM_DATABASE_UNREACHABLE", "ADM数据库无法连接，请核对网络与服务状态"),
+                2013: ("ADM_DATABASE_CONNECTION_LOST", "ADM数据库连接中断，请刷新核对保存结果"),
+            }
+            code, message = errors.get(number, ("ADM_UNAVAILABLE", "ADM存储操作失败，请核对连接、表结构或数据格式"))
+            raise StoreUnavailable(message, code) from exc
         finally:
             if conn:
                 conn.close()
@@ -100,8 +120,12 @@ class AdmStore:
                     "INSERT INTO adm_case_document(id,version,idempotency_key,payload) VALUES(?,?,?,?)",
                     (case["id"], case["version"], key, json.dumps(case, ensure_ascii=False)),
                 )
-            except Exception as exc:
+            except (sqlite3.IntegrityError,) as exc:
                 raise Conflict("创建冲突，请重新查询") from exc
+            except Exception as exc:
+                if exc.args and exc.args[0] == 1062:
+                    raise Conflict("创建冲突，请刷新核对") from exc
+                raise
         return case
 
     def save(self, case, expected):
@@ -113,3 +137,47 @@ class AdmStore:
             )
             if cursor.rowcount != 1:
                 raise Conflict("数据已被其他人修改，请刷新后重试")
+
+    def check(self):
+        with self.connection() as conn:
+            fields = "id,version,payload,case_status,supplier_code,business_category,updated_at" if self.mode == "mysql" else "id,version,payload"
+            self.query(conn, f"SELECT {fields} FROM adm_case_document LIMIT 0")
+
+    def same_identity(self, case):
+        conditions = []
+        for name in ("admNo", "supplierName", "supplierType"):
+            field = f"JSON_UNQUOTE(JSON_EXTRACT(payload,'$.{name}'))" if self.mode == "mysql" else f"json_extract(payload,'$.{name}')"
+            conditions.append(field + "=?")
+        with self.connection() as conn:
+            rows = self.query(conn, "SELECT payload FROM adm_case_document WHERE " + " AND ".join(conditions) + " LIMIT 100", tuple(case.get(name) for name in ("admNo", "supplierName", "supplierType"))).fetchall()
+        return [json.loads(row[0]) for row in rows]
+
+    def page_all(self, filters, page, size, stamp):
+        """Only for an explicitly authorized all-scope request; no partial-source search."""
+        def field(column, path):
+            return column if self.mode == "mysql" else f"json_extract(payload,'$.{path}')"
+        status = field("case_status", "status")
+        updated = field("updated_at", "updatedAt")
+        where, values = ["1=1"], []
+        if str(filters.get("activeOnly", "")).lower() == "true":
+            where.append(status + " NOT IN ('CLOSED','HISTORICAL')")
+        for key, column, path in [("status", "case_status", "status"), ("businessCategory", "business_category", "businessCategory"), ("supplierCode", "supplier_code", "supplierCode")]:
+            if filters.get(key) not in (None, ""):
+                where.append(field(column, path) + "=?")
+                values.append(filters[key])
+        if filters.get("search"):
+            # Full-scope users may search all source facts; escape LIKE metacharacters.
+            term = str(filters["search"]).strip().lower().replace("!", "!!").replace("%", "!%").replace("_", "!_")
+            where.append("LOWER(CAST(payload AS CHAR)) LIKE ? ESCAPE '!'" if self.mode == "mysql" else "LOWER(payload) LIKE ? ESCAPE '!'")
+            values.append("%" + term + "%")
+        clause = " AND ".join(where)
+        def j(path):
+            return f"JSON_UNQUOTE(JSON_EXTRACT(payload,'$.{path}'))" if self.mode == "mysql" else f"json_extract(payload,'$.{path}')"
+        active = f"{status} NOT IN ('CLOSED','HISTORICAL') AND CAST(COALESCE({j('voided')},'false') AS CHAR) NOT IN ('true','1')"
+        deadline = j("deadline")
+        length = "CHAR_LENGTH" if self.mode == "mysql" else "LENGTH"
+        count = "JSON_LENGTH(payload,'$.lines')" if self.mode == "mysql" else "json_array_length(payload,'$.lines')"
+        with self.connection() as conn:
+            row = self.query(conn, f"SELECT COUNT(*),COALESCE(SUM({count}),0),COALESCE(SUM(CASE WHEN {active} THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN {active} AND {deadline}<>'' AND (({length}({deadline})=10 AND {deadline}<?) OR ({length}({deadline})>10 AND {deadline}<?)) THEN 1 ELSE 0 END),0) FROM adm_case_document WHERE {clause}", (stamp[:10], stamp, *values)).fetchone()
+            rows = self.query(conn, f"SELECT payload FROM adm_case_document WHERE {clause} ORDER BY {updated} DESC,id DESC LIMIT ? OFFSET ?", (*values, size, (page - 1) * size)).fetchall()
+        return [json.loads(item[0]) for item in rows], {"cases": row[0], "lines": row[1], "open": row[2], "overdue": row[3]}

@@ -13,6 +13,13 @@
 
 ## JSON/API
 
+独立接管增量：CASE_FIELDS新增supplierCode/airline/ticketCount/originalAmountCny/businessCategory；LINE_FIELDS新增platformCode/airline/ticketCount/amountCny/businessCategory/actualOwner/actualHandler/recoveryDeadline/resolution。金额可空、精确非负最多4位小数，数量为非负整数；归档保留原值，不能映射时先报错。实际处理/责任字段不授予账号权限，持锁/当前处理人/审核仍由授权动作维护。
+
+- POST `/cases/:id/lines/bulk-assign`：`{version,lineIds:[1—100个不同ID],ownerId,reason}`，adm.assign+完整主单范围；逐项CAS留痕，返回items/successCount/failedCount，并发冲突停止后续并标未执行，不冒充整批原子成功。
+- 原imports/preview新增管理员ERP JSON数组入口；原commit只读归档模式以ERP旧id全局幂等，同来源变化409；HISTORICAL原状态只作未核验历史，不继承账号/旧锁/当前审核或财务。普通XLSX仍为新单创建，不覆盖已有单；历史原件可由管理员补传但业务字段不可改。
+- config新增assignees，只有adm.assign人员取得已启用且有ADM菜单/查看/处理权限的人员ID和显示名；实际分配继续服务端核对。storage错误细分固定码，不返回原异常或连接信息。
+- cases新增businessCategory/supplierCode/activeOnly筛选，全部范围SQL分页；本人/团队原权限路径保留。工作台排除CLOSED/HISTORICAL，台账可查历史。导出冻结相同筛选、版本和权限，仍用全局队列，新增历史原始字段sheet。
+
 2026-10-24独立接管补充：目标为sibebid新表，中台独立运行，旧Java仅作规则/迁移来源。create可传`lines:[lineFields]`与主单原子保存；复制新建也接受本次显式填写的lines，不复制来源旧订单/附件/完成状态。金额可空、不自动平分，初始订单均待分配；人员、持锁、审核和完成不能由建档输入提升。完整字段与迁移顺序见[接管清单](adm-independent-takeover-v1.md)。
 
 统一响应`{success,message,data}`。API前缀`/api/v1/adm`。金额均十进制字符串或null，不用JS浮点金额。ID字符串；所有修改含主单`version`，冲突409。主单/明细状态枚举由config返回；用户操作可见性以服务端allowedActions和禁用原因为准。

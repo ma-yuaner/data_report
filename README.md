@@ -1,5 +1,7 @@
 # 企业数据中心（data_report）
 
+ADM独立接管增量：新单多订单分别处理，补正式业务字段、批量分配和ERP历史JSON只读归档，不依赖Java运行。正式表在sibebid，新建与已有表升级DDL二选一，由部署人执行。人工验收、历史原件/外部日志及正式切换未完成；操作见[ADM建表部署与验收](docs/development/adm-independent-acceptance.md)。
+
 面向机票业务的经营分析、资源治理、监控协作和目标管理平台。前端采用Vue 3、TypeScript、Ant Design Vue与ECharts，后端采用Flask，按模块访问MySQL或Hive。金额默认属于业务估算，正式财务口径以已确认的数据契约为准。
 
 本页按2026-10-20仓库代码核对。页面、接口存在只证明有相应实现；部署、数据同步、通知调度和业务验收分别记录在[当前工作流](docs/agent/workstreams.md)。
@@ -167,7 +169,7 @@ docker compose up -d --build
 API统一前缀为`/api`。认证与账号管理使用`/api/auth/*`、`/api/admin/*`；业务接口主要使用`/api/v1/*`。登录后使用会话Cookie，非安全方法需携带CSRF头；JSON通常返回`success/message/data`，导出接口返回文件。具体权限、参数与错误见[完整接口目录](docs/api/README.md)及对应源码。
 
 <!-- BEGIN:API_SUMMARY -->
-当前静态登记 **154个HTTP方法/路径条目**（含认证与管理接口，不重复列自动HEAD/OPTIONS）。
+当前静态登记 **155个HTTP方法/路径条目**（含认证与管理接口，不重复列自动HEAD/OPTIONS）。
 
 | 接口领域 | 条目数 | 完整清单 |
 |---|---:|---|
@@ -183,7 +185,7 @@ API统一前缀为`/api`。认证与账号管理使用`/api/auth/*`、`/api/admi
 | 风控文件上传 | 2 | [risk_upload](docs/api/README.md#risk_upload) |
 | 数据加工工作台 | 12 | [data_workbench](docs/api/README.md#data_workbench) |
 | 行为采集与管理看板 | 4 | [telemetry](docs/api/README.md#telemetry) |
-| adm | 12 | [adm](docs/api/README.md#adm) |
+| adm | 13 | [adm](docs/api/README.md#adm) |
 | adm_exchange | 3 | [adm_exchange](docs/api/README.md#adm_exchange) |
 | adm_files | 4 | [adm_files](docs/api/README.md#adm_files) |
 <!-- END:API_SUMMARY -->

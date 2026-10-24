@@ -3,6 +3,18 @@
     <label>ADM 单号 <span class="required">*</span><a-input v-model:value="model.admNo" :maxlength="100" /></label>
     <label>下发方 <span class="required">*</span><a-input v-model:value="model.supplierName" :maxlength="200" /></label>
     <label>下发方类型<a-select v-model:value="model.supplierType" :options="supplierTypes" /></label>
+    <label>下发方编码<a-input v-model:value="model.supplierCode" :maxlength="200" /></label>
+    <label>航司（多个逗号分隔）<a-input v-model:value="model.airline" :maxlength="200" /></label>
+    <label
+      >原票号数量<a-input v-model:value="model.ticketCount" inputmode="numeric" placeholder="未知留空，不等于订单条数"
+    /></label>
+    <label
+      >人民币金额<a-input
+        v-model:value="model.originalAmountCny"
+        inputmode="decimal"
+        placeholder="人工核实值；不自动换算"
+    /></label>
+    <label>业务大类<a-select v-model:value="model.businessCategory" :options="businessCategories" /></label>
     <label
       >币种 <span class="required">*</span><a-input v-model:value="model.currency" :maxlength="3" placeholder="CNY"
     /></label>
@@ -30,6 +42,12 @@
 import { computed } from 'vue'
 import type { Fields } from './api'
 const model = defineModel<Fields>({ required: true })
+const businessCategories = [
+  { value: '', label: '待分类' },
+  { value: '0', label: '票务' },
+  { value: '1', label: '业务' },
+  { value: '2', label: '客服' },
+]
 const deadlineInput = computed({
   get: () =>
     model.value.deadline?.length === 10 ? `${model.value.deadline}T23:59` : (model.value.deadline || '').slice(0, 16),

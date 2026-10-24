@@ -28,9 +28,24 @@
     /></label>
     <label>差异一级分类<a-input v-model:value="model.diffType" /></label>
     <label>差异二级分类<a-input v-model:value="model.diffSecondType" /></label>
+    <label>平台编码<a-input v-model:value="model.platformCode" /></label>
+    <label>航司<a-input v-model:value="model.airline" /></label>
+    <label>票号数量<a-input v-model:value="model.ticketCount" inputmode="numeric" /></label>
+    <label
+      >人民币分摊金额<a-input v-model:value="model.amountCny" inputmode="decimal" placeholder="人工核实，不自动换算"
+    /></label>
+    <label>业务大类<a-select v-model:value="model.businessCategory" :options="businessCategories" /></label>
+    <label>实际责任人<a-input v-model:value="model.actualOwner" placeholder="业务责任，不自动授予账号权限" /></label>
+    <label>实际处理人<a-input v-model:value="model.actualHandler" /></label>
+    <label
+      >编码恢复时限（北京时间）<input v-model="recoveryDeadlineInput" type="datetime-local" class="adm-native"
+    /></label>
     <label class="adm-span">问题描述<a-textarea v-model:value="model.description" :rows="3" /></label>
     <label class="adm-span">差异说明<a-textarea v-model:value="model.differenceDescription" :rows="3" /></label>
     <label class="adm-span">明细备注<a-textarea v-model:value="model.remark" :rows="2" /></label>
+    <label class="adm-span"
+      >处理结果说明<a-textarea v-model:value="model.resolution" :rows="2" placeholder="只记事实；填写不自动结案"
+    /></label>
     <label>申诉决策<a-select v-model:value="model.appealDecision" :options="appealDecisions" /></label>
     <label
       >是否需要编码恢复<a-switch
@@ -57,8 +72,21 @@
   </div>
 </template>
 <script setup lang="ts">
+import { computed } from 'vue'
 import { options, type AdmConfig, type Fields } from './api'
 const model = defineModel<Fields>({ required: true })
+const recoveryDeadlineInput = computed({
+  get: () => String(model.value.recoveryDeadline || '').slice(0, 16),
+  set: (value: string) => {
+    model.value.recoveryDeadline = value
+  },
+})
+const businessCategories = [
+  { value: '', label: '待分类' },
+  { value: '0', label: '票务' },
+  { value: '1', label: '业务' },
+  { value: '2', label: '客服' },
+]
 defineProps<{ config: AdmConfig | null }>()
 const identifiers = [
   ['platform', '平台'],

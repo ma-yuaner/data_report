@@ -20,7 +20,10 @@
           :disabled="busy"
           @click="openAction(action)"
           >{{ actionLabels[action] }}</a-button
-        ><a-button v-if="record && !record.partial" :loading="checking" @click="checkClosure"
+        ><a-button
+          v-if="record && !record.partial && !record.historicalArchive"
+          :loading="checking"
+          @click="checkClosure"
           >检查结案条件</a-button
         ></a-space
       >
@@ -35,6 +38,14 @@
     />
     <a-spin :spinning="loading">
       <template v-if="record">
+        <a-alert
+          v-if="record.historicalArchive"
+          type="info"
+          show-icon
+          style="margin-bottom: 12px"
+          :message="`历史只读档案 · ERP旧ID ${record.history?.oldId || '—'} · 原处理状态 ${record.history?.originalStatusLabel || record.history?.originalStatus || '未填写'}`"
+          description="原系统状态完整保留，不表示中台重新审核、付款或办结。旧锁不继承；需要继续办理请引用新建。附件须另行补传，不自动下载旧URL。"
+        />
         <a-alert
           v-if="record.partial"
           type="info"
@@ -66,17 +77,56 @@
             ><span class="adm-prose">{{ record.remark || '—' }}</span></a-descriptions-item
           >
         </a-descriptions>
+        <a-descriptions
+          v-if="!record.partial"
+          bordered
+          size="small"
+          :column="{ xs: 1, sm: 2, lg: 3 }"
+          class="adm-summary"
+        >
+          <a-descriptions-item label="下发方编码">{{ record.supplierCode || '—' }}</a-descriptions-item>
+          <a-descriptions-item label="航司">{{ record.airline || '—' }}</a-descriptions-item>
+          <a-descriptions-item label="原票号数量">{{ record.ticketCount ?? '—' }}</a-descriptions-item>
+          <a-descriptions-item label="人民币金额">{{ record.originalAmountCny ?? '—' }}</a-descriptions-item>
+          <a-descriptions-item label="业务大类">{{
+            businessCategoryLabels[String(record.businessCategory)] || '待分类'
+          }}</a-descriptions-item>
+        </a-descriptions>
+        <details v-if="record.history && !record.partial" class="adm-record">
+          <summary>历史原始字段（完整保留，未核验）</summary>
+          <dl>
+            <template v-for="(value, key) in record.history.fields" :key="key"
+              ><dt>{{ key }}</dt>
+              <dd class="adm-prose">{{ value ?? 'NULL' }}</dd></template
+            >
+          </dl>
+        </details>
         <a-tabs v-model:active-key="tab">
+          <a-tab-pane v-if="record.source && !record.history && !record.partial" key="source" tab="原始导入字段">
+            <p class="adm-muted">原始字段留存，不代表已核实或已完成；处理状态以当前流程为准。</p>
+            <dl>
+              <template v-for="(value, key) in record.source.fields" :key="key"
+                ><dt>{{ key }}</dt>
+                <dd class="adm-prose">{{ value ?? 'NULL' }}</dd></template
+              >
+            </dl>
+          </a-tab-pane>
           <a-tab-pane key="lines" tab="订单明细与处理">
             <div class="adm-toolbar">
               <strong>多平台 / 出退改订单明细</strong
               ><a-button v-if="allowed(record, 'addLine')" type="primary" @click="editLine()">添加订单明细</a-button
+              ><a-button
+                v-if="permission('assign') && !record.historicalArchive"
+                :disabled="!selectedOrders.length || busy"
+                @click="bulkOpen = true"
+                >批量分配 {{ selectedOrders.length || '' }}</a-button
               ><span class="adm-muted">点击订单展开完整描述、分析和处理记录。</span>
             </div>
             <a-table
               row-key="id"
               :columns="lineColumns"
               :data-source="record.lines || []"
+              :row-selection="orderSelection"
               :pagination="false"
               :scroll="{ x: 1670, y: 'calc(100vh - 500px)' }"
               size="small"
@@ -130,7 +180,7 @@
               </div>
               <a-descriptions bordered :column="{ xs: 1, sm: 2, lg: 3 }" size="small">
                 <a-descriptions-item v-for="field in lineInfo" :key="field[0]" :label="field[1]">{{
-                  selectedLine[field[0]] || '—'
+                  selectedLine[field[0]] ?? '—'
                 }}</a-descriptions-item>
                 <a-descriptions-item label="问题描述" :span="3"
                   ><span class="adm-prose">{{ selectedLine.description || '未填写' }}</span></a-descriptions-item
@@ -234,11 +284,7 @@
               <ul>
                 <li v-for="check in closure.checks" :key="`${check.code}-${check.lineId || ''}`">
                   {{ check.passed ? '✓ 已满足' : '✕ 待处理' }}：{{ check.label }}
-                  <a-button
-                    v-if="check.lineId"
-                    size="small"
-                    type="link"
-                    @click="showClosureLine(check.lineId)"
+                  <a-button v-if="check.lineId" size="small" type="link" @click="showClosureLine(check.lineId)"
                     >查看明细</a-button
                   >
                 </li>
@@ -330,9 +376,13 @@
       <div class="adm-form-grid">
         <template v-if="currentAction === 'assign'"
           ><label
-            >处理人账号 ID <span class="required">*</span
-            ><a-input v-model:value="actionDraft.ownerId" placeholder="填写已存在账号 ID；服务端校验分配范围" /></label
-          ><label>处理人显示名<a-input v-model:value="actionDraft.ownerName" /></label
+            >处理人 <span class="required">*</span
+            ><a-select
+              v-model:value="actionDraft.ownerId"
+              show-search
+              option-filter-prop="label"
+              :options="assigneeOptions"
+              placeholder="选择已获ADM权限的人员" /></label
         ></template>
         <template v-if="currentAction === 'recovery'"
           ><label>恢复状态<a-select v-model:value="actionDraft.status" :options="recoveryStatuses" /></label
@@ -392,6 +442,25 @@
         show-icon
       />
     </a-modal>
+    <a-modal
+      v-model:open="bulkOpen"
+      title="批量分配订单"
+      :confirm-loading="busy"
+      :mask-closable="false"
+      @ok="saveBulkAssign"
+    >
+      <p>按明细逐条保存并留痕；部分失败会显示结果，不会把未成功项标为已分配。</p>
+      <label
+        >处理人<a-select
+          v-model:value="bulkOwner"
+          show-search
+          option-filter-prop="label"
+          :options="assigneeOptions"
+          placeholder="选择处理人"
+      /></label>
+      <label>分配 / 转单原因<a-textarea v-model:value="bulkReason" :rows="2" /></label>
+      <a-alert v-if="bulkError" type="error" :message="bulkError" style="margin-top: 12px" />
+    </a-modal>
   </div>
 </template>
 <script setup lang="ts">
@@ -418,6 +487,56 @@ import DraftComparison from './DraftComparison.vue'
 import './adm.css'
 const route = useRoute(),
   auth = useAuthStore()
+const businessCategoryLabels: Record<string, string> = { '0': '票务', '1': '业务', '2': '客服' }
+const selectedOrders = ref<string[]>([]),
+  bulkOpen = ref(false),
+  bulkOwner = ref(''),
+  bulkReason = ref(''),
+  bulkError = ref('')
+const orderSelection = computed(() =>
+  permission('assign') && record.value && !record.value.historicalArchive
+    ? {
+        selectedRowKeys: selectedOrders.value,
+        onChange: (keys: (string | number)[]) => {
+          selectedOrders.value = keys.map(String)
+        },
+        getCheckboxProps: (line: AdmLine) => ({ disabled: !lineAllowed(line, 'assign') }),
+      }
+    : undefined,
+)
+async function saveBulkAssign() {
+  if (busy.value || !record.value || !bulkOwner.value.trim()) return
+  const caseId = id.value
+  busy.value = true
+  bulkError.value = ''
+  try {
+    const result = await admApi.bulkAssign(caseId, {
+      version: record.value.version,
+      lineIds: selectedOrders.value,
+      ownerId: bulkOwner.value.trim(),
+      reason: bulkReason.value.trim(),
+    })
+    if (caseId !== id.value) return
+    const failed = (result.items || []).filter((item: Fields) => item.status !== 'SAVED')
+    selectedOrders.value = failed.map((item: Fields) => item.lineId)
+    if (failed.length)
+      bulkError.value =
+        `成功${result.successCount}条，失败/未执行${failed.length}条：` +
+        failed
+          .map((item: Fields) => item.message)
+          .slice(0, 5)
+          .join('；')
+    else {
+      bulkOpen.value = false
+      message.success(`已分配${result.successCount}条订单`)
+    }
+    await load()
+  } catch (cause) {
+    bulkError.value = errorText(cause)
+  } finally {
+    busy.value = false
+  }
+}
 const record = ref<AdmCase | null>(null),
   config = ref<AdmConfig | null>(null),
   loading = ref(false),
@@ -426,6 +545,14 @@ const record = ref<AdmCase | null>(null),
   conflict = ref(false),
   tab = ref('lines')
 const id = computed(() => String(route.params.caseId || ''))
+const assigneeOptions = computed(() =>
+  (config.value?.assignees || []).map((person: Fields) => ({ value: String(person.id), label: person.name })),
+)
+watch(id, () => {
+  selectedOrders.value = []
+  bulkOpen.value = false
+  bulkError.value = ''
+})
 const selectedLineId = ref(''),
   selectedLine = computed(() => record.value?.lines?.find((item) => item.id === selectedLineId.value) || null)
 const permission = (name: string) => Boolean(auth.user?.isAdmin || auth.user?.permissions.includes(`adm.${name}`))
@@ -498,6 +625,14 @@ const lineColumns = [
   { title: '操作', key: 'actions', width: 200 },
 ]
 const lineInfo = [
+  ['platformCode', '平台编码'],
+  ['airline', '航司'],
+  ['ticketCount', '票号数量'],
+  ['amountCny', '人民币分摊金额'],
+  ['actualOwner', '实际责任人'],
+  ['actualHandler', '实际处理人'],
+  ['recoveryDeadline', '编码恢复时限'],
+  ['resolution', '处理结果说明'],
   ['shop', '店铺'],
   ['site', '细分站点'],
   ['ticketNo', '票号'],
@@ -775,7 +910,7 @@ function performAction() {
     return
   }
   if (currentAction.value === 'assign' && !actionDraft.value.ownerId) {
-    formError.value = '请填写处理人账号 ID'
+    formError.value = '请选择处理人；名单为空时请先配置ADM账号权限'
     return
   }
   const body = { ...actionDraft.value, version: editVersion, action: currentAction.value }

@@ -73,6 +73,7 @@ export const admApi = {
   update: (id: string, body: Fields) => data<AdmCase>(http.patch(casePath(id), body)),
   copy: (id: string, body: Fields) => data<AdmCase>(http.post(`${casePath(id)}/copy`, body)),
   addLine: (id: string, body: Fields) => data<AdmCase>(http.post(`${casePath(id)}/lines`, body)),
+  bulkAssign: (id: string, body: Fields) => data<Fields>(http.post(`${casePath(id)}/lines/bulk-assign`, body)),
   updateLine: (id: string, lineId: string, body: Fields) =>
     data<AdmCase>(http.patch(`${casePath(id)}/lines/${encodeURIComponent(lineId)}`, body)),
   action: (id: string, body: Fields) => data<AdmCase>(http.post(`${casePath(id)}/actions`, body)),
@@ -121,6 +122,8 @@ export const statusLabels: Record<string, string> = {
   PENDING_REVIEW: '待审核',
   WAITING_FINANCE: '待财务确认',
   CLOSED: '已结案',
+  HISTORICAL: '历史只读档案',
+  HISTORICAL_UNVERIFIED: '历史财务未核验',
   COMPLETED: '已完成',
   ISSUE: '出票',
   REFUND: '退票',
