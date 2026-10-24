@@ -93,6 +93,7 @@
           </a-sub-menu>
           <a-menu-item v-if="canSeeMenu('problems')" key="/problems"><template #icon><WarningOutlined /></template>问题中心</a-menu-item>
           <a-menu-item v-if="canSeeMenu('data_assets')" key="/data-assets"><template #icon><DatabaseOutlined /></template>数据资产</a-menu-item>
+          <a-menu-item v-if="canSeeMenu('data_workbench')" key="/data-workbench"><template #icon><ControlOutlined /></template>数据加工工作台</a-menu-item>
           <a-sub-menu v-if="authStore.user?.isAdmin" key="system">
             <template #icon><MonitorOutlined /></template>
             <template #title>系统管理</template>

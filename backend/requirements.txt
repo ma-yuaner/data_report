@@ -6,6 +6,7 @@ DBUtils>=3.1,<4
 PyHive>=0.7,<1
 python-dotenv>=1.1,<2
 openpyxl>=3.1,<4
+duckdb>=1.4,<2
 hdfs>=2.7,<3
 pyorc>=0.11,<1
 thrift>=0.20,<1

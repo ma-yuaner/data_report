@@ -11,6 +11,7 @@ pip-install-*/
 pip-metadata-*/
 pip-unpack-*/
 .test-artifacts/
+var/data-workbench/
 .ruff_cache/
 .coverage
 .coverage.*

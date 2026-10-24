@@ -126,6 +126,7 @@ MENU_CATALOG = (
     {"code": "monitor.center", "name": "监控中心", "description": "通用规则、告警事件与任务运行监控", "groupCode": "monitor", "groupName": "监控中心"},
     {"code": "problems", "name": "问题中心", "description": "经营问题跟踪", "groupCode": "problems", "groupName": "问题中心"},
     {"code": "data_assets", "name": "数据资产", "description": "数据资产目录", "groupCode": "data_assets", "groupName": "数据资产"},
+    {"code": "data_workbench", "name": "数据加工工作台", "description": "本人数据导入、清洗、关联与结果导出", "groupCode": "data_workbench", "groupName": "数据加工"},
 )
 
 LEGACY_MENU_EXPANSIONS = {

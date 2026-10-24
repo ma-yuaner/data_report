@@ -22,6 +22,7 @@ GROUPS = {
     "monitoring": "监控、规则、事件、工单与通知",
     "targets": "目标配置、进度与刷新",
     "risk_upload": "风控文件上传",
+    "data_workbench": "数据加工工作台",
     "telemetry": "行为采集与管理看板",
 }
 

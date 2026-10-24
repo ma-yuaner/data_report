@@ -22,7 +22,7 @@
 | [上传说明](../business/air_ticketing/risk-data-upload.md) / [行为监控](../product/user-behavior-monitoring-v1.md) | 上传队列和行为采集 |
 
 <!-- BEGIN:API_ROUTES -->
-共 **123个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
+共 **135个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
 
 <a id="auth"></a>
 
@@ -212,6 +212,25 @@
 |---|---|---|
 | `GET` | `/api/v1/risk-uploads` | [risk_upload_status](../../backend/data_report_api/api/risk_upload.py) |
 | `POST` | `/api/v1/risk-uploads` | [create_risk_upload](../../backend/data_report_api/api/risk_upload.py) |
+
+<a id="data_workbench"></a>
+
+## 数据加工工作台（data_workbench）
+
+| 方法 | 完整路径 | 处理函数 / 源码 |
+|---|---|---|
+| `GET` | `/api/v1/data-workbench/catalog` | [workbench_catalog](../../backend/data_report_api/api/data_workbench.py) |
+| `POST` | `/api/v1/data-workbench/datasets` | [workbench_upload](../../backend/data_report_api/api/data_workbench.py) |
+| `GET` | `/api/v1/data-workbench/datasets/<dataset_id>/preview` | [workbench_dataset_preview](../../backend/data_report_api/api/data_workbench.py) |
+| `POST` | `/api/v1/data-workbench/jobs` | [workbench_create_job](../../backend/data_report_api/api/data_workbench.py) |
+| `GET` | `/api/v1/data-workbench/jobs/<job_id>` | [workbench_get_job](../../backend/data_report_api/api/data_workbench.py) |
+| `POST` | `/api/v1/data-workbench/jobs/<job_id>/cancel` | [workbench_cancel_job](../../backend/data_report_api/api/data_workbench.py) |
+| `GET` | `/api/v1/data-workbench/jobs/<job_id>/download` | [workbench_download](../../backend/data_report_api/api/data_workbench.py) |
+| `GET` | `/api/v1/data-workbench/jobs/<job_id>/preview` | [workbench_job_preview](../../backend/data_report_api/api/data_workbench.py) |
+| `POST` | `/api/v1/data-workbench/jobs/<job_id>/publish` | [workbench_publish](../../backend/data_report_api/api/data_workbench.py) |
+| `POST` | `/api/v1/data-workbench/recipes` | [workbench_create_recipe](../../backend/data_report_api/api/data_workbench.py) |
+| `PUT` | `/api/v1/data-workbench/recipes/<recipe_id>` | [workbench_update_recipe](../../backend/data_report_api/api/data_workbench.py) |
+| `POST` | `/api/v1/data-workbench/recipes/<recipe_id>/copy` | [workbench_copy_recipe](../../backend/data_report_api/api/data_workbench.py) |
 
 <a id="telemetry"></a>
 
