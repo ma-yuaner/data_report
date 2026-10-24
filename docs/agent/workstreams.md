@@ -46,6 +46,8 @@
 
 后续用户明确授权“授权直接到gitlab”，已成功将`9c3d4c7`及交接`3dbebb0`推送至上述origin main（远端935b8e5 → 3dbebb0）。前述授权阻塞已解除；未推GitHub、未查CI、未部署、未执行SQL或群通知。本次仅补记交付，不重复业务测试。
 
+用户进一步明确授权“github也传”，已成功将同一ADM代码与交接同步至已配置的`github.com/ma-yuaner/data_report.git` main（935b8e5 → 351ce92），GitHub授权阻塞解除。两端代码一致；仅同步代码，不重复测试、不部署、不执行SQL或发送通知。
+
 用户要求将ERP Java ADM与独立Python ADM工作台融合到数据中台，并写完整PRD；已明确一张下发ADM含多订单、多平台及出退改，不能以业务订单作为顶层。见[ADM管理中心PRD V1](../product/adm-management-center-prd-v1.md)：主单/明细/任务、附件版本预览、逐单描述分析、恢复申诉差异财务、审核结案、重开归档、权限、模板、接口和迁移验收。Java J01—J11、Python P01—P13、历史需求R01—R27关联A01—A30验收。
 
 定向核对`flight-manage-api@88ac881c9` ADM、`adm@b0e4f02`及中台权限/导出入口：Java当前Excel44字段，Python兼容输出38列；恢复SQLite的ADM号唯一约束需改造；旧财务匹配只证明有效支出差异存在，不证明付款/金额完整；Java直接结案需补审核、明细、材料和财务条件。未验线上数据。
