@@ -115,6 +115,7 @@
       <a-alert v-if="createError" type="error" :message="createError" show-icon style="margin-bottom: 12px" />
       <p v-if="copySource" class="adm-muted">引用基础信息，重新确认 ADM 号和金额；原单完成状态、附件事实不复制。</p>
       <CaseFields v-model="draft" />
+      <InitialOrderLines v-model="initialLines" :currency="draft.currency || 'CNY'" :disabled="saving" />
     </a-modal>
     <a-modal v-model:open="importOpen" title="批量导入 ADM" :width="900" :footer="null" :mask-closable="false">
       <p>先预览再提交。首版新增主单及明细；已有单冲突将退回，不自动覆盖人工备注。</p>
@@ -169,6 +170,7 @@ import { message } from 'ant-design-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
 import CaseFields from './CaseFields.vue'
+import InitialOrderLines from './InitialOrderLines.vue'
 import { admApi, allowed, errorText, label, options, saveBlob, type AdmCase, type AdmConfig, type Fields } from './api'
 import './adm.css'
 const auth = useAuthStore(),
@@ -264,11 +266,13 @@ function query() {
 const createOpen = ref(false),
   copySource = ref<AdmCase | null>(null),
   draft = ref<Fields>({}),
+  initialLines = ref<Fields[]>([]),
   saving = ref(false),
   createError = ref('')
 let createKey = ''
 function openCreate() {
   copySource.value = null
+  initialLines.value = []
   draft.value = {
     supplierType: 'SUPPLIER',
     currency: 'CNY',
@@ -304,17 +308,29 @@ async function saveCreate() {
     createError.value = '请填写 ADM 号、下发方、币种和有效十进制金额。'
     return
   }
+  const emptyIndex = initialLines.value.findIndex(
+    (line) => ![line.orderNo, line.ticketNo, line.pnr, line.description].some((value) => String(value || '').trim()),
+  )
+  if (emptyIndex >= 0) {
+    createError.value = `订单 ${emptyIndex + 1} 请填写订单号、票号、PNR或问题说明，或者移除空白订单。`
+    return
+  }
   saving.value = true
   createError.value = ''
   try {
     const body = {
       ...draft.value,
+      lines: initialLines.value.map((line) => {
+        const value: Fields = { ...line, currency: line.currency || draft.value.currency }
+        delete value._draftKey
+        return value
+      }),
       idempotencyKey: createKey,
       ...(copySource.value ? { version: copySource.value.version } : {}),
     }
     const created = copySource.value ? await admApi.copy(copySource.value.id, body) : await admApi.create(body)
     createOpen.value = false
-    message.success('主单已保存')
+    message.success(`主单及 ${created.lines?.length || 0} 条订单已保存`)
     await router.push(`/adm/cases/${encodeURIComponent(created.id)}`)
   } catch (cause) {
     createError.value = errorText(cause)

@@ -578,7 +578,7 @@ class AdmService:
                 "description": source["description"],
                 "remark": source["remark"],
                 "currency": source["currency"],
-                **{key: value for key, value in body.items() if key in CASE_FIELDS or key == "idempotencyKey"},
+                **{key: value for key, value in body.items() if key in CASE_FIELDS or key in {"idempotencyKey", "lines"}},
                 "sourceCaseId": source["id"],
             },
         )

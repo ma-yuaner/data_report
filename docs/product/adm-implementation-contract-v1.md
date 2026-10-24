@@ -13,6 +13,8 @@
 
 ## JSON/API
 
+2026-10-24独立接管补充：目标为sibebid新表，中台独立运行，旧Java仅作规则/迁移来源。create可传`lines:[lineFields]`与主单原子保存；复制新建也接受本次显式填写的lines，不复制来源旧订单/附件/完成状态。金额可空、不自动平分，初始订单均待分配；人员、持锁、审核和完成不能由建档输入提升。完整字段与迁移顺序见[接管清单](adm-independent-takeover-v1.md)。
+
 统一响应`{success,message,data}`。API前缀`/api/v1/adm`。金额均十进制字符串或null，不用JS浮点金额。ID字符串；所有修改含主单`version`，冲突409。主单/明细状态枚举由config返回；用户操作可见性以服务端allowedActions和禁用原因为准。
 
 - GET `/config`：`{storageMode,available,capabilities:{orders,finance,notifications},caseStatuses,lineStatuses,businessTypes,attachmentCategories}`，未部署表应503，不静默回退演示。
