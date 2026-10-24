@@ -14,6 +14,10 @@ const router = createRouter({
       redirect: '/home',
       children: [
         { path: 'home', name: 'home', component: () => import('@/views/HomeView.vue'), meta: { title: '工作台', section: '企业数据中心' } },
+        { path: 'adm', redirect: '/adm/workbench' },
+        { path: 'adm/workbench', name: 'adm-workbench', component: () => import('@/features/adm/AdmCenterView.vue'), meta: { title: 'ADM 工作台', section: 'ADM 管理', menuCode: 'adm.center', admView: 'workbench' } },
+        { path: 'adm/cases', name: 'adm-cases', component: () => import('@/features/adm/AdmCenterView.vue'), meta: { title: 'ADM 台账', section: 'ADM 管理', menuCode: 'adm.center', admView: 'cases' } },
+        { path: 'adm/cases/:caseId', name: 'adm-case-detail', component: () => import('@/features/adm/AdmDetailView.vue'), meta: { title: 'ADM 详情', section: 'ADM 管理', menuCode: 'adm.center' } },
         { path: 'resource-governance', redirect: '/resource-governance/gds' },
         { path: 'resource-governance/gds', name: 'gds-resource-governance', component: () => import('@/views/ResourceGovernanceView.vue'), meta: { title: 'GDS资源治理', section: '资源治理', menuCode: 'governance.gds', governanceLayer: 'gds' } },
         { path: 'resource-governance/ota', name: 'ota-channel-quality', component: () => import('@/views/ResourceGovernanceView.vue'), meta: { title: 'OTA渠道质量', section: '资源治理', menuCode: 'governance.ota', governanceLayer: 'ota' } },

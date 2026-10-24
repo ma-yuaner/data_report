@@ -42,7 +42,11 @@ SMART_TREND_DAILY_KIND = "smart_trend_daily"
 SMART_TREND_MONTHLY_KIND = "smart_trend_monthly"
 SMART_DIMENSIONS_KIND = "smart_dimensions"
 SMART_DETAILS_KIND = "smart_details"
+ADM_CASES_KIND = "adm_cases"
+ADM_LINES_KIND = "adm_lines"
 BACKGROUND_EXPORT_KINDS = {
+    ADM_CASES_KIND,
+    ADM_LINES_KIND,
     GDS_ROUTE_KIND,
     RESOURCE_GDS_KIND,
     RESOURCE_OTA_KIND,
@@ -52,6 +56,8 @@ BACKGROUND_EXPORT_KINDS = {
     SMART_DETAILS_KIND,
 }
 TASK_LABELS = {
+    ADM_CASES_KIND: "ADM主单",
+    ADM_LINES_KIND: "ADM订单明细",
     GDS_ROUTE_KIND: "GDS航线名单",
     RESOURCE_GDS_KIND: "GDS资源治理汇报",
     RESOURCE_OTA_KIND: "OTA渠道质量汇报",
@@ -90,6 +96,10 @@ def _require_export(user: dict[str, Any]) -> None:
 
 def _require_kind(user: dict[str, Any], kind: str) -> None:
     menu_codes = set(user.get("menu_codes") or user.get("menuCodes") or [])
+    if kind in {ADM_CASES_KIND, ADM_LINES_KIND}:
+        if not (_is_admin(user) or ("adm.center" in menu_codes and "adm.export" in permission_codes(user))):
+            raise PermissionError("当前账号没有ADM导出权限")
+        return
     if kind == "comprehensive" or kind in BUSINESSES:
         _require_export(user)
         if not (_is_admin(user) or "analysis.comprehensive" in menu_codes):
@@ -527,6 +537,8 @@ class ComprehensiveExportService:
         if row is None:
             raise ValueError("导出任务不存在")
         _require_kind(user, row["business_type"])
+        if row["business_type"] in {ADM_CASES_KIND, ADM_LINES_KIND}:
+            self._validate_adm_export(user, json.loads(row["filters_json"])["_admSelection"])
         if row["status"] != "SUCCEEDED" or not row["file_path"]:
             raise ComprehensiveExportConflict("导出文件尚不可下载")
         path = Path(row["file_path"])
@@ -591,7 +603,17 @@ class ComprehensiveExportService:
         if kind not in BACKGROUND_EXPORT_KINDS - {GDS_ROUTE_KIND}:
             raise ValueError("不支持的导出任务类型")
         _require_kind(user, kind)
-        payload = {str(key): value for key, value in values.items() if key != "kind"}
+        payload = {str(key): value for key, value in values.items() if key != "kind" and not str(key).startswith("_adm")}
+        if kind in {ADM_CASES_KIND, ADM_LINES_KIND}:
+            from .adm import AdmError
+            from .adm.exchange import select_export_cases
+            try:
+                _, selection = select_export_cases(self.config, user, payload)
+                payload["_admSelection"] = selection
+            except AdmError as error:
+                if error.status in {401, 403, 404}:
+                    raise PermissionError(str(error)) from error
+                raise ValueError(str(error)) from error
         start_date = str(payload.get("startDate") or payload.get("orderStart") or payload.get("firstDepStart") or "")
         end_date = str(payload.get("endDate") or payload.get("orderEnd") or payload.get("firstDepEnd") or "")
         fingerprint = self._fingerprint(_user_id(user), kind, start_date, end_date, payload)
@@ -640,7 +662,17 @@ class ComprehensiveExportService:
         values = json.loads(task["filters_json"])
         if self.store.cancellation_requested(task_id):
             raise ComprehensiveExportCancelled()
-        if kind in {RESOURCE_GDS_KIND, RESOURCE_OTA_KIND}:
+        if kind in {ADM_CASES_KIND, ADM_LINES_KIND}:
+            from .adm.exchange import export_workbook
+            resolver = self.config.get("ADM_USER_RESOLVER")
+            if not callable(resolver):
+                raise PermissionError("ADM导出缺少可信账号解析器")
+            actor = resolver(int(task["user_id"]))
+            if not actor or not actor.get("is_enabled", True):
+                raise PermissionError("账号已停用或不存在")
+            _require_kind(actor, kind)
+            content, name = export_workbook(self._validate_adm_export(actor, values["_admSelection"]), kind)
+        elif kind in {RESOURCE_GDS_KIND, RESOURCE_OTA_KIND}:
             data_source = "gds" if kind == RESOURCE_GDS_KIND else "ota"
             content, name = ResourceGovernanceService(self.config).export_report(
                 start_value=values.get("startDate"), end_value=values.get("endDate"),
@@ -695,6 +727,20 @@ class ComprehensiveExportService:
             self.store.finish(task_id, output_path, name, 1)
         finally:
             content.close()
+
+    def _validate_adm_export(self, user: dict[str, Any], selection: list[dict]) -> list[dict]:
+        from .adm import AdmError
+        from .adm.exchange import validate_export_cases
+        resolver = self.config.get("ADM_USER_RESOLVER")
+        actor = resolver(int(user["id"])) if callable(resolver) else user
+        if not actor or not actor.get("is_enabled", True):
+            raise PermissionError("账号已停用或不存在")
+        try:
+            return validate_export_cases(self.config, actor, selection)
+        except AdmError as error:
+            if error.status in {401, 403, 404}:
+                raise PermissionError(str(error)) from error
+            raise ValueError(str(error)) from error
 
     def _write_xlsx(self, task: dict[str, Any], output_path: Path) -> None:
         import pymysql

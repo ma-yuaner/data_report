@@ -22,7 +22,7 @@
 
 <!-- BEGIN:CURRENT_MENU -->
 <details>
-<summary>完整菜单：41个页面入口、3个禁用预留项</summary>
+<summary>完整菜单：43个页面入口、3个禁用预留项</summary>
 
 ```text
 工作台  [/home]
@@ -73,6 +73,9 @@
   监控运行  [/monitoring/runs]
   通知管理  [/monitoring/notifications]
   问题诊断  [/monitoring/diagnostics]
+ADM 管理
+  我的工作台  [/adm/workbench]
+  ADM 台账  [/adm/cases]
 问题中心  [/problems]
 数据资产  [/data-assets]
 数据加工工作台  [/data-workbench]
@@ -164,7 +167,7 @@ docker compose up -d --build
 API统一前缀为`/api`。认证与账号管理使用`/api/auth/*`、`/api/admin/*`；业务接口主要使用`/api/v1/*`。登录后使用会话Cookie，非安全方法需携带CSRF头；JSON通常返回`success/message/data`，导出接口返回文件。具体权限、参数与错误见[完整接口目录](docs/api/README.md)及对应源码。
 
 <!-- BEGIN:API_SUMMARY -->
-当前静态登记 **135个HTTP方法/路径条目**（含认证与管理接口，不重复列自动HEAD/OPTIONS）。
+当前静态登记 **154个HTTP方法/路径条目**（含认证与管理接口，不重复列自动HEAD/OPTIONS）。
 
 | 接口领域 | 条目数 | 完整清单 |
 |---|---:|---|
@@ -180,6 +183,9 @@ API统一前缀为`/api`。认证与账号管理使用`/api/auth/*`、`/api/admi
 | 风控文件上传 | 2 | [risk_upload](docs/api/README.md#risk_upload) |
 | 数据加工工作台 | 12 | [data_workbench](docs/api/README.md#data_workbench) |
 | 行为采集与管理看板 | 4 | [telemetry](docs/api/README.md#telemetry) |
+| adm | 12 | [adm](docs/api/README.md#adm) |
+| adm_exchange | 3 | [adm_exchange](docs/api/README.md#adm_exchange) |
+| adm_files | 4 | [adm_files](docs/api/README.md#adm_files) |
 <!-- END:API_SUMMARY -->
 
 ## 开发交付与README维护

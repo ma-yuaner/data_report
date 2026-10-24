@@ -25,7 +25,7 @@ DATA_SCOPE_RESOURCES = {
     "smart_placement.task": "投放政策",
     "smart_placement.order": "收单情况",
 }
-MANAGED_RELATION_RESOURCES = frozenset({"smart_placement"})
+MANAGED_RELATION_RESOURCES = frozenset({"smart_placement", "adm"})
 DATA_SCOPE_TYPES = frozenset({"SELF", "WORKFLOW", "MANAGED", "ALL"})
 DATA_SCOPE_RANK = {"SELF": 1, "WORKFLOW": 2, "MANAGED": 3, "ALL": 4}
 DEFAULT_ROLE_DATA_SCOPES = {
@@ -68,6 +68,21 @@ BUSINESS_ROLE_CATALOG = (
     {"code": "POLICY_OPERATOR", "name": "智能业务执行员", "description": "认领已审核任务并登记投放结果"},
 )
 PERMISSION_CATALOG = (
+    {"code": "adm.view", "name": "查看ADM", "description": "查看授权范围ADM及订单明细", "menuCode": "adm.center"},
+    {"code": "adm.create", "name": "新建ADM", "description": "新建或引用新建主单", "menuCode": "adm.center"},
+    {"code": "adm.edit", "name": "编辑ADM", "description": "按状态和持单规则编辑主明细", "menuCode": "adm.center"},
+    {"code": "adm.assign", "name": "分配ADM", "description": "分配或转交授权明细", "menuCode": "adm.center"},
+    {"code": "adm.handle", "name": "处理ADM", "description": "接单、分析、恢复和申诉处理", "menuCode": "adm.center"},
+    {"code": "adm.review", "name": "审核ADM", "description": "审核或退回明细并保留意见", "menuCode": "adm.center"},
+    {"code": "adm.finance.confirm", "name": "确认ADM财务事项", "description": "按凭证确认结果，不自动对外写入", "menuCode": "adm.center"},
+    {"code": "adm.close", "name": "结案ADM", "description": "核对审核、材料、金额和财务后结案", "menuCode": "adm.center"},
+    {"code": "adm.reopen", "name": "重开ADM", "description": "有据重开并保留原结案快照", "menuCode": "adm.center"},
+    {"code": "adm.unlock.force", "name": "强制解锁ADM", "description": "填写原因后解锁授权明细", "menuCode": "adm.center"},
+    {"code": "adm.import", "name": "导入ADM", "description": "预览并确认批量建档", "menuCode": "adm.center"},
+    {"code": "adm.export", "name": "导出ADM", "description": "全局任务导出授权数据", "menuCode": "adm.center"},
+    {"code": "adm.notify", "name": "发送ADM提醒", "description": "对配置渠道发送授权清单", "menuCode": "adm.center"},
+    {"code": "adm.scope.team", "name": "查看ADM管理成员", "description": "仅查看显式配置的受管成员明细", "menuCode": "adm.center"},
+    {"code": "adm.scope.all", "name": "查看全部ADM", "description": "查看全部ADM，需显式授权", "menuCode": "adm.center"},
     {"code": "analysis.comprehensive.export", "name": "导出综合分析宽表", "description": "创建、取消并下载综合分析宽表明细导出任务", "menuCode": "analysis.comprehensive"},
     {"code": "smart_placement.create", "name": "新建投放机会", "description": "创建投放机会并保存或提交", "menuCode": "smart.placement.policies"},
     {"code": "smart_placement.edit", "name": "编辑投放机会", "description": "编辑并重新提交本人创建的草稿或退回任务", "menuCode": "smart.placement.policies"},
@@ -93,6 +108,7 @@ PERMISSION_CATALOG = (
     {"code": "business_config.target_progress.view", "name": "查看目标进度", "description": "查看月度目标完成、利润、亏损与趋势", "menuCode": "business_config.target_progress"},
 )
 MENU_CATALOG = (
+    {"code": "adm.center", "name": "ADM管理", "description": "ADM主单、多订单、材料及审核闭环", "groupCode": "adm", "groupName": "ADM管理"},
     {"code": "governance.gds", "name": "GDS资源治理", "description": "GDS、PCC查询量、航段数与查定比分析", "groupCode": "governance", "groupName": "资源治理"},
     {"code": "governance.ota", "name": "OTA渠道质量", "description": "平台查询、验价与生单接口成功率分析", "groupCode": "governance", "groupName": "资源治理"},
     {"code": "gds_route.diagnosis", "name": "航线配置诊断", "description": "从航线下钻到乘客、行程和日期区间配置组合", "groupCode": "gds_route", "groupName": "资源治理"},

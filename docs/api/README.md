@@ -22,7 +22,7 @@
 | [上传说明](../business/air_ticketing/risk-data-upload.md) / [行为监控](../product/user-behavior-monitoring-v1.md) | 上传队列和行为采集 |
 
 <!-- BEGIN:API_ROUTES -->
-共 **135个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
+共 **154个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
 
 <a id="auth"></a>
 
@@ -242,4 +242,44 @@
 | `POST` | `/api/v1/telemetry/events` | [record_telemetry_events](../../backend/data_report_api/api/telemetry.py) |
 | `POST` | `/api/v1/telemetry/visits` | [start_telemetry_visit](../../backend/data_report_api/api/telemetry.py) |
 | `PATCH` | `/api/v1/telemetry/visits/<visit_id>` | [update_telemetry_visit](../../backend/data_report_api/api/telemetry.py) |
+
+<a id="adm"></a>
+
+## adm（adm）
+
+| 方法 | 完整路径 | 处理函数 / 源码 |
+|---|---|---|
+| `GET` | `/api/v1/adm/cases` | [adm_cases](../../backend/data_report_api/api/adm.py) |
+| `POST` | `/api/v1/adm/cases` | [adm_create](../../backend/data_report_api/api/adm.py) |
+| `GET` | `/api/v1/adm/cases/<case_id>` | [adm_detail](../../backend/data_report_api/api/adm.py) |
+| `PATCH` | `/api/v1/adm/cases/<case_id>` | [adm_update](../../backend/data_report_api/api/adm.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/actions` | [adm_case_action](../../backend/data_report_api/api/adm.py) |
+| `GET` | `/api/v1/adm/cases/<case_id>/closure-check` | [adm_closure_check](../../backend/data_report_api/api/adm.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/copy` | [adm_copy](../../backend/data_report_api/api/adm.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/lines` | [adm_add_line](../../backend/data_report_api/api/adm.py) |
+| `PATCH` | `/api/v1/adm/cases/<case_id>/lines/<line_id>` | [adm_update_line](../../backend/data_report_api/api/adm.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/actions` | [adm_line_action](../../backend/data_report_api/api/adm.py) |
+| `GET` | `/api/v1/adm/cases/<case_id>/timeline` | [adm_timeline](../../backend/data_report_api/api/adm.py) |
+| `GET` | `/api/v1/adm/config` | [adm_config](../../backend/data_report_api/api/adm.py) |
+
+<a id="adm_exchange"></a>
+
+## adm_exchange（adm_exchange）
+
+| 方法 | 完整路径 | 处理函数 / 源码 |
+|---|---|---|
+| `POST` | `/api/v1/adm/imports/<preview_id>/commit` | [adm_import_commit](../../backend/data_report_api/api/adm_exchange.py) |
+| `POST` | `/api/v1/adm/imports/preview` | [adm_import_preview](../../backend/data_report_api/api/adm_exchange.py) |
+| `GET` | `/api/v1/adm/templates` | [adm_template_download](../../backend/data_report_api/api/adm_exchange.py) |
+
+<a id="adm_files"></a>
+
+## adm_files（adm_files）
+
+| 方法 | 完整路径 | 处理函数 / 源码 |
+|---|---|---|
+| `GET` | `/api/v1/adm/cases/<case_id>/attachments` | [adm_attachment_list](../../backend/data_report_api/api/adm_files.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/attachments` | [adm_attachment_upload](../../backend/data_report_api/api/adm_files.py) |
+| `GET` | `/api/v1/adm/cases/<case_id>/attachments/<attachment_id>/download` | [adm_attachment_download](../../backend/data_report_api/api/adm_files.py) |
+| `GET` | `/api/v1/adm/cases/<case_id>/attachments/<attachment_id>/preview` | [adm_attachment_preview](../../backend/data_report_api/api/adm_files.py) |
 <!-- END:API_ROUTES -->

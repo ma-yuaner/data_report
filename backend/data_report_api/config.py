@@ -138,6 +138,18 @@ class Config:
     RISK_UPLOAD_POLL_SECONDS = int(os.getenv("RISK_UPLOAD_POLL_SECONDS", "2"))
     MAX_CONTENT_LENGTH = RISK_UPLOAD_MAX_BYTES
     JSON_AS_ASCII = False
+    # Business schema upgrades are explicit; ADM never creates production tables.
+    ADM_STORAGE_MODE = os.getenv("ADM_STORAGE_MODE", "mysql")
+    ADM_MYSQL_HOST = os.getenv("ADM_MYSQL_HOST", "")
+    ADM_MYSQL_PORT = os.getenv("ADM_MYSQL_PORT", "")
+    ADM_MYSQL_DATABASE = os.getenv("ADM_MYSQL_DATABASE", "")
+    ADM_MYSQL_USER = os.getenv("ADM_MYSQL_USER", "")
+    ADM_MYSQL_PASSWORD = os.getenv("ADM_MYSQL_PASSWORD", "")
+    ADM_SQLITE_PATH = os.getenv("ADM_SQLITE_PATH", "")
+    ADM_ATTACHMENT_ROOT = os.getenv("ADM_ATTACHMENT_ROOT", "/app/var/adm-attachments")
+    ADM_ATTACHMENT_MAX_BYTES = int(os.getenv("ADM_ATTACHMENT_MAX_BYTES", "20971520"))
+    ADM_IMPORT_ROOT = os.getenv("ADM_IMPORT_ROOT", "/app/var/adm-imports")
+    ADM_IMPORT_MAX_ROWS = int(os.getenv("ADM_IMPORT_MAX_ROWS", "10000"))
     DATA_WORKBENCH_DIR = os.getenv("DATA_WORKBENCH_DIR", "var/data-workbench")
     DATA_WORKBENCH_MAX_ROWS = int(os.getenv("DATA_WORKBENCH_MAX_ROWS", "2000000"))
     DATA_WORKBENCH_MAX_COLUMNS = int(os.getenv("DATA_WORKBENCH_MAX_COLUMNS", "300"))

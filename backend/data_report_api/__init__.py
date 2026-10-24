@@ -9,6 +9,7 @@ from .auth_routes import auth_api
 from .config import Config
 from .routes import api
 from .services.auth import AuthError, AuthManager, MySqlAuthStore
+from .services.adm.attachments import verify_stored_attachment
 
 
 PUBLIC_AUTH_ENDPOINTS = {"api.health", "auth.login", "auth.status"}
@@ -16,6 +17,8 @@ SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
 def required_menu_code(path: str) -> str | None:
+    if path.startswith("/api/v1/adm"):
+        return "adm.center"
     if path.startswith("/api/v1/data-workbench"):
         return "data_workbench"
     if path.startswith("/api/v1/resource-governance/gds/routes"):
@@ -87,6 +90,7 @@ def required_menu_code(path: str) -> str | None:
 def create_app(config: type[Config] = Config, auth_store=None) -> Flask:
     app = Flask(__name__)
     app.config.from_object(config)
+    app.config["ADM_ATTACHMENT_VERIFIER"] = lambda metadata: verify_stored_attachment(app.config, metadata)
     app.register_blueprint(api, url_prefix="/api")
     app.register_blueprint(auth_api, url_prefix="/api")
 
@@ -96,6 +100,13 @@ def create_app(config: type[Config] = Config, auth_store=None) -> Flask:
         configured = manager.initialize()
         app.extensions["auth_manager"] = manager
         app.extensions["auth_configured"] = configured
+        def resolve_adm_user(user_id):
+            user = manager.store.get_user_by_id(int(user_id))
+            if user and "adm.scope.team" in set(user.get("permissions") or []):
+                user["managed_user_ids"] = manager.store.list_managed_member_ids(int(user_id), "adm")
+            return user
+
+        app.config["ADM_USER_RESOLVER"] = resolve_adm_user
         if not configured:
             app.logger.warning(
                 "认证表中没有账号；请配置AUTH_BOOTSTRAP_ADMIN_USERNAME和"
@@ -149,6 +160,9 @@ def create_app(config: type[Config] = Config, auth_store=None) -> Flask:
                 "success": False, "message": "当前账号没有该模块的菜单权限",
                 "data": None, "code": "MENU_FORBIDDEN",
             }), 403
+        if request.path.startswith("/api/v1/adm") and "adm.scope.team" in set(user.get("permissions") or []):
+            # Team membership is server-owned, not a front-end person/scope parameter.
+            user["managed_user_ids"] = manager.store.list_managed_member_ids(int(user["id"]), "adm")
         return None
 
     @app.after_request

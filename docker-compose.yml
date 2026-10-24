@@ -22,6 +22,16 @@ services:
       MYSQL_POOL_SIZE: ${MYSQL_POOL_SIZE:-12}
       COMPREHENSIVE_MAX_ROWS: ${COMPREHENSIVE_MAX_ROWS:-1000000}
       COMPREHENSIVE_EXPORT_ROOT: /app/var/comprehensive-exports
+      ADM_STORAGE_MODE: mysql
+      ADM_MYSQL_HOST: ${ADM_MYSQL_HOST:-}
+      ADM_MYSQL_PORT: ${ADM_MYSQL_PORT:-}
+      ADM_MYSQL_DATABASE: ${ADM_MYSQL_DATABASE:-}
+      ADM_MYSQL_USER: ${ADM_MYSQL_USER:-}
+      ADM_MYSQL_PASSWORD: ${ADM_MYSQL_PASSWORD:-}
+      ADM_ATTACHMENT_ROOT: /app/var/adm/attachments
+      ADM_IMPORT_ROOT: /app/var/adm/imports
+      ADM_ATTACHMENT_MAX_BYTES: ${ADM_ATTACHMENT_MAX_BYTES:-20971520}
+      ADM_IMPORT_MAX_ROWS: ${ADM_IMPORT_MAX_ROWS:-10000}
       DATA_WORKBENCH_DIR: /app/var/data-workbench
       COMPREHENSIVE_EXPORT_RETENTION_HOURS: ${COMPREHENSIVE_EXPORT_RETENTION_HOURS:-24}
       MYSQL_POOL_MIN_CACHED: ${MYSQL_POOL_MIN_CACHED:-2}
@@ -96,6 +106,7 @@ services:
     volumes:
       - risk_upload_data:/app/var/risk-uploads
       - comprehensive_export_data:/app/var/comprehensive-exports
+      - adm_data:/app/var/adm
       - data_workbench_data:/app/var/data-workbench
     restart: unless-stopped
     healthcheck:
@@ -214,6 +225,7 @@ services:
       start_period: 10s
 
 volumes:
+  adm_data:
   risk_upload_data:
   comprehensive_export_data:
   data_workbench_data:
