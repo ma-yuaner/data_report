@@ -4,6 +4,7 @@
 
 | 主题 | 权威入口/证据 | 状态和边界 |
 |---|---|---|
+| ADM统一管理与迁移 | [ADM管理中心PRD V1](../product/adm-management-center-prd-v1.md)、[方案交接](workstreams.md#adm-管理中心完整-prd2026-10-24方案草案) | 用户2026-10-24明确供应下发ADM含多平台/订单及出退改，融合Java/Python；完整草案含附件、逐单分析、财务结案闭环。已核源码，未开发/迁移/部署；推荐规则和依赖单列 |
 | 公司机票知识 | [业务目录](../business/air_ticketing/README.md)、`sources/2026-09-11-meeting.md` | 会议部分仍待确认；不代表所有新模块口径都未确认 |
 | 销售报表平台替换 | [开发交接](workstreams.md#销售报表上海妤芯替换开发2026-10-20)、[真实验收交接](workstreams.md#明鉴v2与销售报表真实测试2026-10-20)、SALES-001/002；ETL仓库`docs/development/README.md`，验收脚本`analysis/tests/verify_business_sales_delivery.py`仅本地忽略保留、不随Git交付 | CX单列、UNIFIFI归其他；两张主报表已真实ERP只读汇总核对并发测试群，副本仅离线验证；未部署、未写快照、未发业务群。原始数据/图片不入Git，计时和回执留在忽略目录 |
 | GDS本轮方案 | [业务闭环复评V3](../product/gds-resource-governance-reassessment-v3.md) | 人工闭环与首个分析课题已确认；细项待继续审核 |
