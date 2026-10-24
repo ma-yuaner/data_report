@@ -42,6 +42,8 @@
 
 下列为原PRD阶段证据，后续开发状态以上述更新为准。
 
+交付提交`9c3d4c7`已本地完成。向origin企业GitLab main推送先遇网络限制，申请正常网络权限后被自动审查拒绝：本聊天明确授权拉取和开发，尚缺发布到该目标main的明确授权；未绕过、未推GitHub。需用户明确批准将此ADM提交推送至`git.ndccloud.com/analytics/data_report.git`的main后再继续；不包含服务器部署、DDL或群通知。
+
 用户要求将ERP Java ADM与独立Python ADM工作台融合到数据中台，并写完整PRD；已明确一张下发ADM含多订单、多平台及出退改，不能以业务订单作为顶层。见[ADM管理中心PRD V1](../product/adm-management-center-prd-v1.md)：主单/明细/任务、附件版本预览、逐单描述分析、恢复申诉差异财务、审核结案、重开归档、权限、模板、接口和迁移验收。Java J01—J11、Python P01—P13、历史需求R01—R27关联A01—A30验收。
 
 定向核对`flight-manage-api@88ac881c9` ADM、`adm@b0e4f02`及中台权限/导出入口：Java当前Excel44字段，Python兼容输出38列；恢复SQLite的ADM号唯一约束需改造；旧财务匹配只证明有效支出差异存在，不证明付款/金额完整；Java直接结案需补审核、明细、材料和财务条件。未验线上数据。
