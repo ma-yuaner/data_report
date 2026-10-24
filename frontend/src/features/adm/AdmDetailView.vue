@@ -325,22 +325,22 @@
       </template>
       <a-empty v-else-if="!loading" :description="error ? '详情加载失败，可刷新重试' : '未找到 ADM'" />
     </a-spin>
-    <a-modal
+    <FormDialog
       v-model:open="caseOpen"
       title="编辑主单"
-      :width="800"
-      :mask-closable="false"
-      :confirm-loading="busy"
-      :ok-button-props="{ disabled: conflict }"
-      @ok="saveCase"
-      ><a-alert v-if="formError" type="error" :message="formError" show-icon style="margin-bottom: 12px" /><CaseFields
+      :busy="busy"
+      :dirty="JSON.stringify(caseDraft) !== caseBaseline"
+      :error="formError"
+      :submit-disabled="conflict"
+      @submit="saveCase"
+      ><CaseFields
         v-model="caseDraft"
       /><DraftComparison :latest="reviewRecord" :draft="caseDraft" /><a-button
         v-if="conflict"
         :loading="loading"
         @click="rebaseDraft"
         >载入最新记录，保留草稿并对照</a-button
-      ></a-modal
+      ></FormDialog
     >
     <a-drawer
       v-model:open="lineOpen"
@@ -481,6 +481,7 @@ import {
   type Fields,
 } from './api'
 import CaseFields from './CaseFields.vue'
+import FormDialog from '@/components/FormDialog.vue'
 import LineFields from './LineFields.vue'
 import AttachmentPanel from './AttachmentPanel.vue'
 import DraftComparison from './DraftComparison.vue'

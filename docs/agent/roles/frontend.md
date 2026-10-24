@@ -4,6 +4,8 @@
 
 ## v5：统一页面与内网入口验收
 
+公共组件已提供FormDialog、FormGrid、DateField、DateRangeField及增强FilterPanel，调用见[前端公共控件](../../development/frontend-shared-controls.md)。后续同类窗口/筛选/日期必须优先复用，不逐页手写；例外说明具体联动差异。首轮仅ADM与综合分析接入，不冒充全站完成。
+
 - 新增/修改先读[统一规范](../../product/ui-consistency-standard.md)，复用现有组件、样式及相邻页；统一窗口、表格、反馈和局部刷新，不另造设计系统。
 - 内网HTTP是真实目标，不无保护依赖randomUUID等专用能力；验证实际点击入口，不只类型/编译。新建/导入沿用已验证幂等策略，失败保草稿，成功才关窗。
 - 中文输入、长文/列宽、滚动可达、保存回显按影响补验，受限标明未验；不把模块专属权限/分页量推广全站。

@@ -1,7 +1,7 @@
 <template>
-  <div class="adm-form-grid">
-    <label>ADM 单号 <span class="required">*</span><a-input v-model:value="model.admNo" :maxlength="100" /></label>
-    <label>下发方 <span class="required">*</span><a-input v-model:value="model.supplierName" :maxlength="200" /></label>
+  <FormGrid>
+    <label><span>ADM 单号 <span class="required">*</span></span><a-input v-model:value="model.admNo" :maxlength="100" /></label>
+    <label><span>下发方 <span class="required">*</span></span><a-input v-model:value="model.supplierName" :maxlength="200" /></label>
     <label>下发方类型<a-select v-model:value="model.supplierType" :options="supplierTypes" /></label>
     <label>下发方编码<a-input v-model:value="model.supplierCode" :maxlength="200" /></label>
     <label>航司（多个逗号分隔）<a-input v-model:value="model.airline" :maxlength="200" /></label>
@@ -16,14 +16,14 @@
     /></label>
     <label>业务大类<a-select v-model:value="model.businessCategory" :options="businessCategories" /></label>
     <label
-      >币种 <span class="required">*</span><a-input v-model:value="model.currency" :maxlength="3" placeholder="CNY"
+      ><span>币种 <span class="required">*</span></span><a-input v-model:value="model.currency" :maxlength="3" placeholder="CNY"
     /></label>
     <label
-      >下发原始金额 <span class="required">*</span
+      ><span>下发原始金额 <span class="required">*</span></span
       ><a-input v-model:value="model.originalAmount" inputmode="decimal" placeholder="十进制金额，如 123.45"
     /></label>
-    <label>下发日期<input v-model="model.issuedDate" type="date" class="adm-native" /></label>
-    <label>处理截止时间（北京时间）<input v-model="deadlineInput" type="datetime-local" class="adm-native" /></label>
+    <label>下发日期<DateField v-model="model.issuedDate" aria-label="下发日期" /></label>
+    <label>处理截止时间（北京时间）<DateField v-model="deadlineInput" with-time aria-label="处理截止时间（北京时间）" /></label>
     <label class="adm-span"
       >问题描述<a-textarea
         v-model:value="model.description"
@@ -36,10 +36,12 @@
     <label v-for="field in analysisFields" :key="field[0]" class="adm-span"
       >主单{{ field[1] }}<a-textarea v-model:value="model.analysis[field[0]]" :rows="3"
     /></label>
-  </div>
+  </FormGrid>
 </template>
 <script setup lang="ts">
 import { computed } from 'vue'
+import DateField from '@/components/DateField.vue'
+import FormGrid from '@/components/FormGrid.vue'
 import type { Fields } from './api'
 const model = defineModel<Fields>({ required: true })
 const businessCategories = [

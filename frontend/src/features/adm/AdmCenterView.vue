@@ -116,20 +116,18 @@
         >{{ title }}：{{ capabilityAvailable(config.capabilities?.[key]) ? '已接入' : '未接入' }}</span
       >
     </div>
-    <a-modal
+    <FormDialog
       v-model:open="createOpen"
       :title="copySource ? `引用 ${copySource.admNo} 新建` : '新建 ADM 主单'"
-      :width="800"
-      :body-style="{ maxHeight: 'calc(100vh - 240px)', overflowY: 'auto' }"
-      :confirm-loading="saving"
-      :mask-closable="false"
-      @ok="saveCreate"
+      :busy="saving"
+      :dirty="createDirty"
+      :error="createError"
+      @submit="saveCreate"
     >
-      <a-alert v-if="createError" type="error" :message="createError" show-icon style="margin-bottom: 12px" />
       <p v-if="copySource" class="adm-muted">引用基础信息，重新确认 ADM 号和金额；原单完成状态、附件事实不复制。</p>
       <CaseFields v-model="draft" />
       <InitialOrderLines v-model="initialLines" :currency="draft.currency || 'CNY'" :disabled="saving" />
-    </a-modal>
+    </FormDialog>
     <a-modal v-model:open="importOpen" title="批量导入 ADM" :width="900" :footer="null" :mask-closable="false">
       <p>日常录入使用XLSX模板；管理员可上传ERP导出的JSON数组，作为历史只读档案。均先预览再提交，不自动覆盖已有数据。</p>
       <a-space wrap
@@ -183,6 +181,7 @@ import { message } from 'ant-design-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
 import CaseFields from './CaseFields.vue'
+import FormDialog from '@/components/FormDialog.vue'
 import InitialOrderLines from './InitialOrderLines.vue'
 import { createAdmKey } from './identifier'
 import { admApi, allowed, errorText, label, options, saveBlob, type AdmCase, type AdmConfig, type Fields } from './api'
@@ -303,6 +302,8 @@ const createOpen = ref(false),
   saving = ref(false),
   createError = ref('')
 let createKey = ''
+const createBaseline = ref('')
+const createDirty = computed(() => JSON.stringify([draft.value, initialLines.value]) !== createBaseline.value)
 function openCreate() {
   try {
     createKey = createAdmKey()
@@ -321,6 +322,7 @@ function openCreate() {
     analysis: {},
   }
   createError.value = ''
+  createBaseline.value = JSON.stringify([draft.value, initialLines.value])
   createOpen.value = true
 }
 function openCopy(source: AdmCase) {
@@ -334,6 +336,7 @@ function openCopy(source: AdmCase) {
     description: source.description,
     remark: source.remark,
   }
+  createBaseline.value = JSON.stringify([draft.value, initialLines.value])
 }
 async function saveCreate() {
   if (saving.value) return

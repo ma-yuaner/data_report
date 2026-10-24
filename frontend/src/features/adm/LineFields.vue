@@ -1,5 +1,5 @@
 <template>
-  <div class="adm-form-grid">
+  <FormGrid>
     <label
       >业务类型<a-select
         v-model:value="model.businessType"
@@ -38,7 +38,7 @@
     <label>实际责任人<a-input v-model:value="model.actualOwner" placeholder="业务责任，不自动授予账号权限" /></label>
     <label>实际处理人<a-input v-model:value="model.actualHandler" /></label>
     <label
-      >编码恢复时限（北京时间）<input v-model="recoveryDeadlineInput" type="datetime-local" class="adm-native"
+      >编码恢复时限（北京时间）<DateField v-model="recoveryDeadlineInput" with-time aria-label="编码恢复时限（北京时间）"
     /></label>
     <label class="adm-span">问题描述<a-textarea v-model:value="model.description" :rows="3" /></label>
     <label class="adm-span">差异说明<a-textarea v-model:value="model.differenceDescription" :rows="3" /></label>
@@ -69,10 +69,12 @@
       >{{ field[1] }}<a-textarea v-model:value="model.analysis[field[0]]" :rows="3"
     /></label>
     <label>结案原因归属<a-select v-model:value="model.attribution" allow-clear :options="attributions" /></label>
-  </div>
+  </FormGrid>
 </template>
 <script setup lang="ts">
 import { computed } from 'vue'
+import DateField from '@/components/DateField.vue'
+import FormGrid from '@/components/FormGrid.vue'
 import { options, type AdmConfig, type Fields } from './api'
 const model = defineModel<Fields>({ required: true })
 const recoveryDeadlineInput = computed({
