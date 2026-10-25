@@ -102,6 +102,21 @@
           </dl>
         </details>
         <a-tabs v-model:active-key="tab">
+          <a-tab-pane v-if="!record.historicalArchive" key="workflow" tab="责任与流转">
+            <a-select
+              v-model:value="selectedLineId"
+              :options="
+                record.lines.map((line) => ({
+                  value: line.id,
+                  label: `${line.platform || '待核实平台'} · ${line.orderNo || line.id}`,
+                }))
+              "
+              placeholder="选择订单明细查看流转"
+              style="width: 100%; max-width: 600px"
+              allow-clear
+            />
+            <WorkflowPanel ref="workflowPanel" :record="record" :line="selectedLine" :config="config" @changed="load" />
+          </a-tab-pane>
           <a-tab-pane v-if="record.source && !record.history && !record.partial" key="source" tab="原始导入字段">
             <p class="adm-muted">原始字段留存，不代表已核实或已完成；处理状态以当前流程为准。</p>
             <dl>
@@ -166,6 +181,7 @@
                   </p>
                 </div>
                 <a-button @click="selectedLineId = ''">收起明细</a-button>
+                <a-button v-if="!record.historicalArchive" @click="tab = 'workflow'">责任计划与交接</a-button>
               </div>
               <div class="adm-toolbar">
                 <a-button v-if="lineAllowed(selectedLine, 'edit')" @click="editLine(selectedLine)"
@@ -333,9 +349,7 @@
       :error="formError"
       :submit-disabled="conflict"
       @submit="saveCase"
-      ><CaseFields
-        v-model="caseDraft"
-      /><DraftComparison :latest="reviewRecord" :draft="caseDraft" /><a-button
+      ><CaseFields v-model="caseDraft" /><DraftComparison :latest="reviewRecord" :draft="caseDraft" /><a-button
         v-if="conflict"
         :loading="loading"
         @click="rebaseDraft"
@@ -377,11 +391,9 @@
         <template v-if="currentAction === 'assign'"
           ><label
             >处理人 <span class="required">*</span
-            ><a-select
-              v-model:value="actionDraft.ownerId"
-              show-search
-              option-filter-prop="label"
-              :options="assigneeOptions"
+            ><AccountSelect
+              v-model="actionDraft.ownerId"
+              :options="assigneePeople"
               placeholder="选择已获ADM权限的人员" /></label
         ></template>
         <template v-if="currentAction === 'recovery'"
@@ -449,16 +461,10 @@
       :mask-closable="false"
       @ok="saveBulkAssign"
     >
-      <p>按明细逐条保存并留痕；部分失败会显示结果，不会把未成功项标为已分配。</p>
-      <label
-        >处理人<a-select
-          v-model:value="bulkOwner"
-          show-search
-          option-filter-prop="label"
-          :options="assigneeOptions"
-          placeholder="选择处理人"
-      /></label>
+      <p>按明细逐条保存并留痕；已有承办人时发起待确认交接，不立即替换责任。部分失败会显示逐项结果。</p>
+      <label>处理人<AccountSelect v-model="bulkOwner" :options="assigneePeople" placeholder="选择处理人" /></label>
       <label>分配 / 转单原因<a-textarea v-model:value="bulkReason" :rows="2" /></label>
+      <label>交接摘要（涉及已分配订单时必填）<a-textarea v-model:value="bulkSummary" :rows="3" /></label>
       <a-alert v-if="bulkError" type="error" :message="bulkError" style="margin-top: 12px" />
     </a-modal>
   </div>
@@ -482,6 +488,8 @@ import {
 } from './api'
 import CaseFields from './CaseFields.vue'
 import FormDialog from '@/components/FormDialog.vue'
+import AccountSelect from '@/components/AccountSelect.vue'
+import WorkflowPanel from './WorkflowPanel.vue'
 import LineFields from './LineFields.vue'
 import AttachmentPanel from './AttachmentPanel.vue'
 import DraftComparison from './DraftComparison.vue'
@@ -493,6 +501,7 @@ const selectedOrders = ref<string[]>([]),
   bulkOpen = ref(false),
   bulkOwner = ref(''),
   bulkReason = ref(''),
+  bulkSummary = ref(''),
   bulkError = ref('')
 const orderSelection = computed(() =>
   permission('assign') && record.value && !record.value.historicalArchive
@@ -516,6 +525,7 @@ async function saveBulkAssign() {
       lineIds: selectedOrders.value,
       ownerId: bulkOwner.value.trim(),
       reason: bulkReason.value.trim(),
+      summary: bulkSummary.value.trim(),
     })
     if (caseId !== id.value) return
     const failed = (result.items || []).filter((item: Fields) => item.status !== 'SAVED')
@@ -529,7 +539,7 @@ async function saveBulkAssign() {
           .join('；')
     else {
       bulkOpen.value = false
-      message.success(`已分配${result.successCount}条订单`)
+      message.success(`已保存${result.successCount}条分配/交接请求；已有承办者的订单需接收人确认`)
     }
     await load()
   } catch (cause) {
@@ -546,9 +556,8 @@ const record = ref<AdmCase | null>(null),
   conflict = ref(false),
   tab = ref('lines')
 const id = computed(() => String(route.params.caseId || ''))
-const assigneeOptions = computed(() =>
-  (config.value?.assignees || []).map((person: Fields) => ({ value: String(person.id), label: person.name })),
-)
+const assigneePeople = computed(() => config.value?.people?.handle || config.value?.assignees || [])
+const workflowPanel = ref<InstanceType<typeof WorkflowPanel> | null>(null)
 watch(id, () => {
   selectedOrders.value = []
   bulkOpen.value = false
@@ -602,6 +611,7 @@ const lineActions = computed(() =>
   [
     'assign',
     'claim',
+    'lock',
     'unlock',
     'recovery',
     'appeal',
@@ -610,7 +620,12 @@ const lineActions = computed(() =>
     'approve',
     'return',
     'finance_confirm',
-  ].filter((action) => selectedLine.value && lineAllowed(selectedLine.value, action)),
+  ].filter(
+    (action) =>
+      selectedLine.value &&
+      lineAllowed(selectedLine.value, action) &&
+      !(action === 'assign' && selectedLine.value.ownerId),
+  ),
 )
 const lineColumns = [
   { title: '订单号', key: 'orderNo', width: 200, fixed: 'left' as const },
@@ -664,6 +679,8 @@ async function load() {
     record.value = result
     closure.value = result.closureCheck || null
     timeline.value = result.timeline || []
+    const linkedLineId = String(route.query.lineId || route.params.lineId || '')
+    if (linkedLineId && result.lines.some((line) => line.id === linkedLineId)) selectedLineId.value = linkedLineId
     if (!caseOpen.value && !lineOpen.value && !actionOpen.value) conflict.value = false
   } catch (cause) {
     if (seq === request) error.value = errorText(cause)
@@ -725,6 +742,11 @@ function editCase() {
       'admNo',
       'supplierName',
       'supplierType',
+      'supplierCode',
+      'airline',
+      'ticketCount',
+      'originalAmountCny',
+      'businessCategory',
       'currency',
       'originalAmount',
       'issuedDate',
@@ -949,17 +971,25 @@ watch(
   () => auth.user?.id,
   () => {
     clearScope()
+    config.value = null
+    void loadConfig()
     void load()
   },
 )
-void admApi
-  .config()
-  .then((result) => {
-    config.value = result
-  })
-  .catch(() => undefined)
+let configRequest = 0
+async function loadConfig() {
+  const seq = ++configRequest
+  try {
+    const result = await admApi.config()
+    if (seq === configRequest) config.value = result
+  } catch (cause) {
+    if (seq === configRequest) error.value = `人员与配置加载失败：${errorText(cause)}`
+  }
+}
+void loadConfig()
 function hasUnsavedDraft() {
   return (
+    Boolean(workflowPanel.value?.hasUnsavedDraft()) ||
     (lineOpen.value && JSON.stringify(lineDraft.value) !== lineBaseline) ||
     (caseOpen.value && JSON.stringify(caseDraft.value) !== caseBaseline) ||
     [...lineDraftCache.values()].some((item) => JSON.stringify(item.draft) !== item.baseline)
@@ -976,6 +1006,7 @@ onBeforeRouteLeave(() => !hasUnsavedDraft() || window.confirm('存在未保存�
 onBeforeRouteUpdate(() => !hasUnsavedDraft() || window.confirm('存在未保存草稿，切换 ADM 将丢失。是否继续？'))
 onBeforeUnmount(() => {
   request++
+  configRequest++
   window.removeEventListener('beforeunload', beforeUnload)
 })
 </script>

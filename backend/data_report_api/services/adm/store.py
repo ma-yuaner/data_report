@@ -98,6 +98,13 @@ class AdmStore:
             rows = self.query(conn, "SELECT payload FROM adm_case_document").fetchall()
         return [json.loads(row[0]) for row in rows]
 
+    def workflow_cases(self, maximum=5000):
+        """Bounded live worklist source; never silently publish a partial dashboard."""
+        status = "case_status" if self.mode == "mysql" else "json_extract(payload,'$.status')"
+        with self.connection() as conn:
+            rows = self.query(conn, f"SELECT payload FROM adm_case_document WHERE {status} NOT IN ('DRAFT','CLOSED','HISTORICAL') LIMIT ?", (maximum + 1,)).fetchall()
+        return [json.loads(row[0]) for row in rows]
+
     def get(self, case_id):
         with self.connection() as conn:
             row = self.query(conn, "SELECT payload FROM adm_case_document WHERE id=?", (case_id,)).fetchone()

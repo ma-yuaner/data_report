@@ -73,6 +73,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import {
   admApi,
+  allowed,
   errorText,
   options,
   saveBlob,
@@ -99,18 +100,37 @@ const categoryLabels: Record<string, string> = {
   ANALYSIS: '分析材料',
 }
 const categories = computed(() =>
-  options(props.config?.attachmentCategories, Object.keys(categoryLabels)).map((item) => ({
-    ...item,
-    label: categoryLabels[item.value] || item.label,
-  })),
+  options(props.config?.attachmentCategories, Object.keys(categoryLabels))
+    .filter(
+      (item) =>
+        allowed(props.record, 'upload') ||
+        (props.record.lines.find((line) => line.id === lineId.value)?.uploadCategories || []).includes(item.value),
+    )
+    .map((item) => ({ ...item, label: categoryLabels[item.value] || item.label })),
 )
 const lineOptions = computed(() => [
-  { value: '', label: '主单材料（原件共享）' },
-  ...(props.record.lines || []).map((line) => ({
-    value: line.id,
-    label: `${line.platform || '待核实平台'} · ${line.orderNo || line.id}`,
-  })),
+  ...(allowed(props.record, 'upload') ? [{ value: '', label: '主单材料（原件共享）' }] : []),
+  ...(props.record.lines || [])
+    .filter((line) => allowed(props.record, 'upload') || allowed(line, 'upload'))
+    .map((line) => ({
+      value: line.id,
+      label: `${line.platform || '待核实平台'} · ${line.orderNo || line.id}`,
+    })),
 ])
+watch(
+  lineOptions,
+  (choices) => {
+    if (!choices.some((item) => item.value === lineId.value)) lineId.value = choices[0]?.value || ''
+  },
+  { immediate: true },
+)
+watch(
+  categories,
+  (choices) => {
+    if (!choices.some((item) => item.value === category.value)) category.value = choices[0]?.value || ''
+  },
+  { immediate: true },
+)
 const categoryLabel = (value: string) => categoryLabels[value] || value
 const lineName = (id: string) => lineOptions.value.find((item) => item.value === id)?.label || id
 const columns = [

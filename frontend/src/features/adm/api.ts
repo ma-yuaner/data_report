@@ -1,6 +1,44 @@
 import { http, type ApiEnvelope } from '@/api/http'
 
 export type Fields = Record<string, any>
+export interface AdmPerson {
+  id: string
+  name: string
+}
+export interface WorkflowTask extends Fields {
+  id: string
+  caseId: string
+  lineId?: string | null
+  admNo: string
+  kind: string
+  label: string
+  ownerId: string | null
+  ownerName: string | null
+  status: string
+  dueAt: string | null
+  overdue: boolean
+  paused: boolean
+  version: number
+  url: string | null
+  coordinationOnly?: boolean
+  needsAssignee?: boolean
+}
+export interface WorkflowOverview {
+  generatedAt: string
+  businessDate: string
+  scope: string
+  summary: { tasks: number; overdue: number; unassigned: number; missingDeadline: number; waiting: number }
+  people: {
+    ownerId: string | null
+    ownerName: string | null
+    tasks: number
+    overdue: number
+    missingDeadline: number
+  }[]
+  items: WorkflowTask[]
+  pagination: { page: number; pageSize: number; total: number }
+  limitations: string[]
+}
 export interface AdmAttachment extends Fields {
   id: string
   name: string
@@ -48,6 +86,8 @@ export interface AdmConfig extends Fields {
   lineStatuses: any[]
   businessTypes: any[]
   attachmentCategories: any[]
+  people?: { handle: AdmPerson[]; review: AdmPerson[]; finance: AdmPerson[]; coordinate: AdmPerson[] }
+  assignees?: AdmPerson[]
 }
 export interface ClosureCheck {
   canClose: boolean
@@ -64,6 +104,7 @@ const base = '/v1/adm'
 const casePath = (id: string) => `${base}/cases/${encodeURIComponent(id)}`
 export const admApi = {
   config: () => data<AdmConfig>(http.get(`${base}/config`)),
+  workflow: (params: Fields) => data<WorkflowOverview>(http.get(`${base}/workflow/overview`, { params })),
   list: (params: Fields) =>
     data<{ items: AdmCase[]; pagination: { page: number; pageSize: number; total: number }; summary: Fields }>(
       http.get(`${base}/cases`, { params }),

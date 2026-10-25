@@ -5,6 +5,7 @@ from functools import wraps
 from flask import Blueprint, current_app, g, jsonify, request
 
 from ..services.adm import AdmError, AdmService
+from ..services.adm.workflow import WorkflowService
 from .common import json_body, ok
 
 
@@ -22,6 +23,11 @@ def adm_response(function):
 
 
 def register_routes(api: Blueprint) -> None:
+    @api.get("/v1/adm/workflow/overview")
+    @adm_response
+    def adm_workflow_overview(service, user):
+        return WorkflowService(service).overview(user, request.args)
+
     @api.get("/v1/adm/config")
     @adm_response
     def adm_config(service, user):

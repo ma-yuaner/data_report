@@ -22,7 +22,7 @@
 | [上传说明](../business/air_ticketing/risk-data-upload.md) / [行为监控](../product/user-behavior-monitoring-v1.md) | 上传队列和行为采集 |
 
 <!-- BEGIN:API_ROUTES -->
-共 **163个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
+共 **164个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
 
 <a id="auth"></a>
 
@@ -277,6 +277,7 @@
 | `POST` | `/api/v1/adm/cases/<case_id>/lines/bulk-assign` | [adm_bulk_assign](../../backend/data_report_api/api/adm.py) |
 | `GET` | `/api/v1/adm/cases/<case_id>/timeline` | [adm_timeline](../../backend/data_report_api/api/adm.py) |
 | `GET` | `/api/v1/adm/config` | [adm_config](../../backend/data_report_api/api/adm.py) |
+| `GET` | `/api/v1/adm/workflow/overview` | [adm_workflow_overview](../../backend/data_report_api/api/adm.py) |
 
 <a id="adm_exchange"></a>
 

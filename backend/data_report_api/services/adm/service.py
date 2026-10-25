@@ -5,12 +5,13 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-import uuid
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
 from .store import AdmStore, Conflict, StoreUnavailable
+from .policy import AdmError, has, identity, now, require, uid
+from .workflow import WORKFLOW_ACTIONS, WorkflowService, associated_ids, role_actions, segment_assign, segment_accept
 
 CASE_STATUSES = ["DRAFT", "PENDING_ASSIGN", "PROCESSING", "PENDING_REVIEW", "WAITING_FINANCE", "CLOSED", "HISTORICAL"]
 LINE_STATUSES = ["PENDING_ASSIGN", "PENDING_ACCEPT", "PROCESSING", "PENDING_REVIEW", "WAITING_FINANCE", "COMPLETED", "HISTORICAL"]
@@ -60,16 +61,6 @@ LINE_FIELDS = (
 )
 
 
-class AdmError(Exception):
-    def __init__(self, message, status=400, code="ADM_INVALID"):
-        super().__init__(message)
-        self.message, self.status, self.code = message, status, code
-
-
-def now():
-    return datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds")
-
-
 def deadline_expired(value):
     if not value:
         return False
@@ -82,10 +73,6 @@ def deadline_expired(value):
     if deadline.tzinfo is None:
         deadline = deadline.replace(tzinfo=zone)
     return deadline < datetime.now(zone)
-
-
-def uid():
-    return str(uuid.uuid4())
 
 
 def money(value, nullable=True):
@@ -105,22 +92,6 @@ def money(value, nullable=True):
     ):
         raise AdmError("金额须为非负十进制，最多四位小数")
     return format(result, "f")
-
-
-def has(user, permission):
-    return bool(user.get("is_admin")) or permission in (user.get("permissions") or [])
-
-
-def identity(user):
-    if not user or not user.get("id"):
-        raise AdmError("请先登录", 401, "ADM_AUTH")
-    return str(user["id"])
-
-
-def require(user, permission):
-    identity(user)
-    if not has(user, permission):
-        raise AdmError("无此ADM操作权限", 403, "ADM_FORBIDDEN")
 
 
 class AdmService:
@@ -147,7 +118,8 @@ class AdmService:
             raise AdmError(str(exc), 503, exc.code) from exc
 
     def _full(self, user, case):
-        return has(user, "adm.scope.all") or str(case["createdBy"]) == identity(user)
+        coordinator = case.get("coordinatorId", case["createdBy"])
+        return has(user, "adm.scope.all") or str(coordinator) == identity(user)
 
     def _ids(self, user, scope="mine"):
         ids = {identity(user)}
@@ -160,7 +132,7 @@ class AdmService:
         if self._full(user, case):
             return case["lines"]
         ids = self._ids(user, "team" if scope == "team" and has(user, "adm.scope.team") else "mine")
-        return [line for line in case["lines"] if str(line.get("ownerId")) in ids]
+        return [line for line in case["lines"] if associated_ids(line) & ids]
 
     def _read(self, user, case_id):
         require(user, "adm.view")
@@ -195,6 +167,10 @@ class AdmService:
             raise AdmError("无明细访问权限", 403, "ADM_FORBIDDEN")
 
     def _event(self, user, case, action, detail=None, line_id=None):
+        detail = copy.deepcopy(detail or {})
+        if line_id:
+            line = self._line(case, line_id)
+            detail["responsibility"] = {"ownerId": line.get("ownerId"), "ownerName": line.get("ownerName"), "round": case["round"]}
         case["timeline"].append(
             {
                 "id": uid(),
@@ -203,7 +179,7 @@ class AdmService:
                 "actorId": identity(user),
                 "actorName": user.get("display_name") or user.get("username") or identity(user),
                 "at": now(),
-                "detail": detail or {},
+                "detail": detail,
             }
         )
 
@@ -314,15 +290,21 @@ class AdmService:
             self.store.check()
         except StoreUnavailable as exc:
             raise AdmError(str(exc), 503, exc.code) from exc
+        people_provider = self.config.get("ADM_WORKFLOW_USER_OPTIONS")
+        people = people_provider() if callable(people_provider) and any(has(user, p) for p in ("adm.assign", "adm.handle")) else {}
+        assignees = people.get("handle", [])
+        if not people and has(user, "adm.assign") and callable(self.config.get("ADM_USER_OPTIONS")):
+            assignees = self.config["ADM_USER_OPTIONS"]()
         return {
             "storageMode": self.store.mode,
             "available": True,
-            "capabilities": {"orders": False, "finance": False, "notifications": False},
+            "capabilities": {"orders": False, "finance": False, "notifications": False, "inAppWorklist": True},
             "caseStatuses": CASE_STATUSES,
             "lineStatuses": LINE_STATUSES,
             "businessTypes": ["ISSUE", "REFUND", "CHANGE", "UNKNOWN"],
             "attachmentCategories": CATEGORIES,
-            "assignees": self.config["ADM_USER_OPTIONS"]() if has(user, "adm.assign") and callable(self.config.get("ADM_USER_OPTIONS")) else [],
+            "assignees": assignees if has(user, "adm.assign") else [],
+            "people": people,
         }
 
     def _public_attachment(self, item):
@@ -330,6 +312,8 @@ class AdmService:
 
     def _present(self, user, source, detail=True):
         case = copy.deepcopy(source)
+        case["legacyCoordination"] = "coordinatorId" not in source
+        case["coordinatorId"] = source.get("coordinatorId", source["createdBy"])
         full = self._full(user, source)
         visible = self._visible_lines(user, source)
         ids = {line["id"] for line in visible}
@@ -360,6 +344,7 @@ class AdmService:
                             "void": "adm.edit",
                             "addLine": "adm.edit",
                             "upload": "adm.edit",
+                            "coordinator": "adm.assign",
                         }
                     )
                     if source["status"] == "DRAFT":
@@ -374,6 +359,10 @@ class AdmService:
                 line.pop("source", None)
             line["attachments"] = [item for item in case["attachments"] if item.get("lineId") == line["id"]]
             line["allowedActions"] = self._line_actions(user, source, line)
+            line["uploadCategories"] = (
+                ["FINANCE"] if line["status"] == "WAITING_FINANCE" else
+                ["VERIFICATION", "ANALYSIS"] if line["status"] == "PENDING_REVIEW" else CATEGORIES
+            ) if "upload" in line["allowedActions"] else []
         case["closureCheck"] = (
             (
                 self._closure(source)
@@ -415,7 +404,7 @@ class AdmService:
             result.append("edit")
         if case["status"] == "DRAFT":
             return result
-        if has(user, "adm.assign") and self._full(user, case):
+        if has(user, "adm.assign") and self._full(user, case) and line["status"] in {"PENDING_ASSIGN", "PENDING_ACCEPT", "PROCESSING"}:
             result.append("assign")
         mine = str(line.get("ownerId")) == identity(user)
         if mine and has(user, "adm.handle"):
@@ -427,12 +416,16 @@ class AdmService:
                 elif line.get("lockedBy") is None:
                     result.append("lock")
         if line["status"] == "PENDING_REVIEW" and has(user, "adm.review"):
-            result += ["approve", "return"]
+            reviewer = (line.get("workflow") or {}).get("reviewerId")
+            if (not reviewer or str(reviewer) == identity(user) or user.get("is_admin")) and (not mine or self.config.get("ADM_ALLOW_SELF_REVIEW", False)):
+                result += ["approve", "return", "upload"]
         if line["status"] == "WAITING_FINANCE" and has(user, "adm.finance.confirm"):
-            result.append("finance_confirm")
+            finance_owner = (line.get("workflow") or {}).get("financeOwnerId")
+            if not finance_owner or str(finance_owner) == identity(user) or user.get("is_admin"):
+                result += ["finance_confirm", "upload"]
         if has(user, "adm.unlock.force"):
             result.append("unlock")
-        return result
+        return result + role_actions(user, case, line, self._full(user, case))
 
     def list_cases(self, user, filters):
         require(user, "adm.view")
@@ -460,8 +453,8 @@ class AdmService:
                 continue
             if (
                 scope != "all"
-                and str(case["createdBy"]) not in ids
-                and not any(str(line.get("ownerId")) in ids for line in case["lines"])
+                and str(case.get("coordinatorId", case["createdBy"])) not in ids
+                and not any(associated_ids(line) & ids for line in case["lines"])
             ):
                 continue
             if filters.get("status") and case["status"] != filters["status"]:
@@ -526,6 +519,8 @@ class AdmService:
             "paused": False,
             "voided": False,
             "createdBy": identity(user),
+            "coordinatorId": identity(user),
+            "coordinatorName": user.get("display_name") or user.get("username") or identity(user),
             "createdAt": now(),
             "updatedAt": now(),
             "lines": [],
@@ -648,9 +643,10 @@ class AdmService:
         version = case["version"]
         for line_id in ids:
             try:
-                result = self.line_action(user, case_id, line_id, {"version": version, "action": "assign", "ownerId": body.get("ownerId"), "reason": body.get("reason")})
+                result = self.line_action(user, case_id, line_id, {"version": version, "action": "assign", "ownerId": body.get("ownerId"), "reason": body.get("reason"), "summary": body.get("summary")})
                 version = result["version"]
-                outcomes.append({"lineId": line_id, "status": "SAVED"})
+                saved_line = next(item for item in result["lines"] if item["id"] == line_id)
+                outcomes.append({"lineId": line_id, "status": "SAVED", "handoverPending": (saved_line.get("handover") or {}).get("status") == "PENDING"})
             except AdmError as error:
                 outcomes.append({"lineId": line_id, "status": "FAILED", "message": str(error), "code": error.code})
                 if error.code == "ADM_VERSION_CONFLICT":
@@ -690,8 +686,7 @@ class AdmService:
         }
         if isinstance(body.get("source"), dict):
             line["source"] = copy.deepcopy(body["source"])
-        if not historical and line.get("pnr") and not line.get("recoveryDeadline"):
-            line["recoveryDeadline"] = (datetime.now(ZoneInfo("Asia/Shanghai")) + timedelta(hours=48)).isoformat(timespec="seconds")
+        # No approved recovery SLA yet: absence is unknown, not an invented +48h deadline.
         if historical:
             line["status"] = "HISTORICAL"
             line["finance"]["status"] = "HISTORICAL_UNVERIFIED"
@@ -745,6 +740,8 @@ class AdmService:
 
     def _submission_blockers(self, case, line):
         blockers = []
+        if (line.get("handover") or {}).get("status") == "PENDING":
+            blockers.append("仍有待确认交接，请先接受、驳回或取消")
         for key, label in [
             ("description", "问题描述"),
             ("platform", "平台"),
@@ -794,6 +791,8 @@ class AdmService:
 
     def line_action(self, user, case_id, line_id, body):
         action = body.get("action")
+        if action in WORKFLOW_ACTIONS:
+            return WorkflowService(self).line_action(user, case_id, line_id, body)
         permissions = {
             "lock": "adm.handle",
             "assign": "adm.assign",
@@ -818,6 +817,9 @@ class AdmService:
         if action == "assign":
             if line["status"] in {"COMPLETED", "WAITING_FINANCE"}:
                 raise AdmError("审核完成明细需先重开或退回", 409)
+            if line.get("ownerId"):
+                detail = WorkflowService(self).request_transfer(user, case, line, body)
+                return self._save(user, case, "transfer_request", detail, line_id)
             owner = str(body.get("ownerId") or "")
             if not owner:
                 raise AdmError("请选择处理人")
@@ -838,8 +840,10 @@ class AdmService:
             if line.get("ownerId") and not body.get("reason"):
                 raise AdmError("转单须填写原因")
             line.update(ownerId=owner, ownerName=owner_name, status="PENDING_ACCEPT", lockedBy=None)
+            segment_assign(case, line, str(body.get("reason") or "首次分配"))
         elif action == "claim":
             line.update(status="PROCESSING", lockedBy=identity(user), acceptedAt=now())
+            segment_accept(case, line)
         elif action == "lock":
             line["lockedBy"] = identity(user)
         elif action == "unlock":
@@ -918,6 +922,11 @@ class AdmService:
                 verification="NOT_CONNECTED",
             )
         audit = {key: value for key, value in body.items() if key not in {"version", "action"}}
+        if line["status"] == "COMPLETED":
+            line["completedAt"] = now()
+            for segment in line.get("assignmentSegments", []):
+                if not segment.get("endedAt"):
+                    segment["endedAt"] = line["completedAt"]
         return self._save(user, case, action, audit, line_id)
 
     def _recovery(self, user, case, line, body):
@@ -1109,6 +1118,8 @@ class AdmService:
 
     def case_action(self, user, case_id, body):
         action = body.get("action")
+        if action == "coordinator":
+            return WorkflowService(self).coordinate(user, case_id, body)
         if action not in {"publish", "pause", "resume", "void", "close", "reopen"}:
             raise AdmError("主单操作无效")
         permission = {"close": "adm.close", "reopen": "adm.reopen"}.get(action, "adm.edit")
@@ -1169,7 +1180,6 @@ class AdmService:
         )
 
     def add_attachment(self, user, case_id, body):
-        case = self._write(user, case_id, body, "adm.edit" if has(user, "adm.edit") else "adm.handle", control_action="archive_attachment")
         attachment = body.get("attachment")
         if not isinstance(attachment, dict) or not all(
             attachment.get(key) for key in ("id", "name", "category", "storageKey", "sha256")
@@ -1178,16 +1188,25 @@ class AdmService:
         if attachment["category"] not in CATEGORIES:
             raise AdmError("附件分类无效")
         line_id = attachment.get("lineId")
+        permission = "adm.edit" if has(user, "adm.edit") else "adm.handle"
+        if line_id and not has(user, "adm.edit"):
+            current = self._read(user, case_id)
+            current_line = self._line(current, line_id)
+            if current_line["status"] == "PENDING_REVIEW":
+                permission = "adm.review"
+            elif current_line["status"] == "WAITING_FINANCE":
+                permission = "adm.finance.confirm"
+        case = self._write(user, case_id, body, permission, control_action="archive_attachment")
         if line_id:
             line = self._line(case, line_id)
             self._line_access(user, case, line)
-            if not self._full(user, case) and (
-                str(line.get("ownerId")) != identity(user)
-                or line["status"] != "PROCESSING"
-                or line.get("lockedBy") != identity(user)
-            ):
-                raise AdmError("仅处理本人明细时可上传", 403)
-        elif not self._full(user, case):
+            if not (self._full(user, case) and has(user, "adm.edit")):
+                if "upload" not in self._line_actions(user, case, line):
+                    raise AdmError("当前节点无明细材料上传权限", 403)
+                permitted = ["FINANCE"] if line["status"] == "WAITING_FINANCE" else ["VERIFICATION", "ANALYSIS"] if line["status"] == "PENDING_REVIEW" else CATEGORIES
+                if attachment["category"] not in permitted:
+                    raise AdmError("此节点仅允许上传对应审核/财务材料", 403)
+        elif not (self._full(user, case) and has(user, "adm.edit")):
             raise AdmError("无主单材料上传权限", 403)
         if any(item["id"] == attachment["id"] for item in case["attachments"]):
             raise AdmError("附件ID重复", 409)

@@ -154,6 +154,8 @@ class Config:
     ADM_ATTACHMENT_MAX_BYTES = int(os.getenv("ADM_ATTACHMENT_MAX_BYTES", "20971520"))
     ADM_IMPORT_ROOT = os.getenv("ADM_IMPORT_ROOT", "/app/var/adm-imports")
     ADM_IMPORT_MAX_ROWS = int(os.getenv("ADM_IMPORT_MAX_ROWS", "10000"))
+    ADM_ALLOW_SELF_REVIEW = env_bool("ADM_ALLOW_SELF_REVIEW", False)
+    ADM_WORKFLOW_MAX_CASES = int(os.getenv("ADM_WORKFLOW_MAX_CASES", "5000"))
     DATA_WORKBENCH_DIR = os.getenv("DATA_WORKBENCH_DIR", "var/data-workbench")
     DATA_WORKBENCH_MAX_ROWS = int(os.getenv("DATA_WORKBENCH_MAX_ROWS", "2000000"))
     DATA_WORKBENCH_MAX_COLUMNS = int(os.getenv("DATA_WORKBENCH_MAX_COLUMNS", "300"))

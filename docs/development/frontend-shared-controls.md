@@ -12,6 +12,7 @@
 | `FormGrid.vue` | 两列/窄屏一列/通栏字段/控件宽度 | ADM主单、初始订单、明细表单 |
 | `DateField.vue` | 中文AntD日期/日期时间，日历字符串，不进行隐式时区转换 | ADM下发日期、处理截止、编码恢复时限；综合分析日期 |
 | `DateRangeField.vue` | 两个统一日期控件、起止标签/清空/禁用和change事件 | 综合分析统计期间 |
+| `AccountSelect.vue` | 接收业务提供的授权账号选项，搜索/清空/加载/禁用，不自行查询全员 | ADM单项/批量分配、转交、审核/财务计划与协调人 |
 
 组件均在`frontend/src/components/`，由页面显式import；没有新依赖、全局业务权限或自动API调用。
 
@@ -22,7 +23,7 @@
 - `DateField`：默认`v-model`字符串；日期`YYYY-MM-DD`，`with-time`为`YYYY-MM-DDTHH:mm`。`allow-clear`默认true，清空输出空字符串；`disabled`、`placeholder`、`aria-label`由调用方指定。北京时间说明和格式化仍按业务契约，不能用Date/UTC转换悄悄改业务时刻。
 - `DateRangeField`：`v-model:start`、`v-model:end`字符串，`label`、`disabled`、`allow-clear`（默认false），`@change`只通知修改、不自动请求。快捷日期、最大范围、起止校验、是否包含结束日由页面保留，组件不猜统计规则。
 - `FilterPanel`：已有默认调用不变；复杂页用`stacked`，把快捷时间放period、标题放header、数据缺口放footer。`instant=false`明确手动查询；`hint`可显示待应用状态；自带重置可用`loading`禁用，自定义操作时`show-reset=false`避免双按钮。页面管理查询快照和请求，不输入即重查。
-- 人员/字典当前继续复用AntD Select与各业务权限API；不做一个跨模块拿全员的通用接口。不要把本次组件清单说成已经统一所有人员选择器、表格或抽屉。
+- `AccountSelect`：`v-model`账号ID字符串，`options=[{id,name}]`由调用方按具体业务接口提供；支持disabled/loading/allowClear/placeholder。组件不会授予权限、取全员或自动映射旧姓名。ADM复用已有账号目录并按handle/review/finance/coordinate过滤；其他模块无需因此改变人员权限。字典继续使用各业务权限API，不表示已经统一所有人员选择器、表格或抽屉。
 
 ## 验证与后续迁移
 

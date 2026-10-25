@@ -5,6 +5,7 @@
 | 主题 | 权威入口/证据 | 状态和边界 |
 |---|---|---|
 | ADM统一管理与迁移 | [ADM管理中心PRD V1](../product/adm-management-center-prd-v1.md)、[实现交接](../development/adm-management-center-v1.md) | 用户确认供应下发ADM含多平台/订单及出退改；首版核心代码和合成验证已完成，含附件、逐单分析、人工财务凭证和结案门禁。尚未部署/真实迁移/业务验收；外部订单、财务、通知及剩余旧逻辑明确待办 |
+| ADM责任流转/旧表复评 | [V2开发契约](../product/adm-workflow-increment-v2.md)、[已实现与下一步](../development/adm-workflow-v2-delivery.md) | 2026-10-25用户授权复用开发：转交确认、分段责任、节点人员、站内待办和当前风险观察；默认不自审、不生成未批准SLA，不做正式排名。旧流程/结果表保留参考，目标进度表仍用于目标管理；未在线验表或执行ETL |
 | 公司机票知识 | [业务目录](../business/air_ticketing/README.md)、`sources/2026-09-11-meeting.md` | 会议部分仍待确认；不代表所有新模块口径都未确认 |
 | 销售报表平台替换 | [开发交接](workstreams.md#销售报表上海妤芯替换开发2026-10-20)、[真实验收交接](workstreams.md#明鉴v2与销售报表真实测试2026-10-20)、SALES-001/002；ETL仓库`docs/development/README.md`，验收脚本`analysis/tests/verify_business_sales_delivery.py`仅本地忽略保留、不随Git交付 | CX单列、UNIFIFI归其他；两张主报表已真实ERP只读汇总核对并发测试群，副本仅离线验证；未部署、未写快照、未发业务群。原始数据/图片不入Git，计时和回执留在忽略目录 |
 | GDS本轮方案 | [业务闭环复评V3](../product/gds-resource-governance-reassessment-v3.md) | 人工闭环与首个分析课题已确认；细项待继续审核 |

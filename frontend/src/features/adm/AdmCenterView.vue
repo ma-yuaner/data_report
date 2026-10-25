@@ -21,6 +21,7 @@
       :message="`当前存储模式：${config.storageMode}。隔离本机数据不代表生产迁移已完成。`"
       style="margin-bottom: 16px"
     />
+    <WorkflowPanel v-if="isWorkbench" :refresh-key="workflowRefresh" />
     <div class="adm-metrics">
       <div v-for="item in metrics" :key="item.key">
         <span>{{ item.title }}</span
@@ -183,6 +184,7 @@ import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
 import CaseFields from './CaseFields.vue'
 import FormDialog from '@/components/FormDialog.vue'
 import InitialOrderLines from './InitialOrderLines.vue'
+import WorkflowPanel from './WorkflowPanel.vue'
 import { createAdmKey } from './identifier'
 import { admApi, allowed, errorText, label, options, saveBlob, type AdmCase, type AdmConfig, type Fields } from './api'
 import './adm.css'
@@ -192,6 +194,7 @@ const auth = useAuthStore(),
 const permission = (name: string) => Boolean(auth.user?.isAdmin || auth.user?.permissions.includes(`adm.${name}`))
 const exportStore = useComprehensiveExportStore()
 const exporting = ref(false)
+const workflowRefresh = ref(0)
 async function startExport(kind: 'adm_cases' | 'adm_lines') {
   if (exporting.value) return
   exporting.value = true
@@ -271,6 +274,7 @@ async function load() {
     items.value = result.items
     total.value = result.pagination.total
     summary.value = result.summary
+    workflowRefresh.value++
   } catch (cause) {
     if (seq === request) {
       error.value = errorText(cause)
@@ -456,19 +460,25 @@ watch(
     createOpen.value = false
     importOpen.value = false
     request++
+    config.value = null
+    void loadConfig()
     void load()
   },
 )
-void admApi
-  .config()
-  .then((result) => {
-    config.value = result
-  })
-  .catch((cause) => {
-    error.value = errorText(cause)
-  })
+let configRequest = 0
+async function loadConfig() {
+  const seq = ++configRequest
+  try {
+    const result = await admApi.config()
+    if (seq === configRequest) config.value = result
+  } catch (cause) {
+    if (seq === configRequest) error.value = errorText(cause)
+  }
+}
+void loadConfig()
 void load()
 onBeforeUnmount(() => {
   request++
+  configRequest++
 })
 </script>
