@@ -10,6 +10,8 @@ ADM责任流转V2：已增加协调人、接收确认式转交、责任分段、
 
 新增[数据加工工作台 V1](docs/product/data-workbench-v1.md)：真实CSV/XLSX导入、受控清洗/派生/汇总/关联、版本化流程、独立后台计算和结果复用。需管理员显式授权`data_workbench`菜单，数据按本人隔离；与业务库分离，API和独立Worker共用持久卷。代码交付不代表部署或真实财务宽表性能验收。
 
+工作台[V2易用性](docs/product/data-workbench-v2.md)：批量软删除与引用保护、三列及以上求和/受控特征表达式、0–12位小数、关联重复键样例。保留原文件，不自动换汇、去重或认定财务差异；更新API/前端及工作台worker后人工验收。
+
 新增[HR报表邮件](docs/development/hr-report-mail.md)：复用原Python周/月报解析、邮件正文、图表及部门Excel拆分；上传→部门预览→最终确认→后台发送→历史审计。需执行三表DDL、授权`hr.mail`并按指南挂载Docker Secret；默认关闭发信，无需发布EXE。真实邮箱投递及服务器部署待人工验收。
 
 | 入口 | 内容 |
@@ -174,7 +176,7 @@ docker compose up -d --build
 API统一前缀为`/api`。认证与账号管理使用`/api/auth/*`、`/api/admin/*`；业务接口主要使用`/api/v1/*`。登录后使用会话Cookie，非安全方法需携带CSRF头；JSON通常返回`success/message/data`，导出接口返回文件。具体权限、参数与错误见[完整接口目录](docs/api/README.md)及对应源码。
 
 <!-- BEGIN:API_SUMMARY -->
-当前静态登记 **164个HTTP方法/路径条目**（含认证与管理接口，不重复列自动HEAD/OPTIONS）。
+当前静态登记 **175个HTTP方法/路径条目**（含认证与管理接口，不重复列自动HEAD/OPTIONS）。
 
 | 接口领域 | 条目数 | 完整清单 |
 |---|---:|---|
@@ -188,12 +190,13 @@ API统一前缀为`/api`。认证与账号管理使用`/api/auth/*`、`/api/admi
 | 监控、规则、事件、工单与通知 | 26 | [monitoring](docs/api/README.md#monitoring) |
 | 目标配置、进度与刷新 | 7 | [targets](docs/api/README.md#targets) |
 | 风控文件上传 | 2 | [risk_upload](docs/api/README.md#risk_upload) |
-| 数据加工工作台 | 12 | [data_workbench](docs/api/README.md#data_workbench) |
+| 数据加工工作台 | 13 | [data_workbench](docs/api/README.md#data_workbench) |
 | HR报表邮件 | 8 | [hr_mail](docs/api/README.md#hr_mail) |
 | 行为采集与管理看板 | 4 | [telemetry](docs/api/README.md#telemetry) |
 | adm | 14 | [adm](docs/api/README.md#adm) |
 | adm_exchange | 3 | [adm_exchange](docs/api/README.md#adm_exchange) |
 | adm_files | 4 | [adm_files](docs/api/README.md#adm_files) |
+| adm_operations | 10 | [adm_operations](docs/api/README.md#adm_operations) |
 <!-- END:API_SUMMARY -->
 
 ## 开发交付与README维护

@@ -5,8 +5,69 @@ import { useAuthStore } from '../../stores/auth'
 import { workbenchApi as api } from './api'
 import type { Catalog, Field, Job, Preview, Recipe, Step } from './types'
 import StepEditor from './StepEditor.vue'
+import FormDialog from '../../components/FormDialog.vue'
 
 const auth = useAuthStore()
+const stepEditor = ref<InstanceType<typeof StepEditor>>()
+const editorPreset = ref('')
+const cleanupOpen = ref(false),
+  cleanupBusy = ref(false),
+  cleanupError = ref('')
+const cleanupKind = ref<'dataset' | 'recipe' | 'job'>('dataset')
+const cleanupIds = ref<string[]>([])
+const cleanupLabels = { dataset: '数据集', recipe: '流程', job: '已结束任务' }
+const cleanupOptions = computed(() => {
+  if (cleanupKind.value === 'dataset') return catalog.value.datasets.map((d) => ({ id: d.id, name: d.name }))
+  if (cleanupKind.value === 'recipe') return catalog.value.recipes.map((r) => ({ id: r.id, name: r.name }))
+  return catalog.value.jobs
+    .filter((j) => !['queued', 'running', 'cancel_requested'].includes(j.status))
+    .map((j) => ({ id: j.id, name: `${statuses[j.status]} · ${j.createdAt} · ${j.id}` }))
+})
+const cleanupSelected = computed(() => cleanupOptions.value.filter((item) => cleanupIds.value.includes(item.id)))
+watch(cleanupKind, () => {
+  cleanupIds.value = []
+  cleanupError.value = ''
+})
+async function cleanup() {
+  if (cleanupBusy.value || !cleanupIds.value.length) return
+  cleanupBusy.value = true
+  cleanupError.value = ''
+  const kind = cleanupKind.value,
+    ids = [...cleanupIds.value]
+  try {
+    const result = await api.cleanup(kind, ids)
+    const deleted = new Set(result.deleted)
+    catalogVersion++
+    if (kind === 'dataset') catalog.value.datasets = catalog.value.datasets.filter((d) => !deleted.has(d.id))
+    if (kind === 'recipe') catalog.value.recipes = catalog.value.recipes.filter((r) => !deleted.has(r.id))
+    if (kind === 'job') catalog.value.jobs = catalog.value.jobs.filter((j) => !deleted.has(j.id))
+    if (
+      (kind === 'dataset' && deleted.has(sourceId.value)) ||
+      (kind === 'job' && (deleted.has(currentJob.value?.id || '') || deleted.has(resultJobId.value)))
+    )
+      invalidateContext()
+    if (kind === 'dataset' && deleted.has(sourceId.value)) {
+      sourceId.value = ''
+      steps.value = []
+      recipe.value = undefined
+      selectedStep.value = -1
+      savedSignature.value = signature.value
+      editorOpen.value = false
+    }
+    if (kind === 'recipe' && recipe.value && deleted.has(recipe.value.id)) {
+      recipe.value = undefined
+      savedSignature.value = ''
+    }
+    cleanupOpen.value = false
+    cleanupIds.value = []
+    notice.value = `已删除 ${result.deleted.length} 项${cleanupLabels[kind]}。文件保留审计，不释放磁盘空间。`
+    await refreshCatalog()
+  } catch (e) {
+    cleanupError.value = e instanceof Error ? e.message : '删除失败，请重试；选择和草稿已保留。'
+  } finally {
+    cleanupBusy.value = false
+  }
+}
 const catalog = ref<Catalog>({ datasets: [], recipes: [], jobs: [], operators: [], limits: {} })
 const sourceId = ref(''),
   name = ref('未命名加工流程'),
@@ -104,7 +165,22 @@ const reportSteps = computed(
       invalidValues?: number
       precisionChanges?: number
       divisionByZero?: number
-      join?: { estimatedRows?: number; manyToMany?: boolean; unmatchedLeft?: number; unmatchedRight?: number }
+      decimalScale?: number
+      warnings?: string[]
+      precisionSamples?: { sourceRow: string | null; before: string | null; after: string | null }[]
+      join?: {
+        estimatedRows?: number
+        manyToMany?: boolean
+        unmatchedLeft?: number
+        unmatchedRight?: number
+        leftDuplicateKeys?: number
+        rightDuplicateKeys?: number
+        expansionRatio?: number | string
+        duplicateSamples?: {
+          left: { keys: (string | null)[]; count: number }[]
+          right: { keys: (string | null)[]; count: number }[]
+        }
+      }
     }[],
 )
 const columnsStyle = computed(() =>
@@ -128,7 +204,11 @@ function fieldsThrough(index: number): Field[] {
       fields.push({
         id: `d_${step.id}`,
         name: String(step.name),
-        type: ['concat', 'condition'].includes(String(step.kind)) ? 'text' : 'decimal',
+        type:
+          ['concat', 'condition'].includes(String(step.kind)) ||
+          (step.kind === 'formula' && formulaType(String(step.expression), fields) === 'text')
+            ? 'text'
+            : 'decimal',
       })
     if (step.op === 'group')
       fields = [
@@ -149,6 +229,17 @@ function fieldsThrough(index: number): Field[] {
       )
   }
   return fields
+}
+function formulaType(expression: string, fields: Field[]): string {
+  const value = expression.trim()
+  const direct = fields.find((field) => field.id === value)
+  if (direct) return direct.type
+  if (/^(concat|substr|replace|trim)\s*\(/.test(value) || /^["']/.test(value)) return 'text'
+  if (/^coalesce\s*\(/.test(value)) {
+    const first = /^coalesce\s*\(\s*([a-zA-Z_][a-zA-Z_0-9]*)\s*,/.exec(value)?.[1]
+    return fields.find((field) => field.id === first)?.type || 'text'
+  }
+  return 'decimal'
 }
 function fail(e: unknown) {
   error.value = e instanceof Error ? e.message : '操作失败，请重试'
@@ -384,7 +475,8 @@ function editStep(step: Step) {
   editing.value = clone(step)
   editorOpen.value = true
 }
-function beginAdd() {
+function beginAdd(preset = '') {
+  editorPreset.value = preset
   editing.value = undefined
   insertIndex.value = selectedStep.value >= 0 ? selectedStep.value + 1 : steps.value.length
   editorOpen.value = true
@@ -594,16 +686,19 @@ onBeforeUnmount(() => {
     <div class="workflow-toolbar">
       <label class="recipe-name">流程名称<a-input v-model:value="name" :maxlength="120" aria-label="流程名称" /></label>
       <span class="draft-label">{{ dirty ? '未保存草稿' : recipe ? `已保存 · v${recipe.revision}` : '新流程' }}</span>
-      <a-button :disabled="!sourceId || saving" :loading="saving" @click="save">保存流程</a-button
+      <a-button :disabled="!sourceId || saving" :loading="saving" @click="save">保存流程（步骤）</a-button
       ><a-button :disabled="!recipe || dirty" @click="copyRecipe">复制流程</a-button>
       <a-button :disabled="!sourceId || active || busy" :loading="busy" @click="submit('preview')"
         >预览全部步骤</a-button
       ><a-button type="primary" :disabled="!sourceId || active || busy" @click="submit('run')">全量运行</a-button>
     </div>
+    <p class="muted">保存流程记录来源与步骤，方便复跑；运行完成后保存为数据集，生成可继续加工的结果版本。</p>
     <div class="layout-toolbar">
       <a-button size="small" @click="leftOpen = !leftOpen">{{ leftOpen ? '收起' : '展开' }}数据集</a-button
       ><a-button size="small" @click="rightOpen = !rightOpen">{{ rightOpen ? '收起' : '展开' }}步骤</a-button
-      ><a-button size="small" @click="resetLayout">重置布局</a-button
+      ><a-button size="small" :disabled="!sourceId" @click="beginAdd('derive')">新增计算列</a-button>
+      <a-button size="small" @click="cleanupOpen = true">管理 / 批量删除</a-button>
+      <a-button size="small" @click="resetLayout">重置布局</a-button
       ><span>仅本人数据 · 预览每页 100 行 · 金额由服务端计算</span>
     </div>
     <div class="workbench-grid" :style="columnsStyle">
@@ -737,7 +832,8 @@ onBeforeUnmount(() => {
             size="small"
             :disabled="loading || active || busy"
             @change="loadPage"
-          /><a-button :disabled="!resultReady || stale" :loading="publishing" @click="publish">保存为数据集</a-button
+          /><a-button :disabled="!resultReady || stale" :loading="publishing" @click="publish"
+            >保存为数据集（结果）</a-button
           ><a-button :disabled="!resultReady || stale" :loading="downloading" @click="download">导出 CSV</a-button>
         </div>
         <details v-if="currentJob?.report || preview?.report" class="report">
@@ -760,9 +856,19 @@ onBeforeUnmount(() => {
                   <td>{{ item.outputRows ?? '未完成' }}</td>
                   <td>
                     {{ item.invalidValues ? `转换失败 ${item.invalidValues}；` : ''
-                    }}{{ item.precisionChanges ? `精度变化 ${item.precisionChanges}（数值转为6位小数，请核对）；` : ''
+                    }}{{
+                      item.precisionChanges
+                        ? `精度变化 ${item.precisionChanges}（结果 ${item.decimalScale ?? 6} 位小数，请核对）；`
+                        : ''
                     }}{{ item.divisionByZero ? `除零 ${item.divisionByZero}；` : ''
                     }}{{ !item.invalidValues && !item.precisionChanges && !item.divisionByZero ? '无上述异常' : '' }}
+                    <p v-for="warning in item.warnings || []" :key="warning" class="join-warning">{{ warning }}</p>
+                    <details v-if="item.precisionSamples?.length">
+                      <summary>查看精度变化样例（最多10条）</summary>
+                      <p v-for="(sample, sampleIndex) in item.precisionSamples" :key="sampleIndex">
+                        来源行 {{ sample.sourceRow ?? '—' }}：{{ sample.before }} → {{ sample.after }}
+                      </p>
+                    </details>
                   </td>
                   <td>
                     {{
@@ -770,6 +876,32 @@ onBeforeUnmount(() => {
                         ? `预计 ${item.join.estimatedRows} 行；${item.join.manyToMany ? '多对多' : '非多对多'}；左未匹配 ${item.join.unmatchedLeft} / 右未匹配 ${item.join.unmatchedRight}`
                         : '—'
                     }}
+                    <template v-if="item.join">
+                      <p>
+                        左重复键组 {{ item.join.leftDuplicateKeys ?? '—' }} / 右重复键组
+                        {{ item.join.rightDuplicateKeys ?? '—' }}；行数膨胀倍数 {{ item.join.expansionRatio ?? '—' }}
+                      </p>
+                      <p
+                        v-if="item.join.manyToMany || item.join.leftDuplicateKeys || item.join.rightDuplicateKeys"
+                        class="join-warning"
+                      >
+                        重复关联键可能放大明细行数，当前关联不会自动去重。请核对关联粒度；如需右表每键一行，可先打开右表做分组汇总，再保存为数据集后关联。
+                      </p>
+                      <details v-if="item.join.duplicateSamples">
+                        <summary>重复键样例（每侧最多 5 组）</summary>
+                        <template v-for="side in ['left', 'right'] as const" :key="side">
+                          <p
+                            v-for="(sample, sampleIndex) in item.join.duplicateSamples[side]"
+                            :key="`${side}-${sampleIndex}`"
+                          >
+                            {{ side === 'left' ? '左表' : '右表' }}：{{
+                              sample.keys.map((key) => (key === null ? 'NULL' : key)).join(' / ')
+                            }}
+                            · {{ sample.count }} 行
+                          </p>
+                        </template>
+                      </details>
+                    </template>
                   </td>
                 </tr>
               </tbody>
@@ -797,7 +929,7 @@ onBeforeUnmount(() => {
       <aside v-show="rightOpen" class="steps-panel">
         <div class="steps-title">
           <h2>已应用步骤</h2>
-          <a-button size="small" :disabled="!sourceId" @click="beginAdd">添加</a-button>
+          <a-button size="small" :disabled="!sourceId" @click="beginAdd()">添加</a-button>
         </div>
         <p class="muted">点击“预览至此”检查中间结果；添加将插入所选步骤之后。修改不会自动执行昂贵计算。</p>
         <button
@@ -825,16 +957,17 @@ onBeforeUnmount(() => {
         </div>
       </aside>
     </div>
-    <a-modal
+    <FormDialog
       v-model:open="uploadOpen"
       title="导入新数据集"
-      :footer="null"
-      :mask-closable="!uploading"
-      :closable="!uploading"
-      :keyboard="!uploading"
-      :width="560"
-      class="workbench-modal"
-      ><form class="upload-form" @submit.prevent="upload">
+      :busy="uploading"
+      :dirty="!!file || !!uploadName || !!sheetName"
+      :error="error"
+      :submit-disabled="!file"
+      ok-text="导入"
+      @submit="upload"
+    >
+      <form class="upload-form" @submit.prevent="upload">
         <p>CSV / XLSX，导入为独立版本。原数据不会被覆盖。</p>
         <label
           >文件<input
@@ -845,31 +978,98 @@ onBeforeUnmount(() => {
             @change="file = ($event.target as HTMLInputElement).files?.[0]" /></label
         ><label>数据集名称（可选）<a-input v-model:value="uploadName" :maxlength="120" /></label
         ><label>工作表名称（XLSX 可选，默认首张）<a-input v-model:value="sheetName" /></label>
-        <p v-if="error" role="alert" class="stale-warning">{{ error }}</p>
-        <div class="modal-actions">
-          <a-button :disabled="uploading" @click="uploadOpen = false">取消</a-button
-          ><a-button type="primary" html-type="submit" :loading="uploading" :disabled="!file">导入</a-button>
-        </div>
-      </form></a-modal
-    >
-    <a-modal
+      </form>
+    </FormDialog>
+    <FormDialog
       v-model:open="editorOpen"
-      :title="editing ? '编辑加工步骤' : '添加加工步骤'"
-      :footer="null"
-      :width="600"
-      :destroy-on-close="true"
-      class="workbench-modal"
-      ><StepEditor
+      :title="editing ? '编辑加工步骤' : editorPreset === 'derive' ? '新增计算列' : '添加加工步骤'"
+      :dirty="stepEditor?.dirty ?? false"
+      :ok-text="editing ? '更新步骤' : '加入步骤'"
+      @submit="stepEditor?.apply()"
+    >
+      <StepEditor
+        v-if="editorOpen"
+        ref="stepEditor"
         :fields="availableFields"
         :datasets="catalog.datasets"
         :edit="editing"
+        :preset="editorPreset"
         @apply="applyStep"
         @cancel="editorOpen = false"
-    /></a-modal>
+      />
+    </FormDialog>
+    <FormDialog
+      v-model:open="cleanupOpen"
+      title="管理与批量删除"
+      :busy="cleanupBusy"
+      :error="cleanupError"
+      :submit-disabled="
+        !cleanupIds.length ||
+        saving ||
+        busy ||
+        uploading ||
+        publishing ||
+        cleanupIds.length > 100 ||
+        (cleanupKind === 'dataset' && cleanupIds.includes(sourceId) && dirty)
+      "
+      ok-text="确认删除所选记录"
+      @submit="cleanup"
+    >
+      <div class="cleanup-form">
+        <label
+          >删除对象<a-select
+            v-model:value="cleanupKind"
+            :disabled="cleanupBusy"
+            :options="Object.entries(cleanupLabels).map(([value, label]) => ({ value, label }))"
+        /></label>
+        <p>
+          删除后从工作台隐藏，底层文件仍保留用于审计，不释放磁盘空间。数据集被流程或任务引用时不能删除，请先处理引用。删除流程保留历史任务，删除任务保留已发布的数据集。运行中的任务不能删除。
+        </p>
+        <label
+          >选择记录（每次最多 100 项）<a-select
+            v-model:value="cleanupIds"
+            mode="multiple"
+            :disabled="cleanupBusy"
+            :options="cleanupOptions.map((item) => ({ value: item.id, label: item.name }))"
+            show-search
+            option-filter-prop="label"
+        /></label>
+        <a-button
+          :disabled="cleanupBusy || !cleanupOptions.length"
+          @click="cleanupIds = cleanupOptions.slice(0, 100).map((item) => item.id)"
+          >选择前 100 项</a-button
+        >
+        <p v-if="cleanupKind === 'dataset' && cleanupIds.includes(sourceId) && dirty" role="alert">
+          当前来源有未保存的流程修改，请先保存流程或切换来源后再删除。
+        </p>
+        <strong>确认删除以下 {{ cleanupSelected.length }} 项{{ cleanupLabels[cleanupKind] }}：</strong>
+        <ul>
+          <li v-for="item in cleanupSelected" :key="item.id">{{ item.name }} · {{ item.id }}</li>
+        </ul>
+      </div>
+    </FormDialog>
   </section>
 </template>
 
 <style scoped>
+.cleanup-form {
+  display: grid;
+  gap: 14px;
+}
+.cleanup-form label {
+  display: grid;
+  gap: 6px;
+}
+.cleanup-form ul {
+  max-height: 180px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+.join-warning {
+  color: #8b4a00;
+  white-space: normal;
+  min-width: 260px;
+}
 .workbench {
   min-width: 0;
   display: flex;

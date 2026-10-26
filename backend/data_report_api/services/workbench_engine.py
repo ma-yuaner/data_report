@@ -12,6 +12,8 @@ from contextvars import ContextVar
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
+from .workbench_formula import compile_formula, decimal_scale, install_division
+
 
 _STEP_CONTEXT = ContextVar("workbench_step", default=None)
 
@@ -160,10 +162,11 @@ def import_dataset(file_path, output_path, sheet_name=None, limits=None):
             handle.close()
 
 
-def _decimal(column):
+def _decimal(column, scale=6):
     text = f"TRIM(CAST({column} AS VARCHAR))"
     pattern = r"^[+-]?([0-9]+|[0-9]{1,3}(,[0-9]{3})+)(\.[0-9]+)?$"
-    return f"CASE WHEN REGEXP_FULL_MATCH({text}, '{pattern}') THEN TRY_CAST(REPLACE({text}, ',', '') AS DECIMAL(28,6)) ELSE NULL END"
+    precision = 28 if scale == 6 else 38
+    return f"CASE WHEN REGEXP_FULL_MATCH({text}, '{pattern}') THEN TRY_CAST(REPLACE({text}, ',', '') AS DECIMAL({precision},{scale})) ELSE NULL END"
 
 
 def _predicate(column, operator, value, params):
@@ -186,6 +189,7 @@ def _execute(source, steps, resolve_source, output_path, limits=None, check_canc
     fields = [dict(f) for f in source["fields"]]
     report = {"scope": "full", "steps": []}
     seen = set()
+    division_scales = set()
     with _connect(limits) as con:
         # Integer quotient/remainder: exact six-place ROUND_HALF_UP, never DOUBLE.
         con.execute(
@@ -244,11 +248,22 @@ def _execute(source, steps, resolve_source, output_path, limits=None, check_canc
                 c = col(key)
                 kind = step.get("type")
                 if kind == "decimal":
-                    expression = _decimal(c)
-                    detail["decimalScale"] = 6
+                    try:
+                        scale = decimal_scale(step.get("scale", 6))
+                    except ValueError as exc:
+                        raise WorkbenchEngineError(str(exc)) from None
+                    expression = _decimal(c, scale)
+                    detail["decimalScale"] = scale
+                    known[key]["scale"] = scale
                     detail["precisionChanges"] = con.execute(
-                        f"SELECT COUNT(*) FROM {current} WHERE ({expression}) IS NOT NULL AND REGEXP_MATCHES(TRIM(CAST({c} AS VARCHAR)), '\\.[0-9]{{6}}[0-9]*[1-9][0-9]*$')"
+                        f"SELECT COUNT(*) FROM {current} WHERE ({expression}) IS NOT NULL AND REGEXP_MATCHES(TRIM(CAST({c} AS VARCHAR)), '\\.[0-9]{{{scale}}}[0-9]*[1-9][0-9]*$')"
                     ).fetchone()[0]
+                    source_row = '"_source_row"' if "_source_row" in known else "NULL"
+                    changed = f"({expression}) IS NOT NULL AND REGEXP_MATCHES(TRIM(CAST({c} AS VARCHAR)), '\\.[0-9]{{{scale}}}[0-9]*[1-9][0-9]*$')"
+                    detail["precisionSamples"] = [
+                        {"sourceRow": _scalar(r[0]), "before": _scalar(r[1]), "after": _scalar(r[2])}
+                        for r in con.execute(f"SELECT {source_row},{c},{expression} FROM {current} WHERE {changed} LIMIT 10").fetchall()
+                    ]
                 elif kind == "date":
                     expression = f"TRY_CAST(REPLACE(TRIM(CAST({c} AS VARCHAR)), '/', '-') AS DATE)"
                 elif kind == "text":
@@ -275,10 +290,35 @@ def _execute(source, steps, resolve_source, output_path, limits=None, check_canc
                 _q(key)
                 if key in known:
                     raise WorkbenchEngineError("派生字段标识冲突")
-                left = col(step.get("left"))
                 kind = step.get("kind")
+                if kind == "formula":
+                    try:
+                        scale = decimal_scale(step.get("scale", 6))
+                        if scale not in division_scales:
+                            install_division(con, scale)
+                            division_scales.add(scale)
+                        expression, result_type, used, zero_checks = compile_formula(step.get("expression"), known, _q, scale)
+                    except ValueError as exc:
+                        raise WorkbenchEngineError(str(exc)) from None
+                    projections[key] = expression
+                    non_additive = bool(re.search(r"\bgroup_(sum|count)\s*\(", step.get("expression", ""))) or any(known[f].get("nonAdditive") for f in used)
+                    fields.append({"id": key, "name": str(step.get("name") or key)[:200], "type": result_type, "scale": scale, "nonAdditive": non_additive})
+                    detail.update(decimalScale=scale, rounding="ROUND_HALF_UP", nullPolicy="propagate_unless_coalesce")
+                    if non_additive:
+                        detail["warnings"] = ["分组特征在每条明细上重复，不提供逐行相加总额"]
+                    if zero_checks:
+                        zero_sql = " OR ".join(zero_checks)
+                        detail["divisionByZero"] = con.execute(f"SELECT COUNT(*) FROM (SELECT ({zero_sql}) AS wb_zero FROM {current}) checked WHERE wb_zero").fetchone()[0]
+                    names = [known[f]["name"] for f in used]
+                    if any("原币" in n for n in names) and any("CNY" in n.upper() or "本币" in n for n in names):
+                        detail.setdefault("warnings", []).append("计算混合原币与本币字段，请核对币种和单位；结果不代表已确认财务指标")
+                    query = f"SELECT {','.join(f'{v} AS {_q(k)}' for k, v in projections.items())} FROM {current}"
+                else:
+                    left = col(step.get("left"))
                 right = col(step["right"]) if step.get("right") else "?"
-                if kind == "condition":
+                if kind == "formula":
+                    pass
+                elif kind == "condition":
                     predicate = _predicate(left, step.get("operator"), step.get("value"), params)
                     expression = f"CASE WHEN {predicate} THEN ? ELSE ? END"
                     params.extend([step.get("then"), step.get("else")])
@@ -287,6 +327,7 @@ def _execute(source, steps, resolve_source, output_path, limits=None, check_canc
                     if right == "?":
                         params.append(step.get("value"))
                 elif kind in ("add", "subtract", "multiply", "divide"):
+                    scale = decimal_scale(step.get("scale", max(known[step["left"]].get("scale", 6), known.get(step.get("right"), {}).get("scale", 6))))
                     if known[step["left"]]["type"] != "decimal" or (
                         step.get("right") and known[step["right"]]["type"] != "decimal"
                     ):
@@ -294,37 +335,44 @@ def _execute(source, steps, resolve_source, output_path, limits=None, check_canc
                     if not step.get("right"):
                         try:
                             literal = Decimal(str(step.get("value")))
-                            if not literal.is_finite() or abs(literal) >= Decimal("1e22") or literal != literal.quantize(Decimal("0.000001")):
+                            if not literal.is_finite() or abs(literal) >= Decimal("1e22") or literal != literal.quantize(Decimal(1).scaleb(-scale)):
                                 raise InvalidOperation
                         except (InvalidOperation, ValueError):
                             raise WorkbenchEngineError("数值常量无效或超出范围") from None
                     for operand in [left] + ([right] if right != "?" else []):
                         invalid = con.execute(
-                            f"SELECT COUNT(*) FROM {current} WHERE {operand} IS NOT NULL AND {_decimal(operand)} IS NULL"
+                            f"SELECT COUNT(*) FROM {current} WHERE {operand} IS NOT NULL AND {_decimal(operand, scale)} IS NULL"
                         ).fetchone()[0]
                         if invalid:
-                            raise WorkbenchEngineError("参与计算的金额超出支持范围（整数最多22位，小数6位）")
-                    a, b = _decimal(left), _decimal(right)
+                            raise WorkbenchEngineError("参与计算的金额超出所选精度支持范围")
+                    a, b = _decimal(left, scale), _decimal(right, scale)
                     if right == "?":
                         params.append(format(literal, "f"))
                     if kind == "divide":
-                        expression = f"wb_divide({a},{b})"
+                        if scale not in division_scales:
+                            install_division(con, scale)
+                            division_scales.add(scale)
+                        expression = f"wb_formula_divide_{scale}({a},{b})"
                         detail["divisionByZero"] = con.execute(
                             f"SELECT COUNT(*) FROM {current} WHERE {b}=0", params
                         ).fetchone()[0]
                     else:
                         symbol = {"add": "+", "subtract": "-", "multiply": "*"}[kind]
-                        expression = f"CAST(({a} {symbol} {b}) AS DECIMAL(38,6))"
+                        expression = f"CAST(({a} {symbol} {b}) AS DECIMAL(38,{scale}))"
+                    detail["decimalScale"] = scale
                 else:
                     raise WorkbenchEngineError("派生算子无效")
-                projections[key] = expression
-                fields.append(
-                    {
-                        "id": key,
-                        "name": str(step.get("name") or key)[:200],
-                        "type": "text" if kind in ("condition", "concat") else "decimal",
-                    }
-                )
+                if kind != "formula":
+                    projections[key] = expression
+                    fields.append(
+                        {
+                            "id": key,
+                            "name": str(step.get("name") or key)[:200],
+                            "type": "text" if kind in ("condition", "concat") else "decimal",
+                            **({"scale": scale} if kind in ("add", "subtract", "multiply", "divide") else {}),
+                            "nonAdditive": bool(known.get(step.get("left"), {}).get("nonAdditive") or known.get(step.get("right"), {}).get("nonAdditive")),
+                        }
+                    )
             elif op == "select":
                 keys = step.get("columns", [])
                 if not keys or len(keys) != len(set(keys)):
@@ -353,6 +401,7 @@ def _execute(source, steps, resolve_source, output_path, limits=None, check_canc
                             "id": key,
                             "name": str(agg.get("name") or key)[:200],
                             "type": "integer" if fn == "count" else known[agg["column"]]["type"],
+                            **({"scale": known[agg["column"]].get("scale", 6)} if known[agg["column"]]["type"] == "decimal" else {}),
                         }
                     )
                 if not selections:
@@ -395,7 +444,14 @@ def _execute(source, steps, resolve_source, output_path, limits=None, check_canc
                     "unmatchedLeft": unmatched_left,
                     "unmatchedRight": unmatched_right,
                     "nullsMatch": False,
+                    "expansionRatio": expansion,
                 }
+                samples = {}
+                for side, table, keys in (("left", current, lcols), ("right", rt, rcols)):
+                    group_sql = f"SELECT {','.join(keys)},COUNT(*) n FROM {table} GROUP BY {','.join(keys)} HAVING COUNT(*)>1"
+                    detail["join"][side + "DuplicateKeys"] = con.execute(f"SELECT COUNT(*) FROM ({group_sql}) duplicates").fetchone()[0]
+                    samples[side] = [{"keys": [_scalar(v) for v in row[:-1]], "count": row[-1]} for row in con.execute(group_sql + " ORDER BY n DESC LIMIT 5").fetchall()]
+                detail["join"]["duplicateSamples"] = samples
                 if estimated > limits["max_join_rows"] or expansion > limits["max_join_expansion"]:
                     report["steps"].append(detail)
                     raise WorkbenchEngineError("关联结果规模超限；请增加关联字段或先分组汇总", "JOIN_LIMIT", report)
@@ -448,7 +504,7 @@ def _execute(source, steps, resolve_source, output_path, limits=None, check_canc
         report["totals"] = {
             f["id"]: _scalar(con.execute(f"SELECT SUM({_q(f['id'])}) FROM {current}").fetchone()[0])
             for f in fields
-            if f["type"] == "decimal"
+            if f["type"] == "decimal" and not f.get("nonAdditive")
         }
         con.execute(f"COPY {current} TO ? (FORMAT PARQUET)", [str(Path(output_path).resolve())])
         return {"fields": fields, "rowCount": count, "report": report}

@@ -38,6 +38,9 @@ class WorkbenchStore:
               token TEXT, lease REAL, attempt INTEGER NOT NULL DEFAULT 0);
             CREATE INDEX IF NOT EXISTS jobs_queue ON jobs(status,created);
             CREATE TABLE IF NOT EXISTS slots(name TEXT PRIMARY KEY,token TEXT,lease REAL);
+            CREATE TABLE IF NOT EXISTS deleted_resources(
+              kind TEXT NOT NULL,id TEXT NOT NULL,owner INTEGER NOT NULL,deleted REAL NOT NULL,
+              PRIMARY KEY(kind,id,owner));
             """)
 
     def connect(self):
@@ -54,18 +57,20 @@ class WorkbenchStore:
 
     def get(self, kind, resource_id, owner):
         with self.connect() as db:
-            row = db.execute("SELECT body FROM resources WHERE id=? AND kind=? AND owner=?", (resource_id, kind, owner)).fetchone()
+            row = db.execute("SELECT body FROM resources r WHERE id=? AND kind=? AND owner=? AND NOT EXISTS(SELECT 1 FROM deleted_resources d WHERE d.id=r.id AND d.kind=r.kind AND d.owner=r.owner)", (resource_id, kind, owner)).fetchone()
         if not row:
             raise WorkbenchError("资源不存在或无权访问", "NOT_FOUND", 404)
         return json.loads(row["body"])
 
     def list(self, kind, owner):
         with self.connect() as db:
-            rows = db.execute("SELECT body FROM resources WHERE kind=? AND owner=? ORDER BY created DESC", (kind, owner)).fetchall()
+            rows = db.execute("SELECT body FROM resources r WHERE kind=? AND owner=? AND NOT EXISTS(SELECT 1 FROM deleted_resources d WHERE d.id=r.id AND d.kind=r.kind AND d.owner=r.owner) ORDER BY created DESC", (kind, owner)).fetchall()
         return [json.loads(row["body"]) for row in rows]
 
     def insert(self, kind, owner, body):
-        with self.connect() as db:
+        with self.transaction() as db:
+            if kind == "recipe":
+                self.check_references(db, owner, body)
             db.execute("INSERT INTO resources VALUES(?,?,?,?,?)", (body["id"], kind, owner, json.dumps(body, ensure_ascii=False), time.time()))
         return body
 
@@ -75,6 +80,9 @@ class WorkbenchStore:
             if not row:
                 raise WorkbenchError("流程不存在", "NOT_FOUND", 404)
             old = json.loads(row["body"])
+            if db.execute("SELECT 1 FROM deleted_resources WHERE kind='recipe' AND id=? AND owner=?", (body["id"], owner)).fetchone():
+                raise WorkbenchError("流程已删除", "NOT_FOUND", 404)
+            self.check_references(db, owner, body)
             if old["revision"] != revision:
                 raise WorkbenchError("流程已被修改，请刷新后重试", "REVISION_CONFLICT", 409)
             body.update(revision=revision + 1, createdAt=old["createdAt"])
@@ -87,10 +95,14 @@ class WorkbenchStore:
             if not row:
                 raise WorkbenchError("任务不存在", "NOT_FOUND", 404)
             job = self.job_body(row)
+            if db.execute("SELECT 1 FROM deleted_resources WHERE kind='job' AND id=? AND owner=?", (job_id, owner)).fetchone():
+                raise WorkbenchError("任务已删除", "NOT_FOUND", 404)
             if job["status"] != "succeeded":
                 raise WorkbenchError("仅成功任务可以发布", "RESULT_NOT_READY", 409)
             existing = db.execute("SELECT body FROM resources WHERE id=? AND kind='dataset' AND owner=?", (job_id, owner)).fetchone()
             if existing:
+                if db.execute("SELECT 1 FROM deleted_resources WHERE kind='dataset' AND id=? AND owner=?", (job_id, owner)).fetchone():
+                    raise WorkbenchError("结果数据集已删除，不能重复发布恢复", "RESULT_DELETED", 409)
                 return json.loads(existing["body"])
             body = {"id": job_id, "name": name, "rowCount": job["rowCount"], "fields": job["fields"],
                     "createdAt": utc(), "quality": {"publishedFromJob": job_id, "scope": "full"}, "_path": job["_path"]}
@@ -105,19 +117,20 @@ class WorkbenchStore:
 
     def get_job(self, job_id, owner):
         with self.connect() as db:
-            row = db.execute("SELECT * FROM jobs WHERE id=? AND owner=?", (job_id, owner)).fetchone()
+            row = db.execute("SELECT * FROM jobs j WHERE id=? AND owner=? AND NOT EXISTS(SELECT 1 FROM deleted_resources d WHERE d.id=j.id AND d.kind='job' AND d.owner=j.owner)", (job_id, owner)).fetchone()
         if not row:
             raise WorkbenchError("任务不存在或无权访问", "NOT_FOUND", 404)
         return self.job_body(row)
 
     def list_jobs(self, owner):
         with self.connect() as db:
-            rows = db.execute("SELECT * FROM jobs WHERE owner=? ORDER BY created DESC LIMIT 100", (owner,)).fetchall()
+            rows = db.execute("SELECT * FROM jobs j WHERE owner=? AND NOT EXISTS(SELECT 1 FROM deleted_resources d WHERE d.id=j.id AND d.kind='job' AND d.owner=j.owner) ORDER BY created DESC LIMIT 100", (owner,)).fetchall()
         return [self.job_body(row) for row in rows]
 
     def enqueue(self, owner, body, max_pending=5):
         now = time.time()
         with self.transaction() as db:
+            self.check_references(db, owner, body)
             count = db.execute("SELECT COUNT(*) FROM jobs WHERE owner=? AND status IN ('queued','running','cancel_requested')", (owner,)).fetchone()[0]
             if count >= max_pending:
                 raise WorkbenchError("待处理任务过多，请等待或取消已有任务", "QUEUE_FULL", 429)
@@ -132,6 +145,45 @@ class WorkbenchStore:
             status = "cancelled" if row["status"] == "queued" else "cancel_requested" if row["status"] == "running" else row["status"]
             db.execute("UPDATE jobs SET status=?,updated=? WHERE id=?", (status, time.time(), job_id))
         return self.get_job(job_id, owner)
+
+    @staticmethod
+    def referenced_ids(body):
+        return {body.get("sourceId")} | {s.get("rightSourceId") for s in body.get("steps", []) if s.get("op") in ("join", "append")}
+
+    def check_references(self, db, owner, body):
+        for source_id in self.referenced_ids(body) - {None}:
+            row = db.execute("SELECT 1 FROM resources r WHERE id=? AND kind='dataset' AND owner=? AND NOT EXISTS(SELECT 1 FROM deleted_resources d WHERE d.id=r.id AND d.kind=r.kind AND d.owner=r.owner)", (source_id, owner)).fetchone()
+            if not row:
+                raise WorkbenchError("数据集已删除或无权使用，请刷新", "NOT_FOUND", 404)
+
+    def cleanup(self, kind, ids, owner):
+        if not isinstance(kind, str) or kind not in {"dataset", "recipe", "job"} or not isinstance(ids, list) or not 1 <= len(ids) <= 100 or any(not isinstance(i, str) for i in ids) or len(ids) != len(set(ids)):
+            raise WorkbenchError("请选择1至100个不重复的对象")
+        with self.transaction() as db:
+            for resource_id in ids:
+                if kind == "job":
+                    row = db.execute("SELECT status FROM jobs WHERE id=? AND owner=?", (resource_id, owner)).fetchone()
+                else:
+                    row = db.execute("SELECT body FROM resources WHERE kind=? AND id=? AND owner=?", (kind, resource_id, owner)).fetchone()
+                if not row:
+                    raise WorkbenchError("对象不存在或无权删除，未删除任何选中项", "NOT_FOUND", 404)
+                if kind == "job" and row["status"] in ("queued", "running", "cancel_requested"):
+                    raise WorkbenchError("请先取消任务并等待停止，再删除；未删除任何选中项", "JOB_ACTIVE", 409)
+                if kind == "dataset":
+                    references = []
+                    for r in db.execute("SELECT kind,body FROM resources r WHERE kind='recipe' AND owner=? AND NOT EXISTS(SELECT 1 FROM deleted_resources d WHERE d.id=r.id AND d.kind=r.kind AND d.owner=r.owner)", (owner,)):
+                        body = json.loads(r["body"])
+                        if resource_id in self.referenced_ids(body):
+                            references.append("流程：" + str(body.get("name", body["id"])))
+                    for r in db.execute("SELECT id,body FROM jobs j WHERE owner=? AND NOT EXISTS(SELECT 1 FROM deleted_resources d WHERE d.id=j.id AND d.kind='job' AND d.owner=j.owner)", (owner,)):
+                        if resource_id in self.referenced_ids(json.loads(r["body"])):
+                            references.append("任务：" + r["id"])
+                    if references:
+                        raise WorkbenchError("数据集仍被引用，请先处理引用：" + "；".join(references[:8]), "REFERENCE_IN_USE", 409)
+            for resource_id in ids:
+                # Keep immutable files and audit metadata. No cascading filesystem deletion.
+                db.execute("INSERT OR IGNORE INTO deleted_resources VALUES(?,?,?,?)", (kind, resource_id, owner, time.time()))
+        return {"kind": kind, "deleted": ids}
 
     def claim(self, concurrency=1, lease_seconds=30, max_attempts=3):
         now = time.time()

@@ -7,6 +7,8 @@ async function unwrap<T>(request: Promise<{ data: ApiEnvelope<T> }>): Promise<T>
   return data.data
 }
 export const workbenchApi = {
+  cleanup: (kind: 'dataset' | 'recipe' | 'job', ids: string[]) =>
+    unwrap<{ deleted: string[]; kind: string }>(http.post(`${base}/cleanup`, { kind, ids })),
   catalog: () => unwrap<Catalog>(http.get(`${base}/catalog`)),
   upload: (file: File, name: string, sheetName: string) => {
     const data = new FormData()

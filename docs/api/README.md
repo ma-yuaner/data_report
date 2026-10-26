@@ -22,7 +22,7 @@
 | [上传说明](../business/air_ticketing/risk-data-upload.md) / [行为监控](../product/user-behavior-monitoring-v1.md) | 上传队列和行为采集 |
 
 <!-- BEGIN:API_ROUTES -->
-共 **164个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
+共 **175个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
 
 <a id="auth"></a>
 
@@ -220,6 +220,7 @@
 | 方法 | 完整路径 | 处理函数 / 源码 |
 |---|---|---|
 | `GET` | `/api/v1/data-workbench/catalog` | [workbench_catalog](../../backend/data_report_api/api/data_workbench.py) |
+| `POST` | `/api/v1/data-workbench/cleanup` | [workbench_cleanup](../../backend/data_report_api/api/data_workbench.py) |
 | `POST` | `/api/v1/data-workbench/datasets` | [workbench_upload](../../backend/data_report_api/api/data_workbench.py) |
 | `GET` | `/api/v1/data-workbench/datasets/<dataset_id>/preview` | [workbench_dataset_preview](../../backend/data_report_api/api/data_workbench.py) |
 | `POST` | `/api/v1/data-workbench/jobs` | [workbench_create_job](../../backend/data_report_api/api/data_workbench.py) |
@@ -299,4 +300,21 @@
 | `POST` | `/api/v1/adm/cases/<case_id>/attachments` | [adm_attachment_upload](../../backend/data_report_api/api/adm_files.py) |
 | `GET` | `/api/v1/adm/cases/<case_id>/attachments/<attachment_id>/download` | [adm_attachment_download](../../backend/data_report_api/api/adm_files.py) |
 | `GET` | `/api/v1/adm/cases/<case_id>/attachments/<attachment_id>/preview` | [adm_attachment_preview](../../backend/data_report_api/api/adm_files.py) |
+
+<a id="adm_operations"></a>
+
+## adm_operations（adm_operations）
+
+| 方法 | 完整路径 | 处理函数 / 源码 |
+|---|---|---|
+| `GET` | `/api/v1/adm/operations/config` | [adm_operation_config](../../backend/data_report_api/api/adm_operations.py) |
+| `PUT` | `/api/v1/adm/operations/config` | [adm_operation_config_save](../../backend/data_report_api/api/adm_operations.py) |
+| `GET` | `/api/v1/adm/operations/deliveries` | [adm_operation_deliveries](../../backend/data_report_api/api/adm_operations.py) |
+| `GET` | `/api/v1/adm/operations/inbox` | [adm_operation_inbox](../../backend/data_report_api/api/adm_operations.py) |
+| `POST` | `/api/v1/adm/operations/inbox/<record_id>/read` | [adm_operation_read](../../backend/data_report_api/api/adm_operations.py) |
+| `POST` | `/api/v1/adm/operations/preview` | [adm_operation_preview](../../backend/data_report_api/api/adm_operations.py) |
+| `GET` | `/api/v1/adm/reports` | [adm_reports](../../backend/data_report_api/api/adm_operations.py) |
+| `GET` | `/api/v1/adm/reports/<record_id>` | [adm_report_detail](../../backend/data_report_api/api/adm_operations.py) |
+| `POST` | `/api/v1/adm/reports/<record_id>/publish` | [adm_report_publish](../../backend/data_report_api/api/adm_operations.py) |
+| `POST` | `/api/v1/adm/reports/capture` | [adm_report_capture](../../backend/data_report_api/api/adm_operations.py) |
 <!-- END:API_ROUTES -->

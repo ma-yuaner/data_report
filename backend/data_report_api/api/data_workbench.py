@@ -42,6 +42,18 @@ def body():
 
 
 def register_routes(api: Blueprint):
+    @api.post("/v1/data-workbench/cleanup")
+    @guarded
+    def workbench_cleanup():
+        values = body()
+        instance = service()
+        ids = values.get("ids")
+        if not isinstance(ids, list):
+            raise WorkbenchError("请选择需要删除的对象")
+        for resource_id in ids:
+            instance.identifier(resource_id)
+        return ok(instance.store.cleanup(values.get("kind"), ids, instance.owner))
+
     @api.get("/v1/data-workbench/catalog")
     @guarded
     def workbench_catalog():
