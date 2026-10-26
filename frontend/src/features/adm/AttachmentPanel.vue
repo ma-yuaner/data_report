@@ -11,7 +11,9 @@
       </template>
     </div>
     <a-alert v-if="error" type="error" :message="error" show-icon style="margin: 12px 0" />
-    <p class="adm-muted">主单原件可供有权限的明细共同引用；历史材料保留，附件访问由服务端逐次鉴权。</p>
+    <p class="adm-muted">
+      主单原件不会自动向所有承办人开放；在“责任与流转”明确授权整份文件。需要脱敏时先上传实际脱敏副本。附件访问由服务端逐次鉴权。
+    </p>
     <a-table
       row-key="id"
       :data-source="attachments"
@@ -109,7 +111,7 @@ const categories = computed(() =>
     .map((item) => ({ ...item, label: categoryLabels[item.value] || item.label })),
 )
 const lineOptions = computed(() => [
-  ...(allowed(props.record, 'upload') ? [{ value: '', label: '主单材料（原件共享）' }] : []),
+  ...(allowed(props.record, 'upload') ? [{ value: '', label: '主单材料（需显式共享）' }] : []),
   ...(props.record.lines || [])
     .filter((line) => allowed(props.record, 'upload') || allowed(line, 'upload'))
     .map((line) => ({

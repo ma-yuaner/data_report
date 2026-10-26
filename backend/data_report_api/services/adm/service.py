@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 from .store import AdmStore, Conflict, StoreUnavailable
 from .policy import AdmError, has, identity, now, require, uid
 from .workflow import WORKFLOW_ACTIONS, WorkflowService, associated_ids, role_actions, segment_assign, segment_accept
+from .collaboration import ACTIONS as COLLABORATION_ACTIONS, CollaborationService, blockers as collaboration_blockers, extra_actions, file_visible, task_actions, upload_categories
 
 CASE_STATUSES = ["DRAFT", "PENDING_ASSIGN", "PROCESSING", "PENDING_REVIEW", "WAITING_FINANCE", "CLOSED", "HISTORICAL"]
 LINE_STATUSES = ["PENDING_ASSIGN", "PENDING_ACCEPT", "PROCESSING", "PENDING_REVIEW", "WAITING_FINANCE", "COMPLETED", "HISTORICAL"]
@@ -150,7 +151,7 @@ class AdmService:
             raise AdmError("版本冲突，请刷新后重试", 409, "ADM_VERSION_CONFLICT")
         if case.get("historicalArchive") and not (control_action == "archive_attachment" and user.get("is_admin")):
             raise AdmError("历史档案只读；请引用新建继续处理，保留原始状态", 409, "ADM_HISTORY_READ_ONLY")
-        if case["status"] == "CLOSED" and control_action != "reopen":
+        if case["status"] == "CLOSED" and control_action not in {"reopen", "remediation"}:
             raise AdmError("已结案只读，请授权重开", 409, "ADM_CLOSED")
         if (case.get("paused") or case.get("voided")) and control_action not in {"resume", "reopen"}:
             raise AdmError("主单已挂起或作废", 409, "ADM_INACTIVE")
@@ -171,6 +172,7 @@ class AdmService:
         if line_id:
             line = self._line(case, line_id)
             detail["responsibility"] = {"ownerId": line.get("ownerId"), "ownerName": line.get("ownerName"), "round": case["round"]}
+            detail["measurement"] = {"ownerId": line.get("ownerId"), "ownerName": line.get("ownerName"), "round": case["round"], "businessType": line.get("businessType"), "lineStatus": line["status"]}
         case["timeline"].append(
             {
                 "id": uid(),
@@ -184,6 +186,7 @@ class AdmService:
         )
 
     def _derive(self, case):
+        case["openRemediation"] = any(task.get("kind") == "REMEDIATION" and task.get("status") not in {"COMPLETED", "CANCELLED"} for line in case["lines"] for task in line.get("collaborations", []))
         if case["status"] in {"CLOSED", "DRAFT", "HISTORICAL"}:
             return
         states = {line["status"] for line in case["lines"]}
@@ -320,7 +323,7 @@ class AdmService:
         case["partial"] = not full
         case["lines"] = copy.deepcopy(visible)
         case["attachments"] = [
-            self._public_attachment(item) for item in case["attachments"] if full or item.get("lineId") in ids
+            self._public_attachment(item) for item in case["attachments"] if full or file_visible(item, ids)
         ]
         case["timeline"] = [item for item in case["timeline"] if full or item.get("lineId") in ids]
         case["lineCount"] = len(case["lines"])
@@ -345,6 +348,7 @@ class AdmService:
                             "addLine": "adm.edit",
                             "upload": "adm.edit",
                             "coordinator": "adm.assign",
+                            "attachment_share": "adm.edit",
                         }
                     )
                     if source["status"] == "DRAFT":
@@ -357,12 +361,11 @@ class AdmService:
         for line in case["lines"]:
             if not full:
                 line.pop("source", None)
-            line["attachments"] = [item for item in case["attachments"] if item.get("lineId") == line["id"]]
+            line["attachments"] = [item for item in case["attachments"] if file_visible(item, {line["id"]})]
             line["allowedActions"] = self._line_actions(user, source, line)
-            line["uploadCategories"] = (
-                ["FINANCE"] if line["status"] == "WAITING_FINANCE" else
-                ["VERIFICATION", "ANALYSIS"] if line["status"] == "PENDING_REVIEW" else CATEGORIES
-            ) if "upload" in line["allowedActions"] else []
+            line["uploadCategories"] = upload_categories(user, source, line, full) if "upload" in line["allowedActions"] else []
+            for task in line.get("collaborations", []):
+                task["allowedActions"] = task_actions(user, source, line, task, full)
         case["closureCheck"] = (
             (
                 self._closure(source)
@@ -398,7 +401,7 @@ class AdmService:
 
     def _line_actions(self, user, case, line):
         if case["status"] in {"CLOSED", "HISTORICAL"} or case.get("paused") or case.get("voided"):
-            return []
+            return extra_actions(user, case, line, self._full(user, case))
         result = []
         if line["status"] == "PENDING_ASSIGN" and self._full(user, case) and has(user, "adm.edit"):
             result.append("edit")
@@ -425,7 +428,7 @@ class AdmService:
                 result += ["finance_confirm", "upload"]
         if has(user, "adm.unlock.force"):
             result.append("unlock")
-        return result + role_actions(user, case, line, self._full(user, case))
+        return list(dict.fromkeys(result + role_actions(user, case, line, self._full(user, case)) + extra_actions(user, case, line, self._full(user, case))))
 
     def list_cases(self, user, filters):
         require(user, "adm.view")
@@ -718,8 +721,8 @@ class AdmService:
     def _evidence(self, case, line_id, ids):
         if not isinstance(ids, list) or not ids:
             raise AdmError("须引用已上传的证据附件")
-        allowed = {item["id"] for item in case["attachments"] if item.get("lineId") in {None, "", line_id}}
-        if any(item not in allowed for item in ids):
+        allowed = {item["id"] for item in case["attachments"] if item.get("lineId") in {None, "", line_id} or file_visible(item, {line_id})}
+        if any(not isinstance(item, str) or item not in allowed for item in ids):
             raise AdmError("附件证据不存在或不属于此明细")
         verifier = self.config.get("ADM_ATTACHMENT_VERIFIER")
         if not callable(verifier):
@@ -739,7 +742,7 @@ class AdmService:
             return False
 
     def _submission_blockers(self, case, line):
-        blockers = []
+        blockers = collaboration_blockers(case, line)
         if (line.get("handover") or {}).get("status") == "PENDING":
             blockers.append("仍有待确认交接，请先接受、驳回或取消")
         for key, label in [
@@ -791,6 +794,8 @@ class AdmService:
 
     def line_action(self, user, case_id, line_id, body):
         action = body.get("action")
+        if action in COLLABORATION_ACTIONS:
+            return CollaborationService(self).action(user, case_id, line_id, body)
         if action in WORKFLOW_ACTIONS:
             return WorkflowService(self).line_action(user, case_id, line_id, body)
         permissions = {
@@ -1036,6 +1041,7 @@ class AdmService:
             case["status"] != "DRAFT" and not case.get("paused") and not case.get("voided"),
         )
         check("LINES", "至少一条订单处理明细", bool(case["lines"]))
+        check("COLLABORATIONS", "必需协办已完成或有据取消", not any(collaboration_blockers(case, line) for line in case["lines"]))
         check("ORIGINAL", "已上传下发原件", any(item["category"] == "ORIGINAL" for item in case["attachments"]))
         evidence_ids = set()
         for line in case["lines"]:
@@ -1118,6 +1124,8 @@ class AdmService:
 
     def case_action(self, user, case_id, body):
         action = body.get("action")
+        if action == "attachment_share":
+            return CollaborationService(self).share(user, case_id, body)
         if action == "coordinator":
             return WorkflowService(self).coordinate(user, case_id, body)
         if action not in {"publish", "pause", "resume", "void", "close", "reopen"}:
@@ -1192,18 +1200,23 @@ class AdmService:
         if line_id and not has(user, "adm.edit"):
             current = self._read(user, case_id)
             current_line = self._line(current, line_id)
-            if current_line["status"] == "PENDING_REVIEW":
+            collaborator = any("collaboration_submit" in task_actions(user, current, current_line, task, self._full(user, current)) for task in current_line.get("collaborations", []))
+            if collaborator:
+                permission = "adm.handle"
+            elif current_line["status"] == "PENDING_REVIEW":
                 permission = "adm.review"
             elif current_line["status"] == "WAITING_FINANCE":
                 permission = "adm.finance.confirm"
-        case = self._write(user, case_id, body, permission, control_action="archive_attachment")
+        current = self._read(user, case_id)
+        remediation = line_id and current["status"] == "CLOSED" and "upload" in self._line_actions(user, current, self._line(current, line_id))
+        case = self._write(user, case_id, body, permission, control_action="remediation" if remediation else "archive_attachment")
         if line_id:
             line = self._line(case, line_id)
             self._line_access(user, case, line)
-            if not (self._full(user, case) and has(user, "adm.edit")):
+            if remediation or not (self._full(user, case) and has(user, "adm.edit")):
                 if "upload" not in self._line_actions(user, case, line):
                     raise AdmError("当前节点无明细材料上传权限", 403)
-                permitted = ["FINANCE"] if line["status"] == "WAITING_FINANCE" else ["VERIFICATION", "ANALYSIS"] if line["status"] == "PENDING_REVIEW" else CATEGORIES
+                permitted = ["VERIFICATION", "ANALYSIS"] if remediation else upload_categories(user, case, line, self._full(user, case))
                 if attachment["category"] not in permitted:
                     raise AdmError("此节点仅允许上传对应审核/财务材料", 403)
         elif not (self._full(user, case) and has(user, "adm.edit")):
@@ -1233,8 +1246,8 @@ class AdmService:
         attachment = next((item for item in case["attachments"] if item["id"] == str(attachment_id)), None)
         if not attachment:
             raise AdmError("附件不存在", 404)
-        if not self._full(user, case) and attachment.get("lineId") not in {
+        if not self._full(user, case) and not file_visible(attachment, {
             line["id"] for line in self._visible_lines(user, case)
-        }:
+        }):
             raise AdmError("无附件权限", 403)
         return copy.deepcopy(attachment)

@@ -130,6 +130,8 @@ def create_app(config: type[Config] = Config, auth_store=None) -> Flask:
                         result[purpose].append(person)
             return result
         app.config["ADM_WORKFLOW_USER_OPTIONS"] = adm_workflow_user_options
+        from .services.adm.providers import configure_providers
+        configure_providers(app.config, manager)
         if not configured:
             app.logger.warning(
                 "认证表中没有账号；请配置AUTH_BOOTSTRAP_ADMIN_USERNAME和"

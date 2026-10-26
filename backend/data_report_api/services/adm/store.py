@@ -98,11 +98,21 @@ class AdmStore:
             rows = self.query(conn, "SELECT payload FROM adm_case_document").fetchall()
         return [json.loads(row[0]) for row in rows]
 
-    def workflow_cases(self, maximum=5000):
+    def workflow_cases(self, maximum=5000, include_closed=False):
         """Bounded live worklist source; never silently publish a partial dashboard."""
         status = "case_status" if self.mode == "mysql" else "json_extract(payload,'$.status')"
         with self.connection() as conn:
-            rows = self.query(conn, f"SELECT payload FROM adm_case_document WHERE {status} NOT IN ('DRAFT','CLOSED','HISTORICAL') LIMIT ?", (maximum + 1,)).fetchall()
+            where = f"{status} NOT IN ('DRAFT','CLOSED','HISTORICAL')"
+            if include_closed:
+                where = f"({where} OR ({status}='CLOSED' AND json_extract(payload,'$.openRemediation')=true))"
+            rows = self.query(conn, f"SELECT payload FROM adm_case_document WHERE {where} LIMIT ?", (maximum + 1,)).fetchall()
+        return [json.loads(row[0]) for row in rows]
+
+    def report_cases(self, maximum=5000):
+        """Separate bounded source; closed historical volume must not break live worklists."""
+        status = "case_status" if self.mode == "mysql" else "json_extract(payload,'$.status')"
+        with self.connection() as conn:
+            rows = self.query(conn, f"SELECT payload FROM adm_case_document WHERE {status} NOT IN ('DRAFT','HISTORICAL') LIMIT ?", (maximum + 1,)).fetchall()
         return [json.loads(row[0]) for row in rows]
 
     def get(self, case_id):

@@ -116,6 +116,14 @@
               allow-clear
             />
             <WorkflowPanel ref="workflowPanel" :record="record" :line="selectedLine" :config="config" @changed="load" />
+            <CollaborationPanel
+              ref="collaborationPanel"
+              :record="record"
+              :line="selectedLine"
+              :config="config"
+              @changed="load"
+              @attachments="showAttachments"
+            />
           </a-tab-pane>
           <a-tab-pane v-if="record.source && !record.history && !record.partial" key="source" tab="原始导入字段">
             <p class="adm-muted">原始字段留存，不代表已核实或已完成；处理状态以当前流程为准。</p>
@@ -490,6 +498,7 @@ import CaseFields from './CaseFields.vue'
 import FormDialog from '@/components/FormDialog.vue'
 import AccountSelect from '@/components/AccountSelect.vue'
 import WorkflowPanel from './WorkflowPanel.vue'
+import CollaborationPanel from './CollaborationPanel.vue'
 import LineFields from './LineFields.vue'
 import AttachmentPanel from './AttachmentPanel.vue'
 import DraftComparison from './DraftComparison.vue'
@@ -558,6 +567,10 @@ const record = ref<AdmCase | null>(null),
 const id = computed(() => String(route.params.caseId || ''))
 const assigneePeople = computed(() => config.value?.people?.handle || config.value?.assignees || [])
 const workflowPanel = ref<InstanceType<typeof WorkflowPanel> | null>(null)
+const collaborationPanel = ref<InstanceType<typeof CollaborationPanel> | null>(null)
+function showAttachments() {
+  tab.value = 'attachments'
+}
 watch(id, () => {
   selectedOrders.value = []
   bulkOpen.value = false
@@ -990,6 +1003,7 @@ void loadConfig()
 function hasUnsavedDraft() {
   return (
     Boolean(workflowPanel.value?.hasUnsavedDraft()) ||
+    Boolean(collaborationPanel.value?.hasUnsavedDraft()) ||
     (lineOpen.value && JSON.stringify(lineDraft.value) !== lineBaseline) ||
     (caseOpen.value && JSON.stringify(caseDraft.value) !== caseBaseline) ||
     [...lineDraftCache.values()].some((item) => JSON.stringify(item.draft) !== item.baseline)

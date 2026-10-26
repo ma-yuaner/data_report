@@ -42,6 +42,7 @@ def associated_ids(line):
     transfer = line.get("handover") or {}
     if transfer.get("status") == "PENDING":
         ids.add(str(transfer["toId"]))
+    ids.update(str(task["ownerId"]) for task in line.get("collaborations", []) if task.get("ownerId") and task.get("status") != "CANCELLED")
     return ids
 
 
@@ -257,7 +258,7 @@ class WorkflowService:
         line["handover"] = transfer
         return dict(transfer)
 
-    def overview(self, user, filters):
+    def overview(self, user, filters, *, unpaginated=False, source_cases=None):
         require(user, "adm.view")
         if filters.get("date") or filters.get("businessDate"):
             raise AdmError("当前观察不支持历史日期回溯，请勿作为历史日报使用")
@@ -269,6 +270,8 @@ class WorkflowService:
             "REVIEW",
             "FINANCE",
             "FOLLOW_UP",
+            "COLLABORATION",
+            "REMEDIATION",
         }:
             raise AdmError("任务环节无效")
         scope = filters.get("scope", "mine")
@@ -285,7 +288,7 @@ class WorkflowService:
         stamp = now()
         items = []
 
-        def add(case, line, kind, label, owner, name, due, needs_assignee=False, summary_only=False):
+        def add(case, line, kind, label, owner, name, due, needs_assignee=False, summary_only=False, task=None):
             if scope != "all" and str(owner or "") not in ids:
                 return
             if filters.get("kind") and filters["kind"] != kind:
@@ -295,7 +298,10 @@ class WorkflowService:
             line_id = line["id"] if line else None
             items.append(
                 {
-                    "id": f"{case['id']}:{line_id or 'main'}:{kind}",
+                    "id": f"{case['id']}:{line_id or 'main'}:{kind}" + (f":{task['id']}" if task else ""),
+                    "taskId": task["id"] if task else None,
+                    "round": task.get("round", case["round"]) if task else case["round"],
+                    "businessType": line.get("businessType", "UNKNOWN") if line else "UNKNOWN",
                     "caseId": case["id"],
                     "lineId": line_id,
                     "admNo": case["admNo"],
@@ -303,7 +309,7 @@ class WorkflowService:
                     "label": label,
                     "ownerId": str(owner) if owner else None,
                     "ownerName": name or "待指定",
-                    "status": line["status"] if line else case["status"],
+                    "status": task["status"] if task else line["status"] if line else case["status"],
                     "dueAt": normalized or None,
                     "overdue": overdue,
                     "paused": bool(case.get("paused")),
@@ -320,7 +326,7 @@ class WorkflowService:
 
         maximum = int(self.service.config.get("ADM_WORKFLOW_MAX_CASES", 5000))
         try:
-            cases = self.service.store.workflow_cases(maximum)
+            cases = source_cases if source_cases is not None else self.service.store.workflow_cases(maximum, include_closed=True)
         except StoreUnavailable as error:
             raise AdmError(str(error), 503, error.code) from error
         if len(cases) > maximum:
@@ -328,7 +334,7 @@ class WorkflowService:
                 "活跃主单超过当前观察容量，请先完成任务索引升级；未返回截断汇总", 422, "ADM_WORKFLOW_CAPACITY"
             )
         for case in cases:
-            if case["status"] in {"DRAFT", "CLOSED", "HISTORICAL"} or case.get("voided"):
+            if case["status"] in {"DRAFT", "HISTORICAL"} or case.get("voided"):
                 continue
             coordinator = str(case.get("coordinatorId", case["createdBy"]))
             full = self.service._full(user, case)
@@ -336,6 +342,18 @@ class WorkflowService:
             for line in case["lines"]:
                 visible = full or bool(associated_ids(line) & ids)
                 if not visible and not coordination_visible:
+                    continue
+                for task in line.get("collaborations", []):
+                    if task["status"] in {"COMPLETED", "CANCELLED"} or (case["status"] == "CLOSED" and task["kind"] != "REMEDIATION") or not visible:
+                        continue
+                    reviewing = task["status"] == "PENDING_REVIEW"
+                    if reviewing:
+                        from .collaboration import review_recipient
+                        recipient, name, missing = review_recipient(self.service, case, line, task)
+                    else:
+                        recipient, name, missing = task["ownerId"], task["ownerName"], False
+                    add(case, line, task["kind"], "待复核协办/整改" if reviewing else "待办理协办/整改", recipient, name, task.get("dueAt"), needs_assignee=missing, task=task)
+                if case["status"] == "CLOSED":
                     continue
                 workflow = line.get("workflow") or {}
                 owner, name = line.get("ownerId"), line.get("ownerName")
@@ -424,12 +442,12 @@ class WorkflowService:
                 "waiting": counts["FOLLOW_UP"],
             },
             "people": sorted(people.values(), key=lambda item: (item["ownerName"], item["ownerId"] or "")),
-            "items": items[(page - 1) * size : page * size],
+            "items": items if unpaginated else items[(page - 1) * size : page * size],
             "pagination": {"page": page, "pageSize": size, "total": len(items)},
             "limitations": [
                 "当前授权范围的实时任务观察，非历史日报或绩效排名",
                 "任务数不等于订单数；等待和交接任务单列，不重复计算金额",
                 "期限缺失不表示达标；未批准SLA、权重、日历或公开范围",
-                "站内待办可查询，尚未接入站外自动推送；旧表数据不混算",
+                "收件箱与定时提醒需运营策略和worker；站外投递还需部署开关，旧表数据不混算",
             ],
         }

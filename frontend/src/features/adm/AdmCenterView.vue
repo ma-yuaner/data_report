@@ -22,6 +22,7 @@
       style="margin-bottom: 16px"
     />
     <WorkflowPanel v-if="isWorkbench" :refresh-key="workflowRefresh" />
+    <CompletionPanel v-if="isWorkbench" ref="completionPanel" />
     <div class="adm-metrics">
       <div v-for="item in metrics" :key="item.key">
         <span>{{ item.title }}</span
@@ -114,7 +115,13 @@
     </div>
     <div v-if="config" class="adm-capabilities">
       <span v-for="(title, key) in capabilityNames" :key="key"
-        >{{ title }}：{{ capabilityAvailable(config.capabilities?.[key]) ? '已接入' : '未接入' }}</span
+        >{{ title }}：{{
+          capabilityAvailable(config.capabilities?.[key])
+            ? '已接入'
+            : key === 'notifications'
+              ? '待批准和部署（见运营面板）'
+              : '未接入'
+        }}</span
       >
     </div>
     <FormDialog
@@ -177,7 +184,7 @@
 </template>
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
@@ -185,6 +192,7 @@ import CaseFields from './CaseFields.vue'
 import FormDialog from '@/components/FormDialog.vue'
 import InitialOrderLines from './InitialOrderLines.vue'
 import WorkflowPanel from './WorkflowPanel.vue'
+import CompletionPanel from './CompletionPanel.vue'
 import { createAdmKey } from './identifier'
 import { admApi, allowed, errorText, label, options, saveBlob, type AdmCase, type AdmConfig, type Fields } from './api'
 import './adm.css'
@@ -195,6 +203,20 @@ const permission = (name: string) => Boolean(auth.user?.isAdmin || auth.user?.pe
 const exportStore = useComprehensiveExportStore()
 const exporting = ref(false)
 const workflowRefresh = ref(0)
+const completionPanel = ref<InstanceType<typeof CompletionPanel> | null>(null)
+function completionBeforeUnload(event: BeforeUnloadEvent) {
+  if (completionPanel.value?.hasUnsavedDraft()) {
+    event.preventDefault()
+    event.returnValue = ''
+  }
+}
+onBeforeRouteLeave(
+  () => !completionPanel.value?.hasUnsavedDraft() || window.confirm('运营操作有未保存草稿，离开将丢失。是否继续？'),
+)
+onBeforeRouteUpdate(
+  () => !completionPanel.value?.hasUnsavedDraft() || window.confirm('运营操作有未保存草稿，切换将丢失。是否继续？'),
+)
+window.addEventListener('beforeunload', completionBeforeUnload)
 async function startExport(kind: 'adm_cases' | 'adm_lines') {
   if (exporting.value) return
   exporting.value = true
@@ -478,6 +500,7 @@ async function loadConfig() {
 void loadConfig()
 void load()
 onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', completionBeforeUnload)
   request++
   configRequest++
 })

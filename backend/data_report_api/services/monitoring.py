@@ -1827,6 +1827,32 @@ class MonitoringService:
             if cursor is not None: cursor.close()
             if connection is not None: connection.close()
 
+    def resolve_notification_endpoint(self, user: dict[str, Any], endpoint_id: str) -> dict[str, Any]:
+        """Server-only bridge for other modules; never expose its raw URL through HTTP."""
+        _require(user, "monitor.rule.manage", "当前账号没有通知群配置权限")
+        if not str(endpoint_id).isdigit():
+            raise ValueError("通知端点ID无效")
+        connection = cursor = None
+        try:
+            connection = self.source.connect()
+            cursor = connection.cursor()
+            cursor.execute(f"SELECT * FROM {self._table(NOTIFY_ENDPOINT_TABLE)} WHERE id=%s", (int(endpoint_id),))
+            row = _dict_row(cursor, cursor.fetchone())
+            if not row or row.get("status") != "ACTIVE" or row.get("channel") != "WECOM":
+                raise ValueError("通知端点不存在、停用或不是企业微信群")
+            url = _validate_wecom_webhook(row.get("webhook_url"), required=True)
+            fingerprint = hashlib.sha256((url + str(row.get("updated_at"))).encode()).hexdigest()
+            return {"id": str(row["id"]), "name": str(row.get("endpoint_name") or ""), "url": url, "fingerprint": fingerprint}
+        except (ValueError, PermissionError):
+            raise
+        except Exception as error:
+            raise MonitoringUnavailable("ADM通知端点读取失败") from error
+        finally:
+            if cursor is not None:
+                cursor.close()
+            if connection is not None:
+                connection.close()
+
     def save_notify_endpoint(
         self,
         user: dict[str, Any],

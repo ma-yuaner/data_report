@@ -89,6 +89,35 @@ export interface AdmConfig extends Fields {
   people?: { handle: AdmPerson[]; review: AdmPerson[]; finance: AdmPerson[]; coordinate: AdmPerson[] }
   assignees?: AdmPerson[]
 }
+export interface AdmOperationConfig extends Fields {
+  version: number
+  notificationsEnabled: boolean
+  endpointIds: string[]
+  leadMinutes: number | null
+  repeatMinutes: number | null
+  escalationMinutes: number | null
+  snapshotsEnabled: boolean
+  snapshotAt: string
+  rankingEnabled: boolean
+  minimumSamples: number | null
+  approvalNote: string
+  endpointOptions: { id: string; name: string }[]
+  endpointAvailable: boolean
+  externalDeliveryEnabled: boolean
+}
+export interface AdmReport extends Fields {
+  id: string
+  version: number
+  businessDate: string
+  generatedAt: string
+  revision: number | string
+  published: boolean
+  ruleVersion: string
+  quality: Fields | string[]
+  people?: Fields[]
+  summary?: Fields
+  limitations?: string[]
+}
 export interface ClosureCheck {
   canClose: boolean
   checks: { code: string; label: string; passed: boolean; lineId?: string }[]
@@ -105,6 +134,19 @@ const casePath = (id: string) => `${base}/cases/${encodeURIComponent(id)}`
 export const admApi = {
   config: () => data<AdmConfig>(http.get(`${base}/config`)),
   workflow: (params: Fields) => data<WorkflowOverview>(http.get(`${base}/workflow/overview`, { params })),
+  operationConfig: () => data<AdmOperationConfig>(http.get(`${base}/operations/config`)),
+  saveOperationConfig: (body: Fields) => data<AdmOperationConfig>(http.put(`${base}/operations/config`, body)),
+  operationPreview: () => data<Fields>(http.post(`${base}/operations/preview`, {})),
+  inbox: () => data<{ items: Fields[]; unread: number }>(http.get(`${base}/operations/inbox`)),
+  readInbox: (id: string, version: number) =>
+    data<Fields>(http.post(`${base}/operations/inbox/${encodeURIComponent(id)}/read`, { version })),
+  deliveries: () => data<{ items: Fields[] }>(http.get(`${base}/operations/deliveries`)),
+  reports: (date: string) => data<{ items: AdmReport[] }>(http.get(`${base}/reports`, { params: { date } })),
+  captureReport: (reason: string) => data<AdmReport>(http.post(`${base}/reports/capture`, { reason })),
+  report: (id: string, scope: string) =>
+    data<AdmReport>(http.get(`${base}/reports/${encodeURIComponent(id)}`, { params: { scope } })),
+  publishReport: (id: string, version: number, reason: string) =>
+    data<AdmReport>(http.post(`${base}/reports/${encodeURIComponent(id)}/publish`, { version, reason })),
   list: (params: Fields) =>
     data<{ items: AdmCase[]; pagination: { page: number; pageSize: number; total: number }; summary: Fields }>(
       http.get(`${base}/cases`, { params }),

@@ -12,7 +12,7 @@
           ><a-button type="primary" :loading="loading" @click="query">查询 / 刷新待办</a-button></template
         >
         <template #footer
-          >无任务不代表已达标；缺期限单列，不视为按时。站外自动消息、历史日报与综合排名尚未接入。</template
+          >无任务不代表已达标；缺期限单列，不视为按时。提醒策略、收件箱与日报请展开下方运营面板；未配置批准前不发送，综合绩效不自动生成。</template
         >
       </FilterPanel>
       <a-alert v-if="overviewError" type="error" :message="overviewError" show-icon />
@@ -268,6 +268,8 @@ const taskKinds = [
     REVIEW: '待审核',
     FINANCE: '待财务',
     FOLLOW_UP: '待跟进',
+    COLLABORATION: '协办',
+    REMEDIATION: '整改',
   }).map(([value, text]) => ({ value, label: text })),
 ]
 const metrics = [
