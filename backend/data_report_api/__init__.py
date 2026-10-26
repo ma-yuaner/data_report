@@ -17,6 +17,8 @@ SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
 def required_menu_code(path: str) -> str | None:
+    if path.startswith("/api/v1/hr-mail"):
+        return "hr.mail"
     if path.startswith("/api/v1/adm"):
         return "adm.center"
     if path.startswith("/api/v1/data-workbench"):
@@ -107,6 +109,27 @@ def create_app(config: type[Config] = Config, auth_store=None) -> Flask:
             return user
 
         app.config["ADM_USER_RESOLVER"] = resolve_adm_user
+        def adm_user_options():
+            return [{"id": str(user["id"]), "name": user.get("display_name") or user.get("username") or str(user["id"])}
+                    for user in manager.store.list_users()
+                    if user.get("is_enabled", True) and (user.get("is_admin") or ({"adm.view", "adm.handle"} <= set(user.get("permissions") or []) and "adm.center" in (user.get("menu_codes") or [])))]
+        app.config["ADM_USER_OPTIONS"] = adm_user_options
+        def adm_workflow_user_options():
+            purposes = {"handle": "adm.handle", "review": "adm.review", "finance": "adm.finance.confirm", "coordinate": "adm.assign"}
+            result = {purpose: [] for purpose in purposes}
+            for user in manager.store.list_users():
+                if not user.get("is_enabled", True):
+                    continue
+                admin = user.get("is_admin")
+                permissions = set(user.get("permissions") or [])
+                if not admin and ("adm.view" not in permissions or "adm.center" not in (user.get("menu_codes") or [])):
+                    continue
+                person = {"id": str(user["id"]), "name": user.get("display_name") or user.get("username") or str(user["id"])}
+                for purpose, permission in purposes.items():
+                    if admin or permission in permissions:
+                        result[purpose].append(person)
+            return result
+        app.config["ADM_WORKFLOW_USER_OPTIONS"] = adm_workflow_user_options
         if not configured:
             app.logger.warning(
                 "认证表中没有账号；请配置AUTH_BOOTSTRAP_ADMIN_USERNAME和"

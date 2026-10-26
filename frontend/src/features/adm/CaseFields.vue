@@ -1,17 +1,29 @@
 <template>
-  <div class="adm-form-grid">
-    <label>ADM 单号 <span class="required">*</span><a-input v-model:value="model.admNo" :maxlength="100" /></label>
-    <label>下发方 <span class="required">*</span><a-input v-model:value="model.supplierName" :maxlength="200" /></label>
+  <FormGrid>
+    <label><span>ADM 单号 <span class="required">*</span></span><a-input v-model:value="model.admNo" :maxlength="100" /></label>
+    <label><span>下发方 <span class="required">*</span></span><a-input v-model:value="model.supplierName" :maxlength="200" /></label>
     <label>下发方类型<a-select v-model:value="model.supplierType" :options="supplierTypes" /></label>
+    <label>下发方编码<a-input v-model:value="model.supplierCode" :maxlength="200" /></label>
+    <label>航司（多个逗号分隔）<a-input v-model:value="model.airline" :maxlength="200" /></label>
     <label
-      >币种 <span class="required">*</span><a-input v-model:value="model.currency" :maxlength="3" placeholder="CNY"
+      >原票号数量<a-input v-model:value="model.ticketCount" inputmode="numeric" placeholder="未知留空，不等于订单条数"
     /></label>
     <label
-      >下发原始金额 <span class="required">*</span
+      >人民币金额<a-input
+        v-model:value="model.originalAmountCny"
+        inputmode="decimal"
+        placeholder="人工核实值；不自动换算"
+    /></label>
+    <label>业务大类<a-select v-model:value="model.businessCategory" :options="businessCategories" /></label>
+    <label
+      ><span>币种 <span class="required">*</span></span><a-input v-model:value="model.currency" :maxlength="3" placeholder="CNY"
+    /></label>
+    <label
+      ><span>下发原始金额 <span class="required">*</span></span
       ><a-input v-model:value="model.originalAmount" inputmode="decimal" placeholder="十进制金额，如 123.45"
     /></label>
-    <label>下发日期<input v-model="model.issuedDate" type="date" class="adm-native" /></label>
-    <label>处理截止时间（北京时间）<input v-model="deadlineInput" type="datetime-local" class="adm-native" /></label>
+    <label>下发日期<DateField v-model="model.issuedDate" aria-label="下发日期" /></label>
+    <label>处理截止时间（北京时间）<DateField v-model="deadlineInput" with-time aria-label="处理截止时间（北京时间）" /></label>
     <label class="adm-span"
       >问题描述<a-textarea
         v-model:value="model.description"
@@ -24,12 +36,20 @@
     <label v-for="field in analysisFields" :key="field[0]" class="adm-span"
       >主单{{ field[1] }}<a-textarea v-model:value="model.analysis[field[0]]" :rows="3"
     /></label>
-  </div>
+  </FormGrid>
 </template>
 <script setup lang="ts">
 import { computed } from 'vue'
+import DateField from '@/components/DateField.vue'
+import FormGrid from '@/components/FormGrid.vue'
 import type { Fields } from './api'
 const model = defineModel<Fields>({ required: true })
+const businessCategories = [
+  { value: '', label: '待分类' },
+  { value: '0', label: '票务' },
+  { value: '1', label: '业务' },
+  { value: '2', label: '客服' },
+]
 const deadlineInput = computed({
   get: () =>
     model.value.deadline?.length === 10 ? `${model.value.deadline}T23:59` : (model.value.deadline || '').slice(0, 16),

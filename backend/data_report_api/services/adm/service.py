@@ -5,18 +5,20 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-import uuid
 from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
 from .store import AdmStore, Conflict, StoreUnavailable
+from .policy import AdmError, has, identity, now, require, uid
+from .workflow import WORKFLOW_ACTIONS, WorkflowService, associated_ids, role_actions, segment_assign, segment_accept
 
-CASE_STATUSES = ["DRAFT", "PENDING_ASSIGN", "PROCESSING", "PENDING_REVIEW", "WAITING_FINANCE", "CLOSED"]
-LINE_STATUSES = ["PENDING_ASSIGN", "PENDING_ACCEPT", "PROCESSING", "PENDING_REVIEW", "WAITING_FINANCE", "COMPLETED"]
+CASE_STATUSES = ["DRAFT", "PENDING_ASSIGN", "PROCESSING", "PENDING_REVIEW", "WAITING_FINANCE", "CLOSED", "HISTORICAL"]
+LINE_STATUSES = ["PENDING_ASSIGN", "PENDING_ACCEPT", "PROCESSING", "PENDING_REVIEW", "WAITING_FINANCE", "COMPLETED", "HISTORICAL"]
 CATEGORIES = ["ORIGINAL", "VERIFICATION", "RECOVERY", "APPEAL", "FINANCE", "ANALYSIS"]
 ANALYSIS_FIELDS = ("facts", "dispute", "cause", "proposal", "conclusion", "prevention")
 CASE_FIELDS = (
+    "supplierCode", "airline", "ticketCount", "originalAmountCny", "businessCategory",
     "admNo",
     "supplierName",
     "supplierType",
@@ -29,6 +31,8 @@ CASE_FIELDS = (
     "analysis",
 )
 LINE_FIELDS = (
+    "platformCode", "airline", "ticketCount", "amountCny", "businessCategory",
+    "actualOwner", "actualHandler", "recoveryDeadline", "resolution",
     "businessType",
     "platform",
     "shop",
@@ -57,16 +61,6 @@ LINE_FIELDS = (
 )
 
 
-class AdmError(Exception):
-    def __init__(self, message, status=400, code="ADM_INVALID"):
-        super().__init__(message)
-        self.message, self.status, self.code = message, status, code
-
-
-def now():
-    return datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds")
-
-
 def deadline_expired(value):
     if not value:
         return False
@@ -79,10 +73,6 @@ def deadline_expired(value):
     if deadline.tzinfo is None:
         deadline = deadline.replace(tzinfo=zone)
     return deadline < datetime.now(zone)
-
-
-def uid():
-    return str(uuid.uuid4())
 
 
 def money(value, nullable=True):
@@ -104,35 +94,19 @@ def money(value, nullable=True):
     return format(result, "f")
 
 
-def has(user, permission):
-    return bool(user.get("is_admin")) or permission in (user.get("permissions") or [])
-
-
-def identity(user):
-    if not user or not user.get("id"):
-        raise AdmError("请先登录", 401, "ADM_AUTH")
-    return str(user["id"])
-
-
-def require(user, permission):
-    identity(user)
-    if not has(user, permission):
-        raise AdmError("无此ADM操作权限", 403, "ADM_FORBIDDEN")
-
-
 class AdmService:
     def __init__(self, config):
         self.config = config
         try:
             self.store = AdmStore(config)
         except StoreUnavailable as exc:
-            raise AdmError(str(exc), 503, "ADM_UNAVAILABLE") from exc
+            raise AdmError(str(exc), 503, exc.code) from exc
 
     def _get(self, case_id):
         try:
             case = self.store.get(str(case_id))
         except StoreUnavailable as exc:
-            raise AdmError(str(exc), 503, "ADM_UNAVAILABLE") from exc
+            raise AdmError(str(exc), 503, exc.code) from exc
         if not case:
             raise AdmError("ADM不存在", 404, "ADM_NOT_FOUND")
         return case
@@ -141,10 +115,11 @@ class AdmService:
         try:
             return self.store.all()
         except StoreUnavailable as exc:
-            raise AdmError(str(exc), 503, "ADM_UNAVAILABLE") from exc
+            raise AdmError(str(exc), 503, exc.code) from exc
 
     def _full(self, user, case):
-        return has(user, "adm.scope.all") or str(case["createdBy"]) == identity(user)
+        coordinator = case.get("coordinatorId", case["createdBy"])
+        return has(user, "adm.scope.all") or str(coordinator) == identity(user)
 
     def _ids(self, user, scope="mine"):
         ids = {identity(user)}
@@ -157,7 +132,7 @@ class AdmService:
         if self._full(user, case):
             return case["lines"]
         ids = self._ids(user, "team" if scope == "team" and has(user, "adm.scope.team") else "mine")
-        return [line for line in case["lines"] if str(line.get("ownerId")) in ids]
+        return [line for line in case["lines"] if associated_ids(line) & ids]
 
     def _read(self, user, case_id):
         require(user, "adm.view")
@@ -173,6 +148,8 @@ class AdmService:
             raise AdmError("此操作需完整主单范围", 403, "ADM_FORBIDDEN")
         if type(body.get("version")) is not int or body["version"] != case["version"]:
             raise AdmError("版本冲突，请刷新后重试", 409, "ADM_VERSION_CONFLICT")
+        if case.get("historicalArchive") and not (control_action == "archive_attachment" and user.get("is_admin")):
+            raise AdmError("历史档案只读；请引用新建继续处理，保留原始状态", 409, "ADM_HISTORY_READ_ONLY")
         if case["status"] == "CLOSED" and control_action != "reopen":
             raise AdmError("已结案只读，请授权重开", 409, "ADM_CLOSED")
         if (case.get("paused") or case.get("voided")) and control_action not in {"resume", "reopen"}:
@@ -190,6 +167,10 @@ class AdmService:
             raise AdmError("无明细访问权限", 403, "ADM_FORBIDDEN")
 
     def _event(self, user, case, action, detail=None, line_id=None):
+        detail = copy.deepcopy(detail or {})
+        if line_id:
+            line = self._line(case, line_id)
+            detail["responsibility"] = {"ownerId": line.get("ownerId"), "ownerName": line.get("ownerName"), "round": case["round"]}
         case["timeline"].append(
             {
                 "id": uid(),
@@ -198,12 +179,12 @@ class AdmService:
                 "actorId": identity(user),
                 "actorName": user.get("display_name") or user.get("username") or identity(user),
                 "at": now(),
-                "detail": detail or {},
+                "detail": detail,
             }
         )
 
     def _derive(self, case):
-        if case["status"] in {"CLOSED", "DRAFT"}:
+        if case["status"] in {"CLOSED", "DRAFT", "HISTORICAL"}:
             return
         states = {line["status"] for line in case["lines"]}
         if not states or states == {"PENDING_ASSIGN"}:
@@ -226,7 +207,7 @@ class AdmService:
         except Conflict as exc:
             raise AdmError(str(exc), 409, "ADM_VERSION_CONFLICT") from exc
         except StoreUnavailable as exc:
-            raise AdmError(str(exc), 503, "ADM_UNAVAILABLE") from exc
+            raise AdmError(str(exc), 503, exc.code) from exc
         return self._present(user, case)
 
     def _clean(self, body, fields):
@@ -235,8 +216,15 @@ class AdmService:
             if field not in body:
                 continue
             value = body[field]
-            if field in {"amount", "originalAmount"}:
+            if field in {"amount", "originalAmount", "originalAmountCny", "amountCny"}:
                 value = money(value)
+            elif field == "ticketCount":
+                if value in (None, ""):
+                    value = None
+                elif not str(value).isdigit() or int(value) > 2147483647:
+                    raise AdmError("票号数量须为非负整数，最多2147483647")
+                else:
+                    value = int(value)
             elif field == "analysis":
                 if not isinstance(value, dict) or any(key not in ANALYSIS_FIELDS for key in value):
                     raise AdmError("分析字段无效")
@@ -268,7 +256,7 @@ class AdmService:
                     date.fromisoformat(value)
                 except ValueError:
                     raise AdmError("下发日期须为YYYY-MM-DD") from None
-            if field == "deadline" and value:
+            if field in {"deadline", "recoveryDeadline"} and value:
                 try:
                     if len(value) == 10:
                         date.fromisoformat(value)
@@ -285,6 +273,10 @@ class AdmService:
                 raise AdmError("币种须为三位大写代码")
             if field == "businessType" and value not in {"ISSUE", "REFUND", "CHANGE", "UNKNOWN"}:
                 raise AdmError("业务类型无效")
+            if field == "businessCategory" and value not in {"", "0", "1", "2"}:
+                raise AdmError("业务大类须为票务、业务、客服或留空")
+            if field in {"admNo", "supplierCode"} and len(value) > (100 if field == "admNo" else 200):
+                raise AdmError("ADM号最多100字，下发方编码最多200字")
             if field == "matchStatus" and value not in {"UNVERIFIED", "OURS", "NOT_OURS"}:
                 raise AdmError("订单归属无效")
             if field == "appealDecision" and value not in {"UNDECIDED", "REQUIRED", "NOT_REQUIRED"}:
@@ -294,15 +286,25 @@ class AdmService:
 
     def config_info(self, user):
         require(user, "adm.view")
-        self._all()
+        try:
+            self.store.check()
+        except StoreUnavailable as exc:
+            raise AdmError(str(exc), 503, exc.code) from exc
+        people_provider = self.config.get("ADM_WORKFLOW_USER_OPTIONS")
+        people = people_provider() if callable(people_provider) and any(has(user, p) for p in ("adm.assign", "adm.handle")) else {}
+        assignees = people.get("handle", [])
+        if not people and has(user, "adm.assign") and callable(self.config.get("ADM_USER_OPTIONS")):
+            assignees = self.config["ADM_USER_OPTIONS"]()
         return {
             "storageMode": self.store.mode,
             "available": True,
-            "capabilities": {"orders": False, "finance": False, "notifications": False},
+            "capabilities": {"orders": False, "finance": False, "notifications": False, "inAppWorklist": True},
             "caseStatuses": CASE_STATUSES,
             "lineStatuses": LINE_STATUSES,
             "businessTypes": ["ISSUE", "REFUND", "CHANGE", "UNKNOWN"],
             "attachmentCategories": CATEGORIES,
+            "assignees": assignees if has(user, "adm.assign") else [],
+            "people": people,
         }
 
     def _public_attachment(self, item):
@@ -310,6 +312,8 @@ class AdmService:
 
     def _present(self, user, source, detail=True):
         case = copy.deepcopy(source)
+        case["legacyCoordination"] = "coordinatorId" not in source
+        case["coordinatorId"] = source.get("coordinatorId", source["createdBy"])
         full = self._full(user, source)
         visible = self._visible_lines(user, source)
         ids = {line["id"] for line in visible}
@@ -323,7 +327,11 @@ class AdmService:
         case["completedCount"] = sum(line["status"] == "COMPLETED" for line in case["lines"])
         case["attachmentCount"] = len(case["attachments"])
         case["allowedActions"] = []
-        if full and source["status"] != "CLOSED":
+        if case.get("historicalArchive"):
+            case["allowedActions"] = ["copy"] if full and has(user, "adm.create") else []
+            if full and user.get("is_admin") and has(user, "adm.edit"):
+                case["allowedActions"].append("upload")
+        elif full and source["status"] != "CLOSED":
             actions = {"copy": "adm.create"}
             if not source.get("voided"):
                 if source.get("paused"):
@@ -336,6 +344,7 @@ class AdmService:
                             "void": "adm.edit",
                             "addLine": "adm.edit",
                             "upload": "adm.edit",
+                            "coordinator": "adm.assign",
                         }
                     )
                     if source["status"] == "DRAFT":
@@ -350,6 +359,10 @@ class AdmService:
                 line.pop("source", None)
             line["attachments"] = [item for item in case["attachments"] if item.get("lineId") == line["id"]]
             line["allowedActions"] = self._line_actions(user, source, line)
+            line["uploadCategories"] = (
+                ["FINANCE"] if line["status"] == "WAITING_FINANCE" else
+                ["VERIFICATION", "ANALYSIS"] if line["status"] == "PENDING_REVIEW" else CATEGORIES
+            ) if "upload" in line["allowedActions"] else []
         case["closureCheck"] = (
             (
                 self._closure(source)
@@ -362,8 +375,9 @@ class AdmService:
         case.pop("idempotencyKey", None)
         case.pop("requestHash", None)
         if not full:
-            case.update(originalAmount=None, remark="", description="", analysis={}, snapshots=[], analysisVersions=[])
+            case.update(originalAmount=None, originalAmountCny=None, ticketCount=None, remark="", description="", analysis={}, snapshots=[], analysisVersions=[])
             case.pop("source", None)
+            case.pop("history", None)
 
         def redact_internal(value):
             if isinstance(value, dict):
@@ -378,19 +392,19 @@ class AdmService:
 
         case = redact_internal(case)
         if not detail:
-            for field in ("lines", "attachments", "timeline", "snapshots", "analysisVersions", "closureCheck"):
+            for field in ("lines", "attachments", "timeline", "snapshots", "analysisVersions", "closureCheck", "source", "history"):
                 case.pop(field, None)
         return case
 
     def _line_actions(self, user, case, line):
-        if case["status"] == "CLOSED" or case.get("paused") or case.get("voided"):
+        if case["status"] in {"CLOSED", "HISTORICAL"} or case.get("paused") or case.get("voided"):
             return []
         result = []
         if line["status"] == "PENDING_ASSIGN" and self._full(user, case) and has(user, "adm.edit"):
             result.append("edit")
         if case["status"] == "DRAFT":
             return result
-        if has(user, "adm.assign") and self._full(user, case):
+        if has(user, "adm.assign") and self._full(user, case) and line["status"] in {"PENDING_ASSIGN", "PENDING_ACCEPT", "PROCESSING"}:
             result.append("assign")
         mine = str(line.get("ownerId")) == identity(user)
         if mine and has(user, "adm.handle"):
@@ -402,12 +416,16 @@ class AdmService:
                 elif line.get("lockedBy") is None:
                     result.append("lock")
         if line["status"] == "PENDING_REVIEW" and has(user, "adm.review"):
-            result += ["approve", "return"]
+            reviewer = (line.get("workflow") or {}).get("reviewerId")
+            if (not reviewer or str(reviewer) == identity(user) or user.get("is_admin")) and (not mine or self.config.get("ADM_ALLOW_SELF_REVIEW", False)):
+                result += ["approve", "return", "upload"]
         if line["status"] == "WAITING_FINANCE" and has(user, "adm.finance.confirm"):
-            result.append("finance_confirm")
+            finance_owner = (line.get("workflow") or {}).get("financeOwnerId")
+            if not finance_owner or str(finance_owner) == identity(user) or user.get("is_admin"):
+                result += ["finance_confirm", "upload"]
         if has(user, "adm.unlock.force"):
             result.append("unlock")
-        return result
+        return result + role_actions(user, case, line, self._full(user, case))
 
     def list_cases(self, user, filters):
         require(user, "adm.view")
@@ -421,16 +439,27 @@ class AdmService:
             page, size = max(1, int(filters.get("page", 1))), min(100, max(1, int(filters.get("pageSize", 20))))
         except (ValueError, TypeError):
             raise AdmError("分页参数无效") from None
+        if scope == "all":
+            try:
+                cases, summary = self.store.page_all(filters, page, size, now())
+            except StoreUnavailable as exc:
+                raise AdmError(str(exc), 503, exc.code) from exc
+            return {"items": [self._present(user, case, detail=False) for case in cases],
+                    "pagination": {"page": page, "pageSize": size, "total": summary["cases"]}, "summary": summary}
         items = []
         keyword = str(filters.get("search", "")).strip().lower()
         for case in self._all():
+            if str(filters.get("activeOnly", "")).lower() == "true" and case["status"] in {"CLOSED", "HISTORICAL"}:
+                continue
             if (
                 scope != "all"
-                and str(case["createdBy"]) not in ids
-                and not any(str(line.get("ownerId")) in ids for line in case["lines"])
+                and str(case.get("coordinatorId", case["createdBy"])) not in ids
+                and not any(associated_ids(line) & ids for line in case["lines"])
             ):
                 continue
             if filters.get("status") and case["status"] != filters["status"]:
+                continue
+            if any(filters.get(key) not in (None, "") and str(case.get(key, "")) != str(filters[key]) for key in ("businessCategory", "supplierCode")):
                 continue
             public = self._present(user, case, detail=False)
             searchable = {
@@ -460,9 +489,9 @@ class AdmService:
         summary = {
             "cases": len(items),
             "lines": sum(item["lineCount"] for item in items),
-            "open": sum(item["status"] != "CLOSED" and not item.get("voided") for item in items),
+            "open": sum(item["status"] not in {"CLOSED", "HISTORICAL"} and not item.get("voided") for item in items),
             "overdue": sum(
-                bool(deadline_expired(item.get("deadline")) and item["status"] != "CLOSED" and not item.get("voided"))
+                bool(deadline_expired(item.get("deadline")) and item["status"] not in {"CLOSED", "HISTORICAL"} and not item.get("voided"))
                 for item in items
             ),
         }
@@ -477,7 +506,7 @@ class AdmService:
             "summary": summary,
         }
 
-    def create_case(self, user, body):
+    def create_case(self, user, body, history=None):
         require(user, "adm.create")
         require(user, "adm.view")
         fields = self._clean(body, CASE_FIELDS)
@@ -490,6 +519,8 @@ class AdmService:
             "paused": False,
             "voided": False,
             "createdBy": identity(user),
+            "coordinatorId": identity(user),
+            "coordinatorName": user.get("display_name") or user.get("username") or identity(user),
             "createdAt": now(),
             "updatedAt": now(),
             "lines": [],
@@ -503,6 +534,8 @@ class AdmService:
             **fields,
         }
         case["originalAmount"] = fields.get("originalAmount")
+        case["originalAmountCny"] = fields.get("originalAmountCny")
+        case["ticketCount"] = fields.get("ticketCount")
         if "source" in body:
             if not isinstance(body["source"], dict) or len(json.dumps(body["source"], ensure_ascii=False)) > 100000:
                 raise AdmError("来源快照格式或大小无效")
@@ -515,20 +548,30 @@ class AdmService:
         ):
             raise AdmError("初始明细须为对象数组，最多1000条")
         for initial_line in initial_lines:
-            case["lines"].append(self._new_line(case, initial_line))
+            case["lines"].append(self._new_line(case, initial_line, historical=history is not None))
         case["requestHash"] = hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
-        self._event(user, case, "create", {"sourceCaseId": body.get("sourceCaseId")})
+        if history is not None:
+            if not user.get("is_admin"):
+                raise AdmError("历史归档导入仅限管理员", 403)
+            case.update(historicalArchive=True, history=copy.deepcopy(history), status="HISTORICAL")
+        self._event(user, case, "history_import" if history is not None else "create", {"sourceCaseId": body.get("sourceCaseId")})
         key = body.get("idempotencyKey")
         if key and (not isinstance(key, str) or len(key) > 150):
             raise AdmError("幂等键无效")
         key = f"{identity(user)}:{key}" if key else None
+        if history is not None:
+            key = "history:" + history["sourceKey"]
         try:
             created = self.store.create(case, key)
         except Conflict as exc:
             raise AdmError(str(exc), 409, "ADM_CONFLICT") from exc
         except StoreUnavailable as exc:
-            raise AdmError(str(exc), 503, "ADM_UNAVAILABLE") from exc
+            raise AdmError(str(exc), 503, exc.code) from exc
         result = self._present(user, created)
+        try:
+            duplicates = self.store.same_identity(created)
+        except StoreUnavailable as exc:
+            raise AdmError(str(exc), 503, exc.code) from exc
         result["duplicateCandidates"] = [
             {
                 "id": item["id"],
@@ -537,7 +580,7 @@ class AdmService:
                 "originalAmount": item["originalAmount"],
                 "status": item["status"],
             }
-            for item in self._all()
+            for item in duplicates
             if item["id"] != created["id"]
             and item["admNo"] == created["admNo"]
             and item["supplierName"] == created["supplierName"]
@@ -589,13 +632,37 @@ class AdmService:
         case["lines"].append(line)
         return self._save(user, case, "add_line", {"line": copy.deepcopy(line)}, line["id"])
 
-    def _new_line(self, case, body):
+    def bulk_assign(self, user, case_id, body):
+        case = self._write(user, case_id, body, "adm.assign", True)
+        ids = body.get("lineIds")
+        if not isinstance(ids, list) or not 1 <= len(ids) <= 100 or any(not isinstance(item, str) for item in ids) or len(set(ids)) != len(ids):
+            raise AdmError("批量分配请选择1—100条不同明细")
+        for line_id in ids:
+            self._line(case, line_id)
+        outcomes = []
+        version = case["version"]
+        for line_id in ids:
+            try:
+                result = self.line_action(user, case_id, line_id, {"version": version, "action": "assign", "ownerId": body.get("ownerId"), "reason": body.get("reason"), "summary": body.get("summary")})
+                version = result["version"]
+                saved_line = next(item for item in result["lines"] if item["id"] == line_id)
+                outcomes.append({"lineId": line_id, "status": "SAVED", "handoverPending": (saved_line.get("handover") or {}).get("status") == "PENDING"})
+            except AdmError as error:
+                outcomes.append({"lineId": line_id, "status": "FAILED", "message": str(error), "code": error.code})
+                if error.code == "ADM_VERSION_CONFLICT":
+                    outcomes.extend({"lineId": item, "status": "SKIPPED", "message": "版本变化，未继续处理"} for item in ids[len(outcomes):])
+                    break
+        return {"items": outcomes, "successCount": sum(item["status"] == "SAVED" for item in outcomes), "failedCount": sum(item["status"] != "SAVED" for item in outcomes)}
+
+    def _new_line(self, case, body, historical=False):
         line = {
             **{key: "" for key in LINE_FIELDS},
             "id": uid(),
             "businessType": "UNKNOWN",
             "currency": case["currency"],
             "amount": None,
+            "amountCny": None,
+            "ticketCount": None,
             "status": "PENDING_ASSIGN",
             "ownerId": None,
             "ownerName": "",
@@ -619,6 +686,10 @@ class AdmService:
         }
         if isinstance(body.get("source"), dict):
             line["source"] = copy.deepcopy(body["source"])
+        # No approved recovery SLA yet: absence is unknown, not an invented +48h deadline.
+        if historical:
+            line["status"] = "HISTORICAL"
+            line["finance"]["status"] = "HISTORICAL_UNVERIFIED"
         return line
 
     def update_line(self, user, case_id, line_id, body):
@@ -669,6 +740,8 @@ class AdmService:
 
     def _submission_blockers(self, case, line):
         blockers = []
+        if (line.get("handover") or {}).get("status") == "PENDING":
+            blockers.append("仍有待确认交接，请先接受、驳回或取消")
         for key, label in [
             ("description", "问题描述"),
             ("platform", "平台"),
@@ -718,6 +791,8 @@ class AdmService:
 
     def line_action(self, user, case_id, line_id, body):
         action = body.get("action")
+        if action in WORKFLOW_ACTIONS:
+            return WorkflowService(self).line_action(user, case_id, line_id, body)
         permissions = {
             "lock": "adm.handle",
             "assign": "adm.assign",
@@ -742,6 +817,9 @@ class AdmService:
         if action == "assign":
             if line["status"] in {"COMPLETED", "WAITING_FINANCE"}:
                 raise AdmError("审核完成明细需先重开或退回", 409)
+            if line.get("ownerId"):
+                detail = WorkflowService(self).request_transfer(user, case, line, body)
+                return self._save(user, case, "transfer_request", detail, line_id)
             owner = str(body.get("ownerId") or "")
             if not owner:
                 raise AdmError("请选择处理人")
@@ -750,6 +828,10 @@ class AdmService:
                 selected = resolver(owner)
                 if not selected or not selected.get("is_enabled", True):
                     raise AdmError("处理人不存在或停用")
+                if not has(selected, "adm.view") or not has(selected, "adm.handle"):
+                    raise AdmError("处理人尚未配置ADM查看和处理权限，请先在账号管理授权")
+                if not selected.get("is_admin") and "adm.center" not in (selected.get("menu_codes") or []):
+                    raise AdmError("处理人尚未配置ADM菜单权限")
                 owner_name = selected.get("display_name") or selected.get("username") or owner
             elif self.config.get("TESTING"):
                 owner_name = owner
@@ -758,8 +840,10 @@ class AdmService:
             if line.get("ownerId") and not body.get("reason"):
                 raise AdmError("转单须填写原因")
             line.update(ownerId=owner, ownerName=owner_name, status="PENDING_ACCEPT", lockedBy=None)
+            segment_assign(case, line, str(body.get("reason") or "首次分配"))
         elif action == "claim":
             line.update(status="PROCESSING", lockedBy=identity(user), acceptedAt=now())
+            segment_accept(case, line)
         elif action == "lock":
             line["lockedBy"] = identity(user)
         elif action == "unlock":
@@ -838,6 +922,11 @@ class AdmService:
                 verification="NOT_CONNECTED",
             )
         audit = {key: value for key, value in body.items() if key not in {"version", "action"}}
+        if line["status"] == "COMPLETED":
+            line["completedAt"] = now()
+            for segment in line.get("assignmentSegments", []):
+                if not segment.get("endedAt"):
+                    segment["endedAt"] = line["completedAt"]
         return self._save(user, case, action, audit, line_id)
 
     def _recovery(self, user, case, line, body):
@@ -1029,6 +1118,8 @@ class AdmService:
 
     def case_action(self, user, case_id, body):
         action = body.get("action")
+        if action == "coordinator":
+            return WorkflowService(self).coordinate(user, case_id, body)
         if action not in {"publish", "pause", "resume", "void", "close", "reopen"}:
             raise AdmError("主单操作无效")
         permission = {"close": "adm.close", "reopen": "adm.reopen"}.get(action, "adm.edit")
@@ -1089,7 +1180,6 @@ class AdmService:
         )
 
     def add_attachment(self, user, case_id, body):
-        case = self._write(user, case_id, body, "adm.edit" if has(user, "adm.edit") else "adm.handle")
         attachment = body.get("attachment")
         if not isinstance(attachment, dict) or not all(
             attachment.get(key) for key in ("id", "name", "category", "storageKey", "sha256")
@@ -1098,16 +1188,25 @@ class AdmService:
         if attachment["category"] not in CATEGORIES:
             raise AdmError("附件分类无效")
         line_id = attachment.get("lineId")
+        permission = "adm.edit" if has(user, "adm.edit") else "adm.handle"
+        if line_id and not has(user, "adm.edit"):
+            current = self._read(user, case_id)
+            current_line = self._line(current, line_id)
+            if current_line["status"] == "PENDING_REVIEW":
+                permission = "adm.review"
+            elif current_line["status"] == "WAITING_FINANCE":
+                permission = "adm.finance.confirm"
+        case = self._write(user, case_id, body, permission, control_action="archive_attachment")
         if line_id:
             line = self._line(case, line_id)
             self._line_access(user, case, line)
-            if not self._full(user, case) and (
-                str(line.get("ownerId")) != identity(user)
-                or line["status"] != "PROCESSING"
-                or line.get("lockedBy") != identity(user)
-            ):
-                raise AdmError("仅处理本人明细时可上传", 403)
-        elif not self._full(user, case):
+            if not (self._full(user, case) and has(user, "adm.edit")):
+                if "upload" not in self._line_actions(user, case, line):
+                    raise AdmError("当前节点无明细材料上传权限", 403)
+                permitted = ["FINANCE"] if line["status"] == "WAITING_FINANCE" else ["VERIFICATION", "ANALYSIS"] if line["status"] == "PENDING_REVIEW" else CATEGORIES
+                if attachment["category"] not in permitted:
+                    raise AdmError("此节点仅允许上传对应审核/财务材料", 403)
+        elif not (self._full(user, case) and has(user, "adm.edit")):
             raise AdmError("无主单材料上传权限", 403)
         if any(item["id"] == attachment["id"] for item in case["attachments"]):
             raise AdmError("附件ID重复", 409)
@@ -1119,6 +1218,8 @@ class AdmService:
             + sum(item["name"] == attachment["name"] and item.get("lineId") == line_id for item in case["attachments"]),
         )
         case["attachments"].append(metadata)
+        if case.get("historicalArchive"):
+            case["history"]["attachmentState"] = "MANUALLY_SUPPLEMENTED"
         return self._save(
             user,
             case,

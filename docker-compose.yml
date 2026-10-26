@@ -23,6 +23,9 @@ services:
       COMPREHENSIVE_MAX_ROWS: ${COMPREHENSIVE_MAX_ROWS:-1000000}
       COMPREHENSIVE_EXPORT_ROOT: /app/var/comprehensive-exports
       ADM_STORAGE_MODE: mysql
+      HR_MAIL_ROOT: /app/var/hr-mail
+      HR_MAIL_SEND_ENABLED: ${HR_MAIL_SEND_ENABLED:-false}
+      HR_MAIL_UPLOAD_BYTES: ${HR_MAIL_UPLOAD_BYTES:-20971520}
       ADM_MYSQL_HOST: ${ADM_MYSQL_HOST:-}
       ADM_MYSQL_PORT: ${ADM_MYSQL_PORT:-}
       ADM_MYSQL_DATABASE: ${ADM_MYSQL_DATABASE:-}
@@ -32,6 +35,8 @@ services:
       ADM_IMPORT_ROOT: /app/var/adm/imports
       ADM_ATTACHMENT_MAX_BYTES: ${ADM_ATTACHMENT_MAX_BYTES:-20971520}
       ADM_IMPORT_MAX_ROWS: ${ADM_IMPORT_MAX_ROWS:-10000}
+      ADM_ALLOW_SELF_REVIEW: ${ADM_ALLOW_SELF_REVIEW:-false}
+      ADM_WORKFLOW_MAX_CASES: ${ADM_WORKFLOW_MAX_CASES:-5000}
       DATA_WORKBENCH_DIR: /app/var/data-workbench
       COMPREHENSIVE_EXPORT_RETENTION_HOURS: ${COMPREHENSIVE_EXPORT_RETENTION_HOURS:-24}
       MYSQL_POOL_MIN_CACHED: ${MYSQL_POOL_MIN_CACHED:-2}
@@ -108,6 +113,7 @@ services:
       - comprehensive_export_data:/app/var/comprehensive-exports
       - adm_data:/app/var/adm
       - data_workbench_data:/app/var/data-workbench
+      - hr_mail_data:/app/var/hr-mail
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5160/api/health', timeout=3)"]
@@ -225,6 +231,7 @@ services:
       start_period: 10s
 
 volumes:
+  hr_mail_data:
   adm_data:
   risk_upload_data:
   comprehensive_export_data:

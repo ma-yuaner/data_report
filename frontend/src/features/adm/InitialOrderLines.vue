@@ -4,7 +4,7 @@
     <p class="adm-muted">可先存主单，也可在这里逐条录入。每条订单独立说明，保存后分别分配、上传附件和处理。</p>
     <details v-for="(line, index) in model" :key="line._draftKey" :open="line._draftKey === expanded">
       <summary>订单 {{ index + 1 }} · {{ line.orderNo || line.ticketNo || '待填写' }}</summary>
-      <div class="adm-form-grid">
+      <FormGrid>
         <label>业务类型<a-select v-model:value="line.businessType" :options="businessTypes" /></label>
         <label v-for="field in identifiers" :key="field[0]"
           >{{ field[1] }}<a-input v-model:value="line[field[0]]" :maxlength="200"
@@ -26,7 +26,7 @@
             :maxlength="10000"
             placeholder="仅记录计划，不代表已处理或已结案"
         /></label>
-      </div>
+      </FormGrid>
       <a-button danger type="text" :disabled="disabled" @click="remove(index)">移除本条未保存订单</a-button>
     </details>
     <a-button block :disabled="disabled || model.length >= 1000" @click="add">＋ 添加订单</a-button>
@@ -34,6 +34,7 @@
 </template>
 <script setup lang="ts">
 import { ref } from 'vue'
+import FormGrid from '@/components/FormGrid.vue'
 import type { Fields } from './api'
 const model = defineModel<Fields[]>({ required: true })
 const props = defineProps<{ currency: string; disabled?: boolean }>()

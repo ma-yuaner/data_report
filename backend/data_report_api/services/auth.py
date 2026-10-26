@@ -68,6 +68,8 @@ BUSINESS_ROLE_CATALOG = (
     {"code": "POLICY_OPERATOR", "name": "智能业务执行员", "description": "认领已审核任务并登记投放结果"},
 )
 PERMISSION_CATALOG = (
+    {"code": "hr.mail.upload", "name": "上传解析HR报表", "description": "上传考勤与部门映射并生成邮件预览", "menuCode": "hr.mail"},
+    {"code": "hr.mail.send", "name": "确认发送HR邮件", "description": "逐部门预览并最终确认后发送", "menuCode": "hr.mail"},
     {"code": "adm.view", "name": "查看ADM", "description": "查看授权范围ADM及订单明细", "menuCode": "adm.center"},
     {"code": "adm.create", "name": "新建ADM", "description": "新建或引用新建主单", "menuCode": "adm.center"},
     {"code": "adm.edit", "name": "编辑ADM", "description": "按状态和持单规则编辑主明细", "menuCode": "adm.center"},
@@ -143,6 +145,7 @@ MENU_CATALOG = (
     {"code": "problems", "name": "问题中心", "description": "经营问题跟踪", "groupCode": "problems", "groupName": "问题中心"},
     {"code": "data_assets", "name": "数据资产", "description": "数据资产目录", "groupCode": "data_assets", "groupName": "数据资产"},
     {"code": "data_workbench", "name": "数据加工工作台", "description": "本人数据导入、清洗、关联与结果导出", "groupCode": "data_workbench", "groupName": "数据加工"},
+    {"code": "hr.mail", "name": "HR报表邮件", "description": "考勤周月报部门预览、确认发送及历史", "groupCode": "hr", "groupName": "HR报表"},
 )
 
 LEGACY_MENU_EXPANSIONS = {

@@ -21,6 +21,7 @@
       :message="`当前存储模式：${config.storageMode}。隔离本机数据不代表生产迁移已完成。`"
       style="margin-bottom: 16px"
     />
+    <WorkflowPanel v-if="isWorkbench" :refresh-key="workflowRefresh" />
     <div class="adm-metrics">
       <div v-for="item in metrics" :key="item.key">
         <span>{{ item.title }}</span
@@ -41,6 +42,17 @@
           :options="[{ label: '全部状态', value: '' }, ...options(config?.caseStatuses)]"
       /></label>
       <label>数据范围<a-select v-model:value="scope" :options="scopes" /></label>
+      <label
+        >业务大类<a-select
+          v-model:value="businessCategory"
+          :options="[
+            { value: '', label: '全部' },
+            { value: '0', label: '票务' },
+            { value: '1', label: '业务' },
+            { value: '2', label: '客服' },
+          ]"
+      /></label>
+      <label>下发方编码<a-input v-model:value="supplierCode" allow-clear @press-enter="query" /></label>
       <a-button type="primary" :loading="loading" @click="query">查询</a-button>
       <a-button v-if="permission('import')" @click="importOpen = true">批量导入</a-button>
       <a-button v-if="permission('export')" :loading="exporting" @click="startExport('adm_cases')">导出主单</a-button>
@@ -72,7 +84,8 @@
           ><span class="adm-money">{{ record.originalAmount ?? '—' }} {{ record.currency }}</span></template
         >
         <template v-else-if="column.key === 'progress'"
-          >{{ record.completedCount ?? 0 }} / {{ record.lineCount ?? 0 }}</template
+          ><span v-if="record.historicalArchive">原状态见档案</span
+          ><span v-else>{{ record.completedCount ?? 0 }} / {{ record.lineCount ?? 0 }}</span></template
         >
         <template v-else-if="column.key === 'actions'"
           ><a-space
@@ -104,26 +117,25 @@
         >{{ title }}：{{ capabilityAvailable(config.capabilities?.[key]) ? '已接入' : '未接入' }}</span
       >
     </div>
-    <a-modal
+    <FormDialog
       v-model:open="createOpen"
       :title="copySource ? `引用 ${copySource.admNo} 新建` : '新建 ADM 主单'"
-      :width="800"
-      :confirm-loading="saving"
-      :mask-closable="false"
-      @ok="saveCreate"
+      :busy="saving"
+      :dirty="createDirty"
+      :error="createError"
+      @submit="saveCreate"
     >
-      <a-alert v-if="createError" type="error" :message="createError" show-icon style="margin-bottom: 12px" />
       <p v-if="copySource" class="adm-muted">引用基础信息，重新确认 ADM 号和金额；原单完成状态、附件事实不复制。</p>
       <CaseFields v-model="draft" />
       <InitialOrderLines v-model="initialLines" :currency="draft.currency || 'CNY'" :disabled="saving" />
-    </a-modal>
+    </FormDialog>
     <a-modal v-model:open="importOpen" title="批量导入 ADM" :width="900" :footer="null" :mask-closable="false">
-      <p>先预览再提交。首版新增主单及明细；已有单冲突将退回，不自动覆盖人工备注。</p>
+      <p>日常录入使用XLSX模板；管理员可上传ERP导出的JSON数组，作为历史只读档案。均先预览再提交，不自动覆盖已有数据。</p>
       <a-space wrap
         ><a-button @click="downloadTemplate('center')">统一模板</a-button
         ><a-button @click="downloadTemplate('java44')">Java 44 列模板</a-button
         ><a-button @click="downloadTemplate('python38')">Python 38 列模板</a-button
-        ><input type="file" accept=".xlsx,.csv" aria-label="选择导入文件" @change="selectImport" /><a-button
+        ><input type="file" accept=".xlsx,.json" aria-label="选择导入文件" @change="selectImport" /><a-button
           :loading="importBusy"
           :disabled="!importFile"
           @click="previewImport"
@@ -170,7 +182,10 @@ import { message } from 'ant-design-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
 import CaseFields from './CaseFields.vue'
+import FormDialog from '@/components/FormDialog.vue'
 import InitialOrderLines from './InitialOrderLines.vue'
+import WorkflowPanel from './WorkflowPanel.vue'
+import { createAdmKey } from './identifier'
 import { admApi, allowed, errorText, label, options, saveBlob, type AdmCase, type AdmConfig, type Fields } from './api'
 import './adm.css'
 const auth = useAuthStore(),
@@ -179,11 +194,19 @@ const auth = useAuthStore(),
 const permission = (name: string) => Boolean(auth.user?.isAdmin || auth.user?.permissions.includes(`adm.${name}`))
 const exportStore = useComprehensiveExportStore()
 const exporting = ref(false)
+const workflowRefresh = ref(0)
 async function startExport(kind: 'adm_cases' | 'adm_lines') {
   if (exporting.value) return
   exporting.value = true
   try {
-    await exportStore.createBackground(kind, { search: search.value, status: status.value, scope: scope.value })
+    await exportStore.createBackground(kind, {
+      activeOnly: isWorkbench.value,
+      search: search.value,
+      status: status.value,
+      scope: scope.value,
+      businessCategory: businessCategory.value,
+      supplierCode: supplierCode.value,
+    })
     message.success('已进入页头导出任务')
   } catch (cause) {
     message.error(errorText(cause))
@@ -192,14 +215,17 @@ async function startExport(kind: 'adm_cases' | 'adm_lines') {
   }
 }
 const isWorkbench = computed(() => route.meta.admView === 'workbench')
+const defaultScope = () => (!isWorkbench.value && permission('scope.all') ? 'all' : 'mine')
 const config = ref<AdmConfig | null>(null),
   items = ref<AdmCase[]>([]),
   summary = ref<Fields>({}),
   loading = ref(false),
   error = ref('')
 const search = ref(String(route.query.search || '')),
+  businessCategory = ref(String(route.query.businessCategory || '')),
+  supplierCode = ref(String(route.query.supplierCode || '')),
   status = ref(String(route.query.status || '')),
-  scope = ref(String(route.query.scope || 'mine')),
+  scope = ref(String(route.query.scope || defaultScope())),
   page = ref(1),
   pageSize = ref(20),
   total = ref(0)
@@ -235,8 +261,11 @@ async function load() {
   error.value = ''
   try {
     const result = await admApi.list({
+      activeOnly: isWorkbench.value,
       search: search.value,
       status: status.value,
+      businessCategory: businessCategory.value,
+      supplierCode: supplierCode.value,
       scope: scope.value,
       page: page.value,
       pageSize: pageSize.value,
@@ -245,6 +274,7 @@ async function load() {
     items.value = result.items
     total.value = result.pagination.total
     summary.value = result.summary
+    workflowRefresh.value++
   } catch (cause) {
     if (seq === request) {
       error.value = errorText(cause)
@@ -259,7 +289,13 @@ async function load() {
 function query() {
   page.value = 1
   void router.replace({
-    query: { search: search.value || undefined, status: status.value || undefined, scope: scope.value },
+    query: {
+      search: search.value || undefined,
+      status: status.value || undefined,
+      scope: scope.value,
+      businessCategory: businessCategory.value || undefined,
+      supplierCode: supplierCode.value || undefined,
+    },
   })
   void load()
 }
@@ -270,7 +306,15 @@ const createOpen = ref(false),
   saving = ref(false),
   createError = ref('')
 let createKey = ''
+const createBaseline = ref('')
+const createDirty = computed(() => JSON.stringify([draft.value, initialLines.value]) !== createBaseline.value)
 function openCreate() {
+  try {
+    createKey = createAdmKey()
+  } catch (cause) {
+    message.error(errorText(cause))
+    return
+  }
   copySource.value = null
   initialLines.value = []
   draft.value = {
@@ -282,7 +326,7 @@ function openCreate() {
     analysis: {},
   }
   createError.value = ''
-  createKey = crypto.randomUUID()
+  createBaseline.value = JSON.stringify([draft.value, initialLines.value])
   createOpen.value = true
 }
 function openCopy(source: AdmCase) {
@@ -296,6 +340,7 @@ function openCopy(source: AdmCase) {
     description: source.description,
     remark: source.remark,
   }
+  createBaseline.value = JSON.stringify([draft.value, initialLines.value])
 }
 async function saveCreate() {
   if (saving.value) return
@@ -368,8 +413,8 @@ async function previewImport() {
   importError.value = ''
   importResult.value = null
   try {
+    importKey = createAdmKey()
     importResult.value = await admApi.importPreview(importFile.value)
-    importKey = crypto.randomUUID()
   } catch (cause) {
     importError.value = errorText(cause)
   } finally {
@@ -392,7 +437,7 @@ async function commitImport() {
     }
     importResult.value = null
     importOpen.value = false
-    message.success(`已建档 ${result.successCount} 张 ADM；请补充供应原件并核实后发布`)
+    message.success(result.notice || `已建档 ${result.successCount} 张 ADM；请补充供应原件并核实后发布`)
     await load()
   } catch (cause) {
     importError.value = errorText(cause)
@@ -403,7 +448,7 @@ async function commitImport() {
 watch(
   () => route.meta.admView,
   () => {
-    scope.value = String(route.query.scope || 'mine')
+    scope.value = String(route.query.scope || defaultScope())
     query()
   },
 )
@@ -415,19 +460,25 @@ watch(
     createOpen.value = false
     importOpen.value = false
     request++
+    config.value = null
+    void loadConfig()
     void load()
   },
 )
-void admApi
-  .config()
-  .then((result) => {
-    config.value = result
-  })
-  .catch((cause) => {
-    error.value = errorText(cause)
-  })
+let configRequest = 0
+async function loadConfig() {
+  const seq = ++configRequest
+  try {
+    const result = await admApi.config()
+    if (seq === configRequest) config.value = result
+  } catch (cause) {
+    if (seq === configRequest) error.value = errorText(cause)
+  }
+}
+void loadConfig()
 void load()
 onBeforeUnmount(() => {
   request++
+  configRequest++
 })
 </script>

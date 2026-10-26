@@ -5,26 +5,23 @@
     </PageHeader>
     <a-alert class="source-banner" type="info" show-icon :message="data?.source || 'MySQL · sibebid.bi_business_profit_dimension_day'"
       :description="'CNY业务估算口径 · 不代表财务结算' + (data?.coverage.updatedAt ? ' · 最近加工：' + data.coverage.updatedAt : '')" />
-    <section class="scope-panel" aria-label="综合分析筛选">
-      <div class="section-heading"><h2>统计范围</h2><span>默认今日 · 各业务按自身发生时间统计</span></div>
-      <div class="period-fields">
+    <FilterPanel stacked :instant="false" :show-reset="false" :loading="loading" :hint="hasPending ? '条件已变更，点击查询后生效' : '时间与分析维度可组合筛选；GDS按最终出票系统；结束日期包含当天'" aria-label="综合分析筛选">
+      <template #header><h2>统计范围</h2><span>默认今日 · 各业务按自身发生时间统计</span></template>
+      <template #period>
         <a-segmented v-model:value="draft.preset" :options="periodOptions" :disabled="loading" @change="applyPreset" />
-        <div class="date-fields"><span>统计期间</span>
-          <a-date-picker v-model:value="draft.startDate" :locale="dateLocale" value-format="YYYY-MM-DD" :allow-clear="false" @change="draft.preset = 'custom'" />
-          <span>至</span><a-date-picker v-model:value="draft.endDate" :locale="dateLocale" value-format="YYYY-MM-DD" :allow-clear="false" @change="draft.preset = 'custom'" />
-        </div>
-      </div>
-      <div class="dimension-fields">
+        <DateRangeField v-model:start="draft.startDate" v-model:end="draft.endDate" :disabled="loading" @change="draft.preset = 'custom'" />
+      </template>
         <label v-for="dimension in dimensions" :key="dimension.key"><span>{{ dimension.label }}<small v-if="dimension.key === 'product'">平台内原值</small></span>
           <a-select v-model:value="draft[dimension.key]" :aria-label="dimension.label + '筛选'" :options="filterOptions(dimension.key)" show-search option-filter-prop="label" :disabled="loading || (['supplier', 'gds'].includes(dimension.key) && !data?.extendedFiltersReady)" />
         </label>
-      </div>
-      <div class="scope-actions"><span>{{ hasPending ? '条件已变更，点击查询后生效' : '时间与分析维度可组合筛选；GDS按最终出票系统；结束日期包含当天' }}</span>
+      <template #actions>
         <div><a-button data-telemetry-code="comprehensive-filter-reset" data-telemetry-name="重置筛选" :disabled="loading" @click="resetFilters"><UndoOutlined />重置</a-button><a-button type="primary" data-telemetry-code="comprehensive-filter-query" data-telemetry-name="应用筛选" data-telemetry-event="filter_apply" :loading="loading" @click="applyFilters"><SearchOutlined />查询</a-button></div>
-      </div>
+      </template>
+      <template #footer>
       <a-alert v-if="rangeError" class="range-error" type="error" show-icon :message="rangeError" />
       <a-alert v-if="data?.available && !data.extendedFiltersReady" class="range-error" type="info" show-icon message="供应商与GDS筛选待数据升级" description="所选日期须完成V3汇总及同步后启用；GDS须取最终出票系统，不以原预定系统代替。现有筛选仍可使用。" />
-    </section>
+      </template>
+    </FilterPanel>
     <div class="applied-scope"><strong>{{ applied.startDate }} 至 {{ applied.endDate }}</strong>
       <div><a-tag v-if="!scopeItems.length" color="blue">全部范围</a-tag><a-tag v-for="item in scopeItems" :key="item.key" color="blue" :closable="!loading" @close="removeDimension(item.key)">{{ item.label }}：{{ optionLabel(item.key, applied[item.key]) }}</a-tag></div>
     </div>
@@ -160,11 +157,12 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { DatePicker as ADatePicker, Drawer as ADrawer, Empty as AEmpty, Modal, message } from 'ant-design-vue'
-import dateLocale from 'ant-design-vue/es/date-picker/locale/zh_CN'
+import { Drawer as ADrawer, Empty as AEmpty, Modal, message } from 'ant-design-vue'
 import { ArrowLeftOutlined, ArrowRightOutlined, DownloadOutlined, InfoCircleOutlined, SearchOutlined, UndoOutlined } from '@ant-design/icons-vue'
 import type { EChartsCoreOption } from 'echarts/core'
 import PageHeader from '@/components/PageHeader.vue'
+import FilterPanel from '@/components/FilterPanel.vue'
+import DateRangeField from '@/components/DateRangeField.vue'
 import BaseChart from '@/components/BaseChart.vue'
 import { fetchComprehensive, fetchComprehensiveDiagnosis, fetchComprehensiveDetails, type BusinessKey, type ComparisonSortKey, type ComprehensiveData, type ComprehensiveDiagnosisData, type ComprehensiveDetailData, type ComprehensiveDetailRow, type ComprehensiveDetailValueType, type DimensionKey, type DimensionRow, type FilterScope } from '@/api/comprehensive'
 import { useAuthStore } from '@/stores/auth'
@@ -534,20 +532,8 @@ onMounted(() => { void load({ ...draft.value }) })
 <style scoped>
 .comprehensive-page { padding-bottom: 32px; }
 .source-banner, .range-error { margin-bottom: 16px; border-radius: 10px; }
-.scope-panel { padding: 18px 20px; margin-bottom: 14px; border: 1px solid #e4e9f0; border-radius: 12px; background: #fff; }
-.section-heading, .scope-actions, .comparison-toolbar, .comparison-footer, .panel-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.section-heading h2 { margin: 0; color: #26344b; font-size: 14px; }
-.section-heading > span, .scope-actions > span, .comparison-toolbar > span, .panel-title small { color: #8995a7; font-size: 11px; }
-.period-fields { margin: 16px 0; display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
-.date-fields { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; color: #6c7a91; font-size: 12px; }
-.date-fields :deep(.ant-picker) { width: 142px; }
-.dimension-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; }
-.dimension-fields label { display: grid; gap: 7px; min-width: 0; color: #64728a; font-size: 12px; }
-.dimension-fields label > span { display: flex; justify-content: space-between; }
-.dimension-fields small { color: #a4aebe; font-size: 10px; }
-.dimension-fields :deep(.ant-select) { width: 100%; }
-.scope-actions { margin-top: 16px; padding-top: 14px; border-top: 1px solid #edf0f5; }
-.scope-actions > div { display: flex; gap: 9px; }
+.comparison-toolbar, .comparison-footer, .panel-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.comparison-toolbar > span, .panel-title small { color: #8995a7; font-size: 11px; }
 .applied-scope { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 15px 1px; flex-wrap: wrap; color: #526079; font-size: 12px; }
 .summary-grid { display: grid; grid-template-columns: 1.2fr repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
 .summary-total { padding: 20px; min-width: 0; border-radius: 12px; color: #fff; background: linear-gradient(135deg, #183359, #2b67bf); }
@@ -640,6 +626,6 @@ onMounted(() => { void load({ ...draft.value }) })
 .wide-detail-table :deep(.ant-table-sticky-scroll-bar) { height: 8px !important; border-radius: 999px; background: #8096b4; }
 .key-value { color: #244c83; font-weight: 600; font-variant-numeric: tabular-nums; }
 @media (max-width: 1200px) { .summary-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } .summary-total { grid-column: 1 / -1; } }
-@media (max-width: 900px) { .dimension-fields, .summary-grid, .diagnosis-summary-grid, .diagnosis-business-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .charts-grid { grid-template-columns: minmax(0, 1fr); } .section-heading, .scope-actions { flex-wrap: wrap; } }
-@media (max-width: 560px) { .scope-panel { padding: 15px 12px; } .date-fields :deep(.ant-picker) { width: 124px; } .business-card { padding-inline: 12px; } .analysis-panel :deep(.ant-card-body) { padding: 14px 12px; } .diagnosis-summary-grid, .diagnosis-business-grid { grid-template-columns: 1fr; } .workspace-nav { align-items: flex-start; padding: 10px 14px; flex-direction: column; } .workspace-steps { width: 100%; justify-content: flex-start; } .workspace-content { padding: 14px 12px 24px; } .daily-scope, .detail-scope { align-items: flex-start; flex-direction: column; } .daily-table-toolbar { align-items: flex-start; flex-direction: column; } .daily-table-toolbar label, .daily-table-toolbar :deep(.ant-select) { width: 100%; } }
+@media (max-width: 900px) { .summary-grid, .diagnosis-summary-grid, .diagnosis-business-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .charts-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 560px) { .business-card { padding-inline: 12px; } .analysis-panel :deep(.ant-card-body) { padding: 14px 12px; } .diagnosis-summary-grid, .diagnosis-business-grid { grid-template-columns: 1fr; } .workspace-nav { align-items: flex-start; padding: 10px 14px; flex-direction: column; } .workspace-steps { width: 100%; justify-content: flex-start; } .workspace-content { padding: 14px 12px 24px; } .daily-scope, .detail-scope { align-items: flex-start; flex-direction: column; } .daily-table-toolbar { align-items: flex-start; flex-direction: column; } .daily-table-toolbar label, .daily-table-toolbar :deep(.ant-select) { width: 100%; } }
 </style>

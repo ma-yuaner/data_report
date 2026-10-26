@@ -23,6 +23,7 @@ from openpyxl.cell import WriteOnlyCell
 from ...time_utils import business_now_naive
 from ...shared.permissions import permission_codes
 from . import AdmError, AdmService
+from .service import CASE_FIELDS
 from .attachments import validate_document
 
 
@@ -37,6 +38,8 @@ CASE_COLUMNS = [
     ("deadline", "截止时间"),
     ("description", "问题描述"),
     ("remark", "备注"),
+    ("supplierCode", "下发方编码"), ("airline", "航司"), ("ticketCount", "原票号数量"),
+    ("originalAmountCny", "人民币金额"), ("businessCategory", "业务大类编码"),
 ]
 LINE_COLUMNS = [
     ("id", "明细标识"),
@@ -57,6 +60,10 @@ LINE_COLUMNS = [
     ("differenceDescription", "差异说明"),
     ("description", "问题描述"),
     ("remark", "备注"),
+    ("platformCode", "平台编码"), ("airline", "航司"), ("ticketCount", "票号数量"),
+    ("amountCny", "人民币分摊金额"), ("businessCategory", "业务大类编码"),
+    ("actualOwner", "实际责任人"), ("actualHandler", "实际处理人"),
+    ("recoveryDeadline", "编码恢复时限"), ("resolution", "处理结果说明"),
 ]
 LEGACY38 = [
     ("id", "主键ID"),
@@ -205,9 +212,16 @@ class AdmExchangeService:
         return result
 
     def _validate(self, cases: list[dict], errors: list[dict]) -> None:
+        validator = AdmService(self.config)
         for case in cases:
             if case.get("issuedDate") and re.match(r"^\d{4}-\d{2}-\d{2}T00:00:00$", case["issuedDate"]):
                 case["issuedDate"] = case["issuedDate"][:10]
+            try:
+                validator._clean(case, CASE_FIELDS)
+                for line in case["lines"]:
+                    validator._new_line(case, line)
+            except AdmError as error:
+                errors.append({"row": case["source"]["row"], "message": str(error)})
             for field in ("issuedDate", "deadline"):
                 if case.get(field):
                     try:
@@ -245,6 +259,9 @@ class AdmExchangeService:
 
     def preview(self, user: dict, file) -> dict:
         check_permission(user, "adm.import")
+        if str(file.filename or "").lower().endswith(".json"):
+            from .history import preview
+            return preview(self, user, file)
         if not str(file.filename or "").lower().endswith(".xlsx"):
             raise AdmError("请上传XLSX文件", 422, "ADM_IMPORT_TYPE")
         self.root.mkdir(parents=True, exist_ok=True)
@@ -313,7 +330,11 @@ class AdmExchangeService:
                         case = {
                             "admNo": row["adm_no"],
                             "supplierName": row["supplier_code"],
-                            "supplierType": row["supplier_type_name"],
+                            "supplierType": {"1":"PLATFORM","2":"AIRLINE","3":"SUPPLIER","平台":"PLATFORM","航司":"AIRLINE","供应商":"SUPPLIER"}.get(row["supplier_type_name"], "OTHER"),
+                            "supplierCode": row["_fields"].get("供应商编码", ""),
+                            "airline": row["airline"], "ticketCount": row["ticket_count"],
+                            "originalAmountCny": row.get("total_amount_cny", ""),
+                            "businessCategory": {"票务":"0","业务":"1","客服":"2"}.get(row["category_name"], row["category_name"]),
                             "currency": row["currency"],
                             "originalAmount": row["total_amount"],
                             "issuedDate": row["supply_issue_date"],
@@ -340,6 +361,13 @@ class AdmExchangeService:
                                     "diffType": row["diff_type_name"],
                                     "diffSecondType": row.get("diff_second_type", ""),
                                     "remark": row["remark"],
+                                    "airline": row["airline"], "ticketCount": row["ticket_count"],
+                                    "amountCny": row.get("total_amount_cny", ""),
+                                    "businessCategory": {"票务":"0","业务":"1","客服":"2"}.get(row["category_name"], row["category_name"]),
+                                    "actualOwner": row["actual_owner"], "actualHandler": row["actual_handler"],
+                                    "recoveryDeadline": row.get("pnr_recover_time", ""), "resolution": row["resolution"],
+                                    "appealReason": row["appeal_reason"],
+                                    "appealDecision": {"0":"REQUIRED","1":"NOT_REQUIRED","申诉":"REQUIRED","不申诉":"NOT_REQUIRED"}.get(row["appeal_status_name"], "UNDECIDED"),
                                 }
                             ],
                         }
@@ -417,7 +445,15 @@ class AdmExchangeService:
         outcomes = []
         for item in plan["cases"]:
             try:
-                detail = service.import_case(user, copy.deepcopy(item))
+                values = copy.deepcopy(item)
+                if plan.get("mode") == "HISTORY_ARCHIVE":
+                    check_permission(user, "adm.import")
+                    if not user.get("is_admin"):
+                        raise AdmError("历史归档仅限管理员", 403)
+                    history = values.pop("history")
+                    detail = service.create_case(user, values, history=history)
+                else:
+                    detail = service.import_case(user, values)
                 outcomes.append(
                     {
                         "admNo": detail["admNo"],
@@ -433,7 +469,7 @@ class AdmExchangeService:
             "items": outcomes,
             "successCount": sum(item["status"] != "FAILED" for item in outcomes),
             "failedCount": sum(item["status"] == "FAILED" for item in outcomes),
-            "notice": "按主单原子建档，重复提交复用来源幂等键；导入文件尚未作为下发原件，请在主单附件补充真实供应原件。",
+            "notice": "历史JSON按ERP旧id全局防重，只读归档不进入活跃待办；变更冲突不会覆盖。" if plan.get("mode") == "HISTORY_ARCHIVE" else "按主单原子建档，重复提交复用来源幂等键；导入文件尚未作为下发原件，请在主单附件补充真实供应原件。",
         }
 
 
@@ -459,6 +495,15 @@ def export_workbook(cases: list[dict], kind: str = "adm_cases") -> tuple[io.Byte
                 values = {**line, "caseKey": case["id"], "admNo": case["admNo"], "supplierName": case["supplierName"]}
                 append_text(sheet, [values.get(key) for key, _ in columns])
     content = io.BytesIO()
+    if any(case.get("history") for case in cases):
+        historical = book.create_sheet("历史原始字段")
+        append_text(historical, ["中台主单ID", "ERP旧ID", "原字段", "原值"])
+        for case in cases:
+            for key, value in case.get("history", {}).get("fields", {}).items():
+                text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+                if len(text) > 32000:
+                    raise AdmError("历史原始字段过长，不能无损导出Excel，请缩小范围并核对原始JSON", 422)
+                append_text(historical, [case["id"], case["history"]["oldId"], key, text])
     book.save(content)
     content.seek(0)
     return content, f"ADM_{'主单' if kind == 'adm_cases' else '订单明细'}_{business_now_naive():%Y%m%d_%H%M}.xlsx"

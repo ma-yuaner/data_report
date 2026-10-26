@@ -22,7 +22,7 @@
 | [上传说明](../business/air_ticketing/risk-data-upload.md) / [行为监控](../product/user-behavior-monitoring-v1.md) | 上传队列和行为采集 |
 
 <!-- BEGIN:API_ROUTES -->
-共 **154个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
+共 **164个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
 
 <a id="auth"></a>
 
@@ -232,6 +232,21 @@
 | `PUT` | `/api/v1/data-workbench/recipes/<recipe_id>` | [workbench_update_recipe](../../backend/data_report_api/api/data_workbench.py) |
 | `POST` | `/api/v1/data-workbench/recipes/<recipe_id>/copy` | [workbench_copy_recipe](../../backend/data_report_api/api/data_workbench.py) |
 
+<a id="hr_mail"></a>
+
+## HR报表邮件（hr_mail）
+
+| 方法 | 完整路径 | 处理函数 / 源码 |
+|---|---|---|
+| `GET` | `/api/v1/hr-mail/batches` | [hr_mail_history](../../backend/data_report_api/api/hr_mail.py) |
+| `POST` | `/api/v1/hr-mail/batches` | [hr_mail_parse](../../backend/data_report_api/api/hr_mail.py) |
+| `GET` | `/api/v1/hr-mail/batches/<batch_id>` | [hr_mail_detail](../../backend/data_report_api/api/hr_mail.py) |
+| `GET` | `/api/v1/hr-mail/batches/<batch_id>/files/<file_id>` | [hr_mail_file](../../backend/data_report_api/api/hr_mail.py) |
+| `GET` | `/api/v1/hr-mail/batches/<batch_id>/items/<item_id>/preview` | [hr_mail_preview](../../backend/data_report_api/api/hr_mail.py) |
+| `POST` | `/api/v1/hr-mail/batches/<batch_id>/send` | [hr_mail_confirm](../../backend/data_report_api/api/hr_mail.py) |
+| `GET` | `/api/v1/hr-mail/config` | [hr_mail_config](../../backend/data_report_api/api/hr_mail.py) |
+| `POST` | `/api/v1/hr-mail/uploads` | [hr_mail_upload](../../backend/data_report_api/api/hr_mail.py) |
+
 <a id="telemetry"></a>
 
 ## 行为采集与管理看板（telemetry）
@@ -259,8 +274,10 @@
 | `POST` | `/api/v1/adm/cases/<case_id>/lines` | [adm_add_line](../../backend/data_report_api/api/adm.py) |
 | `PATCH` | `/api/v1/adm/cases/<case_id>/lines/<line_id>` | [adm_update_line](../../backend/data_report_api/api/adm.py) |
 | `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/actions` | [adm_line_action](../../backend/data_report_api/api/adm.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/lines/bulk-assign` | [adm_bulk_assign](../../backend/data_report_api/api/adm.py) |
 | `GET` | `/api/v1/adm/cases/<case_id>/timeline` | [adm_timeline](../../backend/data_report_api/api/adm.py) |
 | `GET` | `/api/v1/adm/config` | [adm_config](../../backend/data_report_api/api/adm.py) |
+| `GET` | `/api/v1/adm/workflow/overview` | [adm_workflow_overview](../../backend/data_report_api/api/adm.py) |
 
 <a id="adm_exchange"></a>
 
