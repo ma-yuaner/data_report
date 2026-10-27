@@ -1,5 +1,5 @@
 <template>
-  <div class="adm-center">
+  <div class="page-wrap adm-center">
     <div class="adm-heading">
       <div>
         <h1>{{ isWorkbench ? 'ADM 工作台' : 'ADM 台账' }}</h1>

@@ -1,5 +1,5 @@
 <template>
-  <div class="hr-mail-page">
+  <div class="page-wrap hr-mail-page">
     <PageHeader
       eyebrow="HR REPORT MAIL"
       title="HR报表邮件"

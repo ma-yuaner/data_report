@@ -1,5 +1,5 @@
 <template>
-  <div class="adm-center">
+  <div class="page-wrap adm-center">
     <div class="adm-heading">
       <div>
         <router-link to="/adm/cases">← ADM 台账</router-link>
