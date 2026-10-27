@@ -11,7 +11,7 @@
             <a-tag :color="statusMeta(task.status).color">{{ statusMeta(task.status).label }}</a-tag>
           </header>
           <a-progress v-if="isActive(task.status)" :percent="percent(task)" :status="task.status === 'CANCEL_REQUESTED' ? 'exception' : 'active'" />
-          <div class="task-meta"><span>{{ task.message || statusMeta(task.status).label }}</span><span>{{ awaitingTotal(task) ? '处理中' : `${number(task.processedRows)} / ${number(task.totalRows)} 条` }}</span></div>
+          <div class="task-meta"><span>{{ task.message || statusMeta(task.status).label }}</span><span>{{ progressText(task) }}</span></div>
           <footer>
             <a-button v-if="task.canCancel" size="small" danger :disabled="task.status === 'CANCEL_REQUESTED'" @click="cancel(task)">
               {{ task.status === 'CANCEL_REQUESTED' ? '正在取消' : '取消任务' }}
@@ -35,6 +35,11 @@ const formatter = new Intl.NumberFormat('zh-CN')
 const number = (value: number) => formatter.format(value || 0)
 const isActive = (status: ComprehensiveExportStatus) => ['QUEUED', 'RUNNING', 'CANCEL_REQUESTED'].includes(status)
 const awaitingTotal = (task: ComprehensiveExportTask) => isActive(task.status) && !task.totalRows
+const progressText = (task: ComprehensiveExportTask) => {
+  if (awaitingTotal(task)) return '处理中'
+  const unit = task.businessType === 'hr_mail_file' ? '个文件' : '条'
+  return `${number(task.processedRows)} / ${number(task.totalRows)} ${unit}`
+}
 const percent = (task: ComprehensiveExportTask) => task.status === 'QUEUED' ? 0 : Math.min(99, Math.round(task.processedRows * 100 / Math.max(1, task.totalRows)))
 const statusMeta = (status: ComprehensiveExportStatus) => ({
   QUEUED: { label: '排队中', color: 'default' },
