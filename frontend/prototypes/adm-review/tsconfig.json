@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.app.json",
+  "compilerOptions": { "tsBuildInfoFile": "../../node_modules/.tmp/adm-review.tsbuildinfo" },
+  "include": [
+    "./**/*.ts",
+    "./**/*.vue",
+    "../../src/components/FormDialog.vue",
+    "../../src/components/FormGrid.vue",
+    "../../src/components/DateField.vue",
+    "../../src/components/AccountSelect.vue"
+  ]
+}
