@@ -10,7 +10,7 @@ import tempfile
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, time, timedelta
 
 import openpyxl
 import pandas as pd
@@ -44,15 +44,17 @@ class DeptReport:
 @dataclass
 class PersonMonthly:
     """月报中单个员工的聚合异常数据"""
-    name: str                        # 姓名（B列）
-    department: str                  # 部门（C列）
-    exception_total: int = 0         # G列 异常合计
-    late: int = 0                    # X列 迟到(次)
-    early_leave: int = 0             # Y列 早退(次)
-    makeup: int = 0                  # Z列 补卡
-    missed_card: int = 0             # AA列 缺卡
-    deduction: int | str = 0         # AB列 考勤扣罚
-    absenteeism: int = 0             # W列 旷工
+    name: str                        # 姓名（按表头读取）
+    department: str                  # 部门（按表头读取）
+    total_work_duration: str = "-"   # 总工作时长（按表头读取）
+    average_daily_work_duration: str = "-"  # 平均每日工作时长（按表头读取）
+    exception_total: int = 0         # 异常合计（按表头读取）
+    late: int = 0                    # 迟到（按表头读取）
+    early_leave: int = 0             # 早退（按表头读取）
+    makeup: int = 0                  # 补卡（按表头读取）
+    missed_card: int = 0             # 缺卡（按表头读取）
+    deduction: int | str = 0         # 考勤扣罚（按表头读取）
+    absenteeism: int = 0             # 旷工（按表头读取）
     row_index: int = 0               # Excel 行号（考勤总览）
 
 
@@ -611,6 +613,42 @@ def _safe_int_or_text(v) -> int | str:
     return _safe_int(v)
 
 
+def _duration_text(value) -> str:
+    """保留月报时长文本；兼容Excel时长/时间单元格。"""
+    if value is None:
+        return "-"
+    if isinstance(value, timedelta):
+        total_seconds = int(value.total_seconds())
+        sign = "-" if total_seconds < 0 else ""
+        seconds = abs(total_seconds)
+        hours, remainder = divmod(seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        if seconds:
+            return f"{sign}{hours}:{minutes:02d}:{seconds:02d}"
+        return f"{sign}{hours}:{minutes:02d}"
+    if isinstance(value, time):
+        return value.strftime("%H:%M:%S" if value.second or value.microsecond else "%H:%M")
+    text = str(value).strip()
+    return text or "-"
+
+
+def _header_indexes(header) -> Dict[str, int]:
+    """按去除空白后的表头定位列，避免新增列导致固定索引错位。"""
+    return {
+        re.sub(r"\s+", "", str(value)).strip(): index
+        for index, value in enumerate(header or ())
+        if value is not None and str(value).strip()
+    }
+
+
+def _header_value(row, indexes: Dict[str, int], *names):
+    for name in names:
+        index = indexes.get(re.sub(r"\s+", "", name))
+        if index is not None and index < len(row):
+            return row[index]
+    return None
+
+
 def _extract_period_from_month_filename(filename: str) -> str:
     """
     从月报文件名提取月度周期。
@@ -656,7 +694,7 @@ class MonthlyAttendanceParser:
     考勤月报专用解析器。
 
     文件结构（4 个 Sheet 页）：
-    - 考勤总览           : B姓名 / C部门 / G异常合计 / W旷工 / X迟到 / Y早退 / Z补卡 / AA缺卡 / AB扣罚
+    - 考勤总览           : 按表头读取姓名、部门、总/日均工作时长及各异常字段
     - 考勤异常人员明细   : B姓名 / C部门
     - 请假明细           : B姓名 / C部门
     - 出差或外出明细     : B姓名 / C部门
@@ -713,27 +751,49 @@ class MonthlyAttendanceParser:
         rows = self._sheet_rows(ws)
         if len(rows) < 2:
             return
+        indexes = _header_indexes(rows[0])
 
         # 第1行是表头，从第2行开始
         for excel_row_idx, row in enumerate(rows[1:], start=2):
             if not row:
                 continue
-            # B=1, C=2, G=6, W=22, X=23, Y=24, Z=25, AA=26, AB=27
-            name = str(row[1]).strip() if len(row) > 1 and row[1] else ""
-            dept = str(row[2]).strip() if len(row) > 2 and row[2] else ""
+            name_value = _header_value(row, indexes, "姓名")
+            dept_value = _header_value(row, indexes, "部门")
+            name = str(name_value).strip() if name_value else ""
+            dept = str(dept_value).strip() if dept_value else ""
             if not name or not dept:
                 continue
 
             person = PersonMonthly(
                 name=name,
                 department=dept,
-                exception_total=_safe_int(row[6] if len(row) > 6 else None),
-                absenteeism=_safe_int(row[22] if len(row) > 22 else None),
-                late=_safe_int(row[23] if len(row) > 23 else None),
-                early_leave=_safe_int(row[24] if len(row) > 24 else None),
-                makeup=_safe_int(row[25] if len(row) > 25 else None),
-                missed_card=_safe_int(row[26] if len(row) > 26 else None),
-                deduction=_safe_int_or_text(row[27] if len(row) > 27 else None),
+                total_work_duration=_duration_text(
+                    _header_value(row, indexes, "总工作时长")
+                ),
+                average_daily_work_duration=_duration_text(
+                    _header_value(row, indexes, "平均每日工作时长")
+                ),
+                exception_total=_safe_int(
+                    _header_value(row, indexes, "异常合计", "异常合计（次）", "异常合计(次)")
+                ),
+                absenteeism=_safe_int(
+                    _header_value(row, indexes, "旷工", "旷工（次）", "旷工(次)")
+                ),
+                late=_safe_int(
+                    _header_value(row, indexes, "迟到", "迟到（次）", "迟到(次)")
+                ),
+                early_leave=_safe_int(
+                    _header_value(row, indexes, "早退", "早退（次）", "早退(次)")
+                ),
+                makeup=_safe_int(
+                    _header_value(row, indexes, "补卡", "补卡（次）", "补卡(次)")
+                ),
+                missed_card=_safe_int(
+                    _header_value(row, indexes, "缺卡", "缺卡（次）", "缺卡(次)")
+                ),
+                deduction=_safe_int_or_text(
+                    _header_value(row, indexes, "考勤罚扣", "考勤扣罚")
+                ),
                 row_index=excel_row_idx,
             )
 

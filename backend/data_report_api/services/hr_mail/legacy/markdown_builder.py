@@ -239,7 +239,7 @@ def _build_monthly_signature() -> str:
 def _build_monthly_persons_table(persons: list) -> str:
     """
     生成月报异常人员表格。
-    列：序号 / 姓名 / 部门 / 异常合计 / 迟到 / 早退 / 旷工 / 缺卡 / 考勤扣罚
+    列：序号 / 姓名 / 部门 / 总工作时长 / 平均每日工作时长 / 异常合计 / 迟到 / 早退 / 旷工 / 缺卡 / 考勤扣罚
     """
     if not persons:
         return ""
@@ -249,6 +249,8 @@ def _build_monthly_persons_table(persons: list) -> str:
           <td style="text-align:center;padding:8px 10px;">{i}</td>
           <td style="padding:8px 10px;"><strong>{p.name}</strong></td>
           <td style="padding:8px 10px;">{p.department}</td>
+          <td style="text-align:center;padding:8px 10px;">{p.total_work_duration}</td>
+          <td style="text-align:center;padding:8px 10px;">{p.average_daily_work_duration}</td>
           <td style="text-align:center;padding:8px 10px;">{p.exception_total}</td>
           <td style="text-align:center;padding:8px 10px;">{p.late}</td>
           <td style="text-align:center;padding:8px 10px;">{p.early_leave}</td>
@@ -265,6 +267,8 @@ def _build_monthly_persons_table(persons: list) -> str:
       <th style="padding:10px 10px;text-align:center;font-weight:600;">序号</th>
       <th style="padding:10px 10px;text-align:left;font-weight:600;">姓名</th>
       <th style="padding:10px 10px;text-align:left;font-weight:600;">部门</th>
+      <th style="padding:10px 10px;text-align:center;font-weight:600;">总工作时长</th>
+      <th style="padding:10px 10px;text-align:center;font-weight:600;">平均每日工作时长</th>
       <th style="padding:10px 10px;text-align:center;font-weight:600;">异常合计</th>
       <th style="padding:10px 10px;text-align:center;font-weight:600;">迟到</th>
       <th style="padding:10px 10px;text-align:center;font-weight:600;">早退</th>
@@ -352,7 +356,7 @@ def build_monthly_email_html(
 <body>
 <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f2f5;padding:24px 0;">
 <tr><td>
-<div style="max-width:720px;margin:0 auto;background:white;border-radius:12px;
+<div style="max-width:960px;margin:0 auto;background:white;border-radius:12px;
              box-shadow:0 2px 16px rgba(0,0,0,0.1);overflow:hidden;">
 
   <!-- 页眉：紫色 -->
