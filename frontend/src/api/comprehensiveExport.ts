@@ -9,7 +9,7 @@ export type ComprehensiveExportStatus =
 export type ExportTaskKind = BusinessKey | 'gds_routes'
   | 'resource_governance_gds' | 'resource_governance_ota'
   | 'smart_trend_daily' | 'smart_trend_monthly' | 'smart_dimensions' | 'smart_details'
-  | 'adm_cases' | 'adm_lines'
+  | 'adm_cases' | 'adm_lines' | 'hr_mail_file'
 
 export interface ComprehensiveExportTask {
   id: string

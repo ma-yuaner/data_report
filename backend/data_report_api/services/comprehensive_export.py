@@ -44,9 +44,11 @@ SMART_DIMENSIONS_KIND = "smart_dimensions"
 SMART_DETAILS_KIND = "smart_details"
 ADM_CASES_KIND = "adm_cases"
 ADM_LINES_KIND = "adm_lines"
+HR_MAIL_FILE_KIND = "hr_mail_file"
 BACKGROUND_EXPORT_KINDS = {
     ADM_CASES_KIND,
     ADM_LINES_KIND,
+    HR_MAIL_FILE_KIND,
     GDS_ROUTE_KIND,
     RESOURCE_GDS_KIND,
     RESOURCE_OTA_KIND,
@@ -58,6 +60,7 @@ BACKGROUND_EXPORT_KINDS = {
 TASK_LABELS = {
     ADM_CASES_KIND: "ADM主单",
     ADM_LINES_KIND: "ADM订单明细",
+    HR_MAIL_FILE_KIND: "HR邮件附件",
     GDS_ROUTE_KIND: "GDS航线名单",
     RESOURCE_GDS_KIND: "GDS资源治理汇报",
     RESOURCE_OTA_KIND: "OTA渠道质量汇报",
@@ -96,6 +99,10 @@ def _require_export(user: dict[str, Any]) -> None:
 
 def _require_kind(user: dict[str, Any], kind: str) -> None:
     menu_codes = set(user.get("menu_codes") or user.get("menuCodes") or [])
+    if kind == HR_MAIL_FILE_KIND:
+        if not (_is_admin(user) or "hr.mail" in menu_codes):
+            raise PermissionError("当前账号没有HR报表邮件菜单权限")
+        return
     if kind in {ADM_CASES_KIND, ADM_LINES_KIND}:
         if not (_is_admin(user) or ("adm.center" in menu_codes and "adm.export" in permission_codes(user))):
             raise PermissionError("当前账号没有ADM导出权限")
@@ -189,6 +196,13 @@ class ComprehensiveExportStore:
     def public(row: sqlite3.Row | dict[str, Any], *, reused: bool = False) -> dict[str, Any]:
         item = dict(row)
         task_label = TASK_LABELS.get(item["business_type"])
+        if item["business_type"] == HR_MAIL_FILE_KIND:
+            try:
+                file_name = str(json.loads(item["filters_json"]).get("fileName") or "").strip()
+            except (TypeError, ValueError):
+                file_name = ""
+            if file_name:
+                task_label = f"HR邮件附件 · {file_name[:120]}"
         business_label = task_label or BUSINESS_LABELS.get(item["business_type"], item["business_type"])
         return {
             "id": item["id"],
@@ -539,6 +553,9 @@ class ComprehensiveExportService:
         _require_kind(user, row["business_type"])
         if row["business_type"] in {ADM_CASES_KIND, ADM_LINES_KIND}:
             self._validate_adm_export(user, json.loads(row["filters_json"])["_admSelection"])
+        elif row["business_type"] == HR_MAIL_FILE_KIND:
+            values = json.loads(row["filters_json"])
+            self._hr_mail_file(user, values)
         if row["status"] != "SUCCEEDED" or not row["file_path"]:
             raise ComprehensiveExportConflict("导出文件尚不可下载")
         path = Path(row["file_path"])
@@ -567,6 +584,17 @@ class ComprehensiveExportService:
 
     def _execute(self, task: dict[str, Any]) -> None:
         task_id = str(task["id"])
+        if task["business_type"] == HR_MAIL_FILE_KIND:
+            try:
+                self._copy_hr_mail_file(task)
+            except ComprehensiveExportCancelled:
+                self.store.fail(task_id, "已取消", cancelled=True)
+            except (PermissionError, ValueError) as error:
+                self.store.fail(task_id, str(error))
+            except Exception:
+                LOGGER.exception("HR mail file export failed; task_id=%s", task_id)
+                self.store.fail(task_id, "导出失败，请稍后重试")
+            return
         output_path = self.store.files / f"{task_id}.xlsx"
         try:
             if task["business_type"] == GDS_ROUTE_KIND:
@@ -604,7 +632,15 @@ class ComprehensiveExportService:
             raise ValueError("不支持的导出任务类型")
         _require_kind(user, kind)
         payload = {str(key): value for key, value in values.items() if key != "kind" and not str(key).startswith("_adm")}
-        if kind in {ADM_CASES_KIND, ADM_LINES_KIND}:
+        if kind == HR_MAIL_FILE_KIND:
+            batch_id = str(payload.get("batchId") or "").strip()
+            file_id = str(payload.get("fileId") or "").strip()
+            if not batch_id or not file_id or len(batch_id) > 100 or len(file_id) > 100:
+                raise ValueError("HR邮件附件参数无效")
+            service, _, name = self._hr_mail_file(user, {"batchId": batch_id, "fileId": file_id})
+            batch = service.get(batch_id)
+            payload = {"batchId": batch_id, "fileId": file_id, "fileName": str(name)[:200]}
+        elif kind in {ADM_CASES_KIND, ADM_LINES_KIND}:
             from .adm import AdmError
             from .adm.exchange import select_export_cases
             try:
@@ -614,8 +650,11 @@ class ComprehensiveExportService:
                 if error.status in {401, 403, 404}:
                     raise PermissionError(str(error)) from error
                 raise ValueError(str(error)) from error
-        start_date = str(payload.get("startDate") or payload.get("orderStart") or payload.get("firstDepStart") or "")
-        end_date = str(payload.get("endDate") or payload.get("orderEnd") or payload.get("firstDepEnd") or "")
+        if kind == HR_MAIL_FILE_KIND:
+            start_date = end_date = str(batch.get("period") or batch.get("createdAt") or "")[:100]
+        else:
+            start_date = str(payload.get("startDate") or payload.get("orderStart") or payload.get("firstDepStart") or "")
+            end_date = str(payload.get("endDate") or payload.get("orderEnd") or payload.get("firstDepEnd") or "")
         fingerprint = self._fingerprint(_user_id(user), kind, start_date, end_date, payload)
         task = self.store.create(
             user_id=_user_id(user), requested_by=_display_name(user), fingerprint=fingerprint,
@@ -623,6 +662,39 @@ class ComprehensiveExportService:
         )
         self._start_worker()
         return task
+
+    def _hr_mail_file(self, user: dict[str, Any], values: dict[str, Any]):
+        from .hr_mail.service import Service as HrMailService
+        from .hr_mail.store import MailError
+
+        try:
+            service = HrMailService(self.config, user)
+            path, name = service.file(str(values.get("batchId") or ""), str(values.get("fileId") or ""))
+            return service, path, name
+        except MailError as error:
+            if error.status in {401, 403, 404}:
+                raise PermissionError(str(error)) from error
+            raise ValueError(str(error)) from error
+
+    def _copy_hr_mail_file(self, task: dict[str, Any]) -> None:
+        task_id = str(task["id"])
+        if self.store.cancellation_requested(task_id):
+            raise ComprehensiveExportCancelled()
+        resolver = self.config.get("HR_MAIL_USER_RESOLVER")
+        if not callable(resolver):
+            raise PermissionError("HR邮件附件导出缺少可信账号解析器")
+        actor = resolver(int(task["user_id"]))
+        if not actor or not actor.get("is_enabled", True):
+            raise PermissionError("账号已停用或不存在")
+        _, source, name = self._hr_mail_file(actor, json.loads(task["filters_json"]))
+        suffix = source.suffix.lower()
+        output_path = self.store.files / f"{task_id}{suffix}"
+        shutil.copyfile(source, output_path)
+        if self.store.cancellation_requested(task_id):
+            output_path.unlink(missing_ok=True)
+            raise ComprehensiveExportCancelled()
+        self.store.set_total(task_id, 1)
+        self.store.finish(task_id, output_path, name, 1)
 
     def _write_gds_routes(self, task: dict[str, Any], output_path: Path) -> None:
         from .gds_route_analysis import GdsRouteAnalysisService

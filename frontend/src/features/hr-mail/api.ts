@@ -4,7 +4,6 @@ import type {
   HistoryQuery,
   HistoryResult,
   MailConfig,
-  MailFile,
   MailPreview,
   ReportType,
   Upload,
@@ -31,6 +30,12 @@ export function privateFileUrl(url: string): string {
   }
   return parsed.pathname
 }
+export function privateFileScope(url: string): { batchId: string; fileId: string } {
+  const pathname = privateFileUrl(url)
+  const match = pathname.match(/^\/api\/v1\/hr-mail\/batches\/([^/]+)\/files\/([^/]+)$/)
+  if (!match) throw new Error('附件地址无效，请刷新批次后重试')
+  return { batchId: decodeURIComponent(match[1]!), fileId: decodeURIComponent(match[2]!) }
+}
 export const hrMailApi = {
   config: () => unwrap<MailConfig>(http.get(`${base}/config`)),
   upload: (file: File, kind: UploadKind) => {
@@ -47,16 +52,4 @@ export const hrMailApi = {
     unwrap<MailPreview>(http.get(`${batchPath(batchId)}/items/${encodeURIComponent(itemId)}/preview`)),
   send: (id: string, version: number, selectedIds: string[], previewReceipts: Record<string, string>) =>
     unwrap<Batch>(http.post(`${batchPath(id)}/send`, { version, selectedIds, previewReceipts, confirmed: true })),
-  download: async (file: MailFile, stillAllowed: () => boolean) => {
-    // http already has /api as its baseURL.
-    const url = privateFileUrl(file.url).slice(4)
-    const response = await http.get<Blob>(url, { responseType: 'blob' })
-    if (!stillAllowed()) return
-    const objectUrl = URL.createObjectURL(response.data)
-    const link = document.createElement('a')
-    link.href = objectUrl
-    link.download = file.name
-    link.click()
-    setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
-  },
 }

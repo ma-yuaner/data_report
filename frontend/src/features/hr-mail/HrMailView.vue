@@ -241,7 +241,7 @@
 
     <FormDialog
       v-model:open="previewOpen"
-      title="部门邮件与附件预览"
+      title="部门邮件完整预览与附件核对"
       :width="1000"
       :busy="false"
       :error="previewError"
@@ -266,14 +266,17 @@
                   type="link"
                   :loading="downloading === preview.attachment.url"
                   @click="download(preview.attachment)"
-                  >{{ preview.attachment.name }} · 下载核对</a-button
+                  >{{ preview.attachment.name }} · 加入导出任务</a-button
                 ><code v-if="preview.attachment.sha256">SHA256 {{ preview.attachment.sha256 }}</code></template
               ><span v-else>无附件</span>
             </dd>
           </dl>
-          <p class="muted">
-            以下为隔离预览；脚本、链接跳转与远程资源已禁用，服务器邮件快照不会被修改。请同时下载核对部门附件范围。
-          </p>
+          <a-alert
+            type="info"
+            show-icon
+            message="邮件正文为完整内容，预览区域可滚动；附件不在弹窗中截取展示，请通过页头“导出任务”下载完整原件核对。"
+          />
+          <p class="muted">脚本、链接跳转与远程资源已禁用，服务器邮件快照不会被修改。</p>
           <iframe
             title="邮件HTML正文预览"
             class="mail-frame"

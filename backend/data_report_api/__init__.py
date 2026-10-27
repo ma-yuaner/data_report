@@ -102,6 +102,10 @@ def create_app(config: type[Config] = Config, auth_store=None) -> Flask:
         configured = manager.initialize()
         app.extensions["auth_manager"] = manager
         app.extensions["auth_configured"] = configured
+        def resolve_hr_mail_user(user_id):
+            return manager.store.get_user_by_id(int(user_id))
+
+        app.config["HR_MAIL_USER_RESOLVER"] = resolve_hr_mail_user
         def resolve_adm_user(user_id):
             user = manager.store.get_user_by_id(int(user_id))
             if user and "adm.scope.team" in set(user.get("permissions") or []):
