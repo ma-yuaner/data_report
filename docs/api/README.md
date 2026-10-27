@@ -22,7 +22,7 @@
 | [上传说明](../business/air_ticketing/risk-data-upload.md) / [行为监控](../product/user-behavior-monitoring-v1.md) | 上传队列和行为采集 |
 
 <!-- BEGIN:API_ROUTES -->
-共 **175个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
+共 **177个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
 
 <a id="auth"></a>
 
@@ -155,6 +155,8 @@
 | `POST` | `/api/v1/smart-placement/tasks/<int:task_id>/reviews` | [review_smart_placement_task](../../backend/data_report_api/api/smart_placement.py) |
 | `POST` | `/api/v1/smart-placement/tasks/<int:task_id>/stop` | [stop_smart_placement_monitoring](../../backend/data_report_api/api/smart_placement.py) |
 | `POST` | `/api/v1/smart-placement/tasks/<int:task_id>/withdraw` | [withdraw_smart_placement_task](../../backend/data_report_api/api/smart_placement.py) |
+| `POST` | `/api/v1/smart-placement/tasks/policy-changes` | [change_placed_policies](../../backend/data_report_api/api/smart_placement.py) |
+| `POST` | `/api/v1/smart-placement/tasks/policy-changes/preview` | [change_placed_policies](../../backend/data_report_api/api/smart_placement.py) |
 | `POST` | `/api/v1/smart-placement/tasks/reviews/batch` | [batch_review_smart_placement_tasks](../../backend/data_report_api/api/smart_placement.py) |
 
 <a id="monitoring"></a>

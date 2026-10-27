@@ -176,7 +176,7 @@ docker compose up -d --build
 API统一前缀为`/api`。认证与账号管理使用`/api/auth/*`、`/api/admin/*`；业务接口主要使用`/api/v1/*`。登录后使用会话Cookie，非安全方法需携带CSRF头；JSON通常返回`success/message/data`，导出接口返回文件。具体权限、参数与错误见[完整接口目录](docs/api/README.md)及对应源码。
 
 <!-- BEGIN:API_SUMMARY -->
-当前静态登记 **175个HTTP方法/路径条目**（含认证与管理接口，不重复列自动HEAD/OPTIONS）。
+当前静态登记 **177个HTTP方法/路径条目**（含认证与管理接口，不重复列自动HEAD/OPTIONS）。
 
 | 接口领域 | 条目数 | 完整清单 |
 |---|---:|---|
@@ -186,7 +186,7 @@ API统一前缀为`/api`。认证与账号管理使用`/api/auth/*`、`/api/admi
 | 业务、风控分析与问题中心 | 17 | [analysis](docs/api/README.md#analysis) |
 | GDS/OTA资源治理与航线诊断 | 5 | [resource_governance](docs/api/README.md#resource_governance) |
 | 智能分析、导出与视图模板 | 13 | [smart_analysis](docs/api/README.md#smart_analysis) |
-| 智能投放与收单 | 17 | [smart_placement](docs/api/README.md#smart_placement) |
+| 智能投放与收单 | 19 | [smart_placement](docs/api/README.md#smart_placement) |
 | 监控、规则、事件、工单与通知 | 26 | [monitoring](docs/api/README.md#monitoring) |
 | 目标配置、进度与刷新 | 7 | [targets](docs/api/README.md#targets) |
 | 风控文件上传 | 2 | [risk_upload](docs/api/README.md#risk_upload) |

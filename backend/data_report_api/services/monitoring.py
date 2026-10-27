@@ -392,7 +392,7 @@ def _compare_condition(actual: Any, operator: str, expected: Any) -> bool:
 
 
 class MonitorRuleCompiler:
-    """Compile one successful smart-placement execution into an immutable rule version."""
+    """Compile a successful execution or its confirmed amendment into an immutable version."""
 
     def sync_smart_placement(
         self,
@@ -405,6 +405,8 @@ class MonitorRuleCompiler:
         execution: dict[str, Any],
         actor: tuple[int, str, str],
         now: datetime,
+        existing_rule: dict[str, Any] | None = None,
+        change_reason: str | None = None,
     ) -> dict[str, Any]:
         cursor.execute(
             f"SELECT id FROM {_qualified(database, TEMPLATE_TABLE)} "
@@ -503,27 +505,38 @@ class MonitorRuleCompiler:
             "ownerUserName": _clean_text(task.get("current_assignee_name")) or actor[1],
         }, ensure_ascii=False)
 
-        cursor.execute(
-            f"""
-            INSERT INTO {_qualified(database, RULE_TABLE)} (
-                rule_code,rule_name,template_id,template_code,business_type,
-                source_business_type,source_business_id,source_parent_id,
-                owner_user_id,owner_user_name,severity,status,effective_start_at,
-                effective_end_at,schedule_seconds,notify_policy_json,
-                current_version_no,created_by_id,created_by_name,created_at,
-                updated_by_id,updated_by_name,updated_at
-            ) VALUES ({','.join(['%s'] * 23)})
-            """,
-            (
-                rule_code, rule_name, int(template_id), SMART_TEMPLATE, "SMART_PLACEMENT",
-                "SMART_PLACEMENT_EXECUTION", execution_id, int(task["id"]),
-                int(task.get("current_assignee_id") or actor[0]),
-                _clean_text(task.get("current_assignee_name")) or actor[1],
-                "P1", status, effective_start, effective_end, 60, notify_policy,
-                1, actor[0], actor[1], now, actor[0], actor[1], now,
-            ),
-        )
-        rule_id = int(cursor.lastrowid)
+        version_no = int(existing_rule["current_version_no"]) + 1 if existing_rule else 1
+        if existing_rule:
+            rule_id = int(existing_rule["id"])
+            rule_code = existing_rule["rule_code"]
+            cursor.execute(
+                f"""UPDATE {_qualified(database, RULE_TABLE)} SET status=%s,
+                    effective_start_at=%s,effective_end_at=%s,current_version_no=%s,
+                    updated_by_id=%s,updated_by_name=%s,updated_at=%s WHERE id=%s""",
+                (status, effective_start, effective_end, version_no, actor[0], actor[1], now, rule_id),
+            )
+        else:
+            cursor.execute(
+                f"""
+                INSERT INTO {_qualified(database, RULE_TABLE)} (
+                    rule_code,rule_name,template_id,template_code,business_type,
+                    source_business_type,source_business_id,source_parent_id,
+                    owner_user_id,owner_user_name,severity,status,effective_start_at,
+                    effective_end_at,schedule_seconds,notify_policy_json,
+                    current_version_no,created_by_id,created_by_name,created_at,
+                    updated_by_id,updated_by_name,updated_at
+                ) VALUES ({','.join(['%s'] * 23)})
+                """,
+                (
+                    rule_code, rule_name, int(template_id), SMART_TEMPLATE, "SMART_PLACEMENT",
+                    "SMART_PLACEMENT_EXECUTION", execution_id, int(task["id"]),
+                    int(task.get("current_assignee_id") or actor[0]),
+                    _clean_text(task.get("current_assignee_name")) or actor[1],
+                    "P1", status, effective_start, effective_end, 60, notify_policy,
+                    1, actor[0], actor[1], now, actor[0], actor[1], now,
+                ),
+            )
+            rule_id = int(cursor.lastrowid)
         cursor.execute(
             f"""
             INSERT INTO {_qualified(database, VERSION_TABLE)} (
@@ -533,8 +546,8 @@ class MonitorRuleCompiler:
             ) VALUES ({','.join(['%s'] * 12)})
             """,
             (
-                rule_id, 1, rule_hash, effective_start, effective_end, "AND",
-                snapshot_text, f"投放第{attempt_no}次执行成功自动生成", "ACTIVE",
+                rule_id, version_no, rule_hash, effective_start, effective_end, "AND",
+                snapshot_text, change_reason or f"投放第{attempt_no}次执行成功自动生成", "ACTIVE",
                 actor[0], actor[1], now,
             ),
         )
@@ -566,8 +579,8 @@ class MonitorRuleCompiler:
             ) VALUES ({','.join(['%s'] * 10)})
             """,
             (
-                rule_id, version_id, "CREATE", None, status, actor[0], actor[1],
-                "投放成功后自动生成监控规则",
+                rule_id, version_id, "UPDATE" if existing_rule else "CREATE", existing_rule.get("status") if existing_rule else None, status, actor[0], actor[1],
+                change_reason or "投放成功后自动生成监控规则",
                 json.dumps({"taskId": task["id"], "executionId": execution_id}, ensure_ascii=False), now,
             ),
         )
@@ -575,7 +588,7 @@ class MonitorRuleCompiler:
             "ruleId": rule_id,
             "ruleCode": rule_code,
             "ruleVersionId": version_id,
-            "ruleVersionNo": 1,
+            "ruleVersionNo": version_no,
             "ruleStatus": status,
             "conditionCount": len(conditions),
         }
