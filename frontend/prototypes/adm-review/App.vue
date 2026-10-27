@@ -1,16 +1,7 @@
 <template>
   <div class="review-app" :class="{ 'doc-only': docOnly, 'sim-only': simOnly }">
-    <header class="topbar">
-      <div>
-        <strong>ADM 产品验收台</strong><span class="version">{{ VERSION }} · 待你审核</span>
-      </div>
-      <div class="toolbar">
-        <button @click="downloadReview">导出体验与验收记录</button
-        ><label class="file-button">导入记录<input type="file" accept=".json" @change="restoreFile" /></label
-        ><button v-if="!docOnly" @click="detach">右侧单独窗口 ↗</button
-        ><button @click="showDocs = !showDocs">{{ showDocs ? '收起说明' : '显示说明' }}</button>
-      </div>
-    </header>
+    <ReviewToolbar v-model:show-docs="showDocs" title="ADM 产品验收台" :version="VERSION"
+      :can-detach="!docOnly" @export="downloadReview" @import="restoreFile" @detach="detach" />
     <div class="sandbox">
       合成演练，不是正式系统 · 不读取账号/生产订单，不真实上传或发送 · 页面通过 ≠ 正式开发获批
       <span>演练时钟：{{ state.clock.replace('T', ' ') }}</span>
@@ -648,31 +639,9 @@
           <small>导航仅带你去页面，不替你完成任务；步骤未办完，状态校验仍会阻止跳过。</small>
         </footer>
       </section>
-      <div
-        v-if="showDocs && !docOnly && !simOnly"
-        class="separator"
-        role="separator"
-        tabindex="0"
-        aria-label="调整模拟系统和PRD宽度"
-        aria-orientation="vertical"
-        :aria-valuenow="split"
-        aria-valuemin="40"
-        aria-valuemax="70"
-        @pointerdown="startResize"
-        @keydown.left.prevent="split = Math.max(40, split - 2)"
-        @keydown.right.prevent="split = Math.min(70, split + 2)"
-      ></div>
-      <aside v-if="(showDocs && !simOnly) || docOnly" class="prd" aria-label="右侧当前页面PRD">
-        <div class="prd-heading">
-          <span>右侧 · 当前步骤 PRD</span><strong>{{ reqId(doc.id) }} · {{ doc.title }}</strong
-          ><small>{{ VERSION }} · 原型建议，待业务审核</small>
-        </div>
-        <div class="prd-tabs">
-          <button v-for="tab in docTabs" :key="tab.id" :class="{ active: docTab === tab.id }" @click="docTab = tab.id">
-            {{ tab.title }}
-          </button>
-        </div>
-        <div class="prd-content">
+      <PanelDivider v-if="showDocs && !docOnly && !simOnly" v-model="split" />
+      <PrdPanel v-if="(showDocs && !simOnly) || docOnly" v-model="docTab"
+        :title="`${reqId(doc.id)} · ${doc.title}`" :subtitle="`${VERSION} · 原型建议，待业务审核`" :tabs="docTabs">
           <p class="prototype-coverage">
             <strong>本DEMO实际范围：</strong
             >{{ actualCoverage[doc.id] || '页面、模拟操作与规则说明；正式服务端实现待你批准后另行开发。' }}
@@ -740,12 +709,11 @@
               保存只在本机。体验结束点击顶部“导出体验与验收记录”，把JSON文件发给我，我按这些意见修改，你再复验。
             </p></template
           >
-        </div>
-        <div class="prd-footer">
+        <template #footer>
           <button @click="docTab = 'comments'">对此步骤提意见</button
           ><button @click="navigate('acceptance')">查看全部覆盖项</button>
-        </div>
-      </aside>
+        </template>
+      </PrdPanel>
     </div>
     <FormDialog
       v-model:open="modal"
@@ -923,6 +891,10 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import ReviewToolbar from '../shared/ReviewToolbar.vue'
+import PrdPanel from '../shared/PrdPanel.vue'
+import PanelDivider from '../shared/PanelDivider.vue'
+import '../shared/review.css'
 import FormDialog from '../../src/components/FormDialog.vue'
 import FormGrid from '../../src/components/FormGrid.vue'
 import AccountSelect from '../../src/components/AccountSelect.vue'
@@ -1769,29 +1741,7 @@ watch(
 )
 if (docOnly && window.opener)
   window.opener.postMessage({ type: 'adm-review-ready' }, location.origin === 'null' ? '*' : location.origin)
-let stopResize: (() => void) | undefined
-function startResize(event: PointerEvent) {
-  const target = event.currentTarget as HTMLElement
-  target.setPointerCapture(event.pointerId)
-  const move = (ev: PointerEvent) => {
-    const box = target.parentElement!.getBoundingClientRect()
-    split.value = Math.max(40, Math.min(70, ((ev.clientX - box.left) / box.width) * 100))
-  }
-  const end = () => {
-    target.removeEventListener('pointermove', move)
-    target.removeEventListener('pointerup', end)
-    target.removeEventListener('pointercancel', end)
-    window.removeEventListener('blur', end)
-    stopResize = undefined
-  }
-  target.addEventListener('pointermove', move)
-  target.addEventListener('pointerup', end)
-  target.addEventListener('pointercancel', end)
-  window.addEventListener('blur', end)
-  stopResize = end
-}
 onBeforeUnmount(() => {
   window.removeEventListener('message', receive)
-  stopResize?.()
 })
 </script>

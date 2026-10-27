@@ -10,6 +10,8 @@
 
 ## 已有组件如何复用
 
+原型评审外壳另见 `frontend/prototypes/shared/README.md`：ReviewToolbar、PrdPanel、PanelDivider 及公共结构样式已由 ADM DEMO 接入。只用于隔离原型，不把模拟权限、批准或存储接入正式系统。需求先确认，后续优先复用现有组件并局部修改。
+
 | 组件 | 职责 | 已接入 |
 |---|---|---|
 | `PageHeader.vue` | 页标题、说明、主操作插槽 | 沿用既有页面，不另造标题组件 |
