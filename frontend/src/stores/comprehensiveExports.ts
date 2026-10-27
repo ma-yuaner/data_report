@@ -65,7 +65,7 @@ export const useComprehensiveExportStore = defineStore('comprehensive-exports', 
       return task
     },
     async createBackground(
-      kind: 'resource_governance_gds' | 'resource_governance_ota' | 'smart_trend_daily' | 'smart_trend_monthly' | 'smart_dimensions' | 'smart_details' | 'adm_cases' | 'adm_lines',
+      kind: 'resource_governance_gds' | 'resource_governance_ota' | 'smart_trend_daily' | 'smart_trend_monthly' | 'smart_dimensions' | 'smart_details' | 'adm_cases' | 'adm_lines' | 'hr_mail_file',
       payload: Record<string, unknown>,
     ) {
       const task = await createBackgroundExport(kind, payload)

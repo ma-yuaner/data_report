@@ -126,11 +126,11 @@ def register_routes(api: Blueprint) -> None:
             path, name = service.download(current_user, task_id)
             response = send_file(
                 path,
-                mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 as_attachment=True,
                 download_name=name,
                 max_age=0,
             )
+            response.headers["X-Content-Type-Options"] = "nosniff"
             file_iterator = response.response
 
             def stream_and_cleanup():

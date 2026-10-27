@@ -1,7 +1,8 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { useAuthStore } from '@/stores/auth'
-import { hrMailApi } from './api'
+import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
+import { hrMailApi, privateFileScope } from './api'
 import type {
   Batch,
   BatchSummary,
@@ -35,6 +36,7 @@ export const eligible = (item: MailItem) => item.valid && Boolean(item.to?.trim(
 
 export function useHrMail() {
   const auth = useAuthStore()
+  const exportTasks = useComprehensiveExportStore()
   const mode = ref<'prepare' | 'history'>('prepare')
   const config = ref<MailConfig>()
   const configLoading = ref(false)
@@ -371,8 +373,10 @@ export function useHrMail() {
     const epoch = ownerEpoch
     downloading.value = file.url
     try {
-      await hrMailApi.download(file, () => alive(epoch))
-      if (alive(epoch)) message.success('附件下载已开始')
+      const scope = privateFileScope(file.url)
+      const task = await exportTasks.createBackground('hr_mail_file', scope)
+      if (alive(epoch))
+        message.success(task.reused ? '相同附件任务正在进行，已打开导出任务' : '已加入导出任务，可在页头查看并下载')
     } catch (cause) {
       if (alive(epoch)) message.error(errorText(cause))
     } finally {
