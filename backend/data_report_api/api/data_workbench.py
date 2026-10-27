@@ -23,6 +23,10 @@ def guarded(function):
     @wraps(function)
     def wrapped(*args, **kwargs):
         try:
+            if not current_app.config.get("DATA_WORKBENCH_ENABLED", False):
+                if function.__name__ == "workbench_catalog":
+                    return ok({"archived": True, "datasets": [], "recipes": [], "jobs": [], "operators": [], "limits": {}})
+                raise WorkbenchError("数据加工工作台已归档，历史数据保留；恢复后才能操作", "WORKBENCH_ARCHIVED", 410)
             return function(*args, **kwargs)
         except WorkbenchError as error:
             return jsonify(success=False, message=str(error), code=error.code, data={"report": error.report} if error.report else None), error.status

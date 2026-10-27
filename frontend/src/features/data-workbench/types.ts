@@ -50,6 +50,7 @@ export interface Preview {
   report?: Record<string, unknown>
 }
 export interface Catalog {
+  archived?: boolean
   datasets: Dataset[]
   recipes: Recipe[]
   jobs: Job[]

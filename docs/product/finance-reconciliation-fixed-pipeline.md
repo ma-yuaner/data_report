@@ -2,7 +2,7 @@
 
 日期：2026-10-27。来源：用户要求固化已验证流程，未来后台上传、前端查看异常；旧通用工作台归档保留。
 
-状态：2026-10-27用户已确认结转只按票号打标签、不剔除，出票/改签按真实数据来源报表年月，其他按业务日期。数据标签与交付正在执行；新财务页面尚未开发、旧入口/worker尚未停用。页面开发时点未确认，不把未回复当批准。
+状态：2026-10-27用户已确认结转只按票号打标签、不剔除，出票/改签按真实数据来源报表年月，其他按业务日期。标签交付包已生成；新财务页面尚未开发。旧工作台已实现可恢复归档开关与菜单分组，服务器尚未更新或停止worker。
 
 ## 本次规则
 
@@ -26,11 +26,28 @@
 
 现有入口：`frontend/src/router/index.ts`的data-workbench路由、`frontend/src/layouts/AppLayout.vue`菜单；API由`api/data_workbench.py`和`routes.py`注册，代码保留。后台为compose的data-workbench-worker，数据卷data_workbench_data挂到/app/var/data-workbench。
 
-推荐归档为默认关闭的功能开关与Docker profile：隐藏日常菜单，直接旧路由显示“已归档”；API拒绝新上传/加工任务，不靠前端隐藏防继续写入；worker不随默认compose启动。历史数据卷保留，附单独恢复入口与启用步骤。无需把各个Python/Vue文件物理搬走导致引用破裂。
+已实现：默认DATA_WORKBENCH_ENABLED=false，旧菜单收至“归档功能”，直达旧路由显示归档说明；catalog只返回归档状态，不打开数据目录。其他旧API返回410 WORKBENCH_ARCHIVED；worker在关闭状态不打开数据目录即退出，且不随默认compose启动。历史数据卷与代码保留，开启原模块后恢复原流程，不把各个Python/Vue文件物理搬走破坏引用。
 
 部署切换时先确认没有正在运行的旧加工任务，再由部署人停止旧worker；恢复时显式开启旧功能和profile。仅修改profile不会证明现有服务器容器已停止，不删除volume、不清空旧数据。新财务功能与旧加工引擎边界明确后再决定是否复用其文件存储/元数据，而非默认把所有旧引擎继续启动。
 
 旧worker的3GB是内存上限，不代表空闲时固定占用3GB。归档代码本身不会显著降低运行资源；停后台作业/worker、分页读取及后台固定流程才是可验证的减负措施。
+
+### 部署与恢复（由部署人执行）
+
+先确认旧任务已处理好并保留data_workbench_data卷；普通部署前停止现有worker，否则仅修改profile不会停止已运行的容器：
+
+```bash
+docker compose -p data_report --profile archived-workbench stop data-workbench-worker
+docker compose -p data_report up -d --build
+```
+
+恢复时在服务器.env设置DATA_WORKBENCH_ENABLED=true，再显式启用原worker：
+
+```bash
+docker compose -p data_report --profile archived-workbench up -d --build api web data-workbench-worker
+```
+
+这些命令未由本轮执行。不删除容器数据卷，不执行down -v，也不将原文件迁移到新业务表。
 
 ## 验证与交付要求
 
