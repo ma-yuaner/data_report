@@ -9,13 +9,13 @@
 - 原周报排行榜和汇总图表；原周/月部门独立Excel附件。额外Sheet按旧规则保留并提示，不擅自删除。月报总览保留本部门全部人员，正文仅异常>0且原排序，AB文本扣罚不转0。
 - 私有上传/输出持久卷、数据库批次/逐封结果/事件审计/预览回执；本人范围，管理员可查看全部，无普通账号默认授权。
 - 专用worker串行执行批次；版本/CAS防并发重复领取。发送前持久化SENDING，成功是服务端接受，不保证最终投递；通道中断/部分拒收/崩溃结果未知，不自动重发。
-- SMTP和企业微信**邮件API**均保留，不使用群机器人替代；凭据仅Docker Secret注入，无前端输入接口、无明文业务字段、无本地JSON发送日志。
+- SMTP和企业微信**邮件API**均保留，不使用群机器人替代；凭据仅由服务器`.env`注入，无前端输入接口、无明文业务字段、无本地JSON发送日志。
 
 旧JSON日志尚未自动回灌；旧程序可留作只读历史依据。新批次全部写数据库。真实投递、生产MySQL、Linux字体/浏览器交互需人工验收，尚未部署。
 
 ## 2. 原函数保留与技术适配
 
-`services/hr_mail/legacy`复用原excel_parser、markdown_builder、chart_generator和email_sender。非业务适配仅：配置import改为无凭据默认值、平台北京时间页脚、附件output_dir、SMTP部分收件人拒收不再误报全部成功；企微token在实例中读Secret，收抄送/MIME/正文/附件构造仍调用原实现。
+`services/hr_mail/legacy`复用原excel_parser、markdown_builder、chart_generator和email_sender。非业务适配仅：配置import改为无凭据默认值、平台北京时间页脚、附件output_dir、SMTP部分收件人拒收不再误报全部成功；企微token在实例中读服务器环境变量，收抄送/MIME/正文/附件构造仍调用原实现。
 
 原月报总览实际格式范围为A1:XFD333，不能因此裁掉列：缓存重复Sheet读取、附件只读取首行表头、写入时不分配末尾无样式None单元格（原序列化本来不输出它们）。完整表头及尺寸保留；业务列、空值、值/排序/字段不改。合成XFD格式样本新旧xlsx内部xl/*逐XML一致。
 
@@ -29,48 +29,35 @@
 
 同时备份MySQL三表和`hr_mail_data`持久卷，冻结附件/正文/审计配套恢复；勿`down -v`。上传默认20MiB、xlsx展开上限200MiB/5000ZIP条目，超限明确拒绝，不截断。文件不会下载后即删（须用于发送与审计），不与全站临时导出清理混用；保留期由HR/运维确认后另行清理，不默认删除历史。
 
-## 4. Docker Secret配置（用户服务器执行）
+## 4. `.env`邮件配置（用户服务器执行）
 
-将JSON配置放在**项目目录之外**，例如`/opt/data_report_secrets/hr_mail_config.json`。用服务器编辑器输入真实值，不发聊天、不提交Git，也不写前端或业务库。
+2026-10-27按用户最终决定，邮件认证信息直接由部署目录的私密`.env`提供，不再创建或挂载`hr_mail_config.json`。真实`.env`不得提交Git、发到聊天、写入日志、前端或业务库；Linux上建议归部署账号所有并设`chmod 600 .env`，同时保护服务器磁盘与备份。Docker管理员仍可查看容器环境，因此这不是加密密钥库。
 
-SMTP示意（占位值不能发送）：
+SMTP配置示意（占位值不能发送）：
 
-```json
-{
-  "method": "smtp",
-  "smtp_host": "smtp.example.invalid",
-  "smtp_port": 465,
-  "smtp_use_ssl": true,
-  "smtp_user": "sender@example.invalid",
-  "smtp_password": "REPLACE_ON_SERVER",
-  "smtp_from": "sender@example.invalid",
-  "sender_name": "沿用原工具已确认发件显示名"
-}
+```dotenv
+HR_MAIL_METHOD=smtp
+HR_MAIL_SMTP_HOST=smtp.example.invalid
+HR_MAIL_SMTP_PORT=465
+HR_MAIL_SMTP_USE_SSL=true
+HR_MAIL_SMTP_USER=sender@example.invalid
+HR_MAIL_SMTP_PASSWORD=REPLACE_ON_SERVER
+HR_MAIL_SMTP_FROM=sender@example.invalid
+HR_MAIL_SENDER_NAME=人事部自动报表
+HR_MAIL_SEND_ENABLED=false
 ```
 
 企微邮件API替代配置（不是Webhook）：
 
-```json
-{
-  "method": "wecom",
-  "corp_id": "REPLACE_ON_SERVER",
-  "agent_id": "REPLACE_ON_SERVER",
-  "app_secret": "REPLACE_ON_SERVER"
-}
-```
-
-选实际原通道的一种配置，不把SMTP密码改作企微应用Secret。保留原SMTP主机/端口/SSL、发件人和显示名；不传`sender_name`沿用原工具“人事部自动报表”，未传`smtp_from`回退到Secret的`smtp_user`。端口统一转为整数，587沿旧规则STARTTLS，465为SSL；不擅改邮件收件规则。
-
-镜像用户为uid/gid1000；Linux宿主目录可用root:1000/0750，文件root:1000/0640，让容器可读而非全员可读。Compose文件型Secret是只读挂载，**不等于文件已加密或Swarm密钥服务**；宿主机仍需访问控制/磁盘和备份保护。不要用chmod777。轮换后重建API/worker使设置一致，不输出凭据进行验证。
-
-私密`.env`只填写非凭据配置：
-
 ```dotenv
-HR_MAIL_SECRET_SOURCE=/opt/data_report_secrets/hr_mail_config.json
+HR_MAIL_METHOD=wecom
+HR_MAIL_WECOM_CORP_ID=REPLACE_ON_SERVER
+HR_MAIL_WECOM_AGENT_ID=REPLACE_ON_SERVER
+HR_MAIL_WECOM_APP_SECRET=REPLACE_ON_SERVER
 HR_MAIL_SEND_ENABLED=false
 ```
 
-先false完成预览，准备真实受控投递时由部署人设true。未配置Secret仍可上传解析预览，不能发送。首次挂载要求源文件已存在。
+只选实际通道的一套配置，不把SMTP密码改作企微应用Secret。保留原SMTP主机/端口/SSL、发件人和显示名；`HR_MAIL_SENDER_NAME`留空时用“人事部自动报表”，`HR_MAIL_SMTP_FROM`留空时回退到登录账号。587沿旧规则STARTTLS，465为SSL；不擅改邮件收件规则。先保持发送开关为false完成解析和预览，准备真实受控投递时再由部署人改为true并重建API/worker。未配置邮件变量仍可上传解析预览，不能发送；轮换密码后同样需要重建两个容器。
 
 ## 5. 更新部署
 
@@ -82,9 +69,9 @@ docker compose -p data_report -f docker-compose.yml -f docker-compose.hr-mail.ym
 docker compose -p data_report -f docker-compose.yml -f docker-compose.hr-mail.yml ps
 ```
 
-只有HR实际发信才需要额外worker，无新增端口。默认主Compose无Secret挂载、不开HR worker，仍可解析/预览；开启发信后日常更新继续带两个`-f`，避免误去掉Secret配置。不要同时启动旧EXE和中台向同一周期发信。
+只有HR实际发信才需要额外worker，无新增端口。默认主Compose不开HR worker，仍可解析/预览；开启发信后日常更新继续带两个`-f`，避免漏启动worker。不要同时启动旧EXE和中台向同一周期发信。
 
-页面配置状态只证明Secret结构/DDL可读，不证明SMTP网络或实际送达。QUEUED长时间不动先检查hr-mail-worker是否运行、同库/同卷/Secret是否一致；INTERRUPTED/UNKNOWN先查审计及邮箱服务，不盲目新批次重发。Secret未挂载显示HR_MAIL_SECRET_NOT_READY；缺表/列HR_MAIL_DDL_MISSING；版本冲突HR_MAIL_CONFLICT；未逐封预览HR_MAIL_PREVIEW_REQUIRED。
+页面配置状态只证明环境变量结构/DDL可读，不证明SMTP网络或实际送达。QUEUED长时间不动先检查hr-mail-worker是否运行、同库/同卷/环境变量是否一致；INTERRUPTED/UNKNOWN先查审计及邮箱服务，不盲目新批次重发。邮件环境变量缺失显示HR_MAIL_CONFIG_NOT_READY；缺表/列HR_MAIL_DDL_MISSING；版本冲突HR_MAIL_CONFLICT；未逐封预览HR_MAIL_PREVIEW_REQUIRED。
 
 ## 6. 人工验收顺序
 
@@ -99,7 +86,7 @@ docker compose -p data_report -f docker-compose.yml -f docker-compose.hr-mail.ym
 
 ## 7. 本机证据与未验项
 
-13项隔离测试通过23.43秒：合成周/月新旧部门/人员/指标/收抄送一致；冻结时钟主题HTML一致；合成附件xl/*逐XML一致（含XFD空白格式列及空字符串）；两个周报图表同环境字节一致；原始周/月报解析与正文对照；缺邮箱/无预览/文件变化/Secret缺失/越权/双worker/崩溃/不重发覆盖。实际月报所有部门附件源行/表头与Sheet范围核对通过（空字符串按原openpyxl保存后的空白规范化比较）。FakeSMTP验证587先STARTTLS再登录、默认发件人与原MIME/附件、部分拒收为UNKNOWN；另补企微请求体和token缓存隔离验证，结果见工作流。不把合成/模拟发送当真实投递。
+13项隔离测试通过23.43秒：合成周/月新旧部门/人员/指标/收抄送一致；冻结时钟主题HTML一致；合成附件xl/*逐XML一致（含XFD空白格式列及空字符串）；两个周报图表同环境字节一致；原始周/月报解析与正文对照；缺邮箱/无预览/文件变化/邮件配置缺失/越权/双worker/崩溃/不重发覆盖。实际月报所有部门附件源行/表头与Sheet范围核对通过（空字符串按原openpyxl保存后的空白规范化比较）。FakeSMTP验证587先STARTTLS再登录、默认发件人与原MIME/附件、部分拒收为UNKNOWN；另补企微请求体和token缓存隔离验证，结果见工作流。不把合成/模拟发送当真实投递。
 
 旧全量月附件XML对照因原算法巨大空白范围过慢已终止，未声称通过；未改输入表，后续用原业务值/Sheet规则核查实际附件，合成宽格式样本验证优化不改XML。原始HR数据、测试DB、附件、脚本及依赖仅在忽略目录。
 

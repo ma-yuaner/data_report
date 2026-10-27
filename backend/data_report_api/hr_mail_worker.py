@@ -8,7 +8,7 @@ from .config import Config
 from .services.auth import MySqlAuthStore
 from .services.hr_mail.service import Service, now, permission
 from .services.hr_mail.store import MailError, Store
-from .services.hr_mail.transport import secret_config, sender, send_result
+from .services.hr_mail.transport import mail_config, sender, send_result
 from .time_utils import business_now
 
 LOGGER = logging.getLogger("hr-mail-worker")
@@ -52,7 +52,7 @@ def run_once(config):
         try:
             if not config.get("HR_MAIL_SEND_ENABLED", False):
                 raise MailError("发送开关已关闭", "HR_MAIL_SEND_DISABLED")
-            secret_config(config)
+            mail_config(config)
             # Revalidate the confirming account, not a front-end user snapshot.
             resolver = config.get("HR_MAIL_TEST_USER_RESOLVER") if config.get("TESTING") else None
             user = resolver(int(batch["confirmedBy"])) if resolver else MySqlAuthStore(config).get_user_by_id(int(batch["confirmedBy"]))
@@ -112,7 +112,7 @@ def main():
         try:
             run_once(config)
         except Exception:
-            LOGGER.error("HR_MAIL_WORKER_UNAVAILABLE: check database/DDL/Secret; no automatic mail retry")
+            LOGGER.error("HR_MAIL_WORKER_UNAVAILABLE: check database/DDL/mail environment; no automatic mail retry")
         for _ in range(5):
             if STOP:
                 break

@@ -12,13 +12,13 @@
       <a-tag :color="config?.storageReady ? 'green' : 'orange'"
         >私有存储：{{ config?.storageReady ? '就绪' : '未就绪' }}</a-tag
       >
-      <a-tag :color="config?.secretReady ? 'green' : 'orange'"
-        >邮件密钥：{{ config?.secretReady ? '就绪' : '未就绪' }}</a-tag
+      <a-tag :color="config?.mailConfigReady ? 'green' : 'orange'"
+        >邮件配置：{{ config?.mailConfigReady ? '就绪' : '未就绪' }}</a-tag
       >
       <a-tag :color="config?.sendEnabled ? 'blue' : 'default'"
         >发送：{{ config?.sendEnabled ? '已启用' : '未启用' }}</a-tag
       >
-      <span>密钥由服务器 Docker Secret 提供，不在页面输入或回显。</span>
+      <span>邮件认证信息由服务器 .env 提供，不在页面输入或回显。</span>
     </div>
     <a-alert v-if="config?.error" type="warning" :message="config.error" show-icon />
 

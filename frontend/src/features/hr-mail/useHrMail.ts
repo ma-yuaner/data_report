@@ -106,7 +106,7 @@ export function useHrMail() {
   const sendBlock = computed(() => {
     const batch = activeBatch.value
     if (!config.value?.permissions.send) return '没有发送权限（hr.mail.send）'
-    if (!config.value.secretReady || !config.value.sendEnabled) return '服务器邮件密钥或发送开关未就绪'
+    if (!config.value.mailConfigReady || !config.value.sendEnabled) return '服务器邮件配置或发送开关未就绪'
     if (!batch || batch.status !== 'PREVIEW') return '仅待预览批次可首次发送'
     if (uncertainIds.value.includes(batch.id)) return '上次提交结果未知，请刷新并人工核实，禁止直接重发'
     if (sending.value || detailLoading.value || refreshing.value || creating.value || uploadBusy.value)

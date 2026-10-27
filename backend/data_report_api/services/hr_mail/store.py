@@ -29,7 +29,7 @@ class Store:
                 conn.commit()
             else:
                 conn = DataSource({**self.config, "DATA_MODE": "mysql"}).connect()
-                conn.autocommit(False)
+                conn.begin()
             yield conn
             conn.commit()
         except MailError:

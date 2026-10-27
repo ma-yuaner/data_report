@@ -15,10 +15,11 @@ export interface Upload {
 }
 export interface MailConfig {
   storageReady: boolean
-  secretReady: boolean
+  mailConfigReady: boolean
   sendEnabled: boolean
   permissions: { upload: boolean; send: boolean }
   error?: string
+  mailConfigError?: string
 }
 export interface MailItem {
   id: string

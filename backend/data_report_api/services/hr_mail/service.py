@@ -12,7 +12,7 @@ from pathlib import Path
 
 from ...time_utils import business_now
 from .store import MailError, Store
-from .transport import secret_config
+from .transport import mail_config
 
 CHART_LOCK = threading.Lock()
 
@@ -42,16 +42,16 @@ class Service:
         self.store = Store(config)
 
     def config_info(self):
-        value = {"storageReady": True, "secretReady": True, "sendEnabled": bool(self.config.get("HR_MAIL_SEND_ENABLED", False)), "permissions": {}}
+        value = {"storageReady": True, "mailConfigReady": True, "sendEnabled": bool(self.config.get("HR_MAIL_SEND_ENABLED", False)), "permissions": {}}
         try:
             self.store.check()
         except MailError as error:
             value.update(storageReady=False, error=error.code + "：" + str(error))
         try:
-            secret_config(self.config)
+            mail_config(self.config)
         except MailError as error:
-            value.update(secretReady=False)
-            value["secretError"] = error.code
+            value.update(mailConfigReady=False)
+            value["mailConfigError"] = error.code
         for operation in ("upload", "send"):
             try:
                 permission(self.user, operation)
@@ -262,7 +262,7 @@ class Service:
             return self.public(batch)  # Repeated final confirm never resends.
         if not self.config.get("HR_MAIL_SEND_ENABLED", False):
             raise MailError("部署人尚未开启邮件发送开关", "HR_MAIL_SEND_DISABLED", 409)
-        secret_config(self.config)
+        mail_config(self.config)
         if body.get("confirmed") is not True or body.get("version") != batch["version"]:
             raise MailError("请预览当前版本并最终确认", "HR_MAIL_CONFIRM_REQUIRED", 409)
         selected, receipts = body.get("selectedIds"), body.get("previewReceipts")

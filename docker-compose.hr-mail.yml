@@ -1,12 +1,6 @@
-# Optional Secret/worker overlay. The default deployment keeps HR sending off.
+# Optional HR mail worker overlay. Credentials come from the server .env.
 # docker compose -p data_report -f docker-compose.yml -f docker-compose.hr-mail.yml up -d --build api web hr-mail-worker
 services:
-  api:
-    environment:
-      HR_MAIL_SECRET_FILE: /run/secrets/hr_mail_config
-      HR_MAIL_SEND_ENABLED: ${HR_MAIL_SEND_ENABLED:-false}
-    secrets:
-      - hr_mail_config
   hr-mail-worker:
     build:
       context: ./backend
@@ -18,8 +12,18 @@ services:
       APP_TIMEZONE: Asia/Shanghai
       APP_ENV: production
       HR_MAIL_ROOT: /app/var/hr-mail
-      HR_MAIL_SECRET_FILE: /run/secrets/hr_mail_config
       HR_MAIL_SEND_ENABLED: ${HR_MAIL_SEND_ENABLED:-false}
+      HR_MAIL_METHOD: ${HR_MAIL_METHOD:-}
+      HR_MAIL_SMTP_HOST: ${HR_MAIL_SMTP_HOST:-}
+      HR_MAIL_SMTP_PORT: ${HR_MAIL_SMTP_PORT:-465}
+      HR_MAIL_SMTP_USE_SSL: ${HR_MAIL_SMTP_USE_SSL:-true}
+      HR_MAIL_SMTP_USER: ${HR_MAIL_SMTP_USER:-}
+      HR_MAIL_SMTP_PASSWORD: ${HR_MAIL_SMTP_PASSWORD:-}
+      HR_MAIL_SMTP_FROM: ${HR_MAIL_SMTP_FROM:-}
+      HR_MAIL_SENDER_NAME: ${HR_MAIL_SENDER_NAME:-人事部自动报表}
+      HR_MAIL_WECOM_CORP_ID: ${HR_MAIL_WECOM_CORP_ID:-}
+      HR_MAIL_WECOM_AGENT_ID: ${HR_MAIL_WECOM_AGENT_ID:-}
+      HR_MAIL_WECOM_APP_SECRET: ${HR_MAIL_WECOM_APP_SECRET:-}
       MYSQL_HOST: ${MYSQL_HOST:-}
       MYSQL_PORT: ${MYSQL_PORT:-3306}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-sibebid}
@@ -27,11 +31,6 @@ services:
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-}
       MYSQL_CHARSET: ${MYSQL_CHARSET:-utf8mb4}
       MYSQL_TIME_ZONE: ${MYSQL_TIME_ZONE:-+08:00}
-    secrets:
-      - hr_mail_config
     volumes:
       - hr_mail_data:/app/var/hr-mail
     restart: unless-stopped
-secrets:
-  hr_mail_config:
-    file: ${HR_MAIL_SECRET_SOURCE:-./secrets/hr_mail_config.json}
