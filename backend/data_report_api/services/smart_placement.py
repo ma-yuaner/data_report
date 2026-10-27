@@ -71,6 +71,10 @@ class SmartPlacementUnavailable(RuntimeError):
     pass
 
 
+class PlacementChangeConflict(ValueError):
+    pass
+
+
 def _now() -> datetime:
     return business_now_naive()
 
@@ -676,7 +680,7 @@ class SmartPlacementService:
                        estimated_month_profit_cny, priority, status,
                        current_assignee_id, current_assignee_name, expected_complete_at,
                        created_by_id, created_by_name,
-                       created_at, updated_at
+                       created_at, updated_at, version_no
                 FROM {self._table(TASK_TABLE)} t
                 WHERE {condition}
                 ORDER BY FIELD(priority,'HIGH','MEDIUM','LOW'),
@@ -970,6 +974,136 @@ class SmartPlacementService:
             if _is_missing_table(error):
                 raise SmartPlacementUnavailable("智能投放表尚未创建，请先执行smart-placement-schema.sql") from error
             raise SmartPlacementUnavailable("智能投放任务修改失败") from error
+        finally:
+            if cursor is not None: cursor.close()
+            if connection is not None: connection.close()
+
+    def change_placed_policies(self, user: dict[str, Any], values: dict[str, Any], *, preview: bool = False) -> dict[str, Any]:
+        """A single atomic patch; requests never claim that an external system was changed."""
+        _require_permission(user, PERMISSION_EXECUTE, "当前账号没有已投放政策修改权限（投放结果登记）")
+        actor = _actor(user)
+        reason = _text(values.get("reason"), "修改原因", 1000, required=True)
+        mode = values.get("mode")
+        if mode not in {"REQUEST_EXTERNAL", "OFFLINE_CONFIRMED"}:
+            raise ValueError("请选择待人工外部执行或补登记实际配置")
+        now = _now()
+        applied_at = None
+        if mode == "OFFLINE_CONFIRMED":
+            if values.get("externalConfirmed") is not True:
+                raise ValueError("请真实确认所有选中政策已在线下完成修改")
+            applied_at = _datetime_value(values.get("appliedAt"), "线下实际修改时间", required=True)
+            if applied_at > now:
+                raise ValueError("线下实际修改时间不能晚于当前时间")
+        targets = values.get("targets")
+        if not isinstance(targets, list) or not 1 <= len(targets) <= 100:
+            raise ValueError("每批请选择1至100条政策")
+        checked_targets: dict[int, dict[str, Any]] = {}
+        for target in targets:
+            if not isinstance(target, dict):
+                raise ValueError("政策及版本参数不完整")
+            if any(type(target.get(key)) is not int for key in ("id", "versionNo")) or (target.get("ruleVersionId") is not None and type(target["ruleVersionId"]) is not int):
+                raise ValueError("政策ID和版本必须为整数，请刷新列表")
+            task_id = _integer(target.get("id"), "政策ID")
+            version = _integer(target.get("versionNo"), "政策版本")
+            if not task_id or task_id < 1 or not version or version < 1 or task_id in checked_targets:
+                raise ValueError("政策ID重复或版本参数不完整，请刷新列表")
+            if not preview and not _integer(target.get("ruleVersionId"), "监控规则版本"):
+                raise ValueError("请先预览所有政策的修改前后内容")
+            checked_targets[task_id] = target
+        patch = values.get("patch")
+        allowed = {"includeCabins", "excludeCabins", "effectivePeriod"}
+        if not isinstance(patch, dict) or not patch or set(patch) - allowed:
+            raise ValueError("请选择需要修改的舱位或有效期字段；不支持其他字段")
+        fields: dict[str, Any] = {}
+        for key, column, label in (("includeCabins", "include_cabins", "包含舱位"), ("excludeCabins", "exclude_cabins", "排除舱位")):
+            if key in patch:
+                raw = _text(patch[key], label, 500)
+                fields[column] = ",".join(dict.fromkeys(item.strip().upper() for item in raw.replace("，", ",").split(",") if item.strip())) or None
+        if "effectivePeriod" in patch:
+            period = patch["effectivePeriod"]
+            if not isinstance(period, dict) or set(period) != {"effectiveStartAt", "effectiveEndAt", "longTerm"} or type(period["longTerm"]) is not bool:
+                raise ValueError("有效期须包含生效时间、失效时间和长期有效选项")
+            fields.update({
+                "effective_start_at": _datetime_value(period["effectiveStartAt"], "政策生效时间", required=True),
+                "effective_end_at": None if period["longTerm"] else _datetime_value(period["effectiveEndAt"], "政策失效时间", required=True),
+                "long_term_flag": int(period["longTerm"]),
+            })
+        connection = cursor = None
+        try:
+            connection = self.source.connect(); connection.begin(); cursor = connection.cursor()
+            prepared = []
+            for task_id, target in sorted(checked_targets.items()):
+                task = self._task_for_update(cursor, task_id)
+                if int(task.get("current_assignee_id") or 0) != actor[0] and not _is_admin(user):
+                    raise PermissionError(f"政策{task_id}只能由当前认领人或管理员修改；整批未保存")
+                if task["status"] != "MONITORING":
+                    raise PlacementChangeConflict(f"政策{task_id}已停止或不在监控中；整批未保存，请刷新核对")
+                if int(task["version_no"]) != int(target["versionNo"]):
+                    raise PlacementChangeConflict(f"政策{task_id}版本已变化；整批未保存，请刷新后重新预览")
+                cursor.execute(f"SELECT * FROM {self._table(EXECUTION_TABLE)} WHERE task_id=%s AND execution_result='SUCCESS' ORDER BY attempt_no DESC LIMIT 1 FOR UPDATE", (task_id,))
+                execution = _dict_row(cursor, cursor.fetchone())
+                if not execution:
+                    raise ValueError(f"政策{task_id}缺少成功投放记录；整批未保存")
+                cursor.execute(f"SELECT * FROM {self._table(MONITOR_RULE_TABLE)} WHERE source_business_type='SMART_PLACEMENT_EXECUTION' AND source_business_id=%s AND source_parent_id=%s FOR UPDATE", (execution["id"], task_id))
+                rules = _dict_rows(cursor, list(cursor.fetchall()))
+                if len(rules) != 1 or rules[0]["status"] not in {"ACTIVE", "SCHEDULED"}:
+                    raise PlacementChangeConflict(f"政策{task_id}监控已暂停、停止或规则异常；整批未保存，请核对")
+                rule = rules[0]
+                if target.get("ruleVersionId") is not None and int(target["ruleVersionId"]) != int(rule["current_version_id"]):
+                    raise PlacementChangeConflict(f"政策{task_id}监控规则版本已变化；整批未保存，请重新预览")
+                before = {column: execution.get(column) for column in ("include_cabins", "exclude_cabins", "effective_start_at", "effective_end_at", "long_term_flag")}
+                after = {**before, **fields}
+                included = set(str(after["include_cabins"] or "").split(",")) - {""}
+                overlap = included & set(str(after["exclude_cabins"] or "").split(","))
+                if overlap:
+                    raise ValueError(f"政策{task_id}包含与排除舱位不能重复：{','.join(sorted(overlap))}；整批未保存")
+                start = after["effective_start_at"]
+                end = after["effective_end_at"]
+                if not start or (end and end <= max(now, start)):
+                    raise ValueError(f"政策{task_id}失效时间必须晚于最终监控生效时间；整批未保存")
+                prepared.append((task, execution, rule, before, after))
+            if all(before == after for _, _, _, before, after in prepared):
+                raise ValueError("所有政策的所选字段均无变化，无需保存")
+            rows = []
+            for task, execution, rule, before, after in prepared:
+                task_id = int(task["id"])
+                monitor_rule = None
+                changed = before != after
+                if not preview and changed:
+                    if mode == "OFFLINE_CONFIRMED":
+                        updated_task = {**task, "include_cabins": after["include_cabins"], "exclude_cabins": after["exclude_cabins"]}
+                        monitor_rule = self.monitor_rule_compiler.sync_smart_placement(
+                            cursor=cursor, database=self.source.database, task=updated_task,
+                            execution_id=int(execution["id"]), attempt_no=int(execution["attempt_no"]),
+                            execution={**execution, **after, "monitoring_start_at": max(now, after["effective_start_at"])},
+                            actor=actor, now=now, existing_rule=rule, change_reason=reason,
+                        )
+                        cursor.execute(f"UPDATE {self._table(EXECUTION_TABLE)} SET {','.join(f'{name}=%s' for name in fields)} WHERE id=%s", tuple([*fields.values(), execution["id"]]))
+                        # The list shows current cabins; the proposal period remains the original recommendation.
+                        task_cabins = {key: value for key, value in fields.items() if key in {"include_cabins", "exclude_cabins"}}
+                        if task_cabins:
+                            cursor.execute(f"UPDATE {self._table(TASK_TABLE)} SET {','.join(f'{name}=%s' for name in task_cabins)} WHERE id=%s", tuple([*task_cabins.values(), task_id]))
+                    cursor.execute(f"UPDATE {self._table(TASK_TABLE)} SET version_no=version_no+1,updated_by_id=%s,updated_by_name=%s,updated_at=%s WHERE id=%s", (actor[0], actor[1], now, task_id))
+                    self._log(cursor, task_id=task_id, action="POLICY_CHANGE_APPLIED" if mode == "OFFLINE_CONFIRMED" else "POLICY_CHANGE_REQUESTED", actor=actor, from_status="MONITORING", to_status="MONITORING", note=reason, detail={
+                        "mode": mode, "fields": list(patch), "before": _public_row(before), "after": _public_row(after),
+                        "externalPolicyId": execution["external_policy_id"], "executionId": execution["id"],
+                        "previousVersionNo": task["version_no"], "versionNo": int(task["version_no"]) + 1,
+                        "recordedAt": now, "appliedAt": applied_at, "monitorEffectiveAt": max(now, after["effective_start_at"]) if monitor_rule else None,
+                        "externalExecution": "OFFLINE_CONFIRMED" if monitor_rule else "MANUAL_REQUIRED", "monitorRule": monitor_rule,
+                    })
+                rows.append({"id": task_id, "taskNo": task["task_no"], "opportunityName": task["opportunity_name"], "externalPolicyId": execution["external_policy_id"],
+                    "versionNo": int(task["version_no"]) + (1 if not preview and changed else 0), "ruleVersionId": int(rule["current_version_id"]), "changed": changed,
+                    "before": _public_row(before), "after": _public_row(after)})
+            if preview: connection.rollback()
+            else: connection.commit()
+            return {"rows": rows, "count": sum(row["changed"] for row in rows), "applied": not preview and mode == "OFFLINE_CONFIRMED", "mode": mode}
+        except (ValueError, PermissionError):
+            if connection is not None: connection.rollback()
+            raise
+        except Exception as error:
+            if connection is not None: connection.rollback()
+            LOGGER.exception("Placed policy change failed")
+            raise SmartPlacementUnavailable("已投放政策修改失败，整批未保存；请核对后重试") from error
         finally:
             if cursor is not None: cursor.close()
             if connection is not None: connection.close()

@@ -43,6 +43,10 @@
         <div><strong>已选择 {{ selectedReviewRows.length }} 项</strong><span>批量审核只允许选择同一审核阶段，结果及调整内容会统一应用。</span></div>
         <a-space><a-button @click="clearReviewSelection">清空选择</a-button><a-button type="primary" @click="openBatchReview">批量审核</a-button></a-space>
       </div>
+      <div v-if="selectedPolicyRows.length" class="batch-action-bar">
+        <div><strong>已选择 {{ selectedPolicyRows.length }} 条已投放政策</strong><span>选择需要修改的字段，逐条预览后整批确认；不自动下发外部系统。</span></div>
+        <a-space><a-button @click="clearReviewSelection">清空选择</a-button><a-button type="primary" @click="openPolicyChange(selectedPolicyRows)">批量修改</a-button></a-space>
+      </div>
       <a-table :loading="loading" :columns="columns" :data-source="data?.rows || []" row-key="id" :row-selection="reviewRowSelection" :pagination="pagination" :scroll="{ x: 1500 }" @change="changePage">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'opportunity'">
@@ -70,6 +74,7 @@
               <a-button type="link" size="small" @click="openDetail(record)">详情</a-button>
               <a-button v-if="canCreate" type="link" size="small" @click="openCopy(record)">复制</a-button>
               <a-button v-if="canEdit(record)" type="link" size="small" @click="openEdit(record)">编辑/提交</a-button>
+              <a-button v-if="canChangePolicy(record)" type="link" size="small" @click="openPolicyChange([record])">修改已投放</a-button>
               <a-button v-if="canWithdraw(record)" type="link" size="small" @click="confirmWithdraw(record)">撤回修改</a-button>
               <a-button v-if="isReviewable(record)" type="link" size="small" @click="openReview(record)">审核</a-button>
               <a-button v-if="canClaim(record)" type="link" size="small" @click="openClaim(record)">认领</a-button>
@@ -83,6 +88,8 @@
         <template #emptyText><a-empty :description="error || '当前条件没有投放任务'" /></template>
       </a-table>
     </a-card>
+
+    <PlacedPolicyChangeDialog v-model:open="policyChangeOpen" :rows="policyChangeRows" @saved="policyChangeSaved" />
 
     <a-modal
       v-model:open="createOpen"
@@ -358,6 +365,8 @@
                   <header><div><strong>第 {{ execution.attemptNo }} 次投放</strong><span>{{ execution.operatorName }} · {{ displayTime(execution.createdAt) }}</span></div><a-tag :color="execution.executionResult === 'SUCCESS' ? 'green' : 'red'">{{ execution.executionResult === 'SUCCESS' ? '成功' : '失败' }}</a-tag></header>
                   <div v-if="execution.executionResult === 'SUCCESS'" class="record-grid"><span>政策 ID：{{ execution.externalPolicyId }}</span><span>政策名称：{{ valueOrDash(execution.externalPolicyName) }}</span><span>实际投放：{{ displayTime(execution.actualPlacementAt) }}</span><span>政策有效期：{{ displayTime(execution.effectiveStartAt) }} 至 {{ yesNo(execution.longTermFlag) === '是' ? '长期有效' : displayTime(execution.effectiveEndAt) }}</span><span>平台/站点：{{ execution.platformName }} / {{ valueOrDash(execution.siteName, '全部站点') }}</span><span>订单来源：{{ orderSourceLabel(execution.orderSource) }}</span><span>航司/航线：{{ execution.airlineCode }} / {{ routeName(execution) }}</span><span>航段类型：{{ segmentTypeLabel(execution.segmentType) }}</span><span>亏损阈值：{{ lossThreshold(execution.lossThresholdMin, execution.lossThresholdMax) }}</span></div>
                   <div v-else class="record-grid"><span>失败类型：{{ execution.failureType }}</span><span>重新执行：{{ yesNo(execution.retryRequired) }}</span><span v-if="execution.nextHandleAt">下次处理：{{ displayTime(execution.nextHandleAt) }}</span></div>
+                  <div v-if="execution.executionResult === 'SUCCESS'" class="record-grid"><span>当前登记包含舱位：{{ valueOrDash(execution.includeCabins, '不限') }}</span><span>当前登记排除舱位：{{ valueOrDash(execution.excludeCabins, '无') }}</span></div>
+                  <p v-if="execution.executionResult === 'SUCCESS'" class="text-muted">后续配置变更的原值、新值及实际修改时间见流转日志。</p>
                   <p><b>{{ execution.executionResult === 'SUCCESS' ? '执行说明' : '失败原因' }}：</b>{{ valueOrDash(execution.executionResult === 'SUCCESS' ? execution.executionNote : execution.failureReason, '无') }}</p>
                 </article>
               </div>
@@ -407,7 +416,11 @@
               </section>
             </a-tab-pane>
             <a-tab-pane key="logs" :tab="`流转日志（${detail.logs.length}）`">
-              <a-timeline :items="detail.logs.map(log => ({ color: log.toStatus === 'REJECTED' || log.toStatus === 'FAILED' ? 'red' : 'blue', children: `${displayTime(log.createdAt)} · ${log.operatorName} · ${log.operationNote || actionLabel(log.actionCode)}` }))" />
+              <a-timeline :items="detail.logs.map(log => ({ color: log.toStatus === 'REJECTED' || log.toStatus === 'FAILED' ? 'red' : 'blue', children: `${displayTime(log.createdAt)} · ${log.operatorName} · ${actionLabel(log.actionCode)} · ${log.operationNote || ''}` }))" />
+              <details v-for="log in detail.logs.filter(item => item.actionCode.startsWith('POLICY_CHANGE_'))" :key="log.id" class="record-card">
+                <summary>{{ displayTime(log.createdAt) }} · {{ log.operatorName }} · {{ actionLabel(log.actionCode) }}（展开原值/新值）</summary>
+                <pre class="policy-change-log">{{ policyChangeLog(log.detailJson) }}</pre>
+              </details>
             </a-tab-pane>
           </a-tabs>
         </template>
@@ -437,6 +450,7 @@ import { ReloadOutlined, SearchOutlined } from '@ant-design/icons-vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '@/components/PageHeader.vue'
 import PlacementField from '@/components/PlacementField.vue'
+import PlacedPolicyChangeDialog from '@/components/PlacedPolicyChangeDialog.vue'
 import { useAuthStore } from '@/stores/auth'
 import {
   batchReviewPlacementTasks, cancelPlacementTask, claimPlacementTask, createPlacementEffectReview, createPlacementTask, deletePlacementTask, executePlacementTask, fetchPlacementTask, fetchPlacementTaskMonitoring,
@@ -476,6 +490,8 @@ const detail = ref<PlacementTaskDetail>()
 const monitoring = ref<PlacementTaskMonitoring>()
 const activeTask = ref<PlacementTaskRow>()
 const selectedReviewTaskIds = ref<number[]>([])
+const policyChangeOpen = ref(false)
+const policyChangeRows = ref<PlacementTaskRow[]>([])
 const batchReviewRows = ref<PlacementTaskRow[]>([])
 const reviewStage = ref<'DATA_MANAGER' | 'POLICY_MANAGER'>('DATA_MANAGER')
 const reviewForm = ref({ result: 'APPROVED', comment: '', policyExecutableLevel: 'EXECUTABLE', riskLevel: 'MEDIUM', riskControlRequirement: '', claimScope: '', adjustedPriority: '', adjustedCompleteAt: '' })
@@ -549,12 +565,17 @@ const columns = [
   { title: '预估价值', key: 'estimate', width: 150 }, { title: '优先级', key: 'priority', width: 90 }, { title: '状态', key: 'status', width: 120 },
   { title: '负责人', key: 'owner', width: 110 }, { title: '截止时间', key: 'due', width: 155 }, { title: '操作', key: 'action', width: 350, fixed: 'right' as const },
 ]
-const selectedReviewRows = computed(() => (data.value?.rows || []).filter(row => selectedReviewTaskIds.value.includes(row.id)))
+const selectedReviewRows = computed(() => (data.value?.rows || []).filter(row => selectedReviewTaskIds.value.includes(row.id) && isReviewable(row)))
+const selectedPolicyRows = computed(() => (data.value?.rows || []).filter(row => selectedReviewTaskIds.value.includes(row.id) && canChangePolicy(row)))
 const batchReviewMode = computed(() => batchReviewRows.value.length > 0)
-const reviewRowSelection = computed(() => canReviewData.value || canReviewPolicy.value ? {
+const reviewRowSelection = computed(() => canReviewData.value || canReviewPolicy.value || canExecuteTasks.value ? {
   selectedRowKeys: selectedReviewTaskIds.value,
-  onChange: (keys: (string | number)[]) => { selectedReviewTaskIds.value = keys.map(Number) },
-  getCheckboxProps: (record: PlacementTaskRow) => ({ disabled: !isReviewable(record), name: record.taskNo }),
+  onChange: (keys: (string | number)[]) => {
+    const selected = (data.value?.rows || []).filter(row => keys.map(Number).includes(row.id))
+    if (selected.some(row => row.status === 'MONITORING') && selected.some(row => row.status !== 'MONITORING')) { message.warning('审核任务与已投放政策请分开勾选'); return }
+    selectedReviewTaskIds.value = keys.map(Number)
+  },
+  getCheckboxProps: (record: PlacementTaskRow) => ({ disabled: selectedPolicyRows.value.length ? !canChangePolicy(record) : selectedReviewRows.value.length ? !isReviewable(record) : !isReviewable(record) && !canChangePolicy(record), name: record.taskNo }),
 } : undefined)
 const pagination = computed(() => ({ current: page.value, pageSize: pageSize.value, total: data.value?.total || 0, showSizeChanger: true, showTotal: (total: number) => `共 ${number(total)} 项` }))
 const formatter = new Intl.NumberFormat('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -594,10 +615,19 @@ const reviewResultMap: Record<string, { label: string; color: string }> = {
   APPROVED: { label: '通过', color: 'green' }, RETURNED: { label: '退回修改', color: 'orange' }, REJECTED: { label: '驳回终止', color: 'red' },
 }
 const actionLabelMap: Record<string, string> = {
+  POLICY_CHANGE_REQUESTED: '待人工外部执行（仅请求）', POLICY_CHANGE_APPLIED: '已线下处理·补登记实际配置',
   CREATE: '保存草稿', UPDATE: '更新草稿', DELETE: '删除任务', WITHDRAW: '撤回修改', CANCEL: '作废任务', SUBMIT: '提交审核', RESUBMIT: '重新提交', REVIEW: '审核', CLAIM: '认领', EXECUTE: '登记投放', ATTENTION: '订单关注', STOP_MONITORING: '停止监控', STOP_MONITORING_CENTER: '从监控中心停止',
 }
 const reviewResultMeta = (value: unknown) => reviewResultMap[String(value)] || { label: valueOrDash(value), color: 'default' }
 const actionLabel = (value: unknown) => actionLabelMap[String(value)] || valueOrDash(value)
+function policyChangeLog(raw: unknown) {
+  try {
+    const log = JSON.parse(String(raw || '{}'))
+    const labels: Record<string, string> = { includeCabins: '包含舱位', excludeCabins: '排除舱位', effectiveStartAt: '政策生效时间', effectiveEndAt: '政策失效时间', longTermFlag: '长期有效' }
+    const selected = new Set((log.fields || []).flatMap((field: string) => field === 'effectivePeriod' ? ['effectiveStartAt', 'effectiveEndAt', 'longTermFlag'] : [field]))
+    return [`外部政策：${log.externalPolicyId || '—'}`, `登记时间：${log.recordedAt || '—'}；线下实际修改：${log.appliedAt || '未确认'}；监控生效：${log.monitorEffectiveAt || '未变更'}`, ...Object.entries(labels).filter(([key]) => selected.has(key)).map(([key, label]) => `${label}：${valueOrDash(log.before?.[key])} → ${valueOrDash(log.after?.[key])}`)].join('\n')
+  } catch { return '变更记录无法解析，请联系管理员核对' }
+}
 const effectReviewLabel = (value: unknown) => effectReviewOptions.find(item => item.value === value)?.label || valueOrDash(value)
 const lossThreshold = (minimum: unknown, maximum: unknown) => minimum === null || minimum === undefined || minimum === '' || maximum === null || maximum === undefined || maximum === '' ? '—' : `${moneyValue(minimum)} 至 ${moneyValue(maximum)}`
 function taskStepIndex(status: PlacementTaskStatus) { return ({ DRAFT: 0, PENDING_DATA_REVIEW: 1, PENDING_POLICY_REVIEW: 2, CLAIMABLE: 3, IN_PROGRESS: 4, MONITORING: 5, FAILED: 4, REJECTED: 1, CLOSED: 4, ENDED: 5 } as Record<PlacementTaskStatus, number>)[status] ?? 0 }
@@ -821,6 +851,12 @@ async function saveTask(submit: boolean) {
   finally { saving.value = false }
 }
 const canEdit = (row: PlacementTaskRow) => canEditTasks.value && row.status === 'DRAFT' && (Boolean(authStore.user?.isAdmin) || row.createdById === authStore.user?.id || row.currentAssigneeId === authStore.user?.id)
+const canChangePolicy = (row: PlacementTaskRow) => canExecuteTasks.value && row.status === 'MONITORING' && (Boolean(authStore.user?.isAdmin) || row.currentAssigneeId === authStore.user?.id)
+function openPolicyChange(rows: PlacementTaskRow[]) { policyChangeRows.value = rows.map(row => ({ ...row })); policyChangeOpen.value = true }
+async function policyChangeSaved() {
+  await load()
+  if (detailOpen.value && detail.value && policyChangeRows.value.some(row => row.id === detail.value?.task.id)) await openDetail(detail.value.task)
+}
 const canDelete = (row: PlacementTaskRow) => canDeleteTasks.value && ['DRAFT', 'REJECTED'].includes(row.status) && (Boolean(authStore.user?.isAdmin) || row.createdById === authStore.user?.id)
 const canWithdraw = (row: PlacementTaskRow) => canWithdrawTasks.value && row.status === 'PENDING_DATA_REVIEW' && (Boolean(authStore.user?.isAdmin) || row.createdById === authStore.user?.id)
 const canCancel = (row: PlacementTaskRow) => canCancelTasks.value && ['PENDING_DATA_REVIEW', 'PENDING_POLICY_REVIEW', 'CLAIMABLE'].includes(row.status)
@@ -1012,6 +1048,7 @@ onMounted(() => {
 .workflow-chain { display: grid; grid-template-columns: repeat(7,minmax(0,1fr)); }.workflow-node { position: relative; min-width: 0; text-align: center; color: #667085; }.workflow-node:not(:last-child)::after { position: absolute; top: 16px; right: calc(-50% + 17px); left: calc(50% + 17px); height: 2px; background: #d9e4f2; content: ''; }.workflow-node.done:not(:last-child)::after { background: #80a8fb; }.workflow-index { position: relative; z-index: 1; display: grid; width: 33px; height: 33px; margin: 0 auto 9px; place-items: center; border: 2px solid #cfd9e8; border-radius: 50%; color: #8090a8; background: #fff; font-size: 12px; font-weight: 700; }.workflow-node.done .workflow-index { border-color: #2563eb; color: #fff; background: #2563eb; }.workflow-node.current .workflow-index { border-color: #f59e0b; color: #9a5700; background: #fff5d9; box-shadow: 0 0 0 5px #fff8e7; }.workflow-node strong,.workflow-node small { display: block; }.workflow-node strong { overflow: hidden; color: #475467; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }.workflow-node small { margin-top: 2px; color: #98a2b3; font-size: 10px; }
 .work-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 16px; }.work-tabs { display: flex; gap: 6px; margin-right: auto; }.work-tab { padding: 7px 12px; border: 0; border-radius: 7px; color: #667085; background: #f5f7fa; cursor: pointer; }.work-tab.active { color: #2563eb; background: #eaf1ff; font-weight: 600; }.filter-bar { display: grid; grid-template-columns: minmax(220px,1fr) 160px 135px 105px auto auto; gap: 10px; }
 .batch-action-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: -2px 0 14px; padding: 11px 13px; border: 1px solid #bad2fb; border-radius: 9px; background: #f3f7ff; }.batch-action-bar strong,.batch-action-bar span { display: block; }.batch-action-bar strong { color: #234e91; }.batch-action-bar span { margin-top: 2px; color: #71809a; font-size: 11px; }.batch-review-context { border-color: #bad2fb; background: #f3f7ff; }
+.policy-change-log { white-space: pre-wrap; overflow-wrap: anywhere; margin: 12px 0 0; font-family: inherit; }
 .task-link { padding: 0; border: 0; text-align: left; background: transparent; cursor: pointer; }.task-link strong, .task-link small, .scope-cell strong, .scope-cell span { display: block; }.task-link strong { color: #275fae; }.task-link small, .scope-cell span { margin-top: 3px; color: #8290a4; font-size: 11px; }.scope-cell .exclude { color: #c15b69; }
 .form-intro { display: flex; align-items: center; gap: 13px; margin: 0 0 15px; padding: 13px 15px; border: 1px solid #cfe0fb; border-radius: 11px; background: linear-gradient(135deg,#f4f8ff,#fff); }.intro-mark { display: grid; flex: 0 0 38px; height: 38px; place-items: center; border-radius: 9px; color: #fff; font-weight: 700; background: #2867b7; }.form-intro strong,.form-intro span { display: block; }.form-intro strong { color: #253651; font-size: 14px; }.form-intro span { margin-top: 2px; color: #768399; font-size: 12px; }.intro-copy { min-width: 0; }.field-legend { display: flex; flex: none; gap: 6px; margin-left: auto; }.form-intro .field-legend span { margin: 0; padding: 2px 7px; border: 1px solid #dfe5ed; border-radius: 999px; color: #8994a5; background: #fff; font-size: 10px; }.form-intro .field-legend .required-dot { border-color: #f1c8cd; color: #bf4351; background: #fff6f7; }.dimension-alert { margin-bottom: 14px; }
 .task-form { display: grid; gap: 0; }.form-section { margin-bottom: 14px; padding: 17px; border: 1px solid #e2e8f1; border-radius: 12px; background: #fff; }.section-heading { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 13px; padding-bottom: 11px; border-bottom: 1px solid #edf1f5; }.section-heading > span { display: grid; flex: 0 0 26px; height: 26px; place-items: center; border-radius: 7px; color: #2867b7; font-size: 12px; font-weight: 700; background: #eaf2ff; }.section-heading > div { min-width: 0; }.section-heading h3 { margin: 1px 0 2px; color: #263750; font-size: 14px; }.section-heading p { margin: 0; color: #697386; font-size: 11px; }.section-heading em { flex: none; margin-left: auto; padding: 3px 8px; border-radius: 999px; color: #768499; background: #f0f4f8; font-size: 10px; font-style: normal; }.form-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 11px; }.form-grid.three { grid-template-columns: repeat(3,minmax(0,1fr)); }.form-grid.one { grid-template-columns: 1fr; }.span-2 { grid-column: span 2; }.span-3 { grid-column: span 3; }

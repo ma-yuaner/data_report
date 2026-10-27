@@ -32,6 +32,7 @@ export interface PlacementTaskRow {
   createdByName: string
   createdAt: string
   updatedAt: string
+  versionNo: number
 }
 
 export type PlacementTask = PlacementTaskRow & Record<string, string | number | boolean | null>
@@ -64,6 +65,27 @@ export interface PlacementTaskDetail {
   executions: PlacementExecution[]
   logs: PlacementLog[]
   effectReviews: PlacementEffectReview[]
+}
+
+export interface PlacedPolicyChangeInput {
+  targets: { id: number; versionNo: number; ruleVersionId?: number }[]
+  patch: { includeCabins?: string; excludeCabins?: string; effectivePeriod?: { effectiveStartAt: string; effectiveEndAt: string; longTerm: boolean } }
+  mode: 'REQUEST_EXTERNAL' | 'OFFLINE_CONFIRMED'
+  reason: string
+  appliedAt?: string
+  externalConfirmed?: boolean
+}
+export interface PlacedPolicyChangeRow {
+  id: number; taskNo: string; opportunityName: string; externalPolicyId: string
+  versionNo: number; ruleVersionId: number
+  changed: boolean
+  before: Record<string, string | number | null>
+  after: Record<string, string | number | null>
+}
+export async function changePlacedPolicies(values: PlacedPolicyChangeInput, preview = false) {
+  const response = await http.post<ApiEnvelope<{ rows: PlacedPolicyChangeRow[]; count: number; applied: boolean }>>(`/v1/smart-placement/tasks/policy-changes${preview ? '/preview' : ''}`, values)
+  if (!response.data.success) throw new Error(response.data.message)
+  return response.data.data
 }
 
 export interface PlacementEffectSummary extends Record<string, string | number | null> {

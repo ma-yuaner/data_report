@@ -1,11 +1,27 @@
 from __future__ import annotations
 from flask import Blueprint, current_app, g, jsonify, request
-from ..services.smart_placement import SmartPlacementService, SmartPlacementUnavailable
+from ..services.smart_placement import PlacementChangeConflict, SmartPlacementService, SmartPlacementUnavailable
 from ..services.monitoring import MonitoringService, MonitoringUnavailable
 from .common import json_body, ok
 
 
 def register_routes(api: Blueprint) -> None:
+    @api.post("/v1/smart-placement/tasks/policy-changes/preview")
+    @api.post("/v1/smart-placement/tasks/policy-changes")
+    def change_placed_policies():
+        try:
+            preview = request.path.endswith("/preview")
+            result = SmartPlacementService(current_app.config).change_placed_policies(g.current_user, json_body(), preview=preview)
+            return ok(result, "修改前后预览" if preview else "实际配置与监控已更新" if result["applied"] else "已记录待人工外部执行请求，实际配置与监控未变")
+        except PermissionError as error:
+            return jsonify({"success": False, "message": str(error), "data": None}), 403
+        except PlacementChangeConflict as error:
+            return jsonify({"success": False, "message": str(error), "data": None}), 409
+        except ValueError as error:
+            return jsonify({"success": False, "message": str(error), "data": None}), 400
+        except SmartPlacementUnavailable as error:
+            return jsonify({"success": False, "message": str(error), "data": None}), 503
+
     @api.get("/v1/smart-placement/tasks")
     def smart_placement_tasks():
         try:
