@@ -13,6 +13,8 @@
 
 ## 稳定背景
 
+- 明策产品v6（2026-10-27）：用户要求ADM采用任务到人、原型先审后开发。交付业务全景/场景演练/联动PRD/版本验收；批准绑定具体版本和范围，旧开发授权不绕过新关口。复杂新模块默认提议，小修复仍裁剪。只升级规则不代表原型已完成，见[产品卡](roles/product.md)；其他角色版本不变。
+
 - 2026-10-27用户追加留白要求：菜单根容器复用page-wrap，桌面24px/小屏16px，标题及筛选组件不能代替页面容器，局部样式不覆盖公共宽度。见[公共控件约定](../development/frontend-shared-controls.md)。HR与ADM已补齐，浏览器效果待验。
 
 - HR报表邮件迁为独立`/hr-mail`模块；2026-10-27用户最终决定SMTP/企微认证由服务器私密`.env`提供，不再使用独立Secret文件。后续必须复用原解析/正文/拆分规则，不重做口径、不发布EXE。三张专用表和发信worker需部署人执行，默认发信关闭，真实投递/部署不冒充已验；入口见[交付指南](../development/hr-report-mail.md)。
@@ -26,7 +28,7 @@
 - 开发角色与交接见根AGENTS.md；目录依赖和检查命令见CONTRIBUTING.md。HTTP领域在`backend/data_report_api/api`，公共契约在`shared`，应用任务在`jobs`；前端资源治理已迁入`features/resource-governance`并保留兼容入口。
 - 角色固定名字：明策(product)、绘景(ui)、星桥(frontend)、磐石(backend)、明鉴(qa)。能力卡在`docs/agent/roles`，可按用户要求单独增强并记录版本。实际启用时标明名字、任务与主会话/独立子代理方式；没有实际启动工具记录不声称调用独立子代理。
 - 绘景ui v2：用户指定新项目采用扁平化极简，排版/留白/薄边界和克制配色，避免装饰堆叠；旧项目不自动整体改风格。data_need独立仓库采用AI主导需求整理和任务规划、吴泽展管理微调；UI演示不代表AI、后端或通知已接入，不能与本仓库业务混同。
-- 最新角色版本：明策product v5、绘景ui v4、星桥frontend v5、磐石backend v3、明鉴qa v5。按任务读[角色入口](roles/README.md)，保留旧版有效能力；不每次加载全部卡片。明策仍先判断紧急/难度/风险并裁剪流程，高级产品清单按需用，README维护继续复用既有脚本。
+- 最新角色版本：明策product v6、绘景ui v4、星桥frontend v5、磐石backend v3、明鉴qa v5。按任务读[角色入口](roles/README.md)，保留旧版有效能力；不每次加载全部卡片。明策仍先判断紧急/难度/风险并裁剪流程，用户先审要求按v6优先；README维护继续复用既有脚本。
 - 用户2026-10-24要求固定中台页面/窗口习惯：[统一规范](../product/ui-consistency-standard.md)是后续新增/修改默认入口，覆盖视觉、表格、弹窗、中文输入、滚动、原位保存、局部刷新和内网HTTP兼容。不每次重做设计，不将知序15行/聊天权限等模块规则推广全站，不代表旧页已改造。
 - 同日已落地FormDialog/FormGrid/DateField/DateRangeField并增强FilterPanel，ADM窗口/表单与综合分析筛选先接入。调用见[公共控件](../development/frontend-shared-controls.md)及frontend README，后续优先复用，不逐页另造；历史页、人员/字典与其他复杂抽屉尚未全量迁移，浏览器工具禁用时明确未验布局。
 - 发布偏好（用户2026-10-20最新确认）：完成必要本地验证后直接提交并推送GitLab/GitHub，默认不查询、不等待CI。现有自动CI配置保留；用户单独要求时再核验，服务器部署仍需独立授权。
