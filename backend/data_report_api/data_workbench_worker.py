@@ -121,6 +121,9 @@ def run_claim(service, claim):
 
 def main():
     logging.basicConfig(level=logging.INFO)
+    if not Config.DATA_WORKBENCH_ENABLED:
+        LOGGER.info("Data workbench archived; worker exits without opening the data directory")
+        return 0
     signal.signal(signal.SIGTERM, stop_worker)
     signal.signal(signal.SIGINT, stop_worker)
     config = {key: getattr(Config, key) for key in dir(Config) if key.isupper()}

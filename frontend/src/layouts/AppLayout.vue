@@ -99,7 +99,11 @@
           </a-sub-menu>
           <a-menu-item v-if="canSeeMenu('problems')" key="/problems"><template #icon><WarningOutlined /></template>问题中心</a-menu-item>
           <a-menu-item v-if="canSeeMenu('data_assets')" key="/data-assets"><template #icon><DatabaseOutlined /></template>数据资产</a-menu-item>
-          <a-menu-item v-if="canSeeMenu('data_workbench')" key="/data-workbench"><template #icon><ControlOutlined /></template>数据加工工作台</a-menu-item>
+          <a-sub-menu v-if="canSeeMenu('data_workbench')" key="archived-features">
+            <template #icon><ControlOutlined /></template>
+            <template #title>归档功能</template>
+            <a-menu-item key="/data-workbench">数据加工工作台</a-menu-item>
+          </a-sub-menu>
           <a-menu-item v-if="canSeeMenu('hr.mail')" key="/hr-mail"><template #icon><MailOutlined /></template>HR报表邮件</a-menu-item>
           <a-sub-menu v-if="authStore.user?.isAdmin" key="system">
             <template #icon><MonitorOutlined /></template>
@@ -192,7 +196,8 @@ watch(canExport, allowed => { if (allowed) exportStore.startPolling(); else expo
 onBeforeUnmount(() => exportStore.stopPolling())
 const openKeys = ref<string[]>([])
 watch(() => route.path, path => {
-  openKeys.value = path.startsWith('/analysis') ? ['analysis']
+    openKeys.value = path.startsWith('/data-workbench') ? ['archived-features']
+      : path.startsWith('/analysis') ? ['analysis']
     : path.startsWith('/resource-governance') ? ['governance']
     : path.startsWith('/risk-analysis') ? ['risk']
       : path.startsWith('/smart-analysis/placement/') ? ['smart', 'smart-placement']

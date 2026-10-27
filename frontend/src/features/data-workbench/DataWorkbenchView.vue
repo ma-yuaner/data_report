@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { useAuthStore } from '../../stores/auth'
 import { workbenchApi as api } from './api'
@@ -8,6 +8,7 @@ import StepEditor from './StepEditor.vue'
 import FormDialog from '../../components/FormDialog.vue'
 
 const auth = useAuthStore()
+const moduleState = ref<'loading' | 'archived' | 'ready' | 'error'>('loading')
 const stepEditor = ref<InstanceType<typeof StepEditor>>()
 const editorPreset = ref('')
 const cleanupOpen = ref(false),
@@ -268,9 +269,15 @@ async function refreshCatalog() {
   const version = ++catalogVersion
   try {
     const data = await api.catalog()
-    if (!disposed.value && version === catalogVersion) catalog.value = data
+    if (!disposed.value && version === catalogVersion) {
+      catalog.value = data
+      moduleState.value = data.archived ? 'archived' : 'ready'
+      if (data.archived) clearTimeout(poll)
+      await nextTick()
+      if (root.value) resizeObserver?.observe(root.value)
+    }
   } catch (e) {
-    if (version === catalogVersion && !disposed.value) fail(e)
+    if (version === catalogVersion && !disposed.value) { moduleState.value = 'error'; fail(e) }
   }
 }
 async function chooseSource(id: string, keep = false) {
@@ -667,7 +674,13 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section ref="root" class="workbench" :class="{ compact: viewport < 1050 }">
+  <section v-if="moduleState !== 'ready'" class="workbench">
+    <header class="workbench-header"><div><h1>数据加工工作台</h1><p>归档功能</p></div></header>
+    <p v-if="moduleState === 'loading'" role="status">正在确认模块状态…</p>
+    <a-alert v-else-if="moduleState === 'archived'" type="info" show-icon message="已归档，旧数据与流程已保留" description="当前不再提供通用加工操作。需要恢复时，由部署人启用旧模块与对应worker；不会删除历史数据。" />
+    <template v-else><a-alert :message="error || '模块状态读取失败'" type="error" show-icon /><a-button @click="refreshCatalog">重试</a-button></template>
+  </section>
+  <section v-else ref="root" class="workbench" :class="{ compact: viewport < 1050 }">
     <header class="workbench-header">
       <div>
         <h1>数据加工工作台</h1>

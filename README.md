@@ -8,7 +8,7 @@ ADM责任流转V2：已增加协调人、接收确认式转交、责任分段、
 
 本页按2026-10-20仓库代码核对。页面、接口存在只证明有相应实现；部署、数据同步、通知调度和业务验收分别记录在[当前工作流](docs/agent/workstreams.md)。
 
-新增[数据加工工作台 V1](docs/product/data-workbench-v1.md)：真实CSV/XLSX导入、受控清洗/派生/汇总/关联、版本化流程、独立后台计算和结果复用。需管理员显式授权`data_workbench`菜单，数据按本人隔离；与业务库分离，API和独立Worker共用持久卷。代码交付不代表部署或真实财务宽表性能验收。
+旧[数据加工工作台](docs/product/data-workbench-v1.md)已移入“归档功能”，默认关闭加工API，Worker不随普通部署启动；代码、数据卷及恢复能力保留。恢复需DATA_WORKBENCH_ENABLED=true和archived-workbench profile。财务转向固定核对流程，新的上传/异常页面尚未开发；标签及恢复说明见[财务固定流程](docs/product/finance-reconciliation-fixed-pipeline.md)。服务器已有worker须由部署人显式停止，代码归档不等于已停机。
 
 工作台[V2易用性](docs/product/data-workbench-v2.md)：批量软删除与引用保护、三列及以上求和/受控特征表达式、0–12位小数、关联重复键样例。保留原文件，不自动换汇、去重或认定财务差异；更新API/前端及工作台worker后人工验收。
 
@@ -86,7 +86,8 @@ ADM 管理
   ADM 台账  [/adm/cases]
 问题中心  [/problems]
 数据资产  [/data-assets]
-数据加工工作台  [/data-workbench]
+归档功能
+  数据加工工作台  [/data-workbench]
 HR报表邮件  [/hr-mail]
 系统管理
   用户行为监控  [/admin/behavior]
