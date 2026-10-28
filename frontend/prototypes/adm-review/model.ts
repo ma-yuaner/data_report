@@ -1,5 +1,6 @@
 /** Product simulation only. No HTTP, production data, real delivery or authoritative accounting. */
 export const roles = [
+  { id: 'lead', name: '组长 · 分派与督办（模拟）', purpose: '接收初派任务、再分配并查看本组进度' },
   { id: 'coordinator', name: '林协调 · 接收与调度', purpose: '接收、分派异常、调度和整单结案' },
   { id: 'handlerA', name: '陈承办 · 平台A', purpose: '只办理分给自己的订单与协办' },
   { id: 'handlerB', name: '周承办 · 平台B', purpose: '只办理分给自己的订单与协办' },
@@ -39,6 +40,9 @@ export interface Evidence {
   shared: string[]
   content: string
   redactedFrom?: string
+  dataUrl?: string
+  mime?: string
+  size?: number
 }
 export interface Collaboration {
   id: string
@@ -68,6 +72,13 @@ export interface Line {
   amount: string
   stage: Stage
   owner: string
+  supervisor?: string
+  borneAmount?: string
+  expectedRefund?: string
+  payments?: { id: string; reference: string; amount: string; at: string; reason: string; evidence: string[] }[]
+  recoveryDue?: string
+  recoveryCompletedAt?: string
+  lockedBy?: string
   dueAt: string
   matchReason: string
   description: string
@@ -105,6 +116,15 @@ export interface Case {
   id: string
   admNo: string
   supplier: string
+  sourceType?: string
+  currency?: string
+  airline?: string
+  issuedOn?: string
+  replyDue?: string
+  referenceCny?: string
+  preliminary?: boolean
+  historyOnly?: boolean
+  historySource?: Record<string, unknown>
   amount: string
   description: string
   remark: string
@@ -136,6 +156,16 @@ export interface SimState {
   cases: Case[]
   events: Event[]
   notices: { id: string; recipient: string; caseId: string; lineId: string; text: string; read: boolean }[]
+  rules?: {
+    lead: string
+    platformA: string
+    platformB: string
+    warningHours: number
+    channel: string
+    types: { name: string; code: string }[]
+    suppliers: { name: string; currency: string; rate: string }[]
+    rates: { currency: string; rate: string }[]
+  }
 }
 export interface Task {
   id: string
@@ -168,6 +198,7 @@ export const lineSeed = (index: number): Line => ({
   amount: ['600.00', '250.00', '150.00'][(index - 1) % 3]!,
   stage: 'INVESTIGATE',
   owner: index === 2 ? 'handlerB' : 'handlerA',
+  supervisor: 'lead',
   dueAt: '2026-11-01T18:00',
   matchReason: '演练：订单号与票号一致',
   description: '供应下发差异，需要核对业务记录与证据',
@@ -200,7 +231,7 @@ export const lineSeed = (index: number): Line => ({
   followUpAt: '',
   round: 1,
 })
-export function seed(scenario = 'normal'): SimState {
+export function seed(scenario = 'simple'): SimState {
   const lines = [lineSeed(1), lineSeed(2), lineSeed(3)]
   const parent: Case = {
     id: 'case-demo-001',
@@ -241,6 +272,27 @@ export function seed(scenario = 'normal'): SimState {
     lines[0]!.appealDecision = '申诉'
     lines[0]!.financeRequired = true
   }
+  if (scenario === 'simple') {
+    parent.lines = [lines[0]!]
+    parent.amount = lines[0]!.amount
+    parent.description = '普通单：接收、填写处理意见、审核并结案。'
+    parent.lines[0]!.stage = 'ACCEPT'
+    parent.lines[0]!.diffType = '重复预定'
+    parent.lines[0]!.diffSecond = ''
+    parent.files = parent.files.filter((file) => !file.lineId || file.lineId === lines[0]!.id)
+  }
+  if (scenario === 'cashflow') {
+    parent.lines = [lines[0]!]
+    parent.amount = lines[0]!.amount
+    parent.files = parent.files.filter((file) => !file.lineId || file.lineId === lines[0]!.id)
+    parent.lines[0]!.stage = 'DONE'
+    parent.lines[0]!.financeRequired = true
+    parent.lines[0]!.conclusion = '合成演练：申诉成功，审核通过，等待退款到账。'
+    parent.status = 'CLOSED'
+    parent.closedSnapshots = [
+      { at: '2026-10-28T14:00', amount: parent.amount, lines: JSON.parse(JSON.stringify(parent.lines)) },
+    ]
+  }
   if (scenario === 'exception') {
     lines[0]!.stage = 'MATCH'
     lines[0]!.owner = ''
@@ -273,13 +325,33 @@ export function seed(scenario = 'normal'): SimState {
       { at: '2026-10-26T18:00', amount: parent.amount, lines: JSON.parse(JSON.stringify(lines)) },
     ]
   }
-  return { schema: 1, version: 1, clock: '2026-10-27T15:00', scenario, cases: [parent], events: [], notices: [] }
+  const state: SimState = {
+    schema: 2,
+    version: 1,
+    clock: '2026-10-28T15:00',
+    scenario,
+    cases: [parent],
+    events: [],
+    notices: [],
+  }
+  tasks(state).forEach((task) =>
+    state.notices.push({
+      id: id(),
+      recipient: task.owner,
+      caseId: task.caseId,
+      lineId: task.lineId,
+      text: `[企业微信模拟] ${task.title}`,
+      read: false,
+    }),
+  )
+  return state
 }
 export function visibleLines(item: Case, actor: string) {
   if (actor === 'coordinator') return item.lines
   return item.lines.filter(
     (line) =>
       line.owner === actor ||
+      line.supervisor === actor ||
       line.transfer?.to === actor ||
       line.collaborations.some((task) => task.owner === actor) ||
       actor === 'reviewer' ||
@@ -314,7 +386,21 @@ export function tasks(state: SimState): Task[] {
       overdue: !!dueAt && dueAt < state.clock,
     })
   state.cases.forEach((item) => {
-    if (item.status === 'VOID' || item.status === 'DRAFT' || item.paused) return
+    if (item.historyOnly || item.status === 'VOID' || item.status === 'DRAFT' || item.paused) return
+    item.lines
+      .filter((line) => line.stage === 'DONE' && line.financeRequired && !line.financeReference)
+      .forEach((line) =>
+        add(
+          item,
+          line,
+          '回款',
+          `确认回款 · ${line.orderNo}`,
+          'finance',
+          'finance',
+          '',
+          '业务已审核，回款独立跟进；缺少财务期限不视为按时完成',
+        ),
+      )
     if (item.status === 'CLOSED') {
       if (['待整改', '整改中', '待复核'].includes(item.remediation.status))
         add(
@@ -330,6 +416,17 @@ export function tasks(state: SimState): Task[] {
       return
     }
     item.lines.forEach((line) => {
+      if (line.recoveryRequired && !line.recoveryResult)
+        add(
+          item,
+          line,
+          '恢复编码',
+          `恢复编码 · ${line.orderNo}`,
+          line.owner,
+          'recovery',
+          line.recoveryDue || '',
+          '独立恢复节点，完成须编码、结果与佐证；期限由人工填写',
+        )
       if (line.stage !== 'DONE')
         add(
           item,
@@ -450,23 +547,137 @@ export function transition(
   const item = state.cases.find((item) => item.id === caseId)
   need(item, '主单不存在')
   const parent = item!
+  need(!parent.historyOnly, '历史档案只读；可复制引用新建，不回写旧档案')
   const line = parent.lines.find((line) => line.id === lineId)
   const coordinator = () => need(actor === 'coordinator', '仅协调人可操作')
   const handle = () =>
-    need(line && line.owner === actor && ['handlerA', 'handlerB'].includes(actor), '仅当前主承办可操作')
+    need(line && line.owner === actor && ['handlerA', 'handlerB', 'lead'].includes(actor), '仅当前主承办可操作')
   const stage = (...values: Stage[]) => need(line && values.includes(line.stage), '当前节点不允许此操作')
   const before = parent.status === 'CLOSED' ? '已结案' : line ? stageNames[line.stage] : parent.status
+  if (
+    line?.lockedBy &&
+    line.lockedBy !== actor &&
+    ![
+      'unlock',
+      'review',
+      'finance',
+      'responsibility_review',
+      'transfer_accept',
+      'transfer_reject',
+      'remediation_review',
+    ].includes(action)
+  )
+    need(false, `此明细由${roleName(line.lockedBy)}锁定，请先协调解锁`)
+  if (parent.preliminary)
+    need(
+      !['submit', 'appeal', 'appeal_next', 'difference', 'review', 'finance', 'close'].includes(action),
+      '预罚单请先核实并由协调人转正式，随后继续办理',
+    )
   const closedAttachment =
     action === 'attach' &&
     parent.status === 'CLOSED' &&
     actor === parent.remediation.owner &&
     parent.remediation.status === '整改中'
-  if (!closedAttachment && !['reopen', 'remediate', 'remediation_accept', 'remediation_review'].includes(action)) {
+  const closedFinance =
+    action === 'finance' && parent.status === 'CLOSED' && line?.stage === 'DONE' && line.financeRequired
+  if (
+    !closedAttachment &&
+    !closedFinance &&
+    !['reopen', 'remediate', 'remediation_accept', 'remediation_review'].includes(action)
+  ) {
     need(parent.status !== 'CLOSED', '已结案核心事实只读；可完成整改或授权重开')
     need(parent.status !== 'VOID', '作废主单只读')
     need(!parent.paused || action === 'resume', '主单已挂起，恢复后办理')
   }
-  if (action === 'publish') {
+  if (action === 'lock' || action === 'unlock') {
+    need(line && (line.owner === actor || actor === 'coordinator'), '仅当前承办或协调人可管理办理锁')
+    need(
+      line && ['MATCH', 'ASSIGN', 'ACCEPT', 'INVESTIGATE', 'APPEAL', 'DIFFERENCE'].includes(line.stage),
+      '审核后不可修改办理锁',
+    )
+    if (action === 'lock') {
+      need(!line!.lockedBy || line!.lockedBy === actor, '已有他人持锁')
+      line!.lockedBy = actor
+    } else {
+      text(body.reason, '解锁依据')
+      line!.lockedBy = ''
+    }
+  } else if (action === 'edit' || action === 'preliminary') {
+    coordinator()
+    need(
+      parent.status === 'ACTIVE' &&
+        parent.lines.every(
+          (value) =>
+            ['MATCH', 'ASSIGN', 'ACCEPT', 'INVESTIGATE'].includes(value.stage) &&
+            !value.transfer &&
+            (!value.lockedBy || value.lockedBy === actor),
+        ),
+      '审核后、交接中或他人持锁时不允许更改基础信息',
+    )
+    need(action !== 'preliminary' || parent.preliminary, '当前已是正式ADM')
+    parent.admNo = text(body.admNo, 'ADM号', 200)
+    parent.supplier = text(body.supplier, '供应商', 200)
+    need(
+      !state.cases.some(
+        (value) => value.id !== parent.id && value.admNo === parent.admNo && value.supplier === parent.supplier,
+      ),
+      '同供应商同ADM号已存在',
+    )
+    parent.description = text(body.description, 'ADM内容', 8000)
+    parent.remark = String(body.remark || '')
+    parent.airline = text(body.airline, '航司代码', 40)
+    need(['航司', '供应商', '平台'].includes(body.sourceType), '来源主体无效')
+    parent.sourceType = body.sourceType
+    need(
+      /^\d{4}-\d\d-\d\d$/.test(body.issuedOn) &&
+        /^\d{4}-\d\d-\d\d$/.test(body.replyDue) &&
+        body.replyDue >= body.issuedOn,
+      '请核对下发日期和回复截止',
+    )
+    parent.issuedOn = body.issuedOn
+    parent.replyDue = body.replyDue
+    const entries = body.lines as Line[]
+    need(Array.isArray(entries) && entries.length === parent.lines.length, '请保留原有订单结构')
+    entries.forEach((entry, index) => {
+      const target = parent.lines[index]!
+      text(entry.orderNo, '订单号', 200)
+      cents(entry.amount)
+      need(
+        ['平台A', '平台B'].includes(entry.platform) && ['出票', '退票', '改签'].includes(entry.business),
+        '平台或业务无效',
+      )
+      for (const key of ['orderNo', 'ticketNo', 'platform', 'business', 'amount', 'pnr', 'site'] as const)
+        target[key] = String(entry[key] || '')
+    })
+    const tickets = entries.flatMap((entry) =>
+      String(entry.ticketNo || '')
+        .split(/[;；、\s]+/)
+        .filter(Boolean),
+    )
+    need(new Set(tickets).size === tickets.length, '票号重复，请核对子项')
+    need(cents(body.amount) === parent.lines.reduce((sum, value) => sum + cents(value.amount), 0), '主单与子项金额不平')
+    parent.amount = body.amount
+    text(body.reason, '修改依据')
+    if (action === 'preliminary') {
+      parent.preliminary = false
+      parent.lines.forEach((value) => {
+        value.stage = 'ACCEPT'
+        value.owner = state.rules?.lead || 'lead'
+      })
+    }
+  } else if (action === 'recovery') {
+    handle()
+    stage('INVESTIGATE')
+    line!.recoveryRequired = true
+    line!.recoveryCode = text(body.recoveryCode, '恢复编码', 100)
+    line!.recoveryDue = String(body.recoveryDue || '')
+    need(!line!.recoveryDue || /^\d{4}-\d\d-\d\dT\d\d:\d\d$/.test(line!.recoveryDue), '恢复截止格式无效')
+    line!.recoveryResult = String(body.recoveryResult || '')
+    if (body.recoveryResult) {
+      proof(parent, line!, body.evidence)
+      line!.recoveryCompletedAt = state.clock
+    } else line!.recoveryCompletedAt = ''
+  } else if (action === 'publish') {
     coordinator()
     need(parent.status === 'DRAFT', '仅草稿可发布')
     need(parent.lines.length, '至少一条子订单')
@@ -477,12 +688,16 @@ export function transition(
     line!.orderNo = text(body.orderNo, '订单号', 100)
     line!.matchReason = text(body.reason, '核实依据')
     line!.platform = body.platform === '平台B' ? '平台B' : '平台A'
-    line!.owner = body.autoAssign ? (line!.platform === '平台B' ? 'handlerB' : 'handlerA') : ''
+    line!.owner = body.autoAssign
+      ? line!.platform === '平台B'
+        ? state.rules?.platformB || 'handlerB'
+        : state.rules?.platformA || 'handlerA'
+      : ''
     line!.stage = line!.owner ? 'ACCEPT' : 'ASSIGN'
   } else if (action === 'assign') {
     coordinator()
     stage('ASSIGN', 'ACCEPT', 'INVESTIGATE')
-    need(['handlerA', 'handlerB'].includes(body.owner), '请选择获授权承办人')
+    need(['handlerA', 'handlerB', 'lead'].includes(body.owner), '请选择获授权承办人')
     need(!line!.transfer, '先完成或取消已有交接')
     line!.owner = body.owner
     line!.stage = 'ACCEPT'
@@ -512,6 +727,8 @@ export function transition(
       'followUpAt',
       'pnr',
       'site',
+      'expectedRefund',
+      'recoveryDue',
     ])
       if (key in body) (line as any)[key] = String(body[key] || '').slice(0, 8000)
     for (const key of ['recoveryRequired', 'financeRequired']) if (key in body) (line as any)[key] = body[key] === true
@@ -524,11 +741,13 @@ export function transition(
         line!.collaborations.every((task) => !task.required || task.status === 'DONE'),
         '必需协办尚未完成',
       )
-      for (const key of ['description', 'facts', 'cause', 'proposal', 'conclusion', 'diffType', 'diffSecond'])
-        text((line as any)[key], key)
+      for (const key of ['description', 'conclusion', 'diffType', 'attribution']) text((line as any)[key], key)
+      need(!line!.waitingFor, '尚有等待事项，请先完成跟进并清除等待，或保存草稿继续跟进')
       need(!line!.recoveryRequired || (line!.recoveryCode && line!.recoveryResult), '恢复编码必需时需编码与完成结果')
       need(line!.appealDecision === '申诉' || line!.appealReason, '不申诉必须说明依据')
-      need(line!.financeRequired || line!.financeReason, '无需财务处理必须说明依据')
+      need(line!.financeRequired || line!.financeReason, '无需回款必须说明依据')
+      if (line!.financeRequired) need(cents(line!.expectedRefund) > 0, '需要回款时请填写大于0的应收金额')
+      if (line!.recoveryRequired && line!.recoveryResult) line!.recoveryCompletedAt = state.clock
       line!.waitingFor = ''
       line!.stage = line!.appealDecision === '申诉' ? 'APPEAL' : 'DIFFERENCE'
     }
@@ -536,8 +755,17 @@ export function transition(
     handle()
     stage('APPEAL')
     const evidence = proof(parent, line!, body.evidence)
-    need(['平台', '供应商/航司'].includes(body.target), '请选择申诉对象')
+    need(['平台', '供应商', '航司', '供应商/航司'].includes(body.target), '请选择申诉对象')
     need(['处理中', '成功', '部分成功', '失败', '撤回'].includes(body.status), '申诉状态无效')
+    if (['部分成功', '失败'].includes(body.status)) {
+      need(cents(body.borneAmount) <= cents(line!.amount), '承担金额不能超过本明细金额')
+      line!.borneAmount = body.borneAmount
+    }
+    if (typeof body.financeRequired === 'boolean') line!.financeRequired = body.financeRequired
+    if (line!.financeRequired) {
+      need(cents(body.expectedRefund) > 0, '请填写应收金额')
+      line!.expectedRefund = body.expectedRefund
+    }
     line!.appeals.push({
       id: id(),
       target: body.target,
@@ -551,7 +779,7 @@ export function transition(
     stage('APPEAL')
     const latest = new Map(line!.appeals.map((value) => [value.target, value]))
     need(latest.size && [...latest.values()].every((value) => value.status !== '处理中'), '尚有未结束申诉或未记录申诉')
-    line!.stage = 'DIFFERENCE'
+    line!.stage = [...latest.values()].every((value) => value.status === '成功') ? 'REVIEW' : 'DIFFERENCE'
   } else if (action === 'difference') {
     handle()
     stage('DIFFERENCE')
@@ -573,21 +801,40 @@ export function transition(
       !line!.transfer && line!.collaborations.every((task) => !task.required || task.status === 'DONE'),
       '待交接或必需协办未完成',
     )
-    line!.stage = body.approved ? (line!.financeRequired ? 'FINANCE' : 'DONE') : 'INVESTIGATE'
+    line!.stage = body.approved ? 'DONE' : 'INVESTIGATE'
+    line!.lockedBy = ''
   } else if (action === 'finance') {
     need(actor === 'finance', '仅财务确认人可操作')
-    stage('FINANCE')
+    stage('DONE')
+    need(line!.financeRequired && !line!.financeReference, '当前没有待回款事项，不能重复确认')
     line!.financeReference = text(body.reference, '核对凭证号', 200)
-    cents(body.amount)
-    line!.settledAmount = body.amount
-    proof(parent, line!, body.evidence)
-    text(body.reason, '财务核对依据')
+    need(cents(body.amount) > 0, '到账金额须大于0；无支出不应创建回款任务')
+    need(
+      !(line!.payments || []).some((payment) => payment.reference === body.reference.trim()),
+      '该明细已登记此凭证，不重复记账',
+    )
+    const total = (line!.payments || []).reduce((sum, value) => sum + cents(value.amount), 0) + cents(body.amount)
+    const due = cents(line!.expectedRefund || line!.amount)
+    need(total <= due, '累计到账不能超过应收，请核对金额')
+    need(!body.confirmComplete || total === due, '仍有剩余应收，不能确认全部到账')
+    const evidence = proof(parent, line!, body.evidence)
+    const reason = text(body.reason, '财务核对依据')
+    ;(line!.payments ||= []).push({
+      id: id(),
+      reference: body.reference.trim(),
+      amount: body.amount,
+      at: state.clock,
+      reason,
+      evidence,
+    })
+    line!.settledAmount = cash(total)
+    line!.financeReference = total === due ? body.reference.trim() : ''
     line!.stage = 'DONE'
   } else if (action === 'transfer_request') {
     handle()
     stage('ACCEPT', 'INVESTIGATE', 'APPEAL', 'DIFFERENCE')
     need(!line!.transfer, '已有待确认交接')
-    need(['handlerA', 'handlerB'].includes(body.owner) && body.owner !== actor, '接收人必须为其他获授权承办人')
+    need(['handlerA', 'handlerB', 'lead'].includes(body.owner) && body.owner !== actor, '接收人必须为其他获授权承办人')
     line!.transfer = { to: body.owner, reason: text(body.reason, '交接原因及待办摘要') }
   } else if (action === 'transfer_accept' || action === 'transfer_reject') {
     need(line?.transfer?.to === actor, '仅待接收人可确认或驳回')
@@ -676,6 +923,23 @@ export function transition(
       shared: [],
       content: text(body.content, '演练文件内容', 10000),
     }
+    if (body.dataUrl) {
+      need(
+        typeof body.dataUrl === 'string' &&
+          /^data:(image\/(png|jpeg|gif|webp)|application\/pdf|text\/plain|application\/octet-stream);base64,/.test(
+            body.dataUrl,
+          ),
+        '文件类型无效',
+      )
+      need(body.size > 0 && body.size <= 2 * 1024 * 1024, '单文件最多2MB')
+      need(
+        parent.files.reduce((total, value) => total + (value.size || 0), 0) + body.size <= 6 * 1024 * 1024,
+        '本单本地文件合计最多6MB',
+      )
+      file.dataUrl = body.dataUrl
+      file.mime = String(body.mime)
+      file.size = body.size
+    }
     parent.files.push(file)
     if (line) line.evidence.push(file.id)
   } else if (action === 'share') {
@@ -761,9 +1025,50 @@ export function transition(
         recipient: task.owner,
         caseId: task.caseId,
         lineId: task.lineId,
-        text: task.title,
+        text: `${parent.preliminary ? '[邮件核实＋群辅助模拟]' : `[${state.rules?.channel || '企业微信'}模拟]`} ${task.title}`,
         read: false,
       }),
     )
+  tasks(state)
+    .filter((task) => !previous.has(`${task.id}:${task.owner}`))
+    .forEach((task) => {
+      const target = parent.lines.find((value) => value.id === task.lineId)
+      if (target?.supervisor && target.supervisor !== task.owner && ['handlerA', 'handlerB'].includes(task.owner))
+        state.notices.push({
+          id: id(),
+          recipient: target.supervisor,
+          caseId: task.caseId,
+          lineId: task.lineId,
+          text: `[组长督办模拟] ${roleName(task.owner)}：${task.title}`,
+          read: false,
+        })
+    })
   return state
+}
+
+/** Keep the single-page non-appeal submission atomic: failed difference validation retains the draft and original state. */
+export function submitProcessing(
+  source: SimState,
+  actor: string,
+  caseId: string,
+  lineId: string,
+  body: Body,
+  expected = source.version,
+) {
+  let next = transition(source, actor, caseId, lineId, 'submit', body, expected)
+  if (body.appealDecision === '不申诉')
+    next = transition(
+      next,
+      actor,
+      caseId,
+      lineId,
+      'difference',
+      {
+        reason: body.differenceReason,
+        recorded: body.differenceRecorded,
+        evidence: body.evidence,
+      },
+      next.version,
+    )
+  return next
 }

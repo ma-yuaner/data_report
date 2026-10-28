@@ -1,5 +1,7 @@
 /** Product definition for the isolated ADM review prototype; not production rules. */
-export const VERSION = 'ADM-DEMO-0.1'
+import { applyMeetingReview } from './meeting-review'
+import { extraNodes } from './product-spec'
+export const VERSION = 'ADM-DEMO-0.3'
 
 export type ProductNode = {
   id: string
@@ -571,3 +573,50 @@ export const scenarios: DemoScenario[] = [
     ],
   },
 ]
+applyMeetingReview(nodes, scenarios)
+for (const node of extraNodes)
+  nodes.push({
+    ...node,
+    actor: '当前获权人员；具体操作权限见字段与操作说明。',
+    inputs: [],
+    rules: ['本机前端原型，使用合成数据和演示配置。'],
+    outcomes: ['保存后更新同一工作区的台账、任务和历史。'],
+    checks: [],
+    pending: [],
+  })
+const financeNode = nodes.find((node) => node.id === 'finance')!
+financeNode.inputs = ['应收金额、本次到账金额、核对凭证、证据及核对说明。']
+financeNode.rules = [
+  '业务审核后产生独立财务待办，结案不删除待办。',
+  '支持分次及部分回款；累计不得超应收，同明细凭证不重复。',
+  '财务结果不回写已冻结业务快照。',
+]
+financeNode.pending = ['正式财务接口、实际核对人和财务期限待接入。']
+nodes.find((node) => node.id === 'attachments')!.inputs = [
+  '选择本机文件或补充文本，按主单/明细归属保存，可预览与下载。',
+]
+nodes.find((node) => node.id === 'settings')!.goal =
+  '维护本机分派、错误类型代码、参考汇率和提醒设置；新任务使用新值，既有任务不重派。'
+Object.assign(
+  nodes.find((node) => node.id === 'overview')!,
+  {
+    title: 'ADM台账与连续工作区',
+    goal: '从同一份台账录入、查询并连续办理ADM，所有业务队列打开同一张单，不要求选择演练场景。',
+    inputs: [
+      '默认展示不同状态的合成ADM；可搜索、按阶段/平台/下发日期筛选。',
+      '勾选主单后批量分派、解锁或导出；打开单据查看主单、订单、材料和历史。',
+    ],
+    outcomes: [
+      '录入、分派、处理、申诉、审核、业务结案与回款在同一工作区联动。',
+      '切换下一处理人只改变模拟身份，不自动执行提交或批准。',
+    ],
+    pending: ['真实账号、接口、正式时限与绩效口径待接入；当前为可操作前端建议。'],
+  },
+)
+const intakeNode = nodes.find((node) => node.id === 'intake')!
+intakeNode.pending = ['正式错误字典、外部模板、订单接口及实时汇率源待接入；当前可在本机配置演示值。']
+intakeNode.rules = intakeNode.rules.filter((rule) => !rule.includes('复杂批量导入和真实文件上传'))
+intakeNode.rules.push(
+  '预罚可无正式ADM号/订单，生成临时核实单；转正式时补齐后继续派发。',
+  'CSV和本机附件在统一入口提供，均不连接服务器。',
+)

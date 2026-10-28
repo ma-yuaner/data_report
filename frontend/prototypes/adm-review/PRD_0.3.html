@@ -1,0 +1,247 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ADM原型PRD 0.3</title><style>body{font:15px/1.9 system-ui,'Microsoft YaHei';color:#182235;background:#f2f5f9;margin:0}main{max-width:1320px;background:white;padding:32px;margin:auto}h1{font-size:27px}h2{margin-top:36px}.row{display:flex;border-bottom:1px solid #dbe3ee;overflow-wrap:anywhere}.row span{flex:1;padding:10px;min-width:0}.row span:first-child{flex:0.65;font-weight:600}@media(max-width:700px){main{padding:16px}.row{display:block}.row span{display:block;padding:6px}}</style><main><h1>ADM管理原型与PRD 0.3</h1>
+<p></p>
+<p>更新：2026-10-28。状态：前端可操作原型，供业务直接使用并反馈；不是正式服务端或部署完成。</p>
+<p></p>
+<p>本轮按用户要求优先完整功能和连续操作，把分散场景归并为同一个工作区。默认打开台账，多种状态样例同时存在；不需要重置场景即可录入、分派、处理、申诉、审核、结案和回款。评审记录保留在辅助入口。</p>
+<p></p>
+<p>左侧为可操作原型，右侧跟随页面/步骤显示功能、逐字段定义、按钮条件和跳转。窗口内同步显示当前动作的前置条件与完成结果。</p>
+<p></p>
+<h2>页面与完整办理路径</h2>
+<p></p>
+<div class="row"><span>页面</span><span>功能与去向</span></div>
+
+<div class="row"><span>我的工作 / 团队督办</span><span>查看到人任务、期限、交接和协办；点开进入同一张单。组长保留本组督办。</span></div>
+<div class="row"><span>ADM台账</span><span>搜索、按阶段/平台/下发日期筛选、勾选主单、批量分派/解锁、导出台账或差异交接CSV。</span></div>
+<div class="row"><span>录入与核实</span><span>主单与多票号子项、人工确认拆分、本地候选识别、单币种分摊、参考换算、查重、复制、新建预览。预罚可先无订单，转正式补齐。</span></div>
+<div class="row"><span>单据详情</span><span>同单切换订单处理、原件附件、结案整改和操作历史；基础信息审核前可编辑并留痕。</span></div>
+<div class="row"><span>恢复编码 / 申诉跟进</span><span>集中列表打开原单，记录恢复期限和佐证，或按对象/轮次登记申诉；不另建互不关联的演示。</span></div>
+<div class="row"><span>审核 / 回款</span><span>审核通过或退回原承办；审核后按需生成财务待办，支持部分及多次回款。业务结案后继续追踪。</span></div>
+<div class="row"><span>通知与回执</span><span>按本人显示、标已读、打开对应任务、登记外部收到回执、生成到期提醒；不对外发送。</span></div>
+<div class="row"><span>统计与日报</span><span>当前范围主单/明细、逾期、人员积压排序、原币汇总及可读日报下载；不作为正式绩效考核。</span></div>
+<div class="row"><span>导入导出 / 历史档案</span><span>统一CSV模板，先预览后确认，基础更新保留结果与备注；历史约定JSON只读试导、重复源ID跳过、可复制引用。</span></div>
+<div class="row"><span>规则设置</span><span>本机维护分派、类型代码、供应默认币种、参考汇率和预警参数。只影响后续新单和匹配，不追溯重派。</span></div>
+<p></p>
+<p>主流程：录入预览→组长接收/转交→承办接收→同单填写处理意见→申诉或不申诉差异依据→独立审核→协调人整单结案。回款与结案后整改分别继续。审核退回原承办，转交未确认前原人继续负责，期限不重置。</p>
+<p></p>
+<h2>需求覆盖</h2>
+<p></p>
+<div class="row"><span>原始需求</span><span>本版前端对应功能</span></div>
+
+<div class="row"><span>R001/R005/R017</span><span>到人任务、组长再分派/督办、确认式交接、站内模拟通知与外部回执记录</span></div>
+<div class="row"><span>R002/R004/R010/R016</span><span>主单多订单、多票号、出退改/平台/PNR、基础信息编辑、候选识别与人民币参考值</span></div>
+<div class="row"><span>R003/R009</span><span>复制引用、重复提醒、审核前编辑、办理锁、批量解锁/分派与逐项结果</span></div>
+<div class="row"><span>R006/R008</span><span>多对象多轮申诉、不申诉原因、差异依据、承担金额与独立审核</span></div>
+<div class="row"><span>R007/R018</span><span>本机文件上传/预览/下载/授权，恢复编码、截止、完成时间与佐证</span></div>
+<div class="row"><span>R011/R013</span><span>统一CSV导入导出、备注保留、外部代码映射、只读历史JSON试导</span></div>
+<div class="row"><span>R012/R014</span><span>连续工作区、统计/日报/积压排序，辅助评审入口</span></div>
+<div class="row"><span>R015/R019</span><span>独立回款、部分多次到账、预罚核实与转正式</span></div>
+<p></p>
+<h2>功能与字段说明</h2>
+<p></p>
+<h3>录入与主单信息</h3>
+<p></p>
+<div class="row"><span>字段</span><span>含义与用途</span><span>来源/默认</span><span>编辑条件</span><span>必填、校验与影响</span></div>
+
+<div class="row"><span>ADM号</span><span>供应下发罚单的编号，用于查重和追溯；不是订单号。</span><span>录入人员按原件填写</span><span>协调人新建或审核前修改；预罚转正式可补齐</span><span>正式单必填；同供应商同号禁止重复创建。复制时需改新号。</span></div>
+<div class="row"><span>来源主体</span><span>说明由航司、供应商或平台提出罚单。</span><span>人工选择</span><span>协调人可改</span><span>必选；不把邮件、群等通知渠道混入此分类。</span></div>
+<div class="row"><span>供应商</span><span>负责下发/对接的供应方，参与查重和负责人预填。</span><span>原件或供应商配置</span><span>协调人可改</span><span>必填；供应默认币种仅预填，用户仍需核对。</span></div>
+<div class="row"><span>航司代码</span><span>关联出票/罚单航司，支持后续筛选。</span><span>原件填写</span><span>协调人可改</span><span>正式单必填；不自动认定为责任主体。</span></div>
+<div class="row"><span>下发日期</span><span>供应首次下发本单的业务日期。</span><span>原件日期</span><span>协调人可改</span><span>必填；不同于本地创建时间。</span></div>
+<div class="row"><span>供应回复截止</span><span>供应要求我司反馈的最后日期。</span><span>原件要求</span><span>协调人可改</span><span>不能早于下发日期；不是实际收到回复的日期。</span></div>
+<div class="row"><span>具体错误类型</span><span>罚单事件分类，用于筛选、统计与外部差异代码映射。</span><span>规则设置中的演示字典</span><span>录入人/当前承办在审核前可改</span><span>不等于人为责任认定；正式字典待业务提供。</span></div>
+<div class="row"><span>预罚核实</span><span>标记仍在核实阶段，保留预罚记录及转正式历史。</span><span>人工勾选</span><span>协调人转换阶段</span><span>本版无订单可建立核实单；转正式前补齐订单、航司、金额和期限。</span></div>
+<div class="row"><span>ADM内容</span><span>原罚单的事实、处罚理由和要求，供承办直接阅读。</span><span>原件摘要或正文</span><span>协调人在审核前可改</span><span>必填长文本；与承办分析和内部备注分开。</span></div>
+<div class="row"><span>主单原币金额</span><span>供应本张罚单的金额，作为子项分摊核对基准。</span><span>原件</span><span>协调人在审核前可改并留痕</span><span>非负、最多两位小数；正式派发时子项合计必须一致。</span></div>
+<div class="row"><span>币种</span><span>本张ADM及所有子项金额使用的币种。</span><span>供应默认或人工选择</span><span>协调人新建可改</span><span>一单一币种；不同币种不直接求和。</span></div>
+<div class="row"><span>演练参考汇率</span><span>1单位原币对应多少人民币，用于本地参考换算。</span><span>本机规则的参考值或手工输入</span><span>协调人可改</span><span>正数最多6位小数；缺失显示未换算；本版未连接实时汇率源。</span></div>
+<div class="row"><span>人民币参考值</span><span>原币金额×参考汇率的两位小数参考结果。</span><span>页面计算</span><span>只读；修改原币或汇率后重算</span><span>不是应收、实收或财务结算；无汇率不显示为0。</span></div>
+<div class="row"><span>备注</span><span>内部补充说明，可用于查询；不覆盖ADM原始内容。</span><span>录入人员</span><span>审核前协调人可改</span><span>可空；批量更新默认保留已有备注，显式确认才覆盖。</span></div>
+<p></p>
+<h3>订单与匹配</h3>
+<p></p>
+<div class="row"><span>字段</span><span>含义与用途</span><span>来源/默认</span><span>编辑条件</span><span>必填、校验与影响</span></div>
+
+<div class="row"><span>订单号</span><span>我司订单标识，用于核对业务归属。</span><span>人工录入或本地样例识别</span><span>审核前协调人核对修改</span><span>正式明细必填；未匹配不等于非我司，不能自动结案。</span></div>
+<div class="row"><span>票号</span><span>本子项关联的客票；一项可以对应多票。</span><span>原件/订单信息</span><span>审核前协调人可改</span><span>无票可空；多票用分号分隔；同单重复票号阻止提交。</span></div>
+<div class="row"><span>平台</span><span>对应业务平台，作为任务分派与统计维度。</span><span>人工确认或本地样例候选</span><span>审核前可核对</span><span>必选；识别结果仅是候选，未连接真实订单接口。</span></div>
+<div class="row"><span>业务</span><span>本子项属于出票、退票还是改签。</span><span>原订单核对</span><span>审核前可改</span><span>一张主单允许不同业务子项并存。</span></div>
+<div class="row"><span>子项原币金额</span><span>本订单承担的主单分摊金额，避免复制整单金额。</span><span>录入人确认分摊</span><span>协调人审核前可调，须理由</span><span>同币种合计须等于主单金额；不自动平均分。</span></div>
+<div class="row"><span>PNR</span><span>预订编码，用于查询和恢复编码核实。</span><span>订单或人工填写</span><span>当前承办可补充</span><span>可空；相同PNR不作为自动归并订单的唯一依据。</span></div>
+<div class="row"><span>店铺 / 细分站点</span><span>标记订单经营归属，辅助查询与分派。</span><span>人工或候选订单信息</span><span>审核前可修改</span><span>可空；不因文字相同自动授权整单。</span></div>
+<div class="row"><span>核实依据</span><span>说明订单/票号匹配的证据与选择原因。</span><span>核实人员填写</span><span>协调人办理时填写</span><span>匹配提交必填；多候选需人工确认。</span></div>
+<p></p>
+<h3>处理意见与差异</h3>
+<p></p>
+<div class="row"><span>字段</span><span>含义与用途</span><span>来源/默认</span><span>编辑条件</span><span>必填、校验与影响</span></div>
+
+<div class="row"><span>本次处理意见 / 结果</span><span>当前承办的调查结论及建议，审核人据此复核。</span><span>当前承办填写</span><span>办理中和退回后可改；审核通过锁定</span><span>提交必填；保存草稿可不完整。</span></div>
+<div class="row"><span>原因归属</span><span>人为、系统、非人为政策或待认定的原因提案。</span><span>承办选择并说明</span><span>审核前可改</span><span>不自动扣分；个人责任须独立复核。</span></div>
+<div class="row"><span>处理方式</span><span>决定进入申诉还是直接说明差异后提交审核。</span><span>承办选择</span><span>调查阶段可改</span><span>申诉→本单申诉记录；不申诉→同页填原因与差异依据后待审核。</span></div>
+<div class="row"><span>不申诉原因</span><span>说明为何不再对外提出争议。</span><span>承办填写</span><span>不申诉时显示</span><span>不申诉提交必填，不能以空白表示默认认可。</span></div>
+<div class="row"><span>需要后续回款</span><span>审核完成后是否继续生成财务待办。</span><span>承办提案、审核核对</span><span>审核前可改</span><span>勾选需填写应收金额；未勾选须有无需回款依据。</span></div>
+<div class="row"><span>应收金额</span><span>本明细预期应退回的原币金额，独立于罚单原金额。</span><span>申诉结果/财务依据</span><span>审核前承办填写</span><span>需要回款时必填且大于0；分次到账累计不得超过应收。</span></div>
+<div class="row"><span>无需回款依据</span><span>解释为何无退款或无实际支出。</span><span>承办填写</span><span>未勾选回款时可填</span><span>提交必填；无支出拒单须引用外部确认材料。</span></div>
+<div class="row"><span>已登记差异 / 差异依据</span><span>记录外部登记事实、编号或无需登记理由。</span><span>人工登记回执</span><span>不申诉或申诉失败后填写</span><span>必填依据；勾选不代表已调用真实差异系统。</span></div>
+<div class="row"><span>事实与核实依据</span><span>记录核对过的订单、原件和真实经过，区分已知事实与未核实内容。</span><span>承办填写</span><span>调查及退回后可改</span><span>可选长文本，提交时与证据一同供审核。</span></div>
+<div class="row"><span>原因分析</span><span>解释差异产生原因与争议点，补充原因归属的依据。</span><span>承办填写</span><span>调查及退回后可改</span><span>可选；不等同于已确认个人责任。</span></div>
+<div class="row"><span>处理建议</span><span>说明拟采取申诉、承担、登记差异或整改的办法。</span><span>承办填写</span><span>调查及退回后可改</span><span>可选；建议文本不自动触发外部动作。</span></div>
+<div class="row"><span>业务备注</span><span>补充当前订单处理信息，支持台账搜索与导出。</span><span>承办填写</span><span>调查及退回后可改</span><span>可空，不覆盖主单备注或ADM内容。</span></div>
+<div class="row"><span>引用证据</span><span>选择属于当前明细或已授权共享的材料。</span><span>本单附件</span><span>办理时多选</span><span>提交、申诉、差异与财务操作需至少一份可读证据。</span></div>
+<div class="row"><span>等待事项 / 下次跟进</span><span>说明在等谁提供什么，以及下一次跟进时间。</span><span>承办填写</span><span>办理草稿可改；清空等待表示继续办理</span><span>有等待事项必须设时间；保存产生跟进待办，不自动暂停计时。</span></div>
+<p></p>
+<h3>恢复编码</h3>
+<p></p>
+<div class="row"><span>字段</span><span>含义与用途</span><span>来源/默认</span><span>编辑条件</span><span>必填、校验与影响</span></div>
+
+<div class="row"><span>需要恢复编码</span><span>标记需要独立跟踪的编码恢复工作。</span><span>承办确认</span><span>审核前可改</span><span>必需恢复未完成时阻止提交审核。</span></div>
+<div class="row"><span>恢复编码</span><span>需要还原或恢复的预订编码，用于定位恢复对象。</span><span>承办输入</span><span>当前承办办理中可改</span><span>保存独立恢复任务时必填；不实际调用GDS。</span></div>
+<div class="row"><span>恢复结果</span><span>描述恢复是否完成及核实结论。</span><span>承办核对后填写</span><span>办理中可补充</span><span>留空保留恢复待办；完成须引用佐证，不以简单勾选假定成功。</span></div>
+<div class="row"><span>恢复截止</span><span>要求完成编码恢复的节点时间。</span><span>人工设定</span><span>审核前当前承办可改</span><span>可暂缺并显示未设期限；不自动套用“两天”，不自动拒单。</span></div>
+<div class="row"><span>恢复完成时间</span><span>本次保存完成结果的时点。</span><span>演练时钟记录</span><span>只读</span><span>与恢复截止、恢复后下一阶段起算分别记录，不伪造正式计时口径。</span></div>
+<p></p>
+<h3>申诉跟进</h3>
+<p></p>
+<div class="row"><span>字段</span><span>含义与用途</span><span>来源/默认</span><span>编辑条件</span><span>必填、校验与影响</span></div>
+
+<div class="row"><span>申诉对象</span><span>对平台、供应商或航司分别保存申诉。</span><span>承办选择</span><span>当前申诉中可新增</span><span>对象单独计轮次，不能用一个对象成功覆盖全部结果。</span></div>
+<div class="row"><span>本次结果</span><span>处理中、成功、部分成功、失败或撤回。</span><span>外部回复人工登记</span><span>新增记录，不覆盖历史</span><span>各对象最后一轮仍处理中时不能提交终结。</span></div>
+<div class="row"><span>申诉材料 / 回复说明</span><span>记录本轮申诉理由、沟通内容与回复结论。</span><span>承办填写及附件</span><span>每轮新增</span><span>必填；本版仅本地留痕，不真实发送。</span></div>
+<div class="row"><span>承担金额</span><span>本明细最终需承担的原币金额。</span><span>回复和业务核对</span><span>失败/部分成功时填写</span><span>非负且不大于明细金额；减免额可由原额减承担额解释。</span></div>
+<p></p>
+<h3>独立审核</h3>
+<p></p>
+<div class="row"><span>字段</span><span>含义与用途</span><span>来源/默认</span><span>编辑条件</span><span>必填、校验与影响</span></div>
+
+<div class="row"><span>批准</span><span>审核本明细是否通过，取消勾选表示退回。</span><span>独立审核人</span><span>仅审核角色、待审核状态可操作</span><span>通过→明细完成并按需生成回款；退回→原承办调查中。</span></div>
+<div class="row"><span>审核意见</span><span>说明核对证据、处理结果和财务去向的结论。</span><span>审核人填写</span><span>每次审核新增留痕</span><span>通过与退回都必填；不允许主承办自审。</span></div>
+<p></p>
+<h3>财务回款</h3>
+<p></p>
+<div class="row"><span>字段</span><span>含义与用途</span><span>来源/默认</span><span>编辑条件</span><span>必填、校验与影响</span></div>
+
+<div class="row"><span>核对凭证号</span><span>本次到账对应的财务凭证。</span><span>财务人工核对</span><span>仅财务角色可新增</span><span>必填；同明细相同凭证不重复登记。</span></div>
+<div class="row"><span>本次到账金额</span><span>本次实际收到的原币金额，不是累计额。</span><span>财务凭证</span><span>每次新增，历史只读</span><span>大于0且累计不超过应收；支持部分、多次回款。</span></div>
+<div class="row"><span>确认全部到账</span><span>声明当前累计已覆盖该项应收。</span><span>财务勾选</span><span>仅剩余金额归零时成立</span><span>部分到账保留待办；全部到账才显示已回款。</span></div>
+<div class="row"><span>累计已收 / 剩余应收</span><span>按各次回款记录加总，并与应收核对。</span><span>本地精确分计算</span><span>只读</span><span>业务结案后继续展示，不改写已冻结业务快照。</span></div>
+<div class="row"><span>财务核对依据</span><span>说明凭证、到账与该ADM的对应关系。</span><span>财务填写</span><span>每次登记必填</span><span>与证据一起留痕；不是财务系统自动核验。</span></div>
+<p></p>
+<h3>分派、交接、协办与办理锁</h3>
+<p></p>
+<div class="row"><span>字段</span><span>含义与用途</span><span>来源/默认</span><span>编辑条件</span><span>必填、校验与影响</span></div>
+
+<div class="row"><span>接收人</span><span>本次分派/转交的实际办理人。</span><span>模拟人员名单</span><span>协调人初派；当前承办转交</span><span>必须是其他有效承办人；转交确认前原人仍负责。</span></div>
+<div class="row"><span>交接原因 / 待办摘要</span><span>说明为什么转交、已做什么和剩余任务。</span><span>发起人填写</span><span>每次交接新增</span><span>必填；接受或驳回都记录意见，不重置期限。</span></div>
+<div class="row"><span>协办目标 / 必需协办</span><span>指定另一人提交独立成果，标记是否阻断主流程。</span><span>主承办创建</span><span>获分配协办人办理，主承办复核</span><span>必需协办完成前不可提交；协办不替换主承办。</span></div>
+<div class="row"><span>办理锁</span><span>提示当前独占编辑人员，避免多窗口互相覆盖。</span><span>本地模拟锁</span><span>本人可锁/解锁；协调人可批量解锁</span><span>他人持锁阻止修改；解锁不代表结案或改业务状态。</span></div>
+<p></p>
+<h3>附件与证据</h3>
+<p></p>
+<div class="row"><span>字段</span><span>含义与用途</span><span>来源/默认</span><span>编辑条件</span><span>必填、校验与影响</span></div>
+
+<div class="row"><span>文件 / 名称 / 分类</span><span>上传本机材料或补充文字，标记原件、调查、申诉、恢复、财务等用途。</span><span>本机文件选择或手工文本</span><span>获权人员新增；不自动删除旧文件</span><span>本地支持图片/PDF/文本预览，其他格式下载；单文件2MB，总计6MB，避免浏览器缓存溢出。</span></div>
+<div class="row"><span>归属 / 共享明细</span><span>标记属于主单还是某个订单，明确整份材料的可读范围。</span><span>当前明细与协调人授权</span><span>协调人共享或撤销；承办仅自己获权材料</span><span>共享整份内容；脱敏须另存实际副本。</span></div>
+<p></p>
+<h3>结案、重开与整改</h3>
+<p></p>
+<div class="row"><span>字段</span><span>含义与用途</span><span>来源/默认</span><span>编辑条件</span><span>必填、校验与影响</span></div>
+
+<div class="row"><span>结案核对依据</span><span>说明所有明细、金额分摊和原件已核对。</span><span>协调人</span><span>结案时填写</span><span>必填；未审核、金额不平、交接或必需协办未完成会阻止。</span></div>
+<div class="row"><span>主单状态 / 冻结快照</span><span>展示办理、结案、作废和结案时的业务事实。</span><span>流程动作生成</span><span>状态不可直接随意改；协调人有依据可重开</span><span>业务结案不删除未回款任务；重开保留旧快照。</span></div>
+<div class="row"><span>整改结果</span><span>结案后独立记录预防措施和验证。</span><span>指定整改人</span><span>整改人提交，独立审核人复核</span><span>不修改已结案业务事实；退回后继续补充。</span></div>
+<p></p>
+<h3>导入导出与历史档案</h3>
+<p></p>
+<div class="row"><span>字段</span><span>含义与用途</span><span>来源/默认</span><span>编辑条件</span><span>必填、校验与影响</span></div>
+
+<div class="row"><span>CSV导入正文 / 文件</span><span>批量录入主单及订单，一行一个子项，同供应商同ADM合并主单。</span><span>下载统一模板后填写</span><span>协调人预览和确认</span><span>先校验必填、重复、金额；任一错误不写入，逐行显示原因。</span></div>
+<div class="row"><span>导入方式 / 覆盖备注</span><span>区分只新建与更新已有基础信息。</span><span>操作人明确选择</span><span>协调人</span><span>更新仅限全部明细审核前且无交接/他人锁的单；默认保留已有备注，显式勾选才覆盖。</span></div>
+<div class="row"><span>勾选范围 / 导出用途</span><span>选择主单后按台账或差异交接用途导出。</span><span>当前筛选列表</span><span>有范围的人员可导出获权明细</span><span>CSV含原文/币种，不把未加载范围说成全量；差异导出不代表外部已登记。</span></div>
+<div class="row"><span>历史JSON</span><span>预览旧单档案并导入只读历史区。</span><span>脱敏历史样例或约定JSON数组</span><span>协调人预览导入</span><span>不继承旧锁/审批/付款，不派活跃待办；本版不是Java/Python真实全量迁移。</span></div>
+<p></p>
+<h3>规则配置</h3>
+<p></p>
+<div class="row"><span>字段</span><span>含义与用途</span><span>来源/默认</span><span>编辑条件</span><span>必填、校验与影响</span></div>
+
+<div class="row"><span>默认组长 / 平台负责人</span><span>本机原型的默认任务分派关系。</span><span>模拟人员下拉框</span><span>协调人保存</span><span>只影响后续新建和匹配；不追溯改历史负责人。</span></div>
+<div class="row"><span>错误类型 / 外部代码</span><span>维护具体类型及差异系统代码对照。</span><span>本地可编辑字典</span><span>协调人新增修改</span><span>代码缺失显示待映射；不删除既有记录上的原文字。</span></div>
+<div class="row"><span>预警小时 / 通知渠道</span><span>指定即将到期窗口和模拟通知标识。</span><span>本机规则</span><span>协调人保存</span><span>只生成站内模拟记录；无真实邮件/企微调用。</span></div>
+<div class="row"><span>供应商默认币种 / 参考汇率</span><span>新建时预填币种和参考换算。</span><span>本机规则表</span><span>协调人维护</span><span>手工演示值，非实时源；用户仍可在新建时核对修改。</span></div>
+<p></p>
+<h3>通知与回执</h3>
+<p></p>
+<div class="row"><span>字段</span><span>含义与用途</span><span>来源/默认</span><span>编辑条件</span><span>必填、校验与影响</span></div>
+
+<div class="row"><span>接收人 / 渠道 / 发送结果</span><span>显示通知对应人员及本地模拟投递结果。</span><span>任务变化或本机提醒生成</span><span>仅本人标已读</span><span>已读不等于接单；打开后仍须明确接收任务。</span></div>
+<div class="row"><span>任务 / 回执说明</span><span>通知跳到同单对应办理页；人工登记外部收到回复。</span><span>任务关联与人工补充</span><span>接收人补充回执</span><span>回执不替代交接确认；无权限时提示已转交。</span></div>
+<p></p>
+<h3>统计与日报</h3>
+<p></p>
+<div class="row"><span>字段</span><span>含义与用途</span><span>来源/默认</span><span>编辑条件</span><span>必填、校验与影响</span></div>
+
+<div class="row"><span>日期 / 人员 / 平台筛选</span><span>限定当前本机业务及操作记录的统计范围。</span><span>页面选择</span><span>有范围的人员可筛选</span><span>待办为当前快照，新增/处理动作按记录日期；二者口径分开。</span></div>
+<div class="row"><span>待办 / 超期 / 等待 / 恢复 / 待回款</span><span>反映当前积压与后续动作，点击列表可继续办理。</span><span>当前任务和单据状态</span><span>只读</span><span>金额分币种汇总；等待未扣时，未定期限不视为按时。</span></div>
+<div class="row"><span>工作量排序</span><span>按当前未完任务数展示人员积压，辅助督办。</span><span>当前任务</span><span>只读，可导出日报</span><span>不是正式绩效分数；不自动罚款或认定责任。</span></div>
+<p></p>
+<h2>按钮条件与页面流转</h2>
+<p></p>
+<div class="row"><span>操作</span><span>何时可用</span><span>点击后结果和去向</span></div>
+
+<div class="row"><span>新建 / 复制 / 预览确认</span><span>协调人填写主单与子项；复制不继承旧结果。</span><span>先显示校验结果，确认后写入本机台账，生成组长接收任务并打开单据。</span></div>
+<div class="row"><span>接收我的任务</span><span>当前指定人且待接单。</span><span>待接单→调查办理；仍在同一张单，可直接填写处理意见。</span></div>
+<div class="row"><span>提交处理 / 审核</span><span>本承办调查中，意见、证据、分支依据齐全，无等待/未完恢复/必需协办。</span><span>申诉→同单申诉；不申诉→差异依据同次保存并交独立审核。失败保留草稿。</span></div>
+<div class="row"><span>保存草稿</span><span>本人调查中。</span><span>保存本单填写内容，不改变办理阶段；有等待事项则保留跟进任务。</span></div>
+<div class="row"><span>登记一轮申诉</span><span>本承办、申诉阶段，选择对象、结果和证据。</span><span>追加本对象轮次，留在本单；可继续登记其他对象或下一轮。</span></div>
+<div class="row"><span>提交申诉结果</span><span>每个对象最后一轮均已结束。</span><span>全成功→待审核；部分成功/失败/撤回→差异登记，填依据后交审核。</span></div>
+<div class="row"><span>差异登记并提交</span><span>本承办、差异阶段，登记号或无需登记依据及证据齐全。</span><span>→待审核，保留外部交接依据；没有真实写入差异系统。</span></div>
+<div class="row"><span>独立审核 / 退回</span><span>独立审核角色，明细待审核，意见必填。</span><span>批准→明细完成并按需创建回款；退回→原承办调查中，历史保留。</span></div>
+<div class="row"><span>登记回款</span><span>财务角色、业务已审核、有未结清应收。</span><span>追加凭证及金额；部分到账继续财务待办，累计到应收才结清；主单业务结案不变。</span></div>
+<div class="row"><span>发起转交</span><span>当前承办、审核前，选择其他有效承办与原因。</span><span>产生接收人确认任务；确认前原人负责。</span></div>
+<div class="row"><span>接受交接</span><span>指定接收人填写交接意见。</span><span>承办换为本人，沿用当前阶段与期限，原人退出待办，组长仍督办。</span></div>
+<div class="row"><span>驳回交接</span><span>指定接收人填写原因。</span><span>撤销待确认交接，原承办继续负责。</span></div>
+<div class="row"><span>取消交接</span><span>原承办，交接尚未确认。</span><span>接收人确认待办消失，原承办继续办理。</span></div>
+<div class="row"><span>核实订单</span><span>协调人、待匹配，确认订单与平台及证据。</span><span>按本机规则派发到人，或进入待分派；仍可打开本单继续核对。</span></div>
+<div class="row"><span>指定承办人</span><span>协调人，待分派/待接收/调查中，无待交接。</span><span>变更为指定人的待接单，生成提醒并留痕。</span></div>
+<div class="row"><span>核对并结案</span><span>协调人，全部明细已审核、原件齐、金额平、交接协办完成。</span><span>主单结案并冻结快照，财务回款继续；可选整改独立跟进。</span></div>
+<div class="row"><span>授权重开</span><span>协调人，已结案单，须说明原因。</span><span>主单恢复办理，明细回调查并增轮次；旧快照与历史不覆盖。</span></div>
+<div class="row"><span>保存恢复编码</span><span>当前承办调查中，填写编码、结果与证据。</span><span>保存在本单；完成后恢复待办消失，可继续处理提交。</span></div>
+<div class="row"><span>上传 / 补充附件</span><span>当前角色有材料权限且单据未锁定结案；整改材料按整改范围。</span><span>写入本机材料区并关联明细，可引用、预览、下载；不会上传服务器。</span></div>
+<div class="row"><span>授权附件共享</span><span>协调人核对整份内容，选择允许读取的明细。</span><span>所选明细获权读取，清空并确认则撤销共享。</span></div>
+<div class="row"><span>编辑基础信息</span><span>协调人，全部明细审核前且无他人锁/交接；普通承办只补自己的处理内容。</span><span>更新同一主单并留痕；金额仍需核平，不偷偷替换审核依据。</span></div>
+<div class="row"><span>锁定 / 解锁</span><span>本人可管理自己的锁，协调人可有依据解除他人锁。</span><span>仅改变编辑占用，不改变处理阶段；其他窗口使用版本检查防覆盖。</span></div>
+<div class="row"><span>批量分派 / 解锁 / 导出</span><span>勾选列表中的获权项；写操作仅协调人且逐项满足状态条件。</span><span>逐项返回成功/失败及原因，失败项保留；不允许直接批量跳过审核结案。</span></div>
+<div class="row"><span>导入预览 / 确认</span><span>协调人提供统一CSV，按模板填写并明确新增或更新。</span><span>预览全部校验错误；无错误后才统一确认写入，取消不改数据。</span></div>
+<div class="row"><span>保存本机规则</span><span>协调人填写字典、分派、参考汇率及提醒参数。</span><span>本机保存，下次新建/匹配使用新值；历史任务不自动重派。</span></div>
+<div class="row"><span>打开任务 / 已读 / 登记回执</span><span>当前通知接收人。</span><span>打开同单对应办理页；已读或外部回执不自动接单。</span></div>
+<div class="row"><span>预罚转正式</span><span>协调人核实后补正式ADM号、航司、订单、金额及期限。</span><span>原预罚记录保留，正式信息在同单更新并生成接收任务，不删除历史。</span></div>
+<div class="row"><span>生成日报 / 导出</span><span>按当前角色及筛选范围。</span><span>展示可读日报及人员积压排序，下载本机快照；不真实群发。</span></div>
+<div class="row"><span>创建协办任务</span><span>主承办调查中，选择另一位承办、目标及是否必需。</span><span>新增协办待办；主承办不变，必需协办未完成阻止提交。</span></div>
+<div class="row"><span>接收协办</span><span>指定协办人、协办待接收。</span><span>协办转办理中，仍在原ADM下填写交付物。</span></div>
+<div class="row"><span>提交协办结果</span><span>指定协办人办理中，结果及证据齐全。</span><span>转待独立复核，交主承办或协调人核对。</span></div>
+<div class="row"><span>复核协办</span><span>主承办或协调人且不是该协办提交人。</span><span>批准→协办完成；退回→原协办人继续补充，不直接结束主单。</span></div>
+<div class="row"><span>提出责任认定</span><span>主承办调查中，选择原因、涉及人及证据。</span><span>形成待独立复核提案，不自动罚款、扣分或给责任人额外权限。</span></div>
+<div class="row"><span>独立复核责任</span><span>审核角色、提案待复核，须填写依据。</span><span>记录确认或驳回，历史办理人与当前负责人不随责任结论改变。</span></div>
+<div class="row"><span>接收整改任务</span><span>已结案且当前人为指定整改人。</span><span>整改转办理中，原业务结案保留。</span></div>
+<div class="row"><span>提交整改验证结果</span><span>指定整改人办理中，结果与证据齐全。</span><span>整改转待独立复核，不重写已结案业务快照。</span></div>
+<div class="row"><span>独立复核整改</span><span>审核角色、整改待复核。</span><span>批准→已整改；退回→整改中，原整改人补充。</span></div>
+<div class="row"><span>挂起主单</span><span>协调人、未结案未作废，须原因。</span><span>暂停办理推进并保留记录；不自动免除时限或删除待办事实。</span></div>
+<div class="row"><span>恢复主单</span><span>协调人、已挂起，须说明。</span><span>恢复原办理状态和任务，期限不重置。</span></div>
+<div class="row"><span>作废并保留档案</span><span>协调人、未结案，填写作废依据。</span><span>单据只读并退出活跃待办，历史及附件保留；不物理删除。</span></div>
+<p></p>
+<p>导航和“切换下一处理人”只更换视图/模拟身份，不替用户提交、审核或结案。操作失败保留弹窗草稿，成功更新任务和留痕；有未保存内容关闭时提示。</p>
+<p></p>
+<h2>当前实现边界与待定规则</h2>
+<p></p>
+<p>- 所有状态、权限、通知和金额操作均为本机模拟，不调用正式订单、差异、财务、邮件、企微、GDS或生产数据库。</p>
+<p>- 票号/订单识别只从当前本地样例查候选，未命中或多匹配保留人工核对；参考汇率为本地手工值，不是实时接口。</p>
+<p>- 本机附件支持图片、PDF、文本预览及其他格式下载，不解析Excel业务内容、不执行ASD自动归档或旧附件迁移。关闭浏览器后的保存依赖本机缓存容量；缓存失败时页面提示导出备份。</p>
+<p>- CSV为本版可操作统一模板；外部差异/财务正式模板、旧38/44列、Java/Python真实历史格式映射尚需正式契约。本版历史试导使用原型约定JSON，不冒充全量迁移。</p>
+<p>- 节点期限、恢复两天的日历与起点、等待扣时、通知对象/渠道、正式字典/外部代码、财务核对人和附件保留期限仍待业务确认。当前可操作建议不代表这些口径已批准。</p>
+<p>- 不实现超时自动拒单、自动删除附件、真实绩效处罚或生产旧入口停用；这些动作需独立确认规则和正式开发。</p>
+<p>- 批量改状态仅提供合法的分派/解锁动作，不提供绕过证据、审核或结案条件的任意状态覆盖。</p>
+<p></p>
+<h2>实现与维护</h2>
+<p></p>
+<p>原型入口：frontend/prototypes/adm-review；字段和按钮定义：product-spec.ts；本PRD及离线HTML由generate-prd.mjs生成，避免逐字段说明两边手写漂移。</p>
+<p></p>
+<p>构建：在frontend执行 npm run package:product-review。生成工作区“产品评审台_打开我.html”和“产品评审台/ADM产品验收台_DEMO_0.3.html”。</p>
+<p></p></main></html>

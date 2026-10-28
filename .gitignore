@@ -19,6 +19,7 @@ secrets/
 .coverage.*
 htmlcov/
 coverage.xml
+.local/adm-build-temp/
 *.py[cod]
 node_modules/
 dist/

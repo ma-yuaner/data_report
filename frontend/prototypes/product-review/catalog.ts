@@ -1,6 +1,6 @@
 // Module registration only; never import authenticated business views here.
 export const modules = [
-  { id: 'adm', name: 'ADM 管理', status: '原型待评审', description: '已有合成场景与联动PRD，等待线下业务需求补充。', artifact: 'ADM产品验收台_DEMO_0.1.html', source: 'frontend/prototypes/adm-review', document: 'docs/product/modules/adm/README.md', next: '先提交业务需求，再按意见简化与复验。' },
+  { id: 'adm', name: 'ADM 管理', status: '0.3 连续工作区', description: '完整台账与同单连续办理，含导入、分派、申诉、审核、分次回款和联动PRD。', artifact: 'ADM产品验收台_DEMO_0.3.html', source: 'frontend/prototypes/adm-review', document: 'docs/product/modules/adm/README.md', next: '直接进入台账操作；右侧查看字段用途、编辑条件和按钮去向，有问题再反馈。' },
   { id: 'finance', name: '财务核对', status: '待接入', description: '尚未迁入正式页面或制作本地原型。', artifact: '', source: '', document: '', next: '确定评审范围，读取已有需求与页面后接入。' },
   { id: 'hr', name: 'HR 报表', status: '待接入', description: '尚未迁入正式页面或制作本地原型。', artifact: '', source: '', document: '', next: '确定评审范围，读取已有需求与页面后接入。' },
   { id: 'analysis', name: '业务分析', status: '待接入', description: '尚未迁入正式页面或制作本地原型。', artifact: '', source: '', document: '', next: '确定评审范围，读取已有需求与页面后接入。' },

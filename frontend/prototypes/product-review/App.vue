@@ -40,7 +40,7 @@
                 <p>{{ activeModule.description }}</p><p>{{ activeModule.next }}</p>
                 <template v-if="activeModule.artifact">
                   <div class="portal-actions"><a-button type="primary" :href="activeModule.artifact" target="_blank" rel="noopener">打开 ADM 模拟系统与联动 PRD</a-button><a-button @click="page = 'requirements'">整理 ADM 需求</a-button></div>
-                  <p>原型版本 ADM-DEMO-0.1；原型新窗口保留左系统、右PRD及意见导出。原型流程简化等待本次需求评审后调整。</p>
+                  <p>原型版本 ADM-DEMO-0.3；默认完整台账，左侧连续办理、右侧逐字段PRD及意见导出。会议规则与未实现边界在原型中明确列出。</p>
                   <dl><dt>原型源码</dt><dd>{{ activeModule.source }}</dd><dt>需求与交接入口</dt><dd>{{ activeModule.document }}</dd></dl>
                 </template>
                 <p v-else>接入时先读取已有需求和页面，复用可独立的展示组件，补充模拟数据。此入口尚无可操作业务页面。</p>

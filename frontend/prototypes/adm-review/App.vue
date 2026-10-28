@@ -1,9 +1,17 @@
 <template>
   <div class="review-app" :class="{ 'doc-only': docOnly, 'sim-only': simOnly }">
-    <ReviewToolbar v-model:show-docs="showDocs" title="ADM 产品验收台" :version="VERSION"
-      :can-detach="!docOnly" @export="downloadReview" @import="restoreFile" @detach="detach" />
+    <ReviewToolbar
+      v-model:show-docs="showDocs"
+      title="ADM 管理 · 原型与 PRD"
+      :version="VERSION"
+      status="可直接操作"
+      :can-detach="!docOnly"
+      @export="downloadReview"
+      @import="restoreFile"
+      @detach="detach"
+    />
     <div class="sandbox">
-      合成演练，不是正式系统 · 不读取账号/生产订单，不真实上传或发送 · 页面通过 ≠ 正式开发获批
+      本地前端原型 · 数据与文件保存在本机 · 外部订单、通知及汇率使用模拟数据
       <span>演练时钟：{{ state.clock.replace('T', ' ') }}</span>
     </div>
     <div v-if="notice" class="feedback" role="status">
@@ -33,13 +41,28 @@
             >
               {{ menu.title }}<small>{{ menu.sub }}</small>
             </button>
+            <button @click="showAdvanced = !showAdvanced">
+              {{ showAdvanced ? '收起辅助工具' : '旧演练与评审记录' }}
+            </button>
             <div class="role-purpose">
               {{ roles.find((item) => item.id === actor)?.purpose }}
               <p>仅为原型角色切换；正式身份与权限由后台控制。</p>
             </div>
           </nav>
           <main class="sim-content">
-            <template v-if="page === 'overview'">
+            <OperationsDesk
+              v-if="deskPages.includes(page)"
+              :state="state"
+              :actor="actor"
+              :page="page"
+              @update="state = $event"
+              @open="openCase"
+              @create="openIntake()"
+              @role="changeDeskRole"
+              @notice="openNotice"
+              @navigate="navigate"
+            />
+            <template v-else-if="page === 'overview'">
               <p class="eyebrow">先体验，再定规则</p>
               <h1>把工作送到人，而不是让人找单。</h1>
               <p class="lead">一张供应 ADM，多笔出退改订单。每个人只看到需要自己处理的事项，做完自动进入下一步。</p>
@@ -90,7 +113,11 @@
                     }}
                   </p>
                 </div>
-                <button @click="navigate('overview')">换一条演练</button>
+                <div class="toolbar">
+                  <button v-if="actor === 'lead'" @click="navigate(page === 'dispatch' ? 'work' : 'dispatch')">
+                    我的待办 / 本组督办</button
+                  ><button @click="navigate('ledger')">查看 ADM 台账</button>
+                </div>
               </div>
               <div class="metrics">
                 <article>
@@ -106,29 +133,45 @@
                   ><span>未设期限，不视为达标</span>
                 </article>
               </div>
-              <div v-if="page === 'dispatch' && actor !== 'coordinator'" class="callout">
+              <div v-if="page === 'dispatch' && !['coordinator', 'lead'].includes(actor)" class="callout">
                 该板块仅协调人可管理。请在上方切换“林协调”，这不会给真实账号授权。
               </div>
               <template v-else
-                ><div class="task-list">
-                  <article v-for="task in displayTasks" :key="task.id">
-                    <div>
-                      <span :class="['badge', task.overdue ? 'danger' : '']">{{
-                        task.overdue ? '已逾期' : task.kind
-                      }}</span>
-                      <h3>{{ task.title }}</h3>
-                      <p>{{ task.why }}</p>
-                      <small>{{ roleName(task.owner) }} · 截止 {{ task.dueAt?.replace('T', ' ') || '未设期限' }}</small>
-                    </div>
-                    <button class="primary" @click="openTask(task)">进入处理 →</button>
-                  </article>
+                ><div class="task-list table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>任务 / 单据</th>
+                        <th>负责人</th>
+                        <th>期限</th>
+                        <th>操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="task in displayTasks" :key="task.id">
+                        <td>
+                          <strong>{{ task.title }}</strong
+                          ><small class="table-sub"
+                            >{{ state.cases.find((item) => item.id === task.caseId)?.admNo }} · {{ task.kind }}</small
+                          >
+                        </td>
+                        <td>{{ roleName(task.owner) }}</td>
+                        <td>
+                          <span :class="task.overdue ? 'danger-text' : ''">{{
+                            task.dueAt?.replace('T', ' ') || '未设期限'
+                          }}</span>
+                        </td>
+                        <td><button class="primary" @click="openTask(task)">打开办理</button></td>
+                      </tr>
+                    </tbody>
+                  </table>
                   <div v-if="!displayTasks.length" class="empty">
                     当前没有分给你的任务。可以按上方演练提示切换人员；没有任务不代表业务已全部完成。
                   </div>
                 </div></template
               >
               <h2>本人提醒收件箱</h2>
-              <p class="muted">仅演示站内提醒；已读不等于接单或办结，不对外发送。</p>
+              <p class="muted">正式派单通知承办人、组长督办；预罚邮件为准、群辅助。此处模拟通知，不真实发送。</p>
               <article
                 v-for="item in state.notices
                   .filter((item) => item.recipient === actor)
@@ -138,27 +181,32 @@
                 class="inbox-row"
               >
                 <span>{{ item.text }}</span
+                ><button @click="openNotice(item)">打开本人处理页</button
                 ><button :disabled="item.read" @click="markRead(item.id)">{{ item.read ? '已读' : '标为已读' }}</button>
               </article>
             </template>
             <template v-else-if="page === 'intake'">
               <h1>接收与匹配</h1>
-              <p>协调人接收供应资料，先预览、去重和核对，再生成到人的任务。无法匹配的订单进入异常核实。</p>
+              <p>录入供应原件信息及订单子项，核对金额后派发。预罚单可先核实，后转正式。</p>
               <div v-if="actor !== 'coordinator'" class="empty">仅协调人可接收，当前人员请从“我的工作”办理。</div>
               <template v-else
                 ><div class="toolbar">
-                  <button class="primary" @click="openIntake()">新建 / 批量接收</button
+                  <button class="primary" @click="openIntake()">新建 ADM（单条录入）</button
                   ><button @click="openIntake(true)">复制引用当前供应</button>
+                  <button @click="navigate('exchange')">批量导入 / 模板</button>
                 </div>
                 <p class="muted">
-                  演练使用可编辑的明细文本，非真实Excel解析。正式38/44列导入及来源映射会复用中台已有能力，仍需独立验收。
+                  结构化填写主单和订单子项；CSV统一模板可批量预览导入。票号识别提供本地候选，仍由录入人确认。
                 </p>
                 <article v-for="item in state.cases" :key="item.id" class="case-card">
                   <div>
                     <h3>
                       {{ item.admNo }} <span class="badge">{{ caseStatus(item) }}</span>
                     </h3>
-                    <p>{{ item.supplier }} · {{ item.lines.length }} 个订单 · {{ item.amount }} CNY</p>
+                    <p>
+                      {{ item.supplier }} · {{ item.lines.length }} 个订单 · {{ item.amount }}
+                      {{ item.currency || 'CNY' }}
+                    </p>
                     <p>
                       未匹配 {{ item.lines.filter((line) => line.stage === 'MATCH').length }} · 待分派
                       {{ item.lines.filter((line) => line.stage === 'ASSIGN').length }}
@@ -185,7 +233,9 @@
                   </h3>
                   <p>
                     {{ item.supplier }} · 获权明细 {{ visibleLines(item, actor).length
-                    }}<template v-if="actor === 'coordinator'"> · {{ item.amount }} CNY</template>
+                    }}<template v-if="actor === 'coordinator'">
+                      · {{ item.amount }} {{ item.currency || 'CNY' }}</template
+                    >
                   </p>
                   <p>{{ actor === 'coordinator' ? item.remark : '主单金额/备注不向部分明细人员展开' }}</p>
                 </div>
@@ -200,13 +250,33 @@
                   <h1>{{ current.admNo }}</h1>
                   <p>{{ current.supplier }} · {{ caseStatus(current) }} · 模拟版本 {{ state.version }}</p>
                 </div>
-                <button v-if="actor === 'coordinator'" @click="openIntake(true)">复制引用</button>
+                <div class="toolbar">
+                  <button v-if="actor === 'coordinator'" @click="openIntake(true)">复制引用</button
+                  ><button v-if="canEditCase(current, actor)" @click="openAction('edit')">编辑基础信息</button
+                  ><button v-if="current.preliminary && canEditCase(current, actor)" @click="openAction('preliminary')">
+                    预罚转正式
+                  </button>
+                </div>
               </div>
               <div class="case-summary">
                 <span>获权订单 {{ visibleLines(current, actor).length }}</span
                 ><span v-if="actor === 'coordinator'"
-                  >原件金额 {{ current.amount }} CNY · 明细分摊 {{ allocated(current) }} CNY</span
+                  >原件金额 {{ current.amount }} {{ current.currency || 'CNY' }} · 明细分摊 {{ allocated(current) }}
+                  {{ current.currency || 'CNY' }}</span
                 ><span v-else>部分明细权限：主单金额与其他订单隐藏</span>
+              </div>
+              <div v-if="current.historyOnly" class="callout">
+                历史只读档案 · 保留旧业务事实，未迁移真实附件或财务确认；可以复制引用新建。
+                <details>
+                  <summary>查看原始历史记录</summary>
+                  <pre>{{ current.historySource }}</pre>
+                </details>
+              </div>
+              <div v-if="current.preliminary" class="callout">预罚核实阶段 · 核实后由协调人补齐正式信息并转正式。</div>
+              <div class="lifecycle-strip">
+                <span v-for="step in ['接收', '办理', '申诉 / 差异', '独立审核', '业务结案', '回款跟进']" :key="step">{{
+                  step
+                }}</span>
               </div>
               <div class="case-tabs" role="tablist" aria-label="档案功能">
                 <button
@@ -234,17 +304,18 @@
               <template v-else-if="caseTab === 'attachments'"
                 ><h2>原件与证据</h2>
                 <p class="muted">
-                  附件均为演练文本。共享必须明确整份范围；需要脱敏时先新增实际的模拟副本，不自动声称文件已脱敏。
+                  可上传本机文件或补充文字，仅保存在当前浏览器。支持图片/PDF/文本预览及下载，主单原件与订单证据分别授权。
                 </p>
                 <div class="toolbar">
                   <button
                     v-if="
-                      current.status !== 'CLOSED' ||
-                      (actor === current.remediation.owner && current.remediation.status === '整改中')
+                      !current.historyOnly &&
+                      (current.status !== 'CLOSED' ||
+                        (actor === current.remediation.owner && current.remediation.status === '整改中'))
                     "
                     @click="openAction('attach')"
                   >
-                    新增演练材料
+                    上传 / 补充材料
                   </button>
                 </div>
                 <article v-for="file in readableFiles" :key="file.id" class="attachment">
@@ -252,12 +323,25 @@
                     <strong>{{ file.name }}</strong>
                     <p>{{ file.category }} · {{ file.lineId || '主单原件' }} · 共享明细 {{ file.shared.length }}</p>
                     <details>
-                      <summary @click="focusDoc('attachments')">展开全文（模拟文件）</summary>
-                      <pre>{{ file.content }}</pre>
+                      <summary @click="focusDoc('attachments')">预览材料</summary>
+                      <img
+                        v-if="file.dataUrl && file.mime?.startsWith('image/')"
+                        :src="file.dataUrl"
+                        :alt="file.name"
+                        class="attachment-preview"
+                      />
+                      <iframe
+                        v-else-if="file.dataUrl && file.mime === 'application/pdf'"
+                        :src="file.dataUrl"
+                        :title="file.name"
+                        class="pdf-preview"
+                        sandbox=""
+                      />
+                      <pre v-else>{{ file.content }}</pre>
                     </details>
                   </div>
                   <div class="toolbar">
-                    <button @click="downloadText(file.name, file.content)">下载演练文本</button
+                    <button @click="downloadAttachment(file)">下载材料</button
                     ><button
                       v-if="actor === 'coordinator' && current.status !== 'CLOSED'"
                       @click="openAction('share', { fileId: file.id, lineIds: [...file.shared] })"
@@ -284,7 +368,10 @@
                     @click="openAction('close')"
                   >
                     核对并结案</button
-                  ><button v-if="actor === 'coordinator' && current.status === 'CLOSED'" @click="openAction('reopen')">
+                  ><button
+                    v-if="actor === 'coordinator' && !current.historyOnly && current.status === 'CLOSED'"
+                    @click="openAction('reopen')"
+                  >
                     授权重开（留痕）</button
                   ><button
                     v-if="
@@ -341,8 +428,8 @@
                   ><div class="stage-heading">
                     <span class="badge">{{ stageNames[activeLine.stage] }}</span
                     ><span
-                      >当前承办：{{ roleName(activeLine.owner) }} · 第{{ activeLine.round }}轮 ·
-                      {{ activeLine.amount }} CNY</span
+                      >当前承办：{{ roleName(activeLine.owner) }} · 第{{ activeLine.round }}轮 · {{ activeLine.amount }}
+                      {{ current.currency || 'CNY' }}</span
                     >
                   </div>
                   <dl class="fields">
@@ -356,7 +443,7 @@
                     </div>
                     <div>
                       <dt>差异分类</dt>
-                      <dd>{{ activeLine.diffType }} / {{ activeLine.diffSecond }}</dd>
+                      <dd>{{ activeLine.diffType }} · {{ activeLine.attribution }}</dd>
                     </div>
                     <div>
                       <dt>期限（演练）</dt>
@@ -368,7 +455,9 @@
                   </div>
                   <div class="actionbar">
                     <button
-                      v-for="action in permitted"
+                      v-for="action in permitted.filter(
+                        (value) => !['record', 'collab_create', 'responsibility', 'amount'].includes(value),
+                      )"
                       :key="action"
                       :class="{ primary: primaryActions.includes(action) }"
                       @click="openAction(action)"
@@ -379,9 +468,49 @@
                       此角色在当前节点只能查看。按上方演练指引切换下一责任人，不以隐藏按钮代替真实系统鉴权。
                     </p>
                   </div>
+                  <div class="toolbar">
+                    <button
+                      v-for="name in permitted.filter((value) =>
+                        ['record', 'collab_create', 'responsibility', 'amount'].includes(value),
+                      )"
+                      :key="name"
+                      @click="openAction(name)"
+                    >
+                      {{ actionNames[name] }}</button
+                    ><button
+                      v-if="!current.historyOnly && activeLine.owner === actor && activeLine.stage === 'INVESTIGATE'"
+                      @click="openAction('recovery')"
+                    >
+                      恢复编码</button
+                    ><button
+                      v-if="
+                        !current.historyOnly &&
+                        current.status === 'ACTIVE' &&
+                        (activeLine.owner === actor || actor === 'coordinator') &&
+                        !['REVIEW', 'DONE'].includes(activeLine.stage)
+                      "
+                      @click="openAction(activeLine.lockedBy ? 'unlock' : 'lock')"
+                    >
+                      {{ activeLine.lockedBy ? '解除办理锁' : '锁定本人编辑' }}</button
+                    ><button @click="changeTab('attachments')">查看 / 补充附件</button>
+                  </div>
+                  <p v-if="activeLine.lockedBy" class="callout">
+                    当前编辑锁：{{ roleName(activeLine.lockedBy) }}。他人持锁时先协调解锁。
+                  </p>
+                  <div v-if="nextExperienceTask" class="handoff-banner">
+                    <span>下一待办：{{ nextExperienceTask.title }} · {{ roleName(nextExperienceTask.owner) }}</span
+                    ><button @click="experienceNext">切换下一处理人并打开</button>
+                  </div>
                   <section class="detail-section">
-                    <h2>问题描述与分析</h2>
+                    <h2>ADM内容与处理意见</h2>
                     <p class="prose">{{ activeLine.description }}</p>
+                    <p v-if="current.sourceType">
+                      {{ current.sourceType }} · 航司 {{ current.airline }} · 回复截止 {{ current.replyDue }} ·
+                      人民币参考 {{ current.referenceCny || '未换算' }}
+                    </p>
+                    <p v-if="activeLine.borneAmount">
+                      承担金额：{{ activeLine.borneAmount }} {{ current.currency || 'CNY' }}
+                    </p>
                     <dl class="analysis">
                       <div v-for="field in analysisFields" :key="field.key">
                         <dt>{{ field.label }}</dt>
@@ -401,10 +530,28 @@
                       {{ activeLine.differenceReason || '尚无登记或无需登记依据' }}
                     </p>
                     <p>
-                      财务：{{ activeLine.financeRequired ? '需凭证核验' : '无需财务，须填写依据' }} ·
-                      {{ activeLine.financeReference || activeLine.financeReason || '待补'
-                      }}<span v-if="activeLine.settledAmount"> · 凭证金额 {{ activeLine.settledAmount }} CNY</span>
+                      回款：{{
+                        !activeLine.financeRequired
+                          ? '无需回款'
+                          : activeLine.financeReference
+                            ? '已回款'
+                            : activeLine.stage === 'DONE'
+                              ? '业务已审核 · 待回款'
+                              : '审核后跟进回款'
+                      }}
+                      · {{ activeLine.financeReference || activeLine.financeReason || '待补'
+                      }}<span v-if="activeLine.settledAmount">
+                        · 凭证金额 {{ activeLine.settledAmount }} {{ current.currency || 'CNY' }}</span
+                      >
                     </p>
+                    <p v-if="activeLine.financeRequired">
+                      应收 {{ activeLine.expectedRefund || activeLine.amount }} · 累计已收
+                      {{ activeLine.settledAmount || '0.00' }} {{ current.currency || 'CNY' }}
+                    </p>
+                    <article v-for="payment in activeLine.payments || []" :key="payment.id" class="event">
+                      <strong>{{ payment.reference }} · {{ payment.amount }} {{ current.currency || 'CNY' }}</strong>
+                      <p>{{ payment.at }} · {{ payment.reason }}</p>
+                    </article>
                   </section>
                   <section class="detail-section">
                     <h2>协办任务</h2>
@@ -481,7 +628,12 @@
                 </template>
               </template>
               <div
-                v-if="actor === 'coordinator' && current.status !== 'CLOSED' && current.status !== 'VOID'"
+                v-if="
+                  actor === 'coordinator' &&
+                  !current.historyOnly &&
+                  current.status !== 'CLOSED' &&
+                  current.status !== 'VOID'
+                "
                 class="controlbar"
               >
                 <button @click="openAction(current.paused ? 'resume' : 'pause')">
@@ -624,7 +776,7 @@
             >
           </main>
         </div>
-        <footer v-if="activeScenario" class="guide">
+        <footer v-if="activeScenario && showGuide" class="guide">
           <div>
             <strong
               >演练导航 · {{ activeScenario.title }} · {{ guideIndex + 1 }}/{{ activeScenario.steps.length }}</strong
@@ -640,75 +792,92 @@
         </footer>
       </section>
       <PanelDivider v-if="showDocs && !docOnly && !simOnly" v-model="split" />
-      <PrdPanel v-if="(showDocs && !simOnly) || docOnly" v-model="docTab"
-        :title="`${reqId(doc.id)} · ${doc.title}`" :subtitle="`${VERSION} · 原型建议，待业务审核`" :tabs="docTabs">
-          <p class="prototype-coverage">
-            <strong>本DEMO实际范围：</strong
-            >{{ actualCoverage[doc.id] || '页面、模拟操作与规则说明；正式服务端实现待你批准后另行开发。' }}
-          </p>
-          <template v-if="docTab === 'operation'"
-            ><h2>要解决什么</h2>
-            <p>{{ doc.goal }}</p>
-            <h3>谁来操作</h3>
-            <p>{{ doc.actor }}</p>
-            <h3>填写与操作点</h3>
-            <ol>
-              <li v-for="input in doc.inputs" :key="input">{{ input }}</li>
-            </ol>
-            <h3>完成后的结果</h3>
-            <ul>
-              <li v-for="outcome in doc.outcomes" :key="outcome">{{ outcome }}</li>
-            </ul></template
-          ><template v-else-if="docTab === 'rules'"
-            ><h2>权限、前置与异常</h2>
-            <ul>
-              <li v-for="rule in doc.rules" :key="rule">{{ rule }}</li>
-            </ul>
-            <h3>待你确认</h3>
-            <ul>
-              <li v-for="pending in doc.pending" :key="pending">{{ pending }}</li>
-              <li v-if="!doc.pending.length">本页无单列问题；仍需核对完整场景。</li>
-            </ul>
-            <div class="callout">
-              文字描述不表示后台已经实现。正式权限、存储、外部接口及迁移仍需开发后验收。
-            </div></template
-          ><template v-else-if="docTab === 'checks'"
-            ><h2>你可以这样验收</h2>
-            <label v-for="(check, index) in doc.checks" :key="index" class="accept-check"
-              ><input
-                type="checkbox"
-                :checked="!!reviews[doc.id]?.checks[index]"
-                @change="toggleCheck(doc.id, index)"
-              /><span>{{ check }}</span></label
-            >
-            <h3>记录页面评审结果</h3>
-            <label>评审人<a-input v-model:value="reviewerName" placeholder="填写你的姓名，不自动认定身份" /></label
-            ><label>评审结论 / 暂缓原因<a-textarea v-model:value="reviewReason" :rows="3" /></label>
-            <div class="toolbar">
-              <button class="primary" @click="reviewNode('已通过')">这页通过</button
-              ><button @click="reviewNode('需修改')">需要修改</button
-              ><button @click="reviewNode('暂不做')">暂不做</button>
-            </div>
-            <p>当前：{{ reviews[doc.id]?.status || '待验收' }} · {{ reviews[doc.id]?.by || '尚未评审' }}</p>
-            <p class="muted">勾选只记录你的检查，不自动证明功能通过。整版批准请到左侧“覆盖与验收”。</p></template
-          ><template v-else
-            ><h2>把意见留在当前步骤</h2>
-            <label>你的姓名<a-input v-model:value="reviewerName" /></label
-            ><label
-              >哪里不对？你希望怎样？<a-textarea
-                v-model:value="comment"
-                :rows="5"
-                placeholder="例如：金额超出范围才需要主管复核；普通单直接给平台负责人。" /></label
-            ><button class="primary" @click="addComment">保存意见并标为需修改</button>
-            <article v-for="note in reviews[doc.id]?.notes || []" :key="note.id" class="event">
-              <strong>{{ note.by }} · {{ note.at }}</strong>
-              <p class="prose">{{ note.text }}</p>
-              <span class="badge">待产品经理处理</span>
-            </article>
-            <p class="muted">
-              保存只在本机。体验结束点击顶部“导出体验与验收记录”，把JSON文件发给我，我按这些意见修改，你再复验。
-            </p></template
+      <PrdPanel
+        v-if="(showDocs && !simOnly) || docOnly"
+        v-model="docTab"
+        :title="`${reqId(doc.id)} · ${doc.title}`"
+        :subtitle="`${VERSION} · 原型建议，待业务审核`"
+        :tabs="docTabs"
+      >
+        <label
+          >功能模块<a-select
+            :value="docId"
+            :options="nodes.map((node) => ({ value: node.id, label: node.title }))"
+            @change="docId = String($event)"
+        /></label>
+        <ProductGuide
+          v-if="docTab === 'fields' || docTab === 'flows'"
+          :node="doc.id"
+          :mode="docTab === 'fields' ? 'fields' : 'flows'"
+        />
+        <p class="prototype-coverage">
+          <strong>本DEMO实际范围：</strong
+          >{{ actualCoverage[doc.id] || '页面、模拟操作与规则说明；正式服务端实现待你批准后另行开发。' }}
+        </p>
+        <template v-if="docTab === 'operation'"
+          ><h2>要解决什么</h2>
+          <p>{{ doc.goal }}</p>
+          <h3>谁来操作</h3>
+          <p>{{ doc.actor }}</p>
+          <h3>填写与操作点</h3>
+          <ol>
+            <li v-for="input in doc.inputs" :key="input">{{ input }}</li>
+          </ol>
+          <h3>完成后的结果</h3>
+          <ul>
+            <li v-for="outcome in doc.outcomes" :key="outcome">{{ outcome }}</li>
+          </ul>
+          <ProductGuide :node="doc.id" mode="flows" /><ProductGuide :node="doc.id" mode="fields" /></template
+        ><template v-else-if="docTab === 'rules'"
+          ><h2>权限、前置与异常</h2>
+          <ul>
+            <li v-for="rule in doc.rules" :key="rule">{{ rule }}</li>
+          </ul>
+          <h3>待你确认</h3>
+          <ul>
+            <li v-for="pending in doc.pending" :key="pending">{{ pending }}</li>
+            <li v-if="!doc.pending.length">本页无单列问题；仍需核对完整场景。</li>
+          </ul>
+          <div class="callout">
+            文字描述不表示后台已经实现。正式权限、存储、外部接口及迁移仍需开发后验收。
+          </div></template
+        ><template v-else-if="docTab === 'checks'"
+          ><h2>你可以这样验收</h2>
+          <label v-for="(check, index) in doc.checks" :key="index" class="accept-check"
+            ><input
+              type="checkbox"
+              :checked="!!reviews[doc.id]?.checks[index]"
+              @change="toggleCheck(doc.id, index)"
+            /><span>{{ check }}</span></label
           >
+          <h3>记录页面评审结果</h3>
+          <label>评审人<a-input v-model:value="reviewerName" placeholder="填写你的姓名，不自动认定身份" /></label
+          ><label>评审结论 / 暂缓原因<a-textarea v-model:value="reviewReason" :rows="3" /></label>
+          <div class="toolbar">
+            <button class="primary" @click="reviewNode('已通过')">这页通过</button
+            ><button @click="reviewNode('需修改')">需要修改</button
+            ><button @click="reviewNode('暂不做')">暂不做</button>
+          </div>
+          <p>当前：{{ reviews[doc.id]?.status || '待验收' }} · {{ reviews[doc.id]?.by || '尚未评审' }}</p>
+          <p class="muted">勾选只记录你的检查，不自动证明功能通过。整版批准请到左侧“覆盖与验收”。</p></template
+        ><template v-else-if="docTab === 'comments'"
+          ><h2>把意见留在当前步骤</h2>
+          <label>你的姓名<a-input v-model:value="reviewerName" /></label
+          ><label
+            >哪里不对？你希望怎样？<a-textarea
+              v-model:value="comment"
+              :rows="5"
+              placeholder="例如：金额超出范围才需要主管复核；普通单直接给平台负责人。" /></label
+          ><button class="primary" @click="addComment">保存意见并标为需修改</button>
+          <article v-for="note in reviews[doc.id]?.notes || []" :key="note.id" class="event">
+            <strong>{{ note.by }} · {{ note.at }}</strong>
+            <p class="prose">{{ note.text }}</p>
+            <span class="badge">待产品经理处理</span>
+          </article>
+          <p class="muted">
+            保存只在本机。体验结束点击顶部“导出体验与验收记录”，把JSON文件发给我，我按这些意见修改，你再复验。
+          </p></template
+        >
         <template #footer>
           <button @click="docTab = 'comments'">对此步骤提意见</button
           ><button @click="navigate('acceptance')">查看全部覆盖项</button>
@@ -728,52 +897,112 @@
           action === 'intake' ? '先预览，再确认；复制不继承处理结果。' : '完成后会更新模拟状态、任务与留痕。'
         }}
       </div>
-      <template v-if="action === 'intake'"
-        ><FormGrid
-          ><label>ADM号 *<a-input v-model:value="draft.admNo" /></label
-          ><label>供应商 *<a-input v-model:value="draft.supplier" /></label
-          ><label>原件金额（CNY）*<a-input v-model:value="draft.amount" /></label
-          ><label>备注<a-input v-model:value="draft.remark" /></label
-          ><label class="form-span"
-            >订单明细（每行：订单号,平台A或平台B,出票或退票或改签,金额,PNR）*<a-textarea
-              v-model:value="draft.rows"
-              :rows="5" /></label
-          ><label class="form-span"
-            ><a-checkbox v-model:checked="draft.autoAssign"
-              >演示已批准分派规则：匹配后直接给平台负责人（规则本身仍待你验收）</a-checkbox
-            ></label
-          ></FormGrid
-        >
+      <div v-if="actionSpecs[action]" class="action-contract">
+        <strong>{{ actionSpecs[action]?.name }}</strong>
+        <p>{{ actionSpecs[action]?.when }}</p>
+        <p>完成后：{{ actionSpecs[action]?.result }}</p>
+      </div>
+      <template v-if="action === 'intake'">
+        <IntakeFields v-model="draft" :types="typeOptions" :state="state" />
         <div v-if="intakePreview" class="callout success">
-          预览通过：{{ draft.supplier }}，ADM {{ draft.admNo }}，{{
-            String(draft.rows).trim().split('\n').length
-          }}条明细，共{{ draft.amount }} CNY。请核对上方每行；修改字段后需重新预览，再次确认才生成任务。
+          预览通过：{{ draft.admNo }}，共 {{ draft.amount }} {{ draft.currency }}。修改后重新预览，确认后才生成任务。
         </div>
       </template>
-      <template v-else-if="['record', 'submit'].includes(action)"
-        ><button @click="fillExample">填入合成分析示例（可继续修改）</button
-        ><FormGrid
-          ><label class="form-span">问题描述 *<a-textarea v-model:value="draft.description" :rows="2" /></label
-          ><label v-for="field in analysisFields.slice(0, 4)" :key="field.key"
-            >{{ field.label }} *<a-textarea v-model:value="draft[field.key]" :rows="2" /></label
-          ><label>差异一级分类 *<a-input v-model:value="draft.diffType" /></label
-          ><label>差异二级分类 *<a-input v-model:value="draft.diffSecond" /></label
-          ><label>PNR<a-input v-model:value="draft.pnr" /></label
-          ><label>细分站点<a-input v-model:value="draft.site" /></label
+      <template v-else-if="['edit', 'preliminary'].includes(action)">
+        <FormGrid
+          ><label>ADM号 *<a-input v-model:value="draft.admNo" /></label
+          ><label>供应商 *<a-input v-model:value="draft.supplier" /></label
           ><label
-            >申诉决策<a-select
+            >来源主体<a-select
+              v-model:value="draft.sourceType"
+              :options="['航司', '供应商', '平台'].map((value) => ({ value }))" /></label
+          ><label>航司代码 *<a-input v-model:value="draft.airline" /></label
+          ><label>下发日期 *<DateField v-model="draft.issuedOn" /></label
+          ><label>供应回复截止 *<DateField v-model="draft.replyDue" /></label
+          ><label>主单金额 *<a-input v-model:value="draft.amount" /></label
+          ><label
+            >币种（本单固定）<strong>{{ current?.currency || 'CNY' }}</strong></label
+          ><label class="form-span">ADM内容 *<a-textarea v-model:value="draft.description" :rows="3" /></label
+          ><label class="form-span">备注<a-textarea v-model:value="draft.remark" :rows="2" /></label
+        ></FormGrid>
+        <div v-for="(line, index) in draft.lines" :key="line.id" class="intake-row">
+          <h3>订单子项 {{ Number(index) + 1 }}</h3>
+          <FormGrid
+            ><label>订单号 *<a-input v-model:value="line.orderNo" /></label
+            ><label>票号<a-input v-model:value="line.ticketNo" /></label
+            ><label
+              >平台<a-select
+                v-model:value="line.platform"
+                :options="['平台A', '平台B'].map((value) => ({ value }))" /></label
+            ><label
+              >业务<a-select
+                v-model:value="line.business"
+                :options="['出票', '退票', '改签'].map((value) => ({ value }))" /></label
+            ><label>金额 *<a-input v-model:value="line.amount" /></label
+            ><label>PNR<a-input v-model:value="line.pnr" /></label
+            ><label>店铺 / 细分站点<a-input v-model:value="line.site" /></label
+          ></FormGrid>
+        </div>
+      </template>
+      <template v-else-if="action === 'recovery'"
+        ><FormGrid
+          ><label>恢复编码 *<a-input v-model:value="draft.recoveryCode" /></label
+          ><label>恢复截止<DateField v-model="draft.recoveryDue" with-time /></label
+          ><label class="form-span"
+            >恢复结果（完成时必填）<a-textarea v-model:value="draft.recoveryResult" :rows="3" /></label
+        ></FormGrid>
+        <p>结果留空则仍待恢复；填写结果并引用证据后完成恢复，继续本单调查。</p></template
+      >
+      <template v-else-if="['record', 'submit'].includes(action)">
+        <button @click="fillExample">填入合成处理示例（可修改）</button>
+        <FormGrid>
+          <label class="form-span"
+            >本次处理意见 / 结果 *<a-textarea v-model:value="draft.conclusion" :rows="3"
+          /></label>
+          <label
+            >具体错误类型 *<a-select v-model:value="draft.diffType" :options="typeOptions.map((value) => ({ value }))"
+          /></label>
+          <label
+            >原因归属 *<a-select
+              v-model:value="draft.attribution"
+              :options="['人为', '系统问题', '非人为/政策原因', '待认定'].map((value) => ({ value }))"
+          /></label>
+          <label
+            >处理方式<a-select
               v-model:value="draft.appealDecision"
-              :options="['申诉', '不申诉'].map((value) => ({ value }))" /></label
-          ><label>不申诉依据<a-input v-model:value="draft.appealReason" /></label
-          ><label><a-checkbox v-model:checked="draft.financeRequired">需要财务核验</a-checkbox></label
-          ><label>无需财务依据<a-input v-model:value="draft.financeReason" /></label
-          ><label><a-checkbox v-model:checked="draft.recoveryRequired">需要恢复编码</a-checkbox></label
-          ><label>恢复编码<a-input v-model:value="draft.recoveryCode" /></label
-          ><label>恢复结果<a-input v-model:value="draft.recoveryResult" /></label
-          ><label>等待对象<a-input v-model:value="draft.waitingFor" /></label
-          ><label>下次跟进<DateField v-model="draft.followUpAt" with-time /></label
-          ><label>备注<a-textarea v-model:value="draft.remark" :rows="2" /></label></FormGrid
-      ></template>
+              :options="['申诉', '不申诉'].map((value) => ({ value }))"
+          /></label>
+          <label v-if="draft.appealDecision === '不申诉'"
+            >不申诉原因 *<a-textarea v-model:value="draft.appealReason" :rows="2"
+          /></label>
+          <label><a-checkbox v-model:checked="draft.financeRequired">需要后续回款</a-checkbox></label>
+          <label v-if="draft.financeRequired">应收原币金额 *<a-input v-model:value="draft.expectedRefund" /></label>
+          <label v-if="!draft.financeRequired">无需回款依据 *<a-input v-model:value="draft.financeReason" /></label>
+          <label v-if="draft.appealDecision === '不申诉'"
+            ><a-checkbox v-model:checked="draft.differenceRecorded">已在外部登记差异（演练）</a-checkbox></label
+          >
+          <label v-if="draft.appealDecision === '不申诉'"
+            >差异登记编号 / 无需登记依据 *<a-input v-model:value="draft.differenceReason"
+          /></label>
+        </FormGrid>
+        <details>
+          <summary>等待、恢复编码和补充分析（按需填写）</summary>
+          <FormGrid>
+            <label>等待事项<a-input v-model:value="draft.waitingFor" /></label>
+            <label>下次跟进<DateField v-model="draft.followUpAt" with-time /></label>
+            <label><a-checkbox v-model:checked="draft.recoveryRequired">需要恢复编码</a-checkbox></label>
+            <label v-if="draft.recoveryRequired">恢复编码 *<a-input v-model:value="draft.recoveryCode" /></label>
+            <label v-if="draft.recoveryRequired">恢复结果 *<a-input v-model:value="draft.recoveryResult" /></label>
+            <label v-if="draft.recoveryRequired">恢复截止<DateField v-model="draft.recoveryDue" with-time /></label
+            ><label>PNR<a-input v-model:value="draft.pnr" /></label
+            ><label>店铺 / 细分站点<a-input v-model:value="draft.site" /></label>
+            <label v-for="field in analysisFields.filter((item) => item.key !== 'conclusion')" :key="field.key"
+              >{{ field.label }}<a-textarea v-model:value="draft[field.key]" :rows="2"
+            /></label>
+          </FormGrid>
+          <p>等待须明确跟进时间并保存，不自动免除超期；时限与恢复计时规则待确认，不自动拒单。</p>
+        </details>
+      </template>
       <template v-else-if="action === 'match'"
         ><FormGrid
           ><label>核实后的订单号 *<a-input v-model:value="draft.orderNo" /></label
@@ -802,13 +1031,18 @@
           ><label
             >申诉对象 *<a-select
               v-model:value="draft.target"
-              :options="['平台', '供应商/航司'].map((value) => ({ value }))" /></label
+              :options="['平台', '供应商', '航司'].map((value) => ({ value }))" /></label
           ><label
             >本次结果 *<a-select
               v-model:value="draft.status"
               :options="['处理中', '成功', '部分成功', '失败', '撤回'].map((value) => ({ value }))" /></label
-          ><label class="form-span"
-            >申诉材料 / 回复说明 *<a-textarea v-model:value="draft.result" :rows="4" /></label></FormGrid
+          ><label class="form-span">申诉材料 / 回复说明 *<a-textarea v-model:value="draft.result" :rows="4" /></label>
+          <label v-if="['部分成功', '失败'].includes(draft.status)"
+            >本项承担金额 *<a-input v-model:value="draft.borneAmount"
+          /></label>
+          <label><a-checkbox v-model:checked="draft.financeRequired">审核后继续跟进回款</a-checkbox></label
+          ><label v-if="draft.financeRequired"
+            >应收原币金额 *<a-input v-model:value="draft.expectedRefund" /></label></FormGrid
       ></template>
       <template v-else-if="action === 'difference'"
         ><a-checkbox v-model:checked="draft.recorded">已录差异（不勾选必须说明无需登记的依据）</a-checkbox></template
@@ -820,8 +1054,14 @@
       <template v-else-if="action === 'finance'"
         ><FormGrid
           ><label>核对凭证号 *<a-input v-model:value="draft.reference" /></label
-          ><label>凭证金额 CNY *<a-input v-model:value="draft.amount" /></label></FormGrid
-      ></template>
+          ><label>本次到账金额（当前原币）*<a-input v-model:value="draft.amount" /></label
+          ><label class="form-span"
+            ><a-checkbox v-model:checked="draft.confirmComplete"
+              >确认累计已全部到账（部分到账可不勾选，保留财务待办）</a-checkbox
+            ></label
+          ></FormGrid
+        ></template
+      >
       <template v-else-if="['collab_submit', 'remediate'].includes(action)"
         ><label>处理结果与验证 *<a-textarea v-model:value="draft.result" :rows="4" /></label
       ></template>
@@ -839,17 +1079,19 @@
               :options="handlePeople" /></label></FormGrid
       ></template>
       <template v-else-if="action === 'amount'"
-        ><label>调整后明细金额 CNY *<a-input v-model:value="draft.amount" /></label>
+        ><label>调整后明细原币金额 *<a-input v-model:value="draft.amount" /></label>
         <p>不自动平摊或覆盖原件金额；必须保留调整依据。</p></template
       >
       <template v-else-if="action === 'attach'"
-        ><FormGrid
+        ><label class="file-button">选择本机文件（单文件2MB）<input type="file" @change="chooseAttachment" /></label>
+        <p v-if="draft.dataUrl">已选择 {{ draft.name }}，仅在本机保存。</p>
+        <FormGrid
           ><label>演练文本名称 *<a-input v-model:value="draft.name" /></label
           ><label
             >分类<a-select
               v-model:value="draft.category"
               :options="
-                ['下发原件', '调查证据', '申诉材料', '财务凭证', '脱敏副本'].map((value) => ({ value }))
+                ['下发原件', '调查证据', '申诉材料', '恢复佐证', '财务凭证', '脱敏副本'].map((value) => ({ value }))
               " /></label
           ><label class="form-span"
             >演练文件全文 *<a-textarea v-model:value="draft.content" :rows="5" /></label></FormGrid
@@ -900,6 +1142,12 @@ import FormGrid from '../../src/components/FormGrid.vue'
 import AccountSelect from '../../src/components/AccountSelect.vue'
 import DateField from '../../src/components/DateField.vue'
 import { VERSION, nodes, scenarios } from './definition'
+import IntakeFields from './IntakeFields.vue'
+import OperationsDesk from './OperationsDesk.vue'
+import ProductGuide from './ProductGuide.vue'
+import { actionSpecs } from './product-spec'
+import { workspaceSeed, canEditCase } from './workspace'
+import { prepareIntake, specificTypes } from './intake'
 import {
   roles,
   roleName,
@@ -910,14 +1158,15 @@ import {
   stageNames,
   stageNode,
   transition,
+  submitProcessing,
   blockers,
   cents,
   cash,
-  lineSeed,
   id,
   type SimState,
   type Case,
   type Task,
+  type Evidence,
 } from './model'
 type Fields = Record<string, any>
 type Review = {
@@ -929,10 +1178,12 @@ type Review = {
   notes: { id: string; by: string; at: string; text: string }[]
 }
 type Approval = { id: string; name: string; version: string; ids: string[]; reason: string; at: string }
-const STORAGE = 'adm-review-demo-v01'
-const state = ref<SimState>(seed()),
-  actor = ref('handlerA'),
-  page = ref('overview'),
+const STORAGE = 'adm-review-demo-v03'
+const showAdvanced = ref(false),
+  showGuide = ref(false)
+const state = ref<SimState>(workspaceSeed()),
+  actor = ref('coordinator'),
+  page = ref('ledger'),
   selectedCase = ref('case-demo-001'),
   selectedLine = ref('line-1'),
   caseTab = ref('detail'),
@@ -940,7 +1191,7 @@ const state = ref<SimState>(seed()),
   docTab = ref('operation'),
   notice = ref(''),
   showDocs = ref(true),
-  split = ref(58),
+  split = ref(65),
   guideIndex = ref(0),
   search = ref(''),
   appliedSearch = ref(''),
@@ -967,18 +1218,41 @@ let expected = 0,
   contextLine = '',
   child: Window | null = null,
   receiving = false
-const menus = [
-  { id: 'overview', title: '开始体验', sub: '全景与演练路线' },
+const allMenus = [
   { id: 'work', title: '我的工作', sub: '到人任务与提醒' },
-  { id: 'intake', title: '接收与匹配', sub: '新建 / 复制 / 批量' },
-  { id: 'ledger', title: 'ADM档案', sub: '主单与多个订单' },
-  { id: 'dispatch', title: '团队调度', sub: '异常与协作' },
-  { id: 'report', title: '分析与日报', sub: '范围与口径' },
-  { id: 'settings', title: '规则与边界', sub: '待确认业务规则' },
+  { id: 'ledger', title: 'ADM台账', sub: '主单 / 订单 / 连续办理' },
+  { id: 'intake', title: '录入与核实', sub: '预罚 / 正式 / 多票号' },
+  { id: 'dispatch', title: '团队督办', sub: '分派 / 转交 / 协办' },
+  { id: 'recovery', title: '恢复编码', sub: '节点期限与结果' },
+  { id: 'appeals', title: '申诉跟进', sub: '多对象 / 多轮次' },
+  { id: 'reviewQueue', title: '审核工作台', sub: '通过 / 退回' },
+  { id: 'financeQueue', title: '回款工作台', sub: '部分 / 多次 / 结清' },
+  { id: 'notifications', title: '通知与回执', sub: '提醒 / 接收确认' },
+  { id: 'report', title: '统计与日报', sub: '进度 / 积压 / 原币' },
+  { id: 'exchange', title: '导入导出', sub: '统一模板 / 预览' },
+  { id: 'history', title: '历史档案', sub: '只读 / 复制引用' },
+  { id: 'settings', title: '规则设置', sub: '分派 / 字典 / 汇率' },
+  { id: 'overview', title: '旧演练工具', sub: '可选场景重置' },
   { id: 'acceptance', title: '覆盖与验收', sub: '意见与版本关口' },
 ]
+const menus = computed(() =>
+  allMenus.filter((menu) => showAdvanced.value || !['overview', 'acceptance'].includes(menu.id)),
+)
+const deskPages = [
+  'ledger',
+  'recovery',
+  'appeals',
+  'reviewQueue',
+  'financeQueue',
+  'notifications',
+  'exchange',
+  'settings',
+  'report',
+  'history',
+]
+const typeOptions = computed(() => state.value.rules?.types.map((item) => item.name) || specificTypes)
 const landscape = [
-  ['接收与历史', '新建、复制、批量预览、重复提醒', '继承来源，不继承旧完成状态'],
+  ['接收与历史', '单条表单、多票号子项、预览去重', '复杂批量后置；不继承旧完成状态'],
   ['订单处理', '出退改、多平台、PNR、站点、分摊', '主子单保留；任务入口重设计'],
   ['责任与协作', '接单、交接、协办、复核、整改', '办理责任与差错归因分开'],
   ['申诉与差异', '多对象、多轮记录、差异登记', '合并流程，原始依据保留'],
@@ -995,15 +1269,17 @@ const caseTabs = [
 ]
 const docTabs = [
   { id: 'operation', title: '功能操作' },
+  { id: 'fields', title: '字段说明' },
+  { id: 'flows', title: '按钮与流转' },
   { id: 'rules', title: '规则与待定' },
   { id: 'checks', title: '验收' },
   { id: 'comments', title: '提意见' },
 ]
 const actualCoverage: Record<string, string> = {
-  intake: '可新建/复制、文本批量预览和去重、生成模拟任务；真实Excel和供应接口未接入。',
-  attachments: '可新增、查看、下载合成文本及逐明细共享/撤销；真实PDF/图片/Excel解析与旧附件搬迁未执行。',
-  report: '可查看当前获权任务、逾期和演练动作，捕获时点快照；历史日报发布及人员排名仅为待审核规则，不在本版模拟实现。',
-  settings: '本页为规则建议与边界说明，可前进演练时钟观察逾期；不是可保存的生产规则编辑器，不发真实提醒。',
+  intake: '结构化单条与CSV预览导入、多票号、预罚核实、转正式、编辑、复制及参考换算；订单候选和汇率采用本地演示值。',
+  attachments: '可选择本机文件，预览图片/PDF/文本、下载及共享；不上传服务器，不执行旧附件迁移。',
+  report: '当前范围进度、人员积压排序、分币种金额和可读日报导出；不真实群发或计算正式绩效。',
+  settings: '本机可保存分派、错误类型/外部代码、供应默认币种、参考汇率及预警规则；后续新单生效，不回溯重派。',
   acceptance: '可记录意见、逐页验收、分批批准声明和JSON导出/恢复；仅本机保存，不是多人在线审批或身份签名。',
 }
 const analysisFields: { key: 'facts' | 'cause' | 'proposal' | 'conclusion' | 'remark'; label: string }[] = [
@@ -1018,13 +1294,13 @@ const actionNames: Record<string, string> = {
   match: '核实订单并分派',
   assign: '指定承办人',
   claim: '接收我的任务',
-  record: '编辑调查与分析',
-  submit: '提交调查进入下一步',
+  record: '保存处理草稿',
+  submit: '提交处理 / 审核',
   appeal: '登记一轮申诉',
-  appeal_next: '申诉结束，处理差异',
+  appeal_next: '提交申诉结果',
   difference: '登记差异并提交审核',
   review: '独立审核 / 退回',
-  finance: '核对财务凭证',
+  finance: '确认回款',
   transfer_request: '发起确认式转交',
   transfer_accept: '接受交接',
   transfer_reject: '驳回交接',
@@ -1044,6 +1320,11 @@ const actionNames: Record<string, string> = {
   pause: '挂起主单',
   resume: '恢复主单',
   void: '作废并保留档案',
+  edit: '编辑基础信息',
+  preliminary: '预罚转正式',
+  recovery: '保存恢复编码',
+  lock: '锁定本人编辑',
+  unlock: '解除办理锁',
 }
 const primaryActions = [
   'claim',
@@ -1057,6 +1338,7 @@ const primaryActions = [
   'transfer_accept',
 ]
 const evidenceActions = [
+  'recovery',
   'record',
   'submit',
   'appeal',
@@ -1068,6 +1350,9 @@ const evidenceActions = [
 ]
 Object.assign(actionNames, { remediation_accept: '接收整改任务', remediation_review: '独立复核整改' })
 const reasonActions = [
+  'edit',
+  'preliminary',
+  'unlock',
   'match',
   'assign',
   'transfer_request',
@@ -1090,7 +1375,7 @@ const reasonActions = [
   'void',
 ]
 const handlePeople = roles
-  .filter((role) => role.id === 'handlerA' || role.id === 'handlerB')
+  .filter((role) => ['handlerA', 'handlerB', 'lead'].includes(role.id))
   .map((role) => ({ id: role.id, name: role.name }))
 const current = computed(() =>
   state.value.cases.find(
@@ -1118,7 +1403,14 @@ const activeScenario = computed(() => scenarios.find((item) => item.id === state
 const doc = computed(() => nodes.find((node) => node.id === docId.value) || nodes[0]!)
 const displayTasks = computed(() =>
   tasks(state.value).filter(
-    (task) => (page.value === 'dispatch' && actor.value === 'coordinator') || task.owner === actor.value,
+    (task) =>
+      (page.value === 'dispatch' &&
+        (actor.value === 'coordinator' ||
+          (actor.value === 'lead' &&
+            state.value.cases
+              .find((item) => item.id === task.caseId)
+              ?.lines.some((line) => line.id === task.lineId && line.supervisor === 'lead')))) ||
+      task.owner === actor.value,
   ),
 )
 const visibleCases = computed(() =>
@@ -1149,7 +1441,19 @@ const dirty = computed(() => JSON.stringify(draft.value) !== baseline.value)
 const permitted = computed(() => {
   const item = current.value,
     line = activeLine.value
-  if (!item || !line || item.paused || item.status !== 'ACTIVE') return []
+  if (
+    !item ||
+    !line ||
+    item.historyOnly ||
+    item.paused ||
+    item.status === 'VOID' ||
+    (line.lockedBy && line.lockedBy !== actor.value && !['reviewer', 'finance'].includes(actor.value))
+  )
+    return []
+  if (item.status === 'CLOSED')
+    return actor.value === 'finance' && line.stage === 'DONE' && line.financeRequired && !line.financeReference
+      ? ['finance']
+      : []
   const result: string[] = []
   if (actor.value === 'coordinator') {
     if (line.stage === 'MATCH') result.push('match')
@@ -1165,9 +1469,29 @@ const permitted = computed(() => {
   }
   if (line.transfer?.to === actor.value) result.push('transfer_accept', 'transfer_reject')
   if (actor.value === 'reviewer' && line.stage === 'REVIEW') result.push('review')
-  if (actor.value === 'finance' && line.stage === 'FINANCE') result.push('finance')
-  return result
+  if (actor.value === 'finance' && line.stage === 'DONE' && line.financeRequired && !line.financeReference)
+    result.push('finance')
+  return item.preliminary
+    ? result.filter((value) => !['submit', 'appeal', 'appeal_next', 'difference', 'review', 'finance'].includes(value))
+    : result
 })
+const nextExperienceTask = computed(
+  () =>
+    tasks(state.value).find((task) => task.caseId === selectedCase.value && task.kind === '结案') ||
+    tasks(state.value).find(
+      (task) =>
+        task.caseId === selectedCase.value &&
+        task.lineId === selectedLine.value &&
+        task.owner !== actor.value &&
+        !['跟进', '恢复编码'].includes(task.kind),
+    ),
+)
+function experienceNext() {
+  const task = nextExperienceTask.value
+  if (!task) return
+  actor.value = task.owner
+  openTask(task)
+}
 const reqId = (key: string) => `ADM-${String(nodes.findIndex((node) => node.id === key) + 1).padStart(3, '0')}`
 const caseStatus = (item: Case) =>
   item.paused ? '已挂起' : { DRAFT: '草稿', ACTIVE: '办理中', CLOSED: '已结案', VOID: '已作废' }[item.status]
@@ -1184,7 +1508,24 @@ function focusDoc(key: string) {
 }
 function navigate(key: string) {
   page.value = key
-  focusDoc(({ work: 'accept', dispatch: 'assign', ledger: 'overview' } as Record<string, string>)[key] || key)
+  focusDoc(
+    (
+      {
+        work: 'accept',
+        dispatch: 'assign',
+        ledger: 'overview',
+        history: 'exchange',
+        appeals: 'appeal',
+        reviewQueue: 'review',
+        financeQueue: 'finance',
+      } as Record<string, string>
+    )[key] || key,
+  )
+}
+function changeDeskRole(value: string) {
+  const previous = page.value
+  changeActor(value)
+  navigate(previous)
 }
 function changeActor(value: unknown) {
   actor.value = String(value)
@@ -1229,7 +1570,8 @@ function startScenario(key: string) {
   if (!confirm('重置当前模拟业务？你的意见和验收记录保留；未导出的业务演练进度会替换。')) return
   state.value = seed(key)
   guideIndex.value = 0
-  actor.value = key === 'exception' ? 'coordinator' : key === 'closed' ? 'handlerB' : 'handlerA'
+  actor.value =
+    key === 'cashflow' ? 'finance' : key === 'exception' ? 'coordinator' : key === 'closed' ? 'handlerB' : 'handlerA'
   selectedCase.value = state.value.cases[0]!.id
   selectedLine.value = visibleLines(state.value.cases[0]!, actor.value)[0]?.id || ''
   navigate('work')
@@ -1245,6 +1587,19 @@ function goGuide() {
     const task = tasks(state.value).find((task) => task.owner === actor.value && task.node === step.node)
     openCase(item.id, task?.lineId || visibleLines(item, actor.value)[0]?.id, step.node)
   }
+}
+function openNotice(item: SimState['notices'][number]) {
+  const parent = state.value.cases.find((value) => value.id === item.caseId)
+  if (!parent || (item.lineId && !visibleLines(parent, actor.value).some((line) => line.id === item.lineId))) {
+    notice.value = '该任务已转交，当前人员无此明细范围。'
+    return
+  }
+  markRead(item.id)
+  openCase(
+    item.caseId,
+    item.lineId,
+    item.lineId ? stageNode[parent.lines.find((line) => line.id === item.lineId)!.stage] : 'close',
+  )
 }
 function markRead(key: string) {
   const note = state.value.notices.find((item) => item.id === key && item.recipient === actor.value)
@@ -1271,7 +1626,35 @@ function openAction(name: string, values: Fields = {}) {
       platform: activeLine.value?.platform || '平台A',
       autoAssign: true,
     }
-  if (name === 'appeal') Object.assign(draft.value, { target: '平台', status: '处理中', result: '' })
+  if (name === 'appeal')
+    Object.assign(draft.value, {
+      target: '平台',
+      status: '处理中',
+      result: '',
+      borneAmount: activeLine.value?.borneAmount || '',
+      financeRequired: activeLine.value?.financeRequired || false,
+    })
+  if (name === 'appeal') draft.value.expectedRefund = activeLine.value?.expectedRefund || activeLine.value?.amount || ''
+  if (name === 'finance')
+    Object.assign(draft.value, {
+      amount: cash(
+        Math.max(
+          0,
+          cents(activeLine.value?.expectedRefund || activeLine.value?.amount || '0') -
+            cents(activeLine.value?.settledAmount || '0'),
+        ),
+      ),
+      confirmComplete: false,
+    })
+  if (['edit', 'preliminary'].includes(name) && current.value)
+    draft.value = { ...JSON.parse(JSON.stringify(current.value)), reason: '' }
+  if (name === 'recovery' && activeLine.value)
+    draft.value = {
+      ...draft.value,
+      recoveryCode: activeLine.value.recoveryCode,
+      recoveryResult: activeLine.value.recoveryResult,
+      recoveryDue: activeLine.value.recoveryDue || '',
+    }
   if (name === 'attach')
     Object.assign(draft.value, {
       name: '合成补充证据.txt',
@@ -1297,6 +1680,10 @@ function openAction(name: string, values: Fields = {}) {
         collab_create: 'investigate',
         responsibility: 'investigate',
         reopen: 'close',
+        edit: 'intake',
+        preliminary: 'intake',
+        lock: 'assign',
+        unlock: 'assign',
       } as Record<string, string>
     )[name] || name,
   )
@@ -1310,19 +1697,69 @@ function fillExample() {
     conclusion: '当前事实与建议已整理，提交下一节点独立核对。',
     appealReason: '合成场景：证据充分，选择直接登记差异，不发起申诉。',
     financeReason: '合成场景：无需收付款，保留依据供审核。',
-    diffType: '票务差异',
-    diffSecond: '规则理解',
+    diffType: '重复预定',
+    diffSecond: '',
+    attribution: '非人为/政策原因',
+    differenceRecorded: true,
+    differenceReason: 'DEMO-DIFF-001（模拟登记号）',
     remark: '此示例可修改；不能替代真实业务证据。',
   })
+}
+async function chooseAttachment(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  try {
+    if (file.size > 2 * 1024 * 1024 || file.size === 0) throw Error('请选择非空、最多2MB的文件')
+    const allowed = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf', 'text/plain']
+    const mime = allowed.includes(file.type) ? file.type : 'application/octet-stream'
+    const buffer = await file.arrayBuffer()
+    let binary = ''
+    const bytes = new Uint8Array(buffer)
+    for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192))
+    const content =
+      mime === 'text/plain'
+        ? (await file.text()).slice(0, 9000)
+        : `本机文件：${file.name}（${file.size}字节）。仅保存在浏览器，未上传服务器。`
+    Object.assign(draft.value, {
+      name: file.name,
+      mime,
+      size: file.size,
+      dataUrl: `data:${mime};base64,${btoa(binary)}`,
+      content: content || '空文本文件',
+    })
+    formError.value = ''
+  } catch (error) {
+    formError.value = (error as Error).message
+  }
+}
+function downloadAttachment(file: Evidence) {
+  if (!file.dataUrl) {
+    downloadText(file.name, file.content)
+    return
+  }
+  const a = document.createElement('a')
+  a.href = file.dataUrl
+  a.download = file.name
+  a.click()
 }
 function openIntake(copy = false) {
   action.value = 'intake'
   expected = state.value.version
   const base = current.value || state.value.cases[0]!
+  const defaultSupplier = state.value.rules?.suppliers[0]
   draft.value = {
     admNo: `DEMO-ADM-${String(state.value.cases.length + 1).padStart(3, '0')}`,
-    supplier: copy ? base.supplier : '合成供应商 · 非真实业务',
+    supplier: copy ? base.supplier : defaultSupplier?.name || '合成供应商 · 非真实业务',
     amount: copy ? base.amount : '1000.00',
+    sourceType: '供应商',
+    currency: copy ? base.currency || 'CNY' : 'CNY',
+    rate: '',
+    airline: 'XX',
+    issuedOn: '2026-10-28',
+    replyDue: '2026-11-05',
+    description: copy ? base.description : '合成供应下发：请核实重复预定并反馈。',
+    diffType: '重复预定',
+    preliminary: false,
     remark: copy ? `引用 ${base.admNo}，不复制状态/附件授权/结论` : '',
     rows: copy
       ? base.lines
@@ -1341,67 +1778,19 @@ function submitIntake() {
   if (actor.value !== 'coordinator') throw Error('仅协调人可接收')
   if (expected !== state.value.version) throw Error('版本变化，请重新核对')
   const value = draft.value
-  if (!value.admNo?.trim() || !value.supplier?.trim()) throw Error('ADM号与供应商必填')
+  if ((!value.preliminary && !value.admNo?.trim()) || !value.supplier?.trim()) throw Error('正式ADM号与供应商必填')
   if (state.value.cases.some((item) => item.admNo === value.admNo.trim() && item.supplier === value.supplier.trim()))
     throw Error('相同供应商已有此ADM号，请核对，不重复接收')
-  const total = cents(value.amount)
-  const rows = String(value.rows || '')
-    .trim()
-    .split('\n')
-  if (!rows.length || rows.length > 100) throw Error('演练批量支持1–100条明细')
-  const seen = new Set<string>()
-  const lines = rows.map((row, index) => {
-    const [orderNo, platform, business, amount, pnr] = row.split(',').map((item) => item.trim())
-    if (!['平台A', '平台B'].includes(platform || '') || !['出票', '退票', '改签'].includes(business || ''))
-      throw Error(`第${index + 1}行：平台或业务类型无效`)
-    cents(amount)
-    const rowKey = `${orderNo}|${platform}|${business}`
-    if (orderNo && seen.has(rowKey)) throw Error(`第${index + 1}行订单/平台/业务重复，请核对`)
-    if (orderNo) seen.add(rowKey)
-    const line = lineSeed(index + 1)
-    return {
-      ...line,
-      id: id(),
-      orderNo: orderNo || '',
-      platform: platform!,
-      business: business!,
-      amount: amount!,
-      pnr: pnr || '',
-      owner: orderNo && value.autoAssign ? (platform === '平台B' ? 'handlerB' : 'handlerA') : '',
-      stage: (!orderNo ? 'MATCH' : value.autoAssign ? 'ACCEPT' : 'ASSIGN') as typeof line.stage,
-      evidence: [],
-    }
+  const parent = prepareIntake(value, typeOptions.value)
+  parent.lines.forEach((line) => {
+    if (line.stage !== 'MATCH') line.owner = state.value.rules?.lead || 'lead'
   })
-  if (lines.reduce((sum, line) => sum + cents(line.amount), 0) !== total)
-    throw Error('明细分摊与原件金额不平，请修正，不自动平摊')
   const key = JSON.stringify(value)
   if (intakePreview.value !== key) {
     intakePreview.value = key
-    notice.value = `预览通过：${lines.length}条明细。再次点击确认才生成模拟任务。`
+    notice.value = '预览通过，请核对后再次确认。'
     return
   }
-  const parent: Case = {
-    id: id(),
-    admNo: value.admNo.trim(),
-    supplier: value.supplier.trim(),
-    amount: value.amount,
-    description: '演练批量接收',
-    remark: value.remark || '',
-    status: 'ACTIVE',
-    paused: false,
-    lines,
-    files: [],
-    remediation: { owner: 'handlerB', status: '未开始', result: '' },
-    source: '合成录入/明细文本',
-  }
-  parent.files.push({
-    id: id(),
-    name: '接收原件-演练.txt',
-    category: '下发原件',
-    lineId: '',
-    shared: [],
-    content: `合成供应下发：${value.admNo}，原币CNY，${value.amount}。请按明细授权证据。`,
-  })
   state.value.cases.push(parent)
   state.value.version++
   state.value.events.push({
@@ -1430,7 +1819,7 @@ function submitIntake() {
     )
   openCase(parent.id)
   modal.value = false
-  notice.value = '已接收并生成到人任务；请切换承办人查看。'
+  notice.value = '已保存到台账并生成组长接收或核实任务；可在本单继续切换下一处理人。'
 }
 function submitAction() {
   try {
@@ -1438,11 +1827,14 @@ function submitAction() {
       submitIntake()
       return
     }
-    state.value = transition(state.value, actor.value, contextCase, contextLine, action.value, draft.value, expected)
+    state.value =
+      action.value === 'submit'
+        ? submitProcessing(state.value, actor.value, contextCase, contextLine, draft.value, expected)
+        : transition(state.value, actor.value, contextCase, contextLine, action.value, draft.value, expected)
     modal.value = false
     notice.value = `${actionNames[action.value]}成功（仅演练），任务与历史已更新。`
     if (activeLine.value) focusDoc(stageNode[activeLine.value.stage])
-    if (current.value?.status === 'CLOSED') {
+    if (current.value?.status === 'CLOSED' && action.value !== 'finance') {
       caseTab.value = 'close'
       focusDoc('close')
     }
@@ -1552,7 +1944,7 @@ function validatePacket(value: any) {
     !value ||
     value.kind !== 'ADM_REVIEW_DEMO' ||
     value.version !== VERSION ||
-    value.state?.schema !== 1 ||
+    value.state?.schema !== 2 ||
     !Number.isSafeInteger(value.state.version) ||
     !Array.isArray(value.state.cases) ||
     value.state.cases.length > 100 ||
