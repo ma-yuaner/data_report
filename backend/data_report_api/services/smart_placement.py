@@ -1646,6 +1646,7 @@ class SmartPlacementService:
                 f"""SELECT m.*,
                            o.outcome_status,o.data_freshness_status,o.source_table outcome_source_table,
                            o.source_updated_at outcome_source_updated_at,o.last_checked_at outcome_last_checked_at,
+                           o.status_source_table,o.status_source_updated_at,o.status_freshness_status,
                            o.ticket_no current_ticket_no,o.passenger_name current_passenger_name,
                            o.ticket_time current_ticket_time,o.ticket_count current_ticket_count,
                            o.segment_count current_segment_count,o.estimated_profit_cny current_estimated_profit_cny,

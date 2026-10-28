@@ -82,7 +82,7 @@
             <a-tag v-else color="orange">待同步</a-tag>
           </template>
           <template v-else-if="column.key === 'outcome'">
-            <div class="two-line"><a-tag :color="outcomeMeta[record.outcomeStatus || 'WAITING_SYNC']?.color || 'default'">{{ outcomeLabel(record) }}</a-tag><span :class="{ 'stale-text': record.dataFreshnessStatus === 'STALE' }">{{ freshnessLabel(record) }}</span></div>
+            <div class="two-line"><a-tag :color="outcomeMeta[record.outcomeStatus || 'WAITING_SYNC']?.color || 'default'">{{ outcomeLabel(record) }}</a-tag><span :class="{ 'stale-text': record.statusFreshnessStatus === 'STALE' }">{{ statusFreshnessLabel(record) }}</span><span :class="{ 'stale-text': record.dataFreshnessStatus === 'STALE' }">{{ freshnessLabel(record) }}</span></div>
           </template>
           <template v-else-if="column.key === 'message'">
             <a-tag :color="messageMeta[record.messageStatus]?.color || 'default'">{{ messageMeta[record.messageStatus]?.label || record.messageStatus }}</a-tag>
@@ -113,7 +113,8 @@
           <div><label>产品类型</label><span>{{ activeOrder.productType || '—' }}</span></div><div><label>票数 / 航段</label><span>{{ quantity(currentValue(activeOrder.currentTicketCount, activeOrder.ticketCount, activeOrder), '票') }} / {{ quantity(currentValue(activeOrder.currentSegmentCount, activeOrder.segmentCount, activeOrder), '航段') }}</span></div>
           <div><label>预估利润</label><span>{{ nullableMoney(currentValue(activeOrder.currentEstimatedProfitCny, activeOrder.estimatedProfitCny, activeOrder)) }}</span></div><div><label>命中时间</label><span>{{ displayTime(activeOrder.matchedAt) }}</span></div>
           <div><label>当前订单结果</label><span>{{ outcomeLabel(activeOrder) }}</span></div><div><label>当前出票时间</label><span>{{ displayTime(activeOrder.currentTicketTime) }}</span></div>
-          <div><label>智能参与 / 成功</label><span>{{ triState(activeOrder.smartParticipated) }} / {{ triState(activeOrder.smartSucceeded) }}</span></div><div><label>结果来源更新</label><span>{{ displayTime(activeOrder.outcomeSourceUpdatedAt) }}（{{ freshnessLabel(activeOrder) }}）</span></div><div><label>最近核对</label><span>{{ displayTime(activeOrder.outcomeLastCheckedAt) }}</span></div><div><label>结果来源</label><span>{{ activeOrder.outcomeSourceTable || '尚未取得' }}</span></div>
+          <div><label>智能参与 / 成功</label><span>{{ triState(activeOrder.smartParticipated) }} / {{ triState(activeOrder.smartSucceeded) }}</span></div><div><label>明细来源更新</label><span>{{ displayTime(activeOrder.outcomeSourceUpdatedAt) }}（{{ freshnessLabel(activeOrder) }}）</span></div><div><label>最近核对</label><span>{{ displayTime(activeOrder.outcomeLastCheckedAt) }}</span></div><div><label>明细来源</label><span>{{ activeOrder.outcomeSourceTable || '尚未取得' }}</span></div>
+          <div><label>状态来源更新</label><span>{{ displayTime(activeOrder.statusSourceUpdatedAt) }}（{{ statusFreshnessLabel(activeOrder) }}）</span></div><div><label>状态来源</label><span>{{ activeOrder.statusSourceTable || '等待后台核对' }}</span></div>
           <div><label>政策归属</label><span>{{ attributionLabel(activeOrder) }}</span></div><div><label>命中政策数</label><span>{{ quantity(activeOrder.matchedPolicyCount, '个') }}</span></div>
         </div></section>
         <section class="order-detail-section"><h3>提醒与关注记录</h3><div class="order-timeline"><article><strong>订单命中投放规则</strong><p>{{ activeOrder.matchDetail || '平台、航司、航程及有效期满足匹配条件' }}</p><time>{{ displayTime(activeOrder.matchedAt) }}</time></article><article><strong>{{ messageMeta[activeOrder.messageStatus]?.label || activeOrder.messageStatus }}</strong><p>系统记录当前群提醒发送状态</p></article><article><strong>{{ attentionMeta[activeOrder.attentionStatus]?.label || activeOrder.attentionStatus }}</strong><p>{{ activeOrder.resolutionNote || '等待业务人员补充处理结果' }}</p></article></div></section>
@@ -213,7 +214,10 @@ function outcomeLabel(record: PlacementOrderRow) {
 }
 function freshnessLabel(record: PlacementOrderRow) {
   if (record.dataFreshnessStatus === 'MISSING' && record.outcomeSourceTable) return record.outcomeSourceTable.endsWith('.rt_order_monitor_feature') ? '出票状态来自采集快照' : '沿用上次结果，本轮源表缺单'
-  return record.dataFreshnessStatus === 'FRESH' ? '数据新鲜' : record.dataFreshnessStatus === 'STALE' ? '数据已延迟' : '等待同步'
+  return record.dataFreshnessStatus === 'FRESH' ? '明细已更新' : record.dataFreshnessStatus === 'STALE' ? '明细源超过时效，待更新' : '明细等待同步'
+}
+function statusFreshnessLabel(record: PlacementOrderRow) {
+  return record.statusFreshnessStatus === 'FRESH' ? '状态已更新' : record.statusFreshnessStatus === 'STALE' ? '状态源超过时效' : '状态时效待核对'
 }
 const summaryCards = [
   { key: 'primaryOrderCount', label: '归属订单', note: '按订单主归属去重', tone: 'blue', format: number },
@@ -223,7 +227,7 @@ const summaryCards = [
   { key: 'pendingCount', label: '待关注', note: '待处理及已升级订单', tone: 'orange', format: number },
   { key: 'activePolicyCount', label: '活跃政策', note: '期间内命中的政策数', tone: 'violet', format: number },
   { key: 'waitingSyncCount', label: '明细待同步', note: '结果源缺单，含已出票兜底记录', tone: 'orange', format: number },
-  { key: 'staleCount', label: '宽表延迟', note: '最后更新超过时效阈值', tone: 'red', format: number },
+  { key: 'staleCount', label: '明细待更新', note: '明细源超过时效，订单状态另行核对', tone: 'red', format: number },
 ] as const
 const columns = [
   { title: '订单 / 票号', key: 'order', width: 245, fixed: 'left' as const },

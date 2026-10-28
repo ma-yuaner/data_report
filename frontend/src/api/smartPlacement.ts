@@ -214,6 +214,9 @@ export interface PlacementOrderRow extends Record<string, string | number | null
   outcomeSourceTable: string | null
   outcomeSourceUpdatedAt: string | null
   outcomeLastCheckedAt: string | null
+  statusSourceTable: string | null
+  statusSourceUpdatedAt: string | null
+  statusFreshnessStatus: string | null
   currentTicketNo: string | null
   currentPassengerName: string | null
   currentTicketTime: string | null
