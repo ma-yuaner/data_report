@@ -13,6 +13,8 @@
 
 ## 稳定背景
 
+- 本地产品评审台0.1（2026-10-28）：源码 `frontend/prototypes/product-review`，模块注册 `catalog.ts`，共用中台样式/PageHeader/AntD及原型组件；`npm --prefix frontend run package:product-review` 在仓库上级目录生成“产品评审台_打开我.html”和评审包。ADM可体验，其余模块待接入；原件放仓库外“产品评审资料/ADM”。先读 `docs/product/modules/adm/README.md` 和用户最新材料；8组需求整理提示可本机保存、TXT导出、JSON备份恢复。开发交接见 `docs/product/local-product-review.md`，源码/模板/脱敏基线进Git，原始资料不自动提交。
+
 - 固定调用名 **“需求先行·原型评审模式”**（2026-10-27）：先阅读需求文档和相关已确认规则，输出简短理解/缺口，再复用组件做左模拟系统右PRD；用户提意见→局部修改→复验→批准具体版本/范围→正式开发。原型不替代需求，关键缺口不擅定；执行入口见[产品交付规范](../product/product-delivery-contract.md)。
 
 - 明策产品v6（2026-10-27）：用户要求ADM采用任务到人、原型先审后开发。交付业务全景/场景演练/联动PRD/版本验收；批准绑定具体版本和范围，旧开发授权不绕过新关口。复杂新模块默认提议，小修复仍裁剪。只升级规则不代表原型已完成，见[产品卡](roles/product.md)；其他角色版本不变。

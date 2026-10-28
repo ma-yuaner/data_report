@@ -1,0 +1,25 @@
+.review-portal { height: 100dvh; min-height: 0; overflow: hidden; }
+.review-portal .app-main { min-height: 0; }
+.portal-header { min-height: 64px; padding: 16px 24px; background: white; border-bottom: 1px solid #e7ebf1; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.portal-header span, .requirement-field small { color: #64748b; }
+.portal-workspace { display: flex; min-height: 0; flex: 1; }
+.portal-main { width: var(--left); min-width: 0; overflow: auto; }
+.portal-main .page-header { flex-wrap: wrap; }
+.portal-section { background: white; border: 1px solid #e2e8f0; padding: 20px; margin-top: 20px; border-radius: 6px; }
+.portal-section h2 { font-size: 18px; margin-top: 0; }
+.portal-section p, .portal-section li { line-height: 1.8; }
+.module-list { display: grid; gap: 0; }
+.module-list article { border-top: 1px solid #e2e8f0; padding: 18px 0; }
+.module-list article > div, .module-heading { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.module-list h3, .module-heading h2 { margin: 0; }
+.portal-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+.requirement-field { display: grid; gap: 8px; margin: 20px 0; font-weight: 600; }
+.requirement-field small { font-weight: 400; line-height: 1.7; }
+.local-note { padding: 12px; background: #fff8e7; }
+.portal-message { background: #eff6ff; padding: 10px 24px; display: flex; justify-content: space-between; gap: 12px; }
+.portal-message button { border: 0; background: transparent; color: #2563eb; }
+.review-portal dd { margin: 6px 0 16px; overflow-wrap: anywhere; color: #64748b; }
+.review-portal dt { font-weight: 600; }
+.import-draft { border: 1px solid #d9d9d9; padding: 4px 15px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; }
+.import-draft input { max-width: 190px; margin-left: 8px; }
+@media (max-width: 1000px) { .portal-workspace { display: block; overflow: auto; } .portal-main { width: 100%; overflow: visible; } .portal-workspace > .separator { display: none; } .portal-workspace > .prd { min-height: 500px; border-top: 2px solid #2563eb; } .review-portal .app-brand { padding-inline: 8px; } }

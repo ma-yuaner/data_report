@@ -1,5 +1,7 @@
 # 原型评审组件复用入口
 
+统一门户已在 `../product-review` 接入 PrdPanel/PanelDivider，中台 PageHeader/Layout/Menu/main.css 继续复用。两个原型的离线构建共用 `offline-build.ts`，不再各写内联打包逻辑。执行 `npm --prefix frontend run package:product-review` 可构建并打包门户和ADM；开发交接见 `docs/product/local-product-review.md`。
+
 ADM 评审前只整理无业务依赖的展示组件；业务需求和流程仍待用户审核。组件不访问 API、不读取账号、不写 localStorage、不批准业务版本。后续先复用此目录与 `src/components`，不复制整份 ADM App.vue。
 
 | 入口 | 调用契约 | 业务页面保留职责 |

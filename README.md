@@ -131,6 +131,8 @@ HR报表邮件  [/hr-mail]
 
 ## 本地开发
 
+本地产品评审台：执行 `npm --prefix frontend run package:product-review`，在仓库上级目录打开“产品评审台_打开我.html”。当前接入ADM合成原型及需求整理，其他模块待接入；[使用与开发交接](docs/product/local-product-review.md)包含源码、需求资料与复用规则。评审包不连接正式后端，业务批准与部署分别执行。
+
 Python 3.12、Node 22。首次从[.env.example](.env.example)创建项目根`.env`并填写开发环境配置，已有文件保留；数据库密码、令牌和Webhook仅保存在授权环境，不提交Git。
 
 后端（在仓库根目录执行）：
