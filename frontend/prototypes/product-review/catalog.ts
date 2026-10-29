@@ -1,11 +1,14 @@
 // Module registration only; never import authenticated business views here.
-export const modules = [
-  { id: 'adm', name: 'ADM 管理', status: '0.3 连续工作区', description: '完整台账与同单连续办理，含导入、分派、申诉、审核、分次回款和联动PRD。', artifact: 'ADM产品验收台_DEMO_0.3.html', source: 'frontend/prototypes/adm-review', document: 'docs/product/modules/adm/README.md', next: '直接进入台账操作；右侧查看字段用途、编辑条件和按钮去向，有问题再反馈。' },
-  { id: 'finance', name: '财务核对', status: '待接入', description: '尚未迁入正式页面或制作本地原型。', artifact: '', source: '', document: '', next: '确定评审范围，读取已有需求与页面后接入。' },
-  { id: 'hr', name: 'HR 报表', status: '待接入', description: '尚未迁入正式页面或制作本地原型。', artifact: '', source: '', document: '', next: '确定评审范围，读取已有需求与页面后接入。' },
-  { id: 'analysis', name: '业务分析', status: '待接入', description: '尚未迁入正式页面或制作本地原型。', artifact: '', source: '', document: '', next: '确定评审范围，读取已有需求与页面后接入。' },
-  { id: 'governance', name: '资源治理', status: '待接入', description: '尚未迁入正式页面或制作本地原型。', artifact: '', source: '', document: '', next: '确定评审范围，读取已有需求与页面后接入。' },
-] as const
+import { systemMenus } from '../adm-review/system-navigation'
+export const modules = systemMenus.map(menu => ({
+  id: menu.id, name: menu.title,
+  status: menu.id === 'adm' ? '0.3 中台兼容原型' : '原系统已有菜单 · 原型待接入',
+  description: menu.id === 'adm' ? '沿用原中台完整菜单，ADM功能索引收在ADM管理下，公共能力明确复用。' : '保留正式系统的菜单名称和位置；此模块本轮未制作可操作原型。',
+  artifact: menu.id === 'adm' ? 'ADM产品验收台_DEMO_0.3.html' : '',
+  source: menu.id === 'adm' ? 'frontend/prototypes/adm-review' : 'frontend/src/layouts/AppLayout.vue',
+  document: menu.id === 'adm' ? 'docs/product/modules/adm/README.md' : 'README.md',
+  next: menu.id === 'adm' ? '打开原型，先从ADM管理→我的工作台开始。' : '新增或调整前先核对原页面、权限及公共能力，避免独立重复开发。',
+}))
 export const requirementPrompts = [
   { id: 'people', title: '1. 谁在使用', hint: '有哪些岗位？各自每天做什么？哪些内容只能本人或主管看到？' },
   { id: 'pain', title: '2. 现在最难处理的事情', hint: '现在怎么做、哪里耗时或容易出错、希望改善成什么样。' },

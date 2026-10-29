@@ -2,7 +2,7 @@
 <p></p>
 <p>更新：2026-10-29。状态：前端可操作原型，供业务直接使用并反馈；不是正式服务端或部署完成。</p>
 <p></p>
-<p>按用户2026-10-29要求，原型固定6组一级菜单：我的工作、ADM管理、团队管理、专项处理、统计分析、系统设置。各页面/窗口以二级入口归属展示，并显示当前位置；这是评审导航索引，不约定正式系统菜单。默认打开我的工作，保留本机业务与意见；多状态样例同处工作区。订单、附件、结案、历史、交接、协办、差异等入口未选单据时先选ADM，再打开原单对应内容。评审和旧场景重置保留在辅助入口。</p>
+<p>按用户2026-10-29最新要求，原型必须兼容原数据中台，不独立设计另一套系统。左侧完整保留原系统菜单层级、名称、顺序和预留状态；ADM挂在既有ADM管理下，保留我的工作台和ADM台账。此前六组分类仅作ADM内部页面/窗口评审索引，不是六个新增系统一级菜单；原系统外模块仅展示位置与复用说明，不伪装已制作可操作原型。默认进入ADM我的工作台，未选单据先选ADM；已有业务和意见保留。</p>
 <p></p>
 <p>左侧为可操作原型，右侧跟随页面/步骤显示功能、逐字段定义、按钮条件和跳转。窗口内同步显示当前动作的前置条件与完成结果。</p>
 <p></p>
@@ -37,6 +37,70 @@
 <div class="row"><span>R015/R019</span><span>独立回款、部分多次到账、预罚核实与转正式</span></div>
 <p></p>
 <h2>功能与字段说明</h2>
+<p></p>
+<h2>原系统菜单与公共能力兼容</h2>
+<p></p>
+<p>正式菜单来源：frontend/src/layouts/AppLayout.vue；每次构建自动读取生成快照。正式可见性仍由账号权限控制；原型显示全景不表示模拟角色拥有真实权限。</p>
+<p></p>
+<div class="row"><span>原菜单路径</span><span>正式路由 / 状态</span><span>本轮原型</span></div>
+
+<div class="row"><span>工作台</span><span>/home</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>资源治理 / GDS资源治理</span><span>/resource-governance/gds</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>资源治理 / OTA渠道质量</span><span>/resource-governance/ota</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>资源治理 / 航线配置诊断</span><span>/resource-governance/route-diagnosis</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>资源治理 / 白名单管理</span><span>/resource-governance/whitelist</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>资源治理 / 治理执行</span><span>/resource-governance/execution</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>资源治理 / 治理复盘</span><span>/resource-governance/review</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>经营总览</span><span>/overview</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>业务分析 / 综合分析</span><span>/analysis/comprehensive</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>业务分析 / 出票分析</span><span>/analysis/issue</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>业务分析 / 退票分析</span><span>/analysis/refund</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>业务分析 / 改签分析</span><span>/analysis/change</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>业务分析 / 增值分析</span><span>/analysis/ancillary</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>风控分析 / 风控总览</span><span>/risk-analysis</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>风控分析 / 出票利润分析</span><span>/risk-analysis/issue</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>风控分析 / 退票利润分析</span><span>/risk-analysis/refund</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>风控分析 / 改签利润分析</span><span>/risk-analysis/change</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>风控分析 / 差错分析</span><span>/risk-analysis/errors</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>风控分析 / 订单明细</span><span>/risk-analysis/orders</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>风控分析 / 数据上传</span><span>/risk-analysis/upload</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>客服分析 / 退票分析</span><span>原系统预留（禁用）</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>客服分析 / 改签分析</span><span>原系统预留（禁用）</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>客服分析 / 清Q/航变分析</span><span>原系统预留（禁用）</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>智能分析 / 智能整体分析 / 综合分析</span><span>/smart-analysis/comprehensive</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>智能分析 / 智能整体分析 / 智能总览</span><span>/smart-analysis/overview</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>智能分析 / 智能整体分析 / 维度分析</span><span>/smart-analysis/dimensions</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>智能分析 / 智能整体分析 / 出票明细</span><span>/smart-analysis/details</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>智能分析 / 智能投放 / 投放政策</span><span>/smart-analysis/placement/policies</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>智能分析 / 智能投放 / 收单情况</span><span>/smart-analysis/placement/orders</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>业务配置 / 目标配置</span><span>/business-configuration/targets</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>业务配置 / 目标进度</span><span>/business-configuration/target-progress</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>监控中心 / 监控总览</span><span>/monitoring/overview</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>监控中心 / 监控任务</span><span>/monitoring/tasks</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>监控中心 / 预警中心</span><span>/monitoring/alerts</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>监控中心 / 技术工单</span><span>/monitoring/actions</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>监控中心 / 规则模板</span><span>/monitoring/templates</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>监控中心 / 监控运行</span><span>/monitoring/runs</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>监控中心 / 通知管理</span><span>/monitoring/notifications</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>监控中心 / 问题诊断</span><span>/monitoring/diagnostics</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>ADM 管理 / 我的工作台</span><span>/adm/workbench</span><span>已关联本轮ADM可操作页面</span></div>
+<div class="row"><span>ADM 管理 / ADM 台账</span><span>/adm/cases</span><span>已关联本轮ADM可操作页面</span></div>
+<div class="row"><span>问题中心</span><span>/problems</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>数据资产</span><span>/data-assets</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>归档功能 / 数据加工工作台</span><span>/data-workbench</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>HR报表邮件</span><span>/hr-mail</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>系统管理 / 用户行为监控</span><span>/admin/behavior</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<div class="row"><span>系统管理 / 账号管理</span><span>/admin/users</span><span>仅位置和接入说明，未制作该模块原型</span></div>
+<p></p>
+<div class="row"><span>能力</span><span>复用位置</span><span>接入原则</span><span>当前状态</span></div>
+
+<div class="row"><span>账号与权限</span><span>系统管理 / 账号管理</span><span>复用现有账号、ADM菜单及功能权限；本原型人员切换仅模拟，不新增账号系统。</span><span>已有公共入口，ADM新流程权限仍需正式接入。</span></div>
+<div class="row"><span>通知发送与回执</span><span>监控中心 / 通知管理</span><span>复用既有通知配置、日志与渠道能力；ADM事件/接收人需要适配，不另建通用通知后台。</span><span>原型只生成本地通知，公共通知是否完整覆盖ADM待核对适配。</span></div>
+<div class="row"><span>导出任务</span><span>系统页头 / 导出任务</span><span>正式接入既有导出任务、队列和抽屉；原型CSV仅模拟内容与交接，不是另一套正式导出服务。</span><span>全局能力已存在；原型未连真实队列。</span></div>
+<div class="row"><span>分派、错误类型与差异代码</span><span>ADM管理 / ADM业务规则（评审索引）</span><span>只保存ADM专属映射和分派条件；人员来自现有账号，字典来源先核对可复用项。</span><span>业务配置有必要；最终正式入口和表结构待批准，不新增一级系统设置。</span></div>
+<div class="row"><span>参考汇率与供应默认值</span><span>ADM录入 / 本机演示参数</span><span>正式优先复用已确认的供应档案与汇率源；未找到契约前保留手工参考，不重复建设公共主数据。</span><span>本机演示值，不声称已有实时接口。</span></div>
+<p></p>
+<p>不新建独立一级“系统设置”。ADM分派、错误类型和外部代码映射作为领域规则保留；正式入口、接口、字典与主数据先核对复用契约，再随获批功能调整。原型本机参数不作为新公共配置服务。</p>
 <p></p>
 <h3>录入与主单信息</h3>
 <p></p>

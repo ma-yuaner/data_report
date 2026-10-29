@@ -32,13 +32,16 @@
         </div>
         <div class="sim-body">
           <nav class="sidebar" aria-label="模拟系统菜单">
-            <span class="nav-caption">ADM原型 · 6组功能导航</span>
+            <span class="nav-caption">企业数据中心 · 原系统菜单全景</span><p class="menu-scope-note">按原菜单顺序保留；实际系统依账号权限显示。</p>
+            <SystemMenuItem v-for="menu in systemMenus" :key="menu.id" :node="menu" :active="systemActive" @select="openSystemMenu"><div class="adm-review-index">
+            <span class="nav-caption">ADM页面与窗口索引（评审）</span>
             <section v-for="group in navigationGroups" :key="group.id" class="nav-group">
               <button class="nav-group-title" :class="{ 'group-active': activeEntry?.group === group.id }" :aria-expanded="!collapsedGroups.includes(group.id)" @click="toggleGroup(group.id)"><span>{{ group.title }}</span><span aria-hidden="true">{{ collapsedGroups.includes(group.id) ? '＋' : '−' }}</span></button>
               <div v-show="!collapsedGroups.includes(group.id)" class="nav-children">
                 <button v-for="entry in group.children" :key="entry.id" :class="{active: selectedNav === entry.id}" :aria-current="selectedNav === entry.id ? 'page' : undefined" @click="navigate(entry.id)">{{ entry.title }}</button>
               </div>
             </section>
+            </div></SystemMenuItem>
             <button @click="showAdvanced = !showAdvanced">
               {{ showAdvanced ? '收起辅助工具' : '旧演练与评审记录' }}
             </button>
@@ -49,8 +52,8 @@
             </div>
           </nav>
           <main class="sim-content">
-            <div class="location-bar"><span>{{ activeEntry ? `${activeEntry.parent} / ${activeEntry.title}` : '辅助工具' }}</span><small>原型导航索引，页面和窗口的归属供评审识别</small></div>
-            <template v-if="page === 'context'">
+            <div class="location-bar"><span>{{ externalMenu ? `企业数据中心 / ${externalMenu.title}` : activeEntry ? `ADM管理 / ${activeEntry.parent} / ${activeEntry.title}` : '辅助工具' }}</span><small>保留原系统导航；ADM内部索引用于评审识别</small></div>
+            <template v-if="page === 'system-reference' && externalMenu"><h1>{{ externalMenu.title }}</h1><p class="callout">原系统已有入口，本轮保留菜单位置供兼容性评审；此处未制作该模块的可操作原型，不连接正式接口。</p><dl class="fields"><div><dt>原入口</dt><dd>{{ externalMenu.route || externalMenu.id }}</dd></div><div><dt>菜单来源</dt><dd>{{ systemMenuSource }}</dd></div></dl><h2>与ADM复用关系</h2><article v-for="item in integrationReuse" :key="item.capability" class="field-contract"><h3>{{ item.capability }} · {{ item.source }}</h3><p>{{ item.approach }}</p><small>{{ item.status }}</small></article><button class="primary" @click="navigate('work')">返回ADM / 我的工作台</button></template><template v-else-if="page === 'context'">
               <h1>{{ activeEntry?.title }} · 选择要操作的单据</h1><p>{{ caseDestinations[selectedNav]?.hint }}</p><p class="muted">本入口属于“{{ activeEntry?.parent }}”。先选一张有权限的ADM，再打开同单对应内容，不会自动办理或改变状态。</p>
               <article v-for="item in state.cases.filter(item=>visibleLines(item,actor).length)" :key="item.id" class="case-card"><div><h3>{{ item.admNo }} · {{ caseStatus(item) }}</h3><p>{{ item.description }}</p></div><button class="primary" @click="openDestination(item.id)">打开{{ activeEntry?.title }}</button></article>
               <p v-if="!state.cases.some(item=>visibleLines(item,actor).length)" class="empty">当前人员没有可见单据，可切换模拟人员或从录入与核实新建。</p>
@@ -107,7 +110,7 @@
               </div>
             </template>
             <template v-else-if="page === 'work' || page === 'dispatch'">
-              <div v-if="page === 'work'" class="callout"><strong>从这里开始：打开本人待办，再在同一张单里办理。</strong><p>左侧固定6组功能导航，展开组名可找到二级页面；右侧说明随页面同步。录入由协调人办理，接单由指定承办人办理。</p><button @click="navigate('ledger')">先看全部获权ADM</button></div>
+              <div v-if="page === 'work'" class="callout"><strong>从这里开始：打开本人待办，再在同一张单里办理。</strong><p>左侧是原数据中台完整菜单，ADM页面与窗口索引收在“ADM管理”下；右侧说明随页面同步。录入由协调人办理，接单由指定承办人办理。</p><button @click="navigate('ledger')">先看全部获权ADM</button></div>
               <div class="section-heading">
                 <div>
                   <h1>{{ page === 'work' ? '我的工作' : '团队调度' }}</h1>
@@ -802,10 +805,12 @@
       <PrdPanel
         v-if="(showDocs && !simOnly) || docOnly"
         v-model="docTab"
-        :title="`${reqId(doc.id)} · ${doc.title}`"
+        :title="externalMenu ? `原系统 / ${externalMenu.title}` : `${reqId(doc.id)} · ${doc.title}`"
         :subtitle="`${VERSION} · 原型建议，待业务审核`"
         :tabs="docTabs"
       >
+        <div v-if="externalMenu"><h2>原系统入口与复用边界</h2><p>此入口来自正式系统的{{ systemMenuSource }}，本轮仅保留导航和接入关系，不表示已实现该模块原型，也不加载正式账号或生产接口。</p><p>账号实际菜单可见范围由原系统权限决定；此处显示菜单全景供评审。</p><article v-for="item in integrationReuse" :key="item.capability" class="field-contract"><h3>{{ item.capability }}</h3><p>{{ item.source }}</p><p>{{ item.approach }}</p><small>{{ item.status }}</small></article></div>
+        <template v-else>
         <label
           >功能模块<a-select
             :value="docId"
@@ -885,6 +890,7 @@
             保存只在本机。体验结束点击顶部“导出体验与验收记录”，把JSON文件发给我，我按这些意见修改，你再复验。
           </p></template
         >
+        </template>
         <template #footer>
           <button @click="docTab = 'comments'">对此步骤提意见</button
           ><button @click="navigate('acceptance')">查看全部覆盖项</button>
@@ -1155,6 +1161,9 @@ import ProductGuide from './ProductGuide.vue'
 import { actionSpecs } from './product-spec'
 import { workspaceSeed, canEditCase } from './workspace'
 import { navigationGroups, navigationEntry, caseDestinations } from './navigation'
+import { integrationReuse } from './navigation'
+import { systemMenus, systemMenuSource, type SystemMenuNode } from './system-navigation'
+import SystemMenuItem from './SystemMenuItem.vue'
 import { prepareIntake, specificTypes } from './intake'
 import {
   roles,
@@ -1227,7 +1236,9 @@ let expected = 0,
   child: Window | null = null,
   receiving = false
 const selectedNav = ref('work')
-const collapsedGroups = ref<string[]>([])
+const externalMenu = ref<SystemMenuNode | null>(null)
+const systemActive = computed(()=>externalMenu.value?.id || (selectedNav.value==='work'?'/adm/workbench':selectedNav.value==='ledger'?'/adm/cases':'adm'))
+const collapsedGroups = ref<string[]>(navigationGroups.filter(group=>group.id!=='work').map(group=>group.id))
 const activeEntry = computed(()=>navigationEntry(selectedNav.value))
 function toggleGroup(key:string) { collapsedGroups.value=collapsedGroups.value.includes(key)?collapsedGroups.value.filter(value=>value!==key):[...collapsedGroups.value,key] }
 const deskPages = [
@@ -1499,6 +1510,7 @@ function focusDoc(key: string) {
   showDocs.value = true
 }
 function navigate(key: string) {
+  externalMenu.value=null
   selectedNav.value = key
   const entry = navigationEntry(key)
   if(entry) collapsedGroups.value=collapsedGroups.value.filter(group=>group!==entry.group)
@@ -1521,6 +1533,14 @@ function navigate(key: string) {
       } as Record<string, string>
     )[key] || key,
   )
+}
+function openSystemMenu(node:SystemMenuNode) {
+  if(node.id==='/adm/workbench'){navigate('work');return}
+  if(node.id==='/adm/cases'){navigate('ledger');return}
+  externalMenu.value=node
+  page.value='system-reference'
+  selectedNav.value=''
+  focusDoc('overview')
 }
 function openDestination(caseId:string) {
   const key=selectedNav.value, destination=caseDestinations[key]
@@ -1564,6 +1584,7 @@ function changeTab(key: string) {
   )
 }
 function openCase(caseId: string, lineId?: string, node?: string) {
+  externalMenu.value=null
   selectedCase.value = caseId
   const item = state.value.cases.find((item) => item.id === caseId)
   selectedLine.value = lineId || (item ? visibleLines(item, actor.value)[0]?.id : '') || ''
@@ -1933,6 +1954,7 @@ function packet() {
     docId: docId.value,
     caseTab: caseTab.value,
     selectedNav: selectedNav.value,
+    externalMenu: externalMenu.value,
     reviews: reviews.value,
     approvals: approvals.value,
     guideIndex: guideIndex.value,
@@ -2032,6 +2054,7 @@ function applyPacket(value: any) {
   docId.value = value.docId || 'overview'
   caseTab.value = value.caseTab || 'detail'
   selectedNav.value = navigationEntry(value.selectedNav)?.id || (page.value === 'case' ? 'case:detail' : navigationEntry(page.value)?.id || 'work')
+  externalMenu.value = value.externalMenu && typeof value.externalMenu.id==='string' ? value.externalMenu : null
   reviews.value = value.reviews
   approvals.value = value.approvals
   guideIndex.value = Math.max(

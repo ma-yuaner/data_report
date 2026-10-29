@@ -19,7 +19,7 @@ ADM需求可以在“ADM需求整理”页面填写、保存本机、导出TXT�
 
 包内只有自包含静态HTML，无后端、API代理和账号目录。正式前端1818/5160及路由不受影响。Git只提交源码、构建入口、模板和交接文档；生成HTML及原始资料保存在仓库外。
 
-ADM 0.3默认台账与连续办理，包内另含`ADM管理PRD_0.3.html`。字段/按钮说明的唯一来源为`frontend/prototypes/adm-review/product-spec.ts`，`generate-prd.mjs`同步生成仓库PRD和可阅读HTML。所有原型业务状态和本机文件只存浏览器，缓存不足须导出备份；旧0.2缓存和批准不自动迁移。
+ADM 0.3默认原ADM管理→我的工作台与连续办理，包内另含`ADM管理PRD_0.3.html`。2026-10-29按用户要求保留原中台完整菜单：`generate-system-navigation.mjs`从正式`src/layouts/AppLayout.vue`读取层级/名称/顺序/预留状态，生成`system-navigation.ts`供ADM与门户目录使用；不加载正式认证或接口。其他模块仅展示原位置及接入说明。ADM内六组仅是页面/窗口评审索引，不另建系统一级菜单，公共账号、通知和导出优先复用；接入状态在PRD单列。字段/按钮说明的唯一来源为`frontend/prototypes/adm-review/product-spec.ts`，`generate-prd.mjs`同步生成仓库PRD和可阅读HTML。所有原型业务状态和本机文件只存浏览器，缓存不足须导出备份；旧0.2缓存和批准不自动迁移。
 
 ## 固定文件职责
 

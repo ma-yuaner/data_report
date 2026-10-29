@@ -31,7 +31,8 @@
       <p v-if="!inbox.length" class="empty">本人暂无通知；生成提醒只针对已设置期限的获权任务。</p>
     </template>
     <template v-else-if="page === 'settings'">
-      <p class="callout">本机演示配置可保存并用于后续新单。真实账号、字典、汇率源和通知渠道待正式接入。</p>
+      <p class="callout">这里是ADM专属业务规则和本机演示参数，不是独立的系统设置中心。正式账号及权限复用“系统管理→账号管理”；通知配置/日志优先适配“监控中心→通知管理”；导出使用全局导出任务。当前不连接这些正式能力。</p>
+      <p>配置必要性：分派条件、具体错误类型与外部差异代码属于ADM业务规则；账号、公共渠道和汇率主数据不在ADM里重复建设。以下人员与汇率仅用于演示，正式来源需要对接确认。</p>
       <fieldset :disabled="actor !== 'coordinator'">
         <h2>任务分派与提醒</h2>
         <FormGrid>
@@ -365,7 +366,7 @@ const titles: Record<string, string> = {
   financeQueue: '回款工作台',
   exchange: '导入导出与历史接管',
   notifications: '通知与接收回执',
-  settings: '规则设置',
+  settings: 'ADM业务规则与演示参数',
   report: '统计与日报',
   history: '历史档案',
 }

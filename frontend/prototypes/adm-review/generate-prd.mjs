@@ -1,9 +1,11 @@
 import { writeFile } from 'node:fs/promises'
 import { fieldGroups, actionSpecs } from './product-spec.ts'
+import { systemMenus, systemMenuSource } from './system-navigation.ts'
+import { integrationReuse } from './navigation.ts'
 
 const names = { intake:'录入与主单信息', match:'订单与匹配', investigate:'处理意见与差异', recovery:'恢复编码', appeal:'申诉跟进', review:'独立审核', finance:'财务回款', assign:'分派、交接、协办与办理锁', attachments:'附件与证据', close:'结案、重开与整改', exchange:'导入导出与历史档案', settings:'规则配置', notifications:'通知与回执', report:'统计与日报' }
 const intro = ['# ADM管理原型与PRD 0.3', '', '更新：2026-10-29。状态：前端可操作原型，供业务直接使用并反馈；不是正式服务端或部署完成。', '',
-  '按用户2026-10-29要求，原型固定6组一级菜单：我的工作、ADM管理、团队管理、专项处理、统计分析、系统设置。各页面/窗口以二级入口归属展示，并显示当前位置；这是评审导航索引，不约定正式系统菜单。默认打开我的工作，保留本机业务与意见；多状态样例同处工作区。订单、附件、结案、历史、交接、协办、差异等入口未选单据时先选ADM，再打开原单对应内容。评审和旧场景重置保留在辅助入口。', '',
+  '按用户2026-10-29最新要求，原型必须兼容原数据中台，不独立设计另一套系统。左侧完整保留原系统菜单层级、名称、顺序和预留状态；ADM挂在既有ADM管理下，保留我的工作台和ADM台账。此前六组分类仅作ADM内部页面/窗口评审索引，不是六个新增系统一级菜单；原系统外模块仅展示位置与复用说明，不伪装已制作可操作原型。默认进入ADM我的工作台，未选单据先选ADM；已有业务和意见保留。', '',
   '左侧为可操作原型，右侧跟随页面/步骤显示功能、逐字段定义、按钮条件和跳转。窗口内同步显示当前动作的前置条件与完成结果。', '',
   '## 页面与完整办理路径', '',
   '| 页面 | 功能与去向 |', '| --- | --- |',
@@ -30,6 +32,12 @@ const intro = ['# ADM管理原型与PRD 0.3', '', '更新：2026-10-29。状态�
   '| R015/R019 | 独立回款、部分多次到账、预罚核实与转正式 |', '',
   '## 功能与字段说明', '']
 const lines = [...intro]
+lines.push('## 原系统菜单与公共能力兼容', '', `正式菜单来源：frontend/${systemMenuSource}；每次构建自动读取生成快照。正式可见性仍由账号权限控制；原型显示全景不表示模拟角色拥有真实权限。`, '', '| 原菜单路径 | 正式路由 / 状态 | 本轮原型 |', '| --- | --- | --- |')
+function addMenus(nodes, parents=[]) { for(const node of nodes) { const path=[...parents,node.title]; if(node.children.length) addMenus(node.children,path); else lines.push(`| ${path.join(' / ')} | ${node.disabled?'原系统预留（禁用）':node.route || node.id} | ${node.id.startsWith('/adm/')?'已关联本轮ADM可操作页面':'仅位置和接入说明，未制作该模块原型'} |`) } }
+addMenus(systemMenus)
+lines.push('', '| 能力 | 复用位置 | 接入原则 | 当前状态 |', '| --- | --- | --- | --- |')
+for(const item of integrationReuse)lines.push(`| ${item.capability} | ${item.source} | ${item.approach} | ${item.status} |`)
+lines.push('', '不新建独立一级“系统设置”。ADM分派、错误类型和外部代码映射作为领域规则保留；正式入口、接口、字典与主数据先核对复用契约，再随获批功能调整。原型本机参数不作为新公共配置服务。', '')
 for (const [key, fields] of Object.entries(fieldGroups)) {
   lines.push(`### ${names[key] || key}`, '', '| 字段 | 含义与用途 | 来源/默认 | 编辑条件 | 必填、校验与影响 |', '| --- | --- | --- | --- | --- |')
   for (const field of fields) lines.push(`| ${[field.name,field.meaning,field.source,field.edit,field.rule].map(value=>value.replaceAll('|','／')).join(' | ')} |`)
