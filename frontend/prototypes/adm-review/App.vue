@@ -32,26 +32,31 @@
         </div>
         <div class="sim-body">
           <nav class="sidebar" aria-label="模拟系统菜单">
-            <span class="nav-caption">任务到人 · 中台办理</span
-            ><button
-              v-for="menu in menus"
-              :key="menu.id"
-              :class="{ active: page === menu.id }"
-              @click="navigate(menu.id)"
-            >
-              {{ menu.title }}<small>{{ menu.sub }}</small>
-            </button>
+            <span class="nav-caption">ADM原型 · 6组功能导航</span>
+            <section v-for="group in navigationGroups" :key="group.id" class="nav-group">
+              <button class="nav-group-title" :class="{ 'group-active': activeEntry?.group === group.id }" :aria-expanded="!collapsedGroups.includes(group.id)" @click="toggleGroup(group.id)"><span>{{ group.title }}</span><span aria-hidden="true">{{ collapsedGroups.includes(group.id) ? '＋' : '−' }}</span></button>
+              <div v-show="!collapsedGroups.includes(group.id)" class="nav-children">
+                <button v-for="entry in group.children" :key="entry.id" :class="{active: selectedNav === entry.id}" :aria-current="selectedNav === entry.id ? 'page' : undefined" @click="navigate(entry.id)">{{ entry.title }}</button>
+              </div>
+            </section>
             <button @click="showAdvanced = !showAdvanced">
               {{ showAdvanced ? '收起辅助工具' : '旧演练与评审记录' }}
             </button>
+            <div v-if="showAdvanced" class="nav-children"><button @click="navigate('overview')">旧演练工具</button><button @click="navigate('acceptance')">覆盖与验收</button></div>
             <div class="role-purpose">
               {{ roles.find((item) => item.id === actor)?.purpose }}
               <p>仅为原型角色切换；正式身份与权限由后台控制。</p>
             </div>
           </nav>
           <main class="sim-content">
+            <div class="location-bar"><span>{{ activeEntry ? `${activeEntry.parent} / ${activeEntry.title}` : '辅助工具' }}</span><small>原型导航索引，页面和窗口的归属供评审识别</small></div>
+            <template v-if="page === 'context'">
+              <h1>{{ activeEntry?.title }} · 选择要操作的单据</h1><p>{{ caseDestinations[selectedNav]?.hint }}</p><p class="muted">本入口属于“{{ activeEntry?.parent }}”。先选一张有权限的ADM，再打开同单对应内容，不会自动办理或改变状态。</p>
+              <article v-for="item in state.cases.filter(item=>visibleLines(item,actor).length)" :key="item.id" class="case-card"><div><h3>{{ item.admNo }} · {{ caseStatus(item) }}</h3><p>{{ item.description }}</p></div><button class="primary" @click="openDestination(item.id)">打开{{ activeEntry?.title }}</button></article>
+              <p v-if="!state.cases.some(item=>visibleLines(item,actor).length)" class="empty">当前人员没有可见单据，可切换模拟人员或从录入与核实新建。</p>
+            </template>
             <OperationsDesk
-              v-if="deskPages.includes(page)"
+              v-else-if="deskPages.includes(page)"
               :state="state"
               :actor="actor"
               :page="page"
@@ -102,6 +107,7 @@
               </div>
             </template>
             <template v-else-if="page === 'work' || page === 'dispatch'">
+              <div v-if="page === 'work'" class="callout"><strong>从这里开始：打开本人待办，再在同一张单里办理。</strong><p>左侧固定6组功能导航，展开组名可找到二级页面；右侧说明随页面同步。录入由协调人办理，接单由指定承办人办理。</p><button @click="navigate('ledger')">先看全部获权ADM</button></div>
               <div class="section-heading">
                 <div>
                   <h1>{{ page === 'work' ? '我的工作' : '团队调度' }}</h1>
@@ -244,6 +250,7 @@
               <p v-if="!visibleCases.length" class="empty">没有符合当前人员和查询条件的档案。</p>
             </template>
             <template v-else-if="page === 'case' && current">
+              <div v-if="caseDestinations[selectedNav]" class="callout"><strong>{{ activeEntry?.parent }} / {{ activeEntry?.title }}</strong><p>{{ caseDestinations[selectedNav]?.hint }}</p><button @click="page='context'">选择其他ADM</button></div>
               <button class="back-link" @click="navigate('work')">← 回到我的工作</button>
               <div class="section-heading">
                 <div>
@@ -1147,6 +1154,7 @@ import OperationsDesk from './OperationsDesk.vue'
 import ProductGuide from './ProductGuide.vue'
 import { actionSpecs } from './product-spec'
 import { workspaceSeed, canEditCase } from './workspace'
+import { navigationGroups, navigationEntry, caseDestinations } from './navigation'
 import { prepareIntake, specificTypes } from './intake'
 import {
   roles,
@@ -1182,8 +1190,8 @@ const STORAGE = 'adm-review-demo-v03'
 const showAdvanced = ref(false),
   showGuide = ref(false)
 const state = ref<SimState>(workspaceSeed()),
-  actor = ref('coordinator'),
-  page = ref('ledger'),
+  actor = ref('handlerA'),
+  page = ref('work'),
   selectedCase = ref('case-demo-001'),
   selectedLine = ref('line-1'),
   caseTab = ref('detail'),
@@ -1218,26 +1226,10 @@ let expected = 0,
   contextLine = '',
   child: Window | null = null,
   receiving = false
-const allMenus = [
-  { id: 'work', title: '我的工作', sub: '到人任务与提醒' },
-  { id: 'ledger', title: 'ADM台账', sub: '主单 / 订单 / 连续办理' },
-  { id: 'intake', title: '录入与核实', sub: '预罚 / 正式 / 多票号' },
-  { id: 'dispatch', title: '团队督办', sub: '分派 / 转交 / 协办' },
-  { id: 'recovery', title: '恢复编码', sub: '节点期限与结果' },
-  { id: 'appeals', title: '申诉跟进', sub: '多对象 / 多轮次' },
-  { id: 'reviewQueue', title: '审核工作台', sub: '通过 / 退回' },
-  { id: 'financeQueue', title: '回款工作台', sub: '部分 / 多次 / 结清' },
-  { id: 'notifications', title: '通知与回执', sub: '提醒 / 接收确认' },
-  { id: 'report', title: '统计与日报', sub: '进度 / 积压 / 原币' },
-  { id: 'exchange', title: '导入导出', sub: '统一模板 / 预览' },
-  { id: 'history', title: '历史档案', sub: '只读 / 复制引用' },
-  { id: 'settings', title: '规则设置', sub: '分派 / 字典 / 汇率' },
-  { id: 'overview', title: '旧演练工具', sub: '可选场景重置' },
-  { id: 'acceptance', title: '覆盖与验收', sub: '意见与版本关口' },
-]
-const menus = computed(() =>
-  allMenus.filter((menu) => showAdvanced.value || !['overview', 'acceptance'].includes(menu.id)),
-)
+const selectedNav = ref('work')
+const collapsedGroups = ref<string[]>([])
+const activeEntry = computed(()=>navigationEntry(selectedNav.value))
+function toggleGroup(key:string) { collapsedGroups.value=collapsedGroups.value.includes(key)?collapsedGroups.value.filter(value=>value!==key):[...collapsedGroups.value,key] }
 const deskPages = [
   'ledger',
   'recovery',
@@ -1507,6 +1499,14 @@ function focusDoc(key: string) {
   showDocs.value = true
 }
 function navigate(key: string) {
+  selectedNav.value = key
+  const entry = navigationEntry(key)
+  if(entry) collapsedGroups.value=collapsedGroups.value.filter(group=>group!==entry.group)
+  if(caseDestinations[key]) {
+    if(page.value==='case' && current.value) openDestination(current.value.id)
+    else { page.value='context';focusDoc(caseDestinations[key]!.doc || 'investigate') }
+    return
+  }
   page.value = key
   focusDoc(
     (
@@ -1522,6 +1522,14 @@ function navigate(key: string) {
     )[key] || key,
   )
 }
+function openDestination(caseId:string) {
+  const key=selectedNav.value, destination=caseDestinations[key]
+  if(!destination)return
+  openCase(caseId,undefined,destination.doc)
+  caseTab.value=destination.tab
+  selectedNav.value=key
+  if(destination.doc)focusDoc(destination.doc)
+}
 function changeDeskRole(value: string) {
   const previous = page.value
   changeActor(value)
@@ -1532,7 +1540,7 @@ function changeActor(value: unknown) {
   if (current.value) {
     selectedLine.value = visibleLines(current.value, actor.value)[0]?.id || ''
   } else {
-    page.value = 'work'
+    navigate('work')
     selectedCase.value = ''
     selectedLine.value = ''
   }
@@ -1544,6 +1552,7 @@ function chooseLine(value: unknown) {
 }
 function changeTab(key: string) {
   caseTab.value = key
+  selectedNav.value=({detail:'case:detail',attachments:'case:attachments',close:'case:close',history:'case:history'} as Record<string,string>)[key] || 'case:detail'
   focusDoc(
     key === 'detail'
       ? activeLine.value
@@ -1562,6 +1571,7 @@ function openCase(caseId: string, lineId?: string, node?: string) {
   caseTab.value =
     node === 'attachments' ? 'attachments' : node === 'close' || node === 'remediation' ? 'close' : 'detail'
   focusDoc(node || (activeLine.value ? stageNode[activeLine.value.stage] : 'overview'))
+  selectedNav.value=({attachments:'case:attachments',close:'case:close',remediation:'case:close',recovery:'recovery',appeal:'appeals',review:'reviewQueue',finance:'financeQueue',difference:'case:difference',transfer:'case:transfer'} as Record<string,string>)[node || ''] || 'case:detail'
 }
 function openTask(task: Task) {
   openCase(task.caseId, task.lineId, task.node)
@@ -1922,6 +1932,7 @@ function packet() {
     selectedLine: selectedLine.value,
     docId: docId.value,
     caseTab: caseTab.value,
+    selectedNav: selectedNav.value,
     reviews: reviews.value,
     approvals: approvals.value,
     guideIndex: guideIndex.value,
@@ -2020,6 +2031,7 @@ function applyPacket(value: any) {
   selectedLine.value = value.selectedLine || ''
   docId.value = value.docId || 'overview'
   caseTab.value = value.caseTab || 'detail'
+  selectedNav.value = navigationEntry(value.selectedNav)?.id || (page.value === 'case' ? 'case:detail' : navigationEntry(page.value)?.id || 'work')
   reviews.value = value.reviews
   approvals.value = value.approvals
   guideIndex.value = Math.max(
@@ -2119,8 +2131,11 @@ try {
 } catch {
   notice.value = '本机缓存不可用或版本不兼容；请用顶部导出功能保留意见。'
 }
+// Open the stable starting page while retaining saved business data and review records.
+if(!docOnly && !simOnly) navigate('work')
+watch(selectedNav, key=>{const entry=navigationEntry(key);if(entry)collapsedGroups.value=collapsedGroups.value.filter(group=>group!==entry.group)})
 watch(
-  [state, actor, page, selectedCase, selectedLine, docId, caseTab, reviews, approvals, guideIndex],
+  [state, actor, page, selectedCase, selectedLine, docId, caseTab, selectedNav, reviews, approvals, guideIndex],
   () => {
     try {
       localStorage.setItem(STORAGE, JSON.stringify(packet()))

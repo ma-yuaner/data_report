@@ -260,7 +260,7 @@ a {
   display: flex;
 }
 .sidebar {
-  width: 148px;
+  width: 168px;
   flex-shrink: 0;
   background: #15233a;
   color: #fff;
@@ -291,6 +291,12 @@ a {
 .sidebar button:hover {
   background: #233d60;
 }
+.sidebar .nav-group-title { display:flex; justify-content:space-between; align-items:center; color:#fff; font-weight:600; padding:10px 8px; margin:0; }
+.sidebar .nav-group-title.group-active { color:#aaccff; }
+.nav-group { margin-bottom:8px; }
+.sidebar .nav-children { border-left:1px solid #40536d; margin-left:9px; padding-left:7px; }
+.sidebar .nav-children button { font-size:12px; padding:7px 8px; margin:2px 0; }
+.location-bar { display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center; border-bottom:1px solid #dbe3ee; padding-bottom:10px; margin-bottom:18px; color:#345578; }
 .sidebar button small {
   display: block;
   font-size: 11px;
