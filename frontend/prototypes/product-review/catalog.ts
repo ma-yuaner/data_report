@@ -2,12 +2,12 @@
 import { systemMenus } from '../adm-review/system-navigation'
 export const modules = systemMenus.map(menu => ({
   id: menu.id, name: menu.title,
-  status: menu.id === 'adm' ? '0.4 原页面动态交互' : '原系统已有菜单 · 原型待接入',
-  description: menu.id === 'adm' ? '直接复用正式ADM页面，弹窗抽屉真实联动，点击组件定位PRD。' : '保留正式系统的菜单名称和位置；此模块本轮未制作可操作原型。',
-  artifact: menu.id === 'adm' ? 'ADM产品验收台_DEMO_0.4.html' : '',
+  status: menu.id === 'governance' ? '0.1 原页面评审基线' : menu.id === 'adm' ? '0.4 原页面动态交互' : '原系统已有菜单 · 原型待接入',
+  description: menu.id === 'governance' ? '六个原菜单、筛选图表与动态图层，联动组件PRD；等待新需求。' : menu.id === 'adm' ? '直接复用正式ADM页面，弹窗抽屉真实联动，点击组件定位PRD。' : '保留正式系统的菜单名称和位置；此模块本轮未制作可操作原型。',
+  artifact: menu.id === 'governance' ? '资源治理原页面评审_DEMO_0.1.html' : menu.id === 'adm' ? 'ADM产品验收台_DEMO_0.4.html' : '',
   source: menu.id === 'adm' ? 'frontend/prototypes/adm-review' : 'frontend/src/layouts/AppLayout.vue',
-  document: menu.id === 'adm' ? 'docs/product/modules/adm/README.md' : 'README.md',
-  next: menu.id === 'adm' ? '打开原型，先从ADM管理→我的工作台开始。' : '新增或调整前先核对原页面、权限及公共能力，避免独立重复开发。',
+  document: menu.id === 'governance' ? 'docs/product/modules/resource-governance/README.md' : menu.id === 'adm' ? 'docs/product/modules/adm/README.md' : 'README.md',
+  next: menu.id === 'governance' ? '从资源治理→GDS资源治理开始；新需求可以继续提供。' : menu.id === 'adm' ? '打开原型，先从ADM管理→我的工作台开始。' : '新增或调整前先核对原页面、权限及公共能力，避免独立重复开发。',
 }))
 export const requirementPrompts = [
   { id: 'people', title: '1. 谁在使用', hint: '有哪些岗位？各自每天做什么？哪些内容只能本人或主管看到？' },

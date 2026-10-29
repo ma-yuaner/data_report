@@ -16,7 +16,7 @@
           <div class="page-wrap">
             <PageHeader eyebrow="PRODUCT REVIEW" :title="title" description="先了解需求，再复用页面和组件；你审核具体版本后交开发。" />
             <template v-if="page === 'home'">
-              <section class="portal-section"><h2>从同一个入口进入各模块</h2><p>ADM 可以开始体验，其余模块在需求与范围明确后逐步接入。</p>
+              <section class="portal-section"><h2>从同一个入口进入各模块</h2><p>ADM 和资源治理可以开始体验，其余模块在需求与范围明确后逐步接入。</p>
                 <div class="module-list"><article v-for="item in modules" :key="item.id">
                   <div><h3>{{ item.name }}</h3><a-tag>{{ item.status }}</a-tag></div><p>{{ item.description }}</p>
                   <a-button @click="page = item.id">{{ item.artifact ? '进入模块' : '查看接入说明' }}</a-button>
@@ -39,8 +39,8 @@
               <section class="portal-section"><div class="module-heading"><h2>{{ activeModule.name }}</h2><a-tag>{{ activeModule.status }}</a-tag></div>
                 <p>{{ activeModule.description }}</p><p>{{ activeModule.next }}</p>
                 <template v-if="activeModule.artifact">
-                  <div class="portal-actions"><a-button type="primary" :href="activeModule.artifact" target="_blank" rel="noopener">打开 ADM 模拟系统与联动 PRD</a-button><a-button @click="page = 'requirements'">整理 ADM 需求</a-button></div>
-                  <p>原型版本 ADM-DEMO-0.4；复用原ADM工作台与台账，弹窗和抽屉在左侧动态打开，右侧组件PRD同步。会议规则与未实现边界在原型中明确列出。</p>
+                  <div class="portal-actions"><a-button type="primary" :href="activeModule.artifact" target="_blank" rel="noopener">打开当前模块与联动 PRD</a-button><a-button @click="page = 'requirements'">整理 ADM 需求</a-button></div>
+                  <p>ADM 0.4 / 资源治理 0.1 均复用现有前端；弹窗和抽屉在左侧动态打开，右侧组件PRD同步。会议规则与未实现边界在原型中明确列出。</p>
                   <dl><dt>原型源码</dt><dd>{{ activeModule.source }}</dd><dt>需求与交接入口</dt><dd>{{ activeModule.document }}</dd></dl>
                 </template>
                 <p v-else>接入时先读取已有需求和页面，复用可独立的展示组件，补充模拟数据。此入口尚无可操作业务页面。</p>
@@ -53,7 +53,7 @@
         <PrdPanel v-model="docTab" :title="title" :subtitle="`${PORTAL_VERSION} · 使用与交接说明`" :tabs="tabs">
           <template v-if="docTab === 'guide'"><h2>现在做什么</h2><p>{{ page === 'requirements' ? '写业务事实、问题、期望与例子。保留不同意见，不要求你先决定所有规则。' : '从模块目录选择业务，进入已有原型或查看接入状态。' }}</p>
             <h3>固定工作顺序</h3><ol><li>读取业务需求与来源。</li><li>对齐关键缺口和待确认项。</li><li>复用组件制作场景与联动PRD。</li><li>操作、提意见、修改、复验。</li><li>批准具体版本和范围后交开发。</li></ol>
-            <h3>当前实际范围</h3><p>本页提供模块目录和ADM需求文字整理。ADM已有独立模拟原型；其他模块尚待接入。全部为本地原型，业务数据使用合成示例。</p>
+            <h3>当前实际范围</h3><p>本页提供模块目录和ADM需求文字整理。ADM与资源治理已有可操作原型；其他模块尚待接入。全部为本地原型，业务数据使用合成示例。</p>
           </template>
           <template v-else-if="docTab === 'handoff'"><h2>你整理好后怎样给我</h2><ol><li>把需求文档、截图或脱敏样例放入工作区的“产品评审资料/ADM”文件夹。</li><li>告诉我文件路径以及哪个版本最新。</li><li>如果用了原型意见功能，把导出的JSON一并放入。</li></ol><p>例如：“按需求先行·原型评审模式，先读 D:\data_center_code\产品评审资料\ADM 里的最新版需求，先反馈理解和待确认项。”</p><p>也可以直接在聊天附文件。页面不能自动读取整个文件夹，资料由你告诉我位置后再读取。</p>
           </template>

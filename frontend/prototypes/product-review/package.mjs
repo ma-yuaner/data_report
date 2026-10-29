@@ -5,6 +5,8 @@ const workspace = new URL('../../../../', import.meta.url)
 const output = new URL('产品评审台/', workspace)
 const inbox = new URL('产品评审资料/ADM/', workspace)
 const artifacts = [
+  [new URL('../adm-review/dist/index.html', import.meta.url), '资源治理原页面评审_DEMO_0.1.html'],
+  [new URL('../resource-review/PRD_0.1.html', import.meta.url), '资源治理PRD_0.1.html'],
   [new URL('./dist/index.html', import.meta.url), 'index.html'],
   [new URL('../adm-review/dist/index.html', import.meta.url), 'ADM产品验收台_DEMO_0.4.html'],
   [new URL('../adm-review/使用说明_0.4.html', import.meta.url), 'ADM产品验收台_先看使用说明.html'],

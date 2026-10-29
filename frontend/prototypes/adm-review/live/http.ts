@@ -4,6 +4,7 @@ import { workspaceSeed } from '../workspace'
 import { cents, cash, id } from '../model'
 import { demoPeople, useAuthStore } from './auth'
 import { templateWorkbook, readWorkbook } from './workbook'
+import { governanceResponse } from '../../resource-review/data'
 export type ApiEnvelope<T>={success:boolean;data:T;message?:string}
 type F=Record<string,any>
 const copy=<T>(value:T):T=>JSON.parse(JSON.stringify(value))
@@ -92,6 +93,7 @@ function applyAction(parent:F,line:F|undefined,body:F){
 }
 function config(){return {available:true,storageMode:'prototype-local',capabilities:{orders:false,finance:false,notifications:false},caseStatuses:['DRAFT','PROCESSING','PENDING_REVIEW','CLOSED'],lineStatuses:['PENDING_ASSIGN','PENDING_ACCEPT','PROCESSING','PENDING_REVIEW','WAITING_FINANCE','COMPLETED'],businessTypes:['ISSUE','REFUND','CHANGE','UNKNOWN'],attachmentCategories:['ORIGINAL','VERIFICATION','RECOVERY','APPEAL','FINANCE','ANALYSIS'],assignees:demoPeople.map(p=>({id:p.id,name:p.name})),people:{handle:demoPeople.filter(p=>p.role==='承办人').map(p=>({id:p.id,name:p.name})),review:[{id:'reviewer',name:'许审核'}],finance:[{id:'finance',name:'何财务'}],coordinate:[{id:'coordinator',name:'林协调'}]}}}
 async function dispatch(method:string,url:string,body:F={},options:F={}):Promise<any>{
+  if(url.startsWith('/v1/resource-governance/')){need(method==='GET','资源治理原型只允许本机查询，不提供真实写入');transportStatus.last=`本机 ${method} ${url}`;return governanceResponse(url,options.params || {})}
   need(url.startsWith('/v1/adm'),'原型禁止访问ADM以外接口')
   const path=url.slice('/v1/adm'.length), params=options.params || {}
   transportStatus.last=`本机 ${method} ${url}`
