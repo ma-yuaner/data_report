@@ -3,6 +3,7 @@ import Antd from 'ant-design-vue'
 import { createRouter,createMemoryHistory } from 'vue-router'
 import { createPinia } from 'pinia'
 import 'ant-design-vue/dist/reset.css'
+import DesignExplorer from '../design-review/DesignExplorer.vue'
 import App from './live/LiveApp.vue'
 import AdmCenterView from '../../src/features/adm/AdmCenterView.vue'
 import AdmDetailView from '../../src/features/adm/AdmDetailView.vue'
@@ -13,6 +14,7 @@ import '../../src/styles/main.css'
 import './live/live.css'
 const app = createApp(App)
 const router=createRouter({history:createMemoryHistory(),routes:[{path:'/adm/workbench',component:AdmCenterView,meta:{title:'我的工作台',section:'ADM管理',admView:'workbench'}},{path:'/adm/cases',component:AdmCenterView,meta:{title:'ADM台账',section:'ADM管理',admView:'cases'}},{path:'/adm/cases/:caseId',component:AdmDetailView,meta:{title:'ADM详情',section:'ADM管理'}},{path:'/:pathMatch(.*)*',component:ReferenceView,meta:{title:'原系统菜单',section:'接入说明'}}]})
+router.addRoute({path:'/review/design',component:DesignExplorer,meta:{title:'需求与设计工作台',section:'产品评审'}})
 router.addRoute({path:'/resource-governance',redirect:'/resource-governance/gds'})
 router.addRoute({path:'/resource-governance/gds',component:ResourceGovernanceView,meta:{title:'GDS资源治理',section:'资源治理',governanceLayer:'gds'}})
 router.addRoute({path:'/resource-governance/ota',component:ResourceGovernanceView,meta:{title:'OTA渠道质量',section:'资源治理',governanceLayer:'ota'}})
@@ -22,5 +24,5 @@ app.use(createPinia());app.use(Antd);app.use(router)
 // A new-tab detail link reopens this same offline artifact, never file:///adm or a production route.
 document.addEventListener('click',event=>{const anchor=(event.target as Element|null)?.closest('a[target="_blank"]') as HTMLAnchorElement|null;const path=anchor?.getAttribute('href');if(anchor&&path?.startsWith('/adm/')){event.preventDefault();window.open(`${location.href.split('#')[0]}#${path}`,'_blank','noopener')}})
 const requested=location.hash.slice(1)
-const defaultRoute=decodeURIComponent(location.pathname).includes('资源治理')?'/resource-governance/gds':'/adm/workbench'
-void router.push(/^\/(adm|resource-governance|gds-route-governance)\//.test(requested)?requested:defaultRoute).then(()=>router.isReady()).then(()=>app.mount('#app'))
+const defaultRoute=decodeURIComponent(location.pathname).includes('产品原型工作台')?'/review/design':decodeURIComponent(location.pathname).includes('资源治理')?'/resource-governance/gds':'/adm/workbench'
+void router.push(/^\/(adm|resource-governance|gds-route-governance|review)\//.test(requested)?requested:defaultRoute).then(()=>router.isReady()).then(()=>app.mount('#app'))

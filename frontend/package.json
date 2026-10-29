@@ -6,7 +6,7 @@
   "scripts": {
     "build:product-review": "vue-tsc -p prototypes/product-review/tsconfig.json --noEmit && vite build --config vite.product-review.config.ts",
     "package:product-review": "npm run build:adm-demo && npm run build:product-review && node prototypes/adm-review/package-demo.mjs && node prototypes/product-review/package.mjs",
-    "build:adm-demo": "node prototypes/adm-review/generate-system-navigation.mjs && node prototypes/adm-review/generate-prd.mjs && node prototypes/adm-review/live/generate-contract.mjs && node prototypes/resource-review/generate-contract.mjs && vue-tsc -p prototypes/adm-review/tsconfig.json --noEmit && vite build --config vite.adm-prototype.config.ts",
+    "build:adm-demo": "node prototypes/adm-review/generate-system-navigation.mjs && node prototypes/adm-review/generate-prd.mjs && node prototypes/adm-review/live/generate-contract.mjs && node prototypes/resource-review/generate-contract.mjs && node prototypes/design-review/generate.mjs && vue-tsc -p prototypes/adm-review/tsconfig.json --noEmit && vite build --config vite.adm-prototype.config.ts",
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
     "check:components": "node scripts/check-ant-components.mjs",

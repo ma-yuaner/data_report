@@ -16,7 +16,7 @@
           <div class="page-wrap">
             <PageHeader eyebrow="PRODUCT REVIEW" :title="title" description="先了解需求，再复用页面和组件；你审核具体版本后交开发。" />
             <template v-if="page === 'home'">
-              <section class="portal-section"><h2>从同一个入口进入各模块</h2><p>ADM 和资源治理可以开始体验，其余模块在需求与范围明确后逐步接入。</p>
+              <section class="portal-section"><h2>从同一个入口进入各模块</h2><p><a href="产品原型工作台_1.0.html#/review/design" target="_blank" rel="noopener">打开 GDS 需求与设计工作台</a> · <a href="GDS需求与设计基线_1.0.html" target="_blank" rel="noopener">阅读设计基线文档</a></p><p>ADM 和资源治理可以开始体验，其余模块在需求与范围明确后逐步接入。</p>
                 <div class="module-list"><article v-for="item in modules" :key="item.id">
                   <div><h3>{{ item.name }}</h3><a-tag>{{ item.status }}</a-tag></div><p>{{ item.description }}</p>
                   <a-button @click="page = item.id">{{ item.artifact ? '进入模块' : '查看接入说明' }}</a-button>
@@ -40,7 +40,7 @@
                 <p>{{ activeModule.description }}</p><p>{{ activeModule.next }}</p>
                 <template v-if="activeModule.artifact">
                   <div class="portal-actions"><a-button type="primary" :href="activeModule.artifact" target="_blank" rel="noopener">打开当前模块与联动 PRD</a-button><a-button @click="page = 'requirements'">整理 ADM 需求</a-button></div>
-                  <p>ADM 0.4 / 资源治理 0.1 均复用现有前端；弹窗和抽屉在左侧动态打开，右侧组件PRD同步。会议规则与未实现边界在原型中明确列出。</p>
+                  <p>ADM 0.4 / 资源治理 0.2 均复用现有前端；弹窗和抽屉在左侧动态打开，右侧组件PRD同步。会议规则与未实现边界在原型中明确列出。</p>
                   <dl><dt>原型源码</dt><dd>{{ activeModule.source }}</dd><dt>需求与交接入口</dt><dd>{{ activeModule.document }}</dd></dl>
                 </template>
                 <p v-else>接入时先读取已有需求和页面，复用可独立的展示组件，补充模拟数据。此入口尚无可操作业务页面。</p>

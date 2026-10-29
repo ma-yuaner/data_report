@@ -4,6 +4,7 @@ import { workspaceSeed } from '../workspace'
 import { cents, cash, id } from '../model'
 import { demoPeople, useAuthStore } from './auth'
 import { templateWorkbook, readWorkbook } from './workbook'
+import { applyScenario } from '../../design-review/runtime'
 import { governanceResponse } from '../../resource-review/data'
 export type ApiEnvelope<T>={success:boolean;data:T;message?:string}
 type F=Record<string,any>
@@ -93,7 +94,7 @@ function applyAction(parent:F,line:F|undefined,body:F){
 }
 function config(){return {available:true,storageMode:'prototype-local',capabilities:{orders:false,finance:false,notifications:false},caseStatuses:['DRAFT','PROCESSING','PENDING_REVIEW','CLOSED'],lineStatuses:['PENDING_ASSIGN','PENDING_ACCEPT','PROCESSING','PENDING_REVIEW','WAITING_FINANCE','COMPLETED'],businessTypes:['ISSUE','REFUND','CHANGE','UNKNOWN'],attachmentCategories:['ORIGINAL','VERIFICATION','RECOVERY','APPEAL','FINANCE','ANALYSIS'],assignees:demoPeople.map(p=>({id:p.id,name:p.name})),people:{handle:demoPeople.filter(p=>p.role==='承办人').map(p=>({id:p.id,name:p.name})),review:[{id:'reviewer',name:'许审核'}],finance:[{id:'finance',name:'何财务'}],coordinate:[{id:'coordinator',name:'林协调'}]}}}
 async function dispatch(method:string,url:string,body:F={},options:F={}):Promise<any>{
-  if(url.startsWith('/v1/resource-governance/')){need(method==='GET','资源治理原型只允许本机查询，不提供真实写入');transportStatus.last=`本机 ${method} ${url}`;return governanceResponse(url,options.params || {})}
+  if(url.startsWith('/v1/resource-governance/')){need(method==='GET','资源治理原型只允许本机查询，不提供真实写入');transportStatus.last=`本机 ${method} ${url}`;return applyScenario(governanceResponse(url,options.params || {}))}
   need(url.startsWith('/v1/adm'),'原型禁止访问ADM以外接口')
   const path=url.slice('/v1/adm'.length), params=options.params || {}
   transportStatus.last=`本机 ${method} ${url}`
@@ -137,5 +138,5 @@ async function dispatch(method:string,url:string,body:F={},options:F={}):Promise
   throw Error(`未适配的演示请求：${method} ${path}`)
 }
 function createCase(body:F):F {need(body.admNo?.trim()&&body.supplierName?.trim(),'ADM号与下发方必填');cents(body.originalAmount);need(!liveState.cases.some((r:F)=>r.admNo===body.admNo.trim()&&r.supplierName===body.supplierName.trim()),'同下发方同ADM号已存在');const parent:F={id:id(),admNo:body.admNo.trim(),supplierName:body.supplierName.trim(),currency:body.currency,originalAmount:body.originalAmount,status:'DRAFT',version:1,partial:false,createdAt:at(),updatedAt:at(),coordinatorId:'coordinator',coordinatorName:'林协调',analysis:{},attachments:[],lines:[]};patchFields(parent,body);parent.lines=(body.lines||[]).map((r:F)=>makeLine(r,parent));liveState.cases.push(parent);record(parent,'create',body);return parent}
-async function request<T=any>(method:string,url:string,body:F={},options:F={}):Promise<{data:T;headers:Record<string,string>}>{try{const value=await dispatch(method,url,body,options);if(value instanceof Blob)return {data:value as T,headers:{'content-type':value.type}};return {data:{success:true,data:copy(value)} as T,headers:{}}}catch(error){transportStatus.error=(error as Error).message;throw error}}
+async function request<T=any>(method:string,url:string,body:F={},options:F={}):Promise<{data:T;headers:Record<string,string>}>{try{const value=await dispatch(method,url,body,options);transportStatus.error='';if(value instanceof Blob)return {data:value as T,headers:{'content-type':value.type}};return {data:{success:true,data:copy(value)} as T,headers:{}}}catch(error){transportStatus.error=(error as Error).message;throw error}}
 export const http={get:<T=any>(url:string,options:F={})=>request<T>('GET',url,{},options),post:<T=any>(url:string,body:F={})=>request<T>('POST',url,body),patch:<T=any>(url:string,body:F={})=>request<T>('PATCH',url,body),put:<T=any>(url:string,body:F={})=>request<T>('PUT',url,body)}

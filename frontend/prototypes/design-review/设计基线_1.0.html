@@ -1,0 +1,633 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GDS需求与设计基线1.0</title><style>body{max-width:1100px;margin:32px auto;padding:0 24px;font:15px/1.85 system-ui;color:#182235}h2{border-bottom:1px solid #ddd;padding-top:20px}p{overflow-wrap:anywhere}</style><h1>GDS资源治理需求与设计基线 1.0</h1>
+<p></p>
+<p>更新：2026-10-29。评审框架已实现；新治理规则处于需求讨论，不执行DDL、ETL、生产上下线或真实通知。</p>
+<p></p>
+<p>单一维护源：frontend/prototypes/design-review/registry.json。此文档与评审索引由同一来源生成。已有组件定义只是操作定位，不作为新需求完成证据。</p>
+<p></p>
+<h2>需求来源</h2>
+<p></p>
+<a id="src-user-1029"></a>
+<h3>SRC-USER-1029 · 2026-10-29用户GDS治理需求</h3>
+<p></p>
+<p>- 分类：用户原始输入</p>
+<p>- 内容：降低公司查询量；区分用户配置的平台白名单、我司全局白名单及平台自己的白名单；平台仍发送范围外查询需要反馈；核对MPIS配置与实际通道；关注有查询无验价/生单；逐步减少内部宽泛始发地/目的地配置形成的无效航线；识别突破白名单的验价。先讨论行为和数据口径，再确定上下线规则。</p>
+<p>- 证据：本会话用户需求原文摘要；保留目标，不代表优先级、阈值及执行方案已确认。</p>
+<p></p>
+<a id="src-code"></a>
+<h3>SRC-CODE · 现有页面、接口与服务代码</h3>
+<p></p>
+<p>- 分类：代码证据</p>
+<p>- 内容：现有GDS/OTA汇总、维度分析、航线查询与本地治理演示。代码存在不代表部署、数据就绪或业务验收。</p>
+<p>- 证据：frontend/src/features/resource-governance/api.ts；backend/data_report_api/api/resource_governance.py</p>
+<p></p>
+<a id="src-baseline"></a>
+<h3>SRC-BASELINE · 既有闭环复评V3</h3>
+<p></p>
+<p>- 分类：既有设计基线</p>
+<p>- 内容：查定比Q/S、MPIS占比、真实数据与演示边界；既有F01—F08不因本轮框架开发自动恢复。</p>
+<p>- 证据：docs/product/gds-resource-governance-reassessment-v3.md</p>
+<p></p>
+<h2>需求与实现状态</h2>
+<p></p>
+<a id="gds-req-001"></a>
+<h3>GDS-REQ-001 · 现有资源数据查看与下钻</h3>
+<p></p>
+<p>- 需求来源：SRC-CODE</p>
+<p>- 页面：PG-GDS；PG-OTA；PG-ROUTE</p>
+<p>- 规则：RULE-QS；RULE-ROUTE</p>
+<p>- 接口：API-GDS；API-OTA；API-ROUTES</p>
+<p>- 数据表：TBL-GDS；TBL-OTA；TBL-ROUTE</p>
+<p>- 状态：现有前端复用；本机模拟</p>
+<p>- 用途：保留日期/维度筛选、分析抽屉、日汇总与航线分析。</p>
+<p>- 缺口与待确认：已有日聚合不能证明逐请求白名单命中、分流和转化链路。</p>
+<p>- 实现：仅现状模拟</p>
+<p>- 部署：未部署本轮变更</p>
+<p>- 验收：待用户确认口径并操作评审</p>
+<p>- 负责人：业务确认人/数据负责人待指定</p>
+<p></p>
+<a id="gds-req-002"></a>
+<h3>GDS-REQ-002 · 分层白名单与平台范围外查询</h3>
+<p></p>
+<p>- 需求来源：SRC-USER-1029</p>
+<p>- 页面：PG-WHITE；PG-GDS</p>
+<p>- 规则：RULE-WHITE</p>
+<p>- 接口：</p>
+<p>- 数据表：TBL-GAP</p>
+<p>- 状态：需求已登记；口径待确认</p>
+<p>- 用途：区分外部平台发送行为与内部放行行为，提供可向平台反馈的范围外请求证据。</p>
+<p>- 缺口与待确认：三层配置归属、组合优先级、作用阶段、生效版本及平台反馈方式待确认；无法直接获知平台自身配置。</p>
+<p>- 实现：新规则未实现</p>
+<p>- 部署：未部署本轮变更</p>
+<p>- 验收：待用户确认口径并操作评审</p>
+<p>- 负责人：业务确认人/数据负责人待指定</p>
+<p></p>
+<a id="gds-req-003"></a>
+<h3>GDS-REQ-003 · MPIS应走通道与实际通道校验</h3>
+<p></p>
+<p>- 需求来源：SRC-USER-1029</p>
+<p>- 页面：PG-GDS；PG-ROUTE</p>
+<p>- 规则：RULE-CHANNEL</p>
+<p>- 接口：</p>
+<p>- 数据表：TBL-GAP</p>
+<p>- 状态：需求已登记；口径待确认</p>
+<p>- 用途：核对符合MPIS配置的请求，识别实际走MP或未调用资源的情况。</p>
+<p>- 缺口与待确认：请求日志、有效配置快照、预期路由及允许回退原因缺少核验；不能把所有MP回退当故障。</p>
+<p>- 实现：新规则未实现</p>
+<p>- 部署：未部署本轮变更</p>
+<p>- 验收：待用户确认口径并操作评审</p>
+<p>- 负责人：业务确认人/数据负责人待指定</p>
+<p></p>
+<a id="gds-req-004"></a>
+<h3>GDS-REQ-004 · 有查询无验价或生单</h3>
+<p></p>
+<p>- 需求来源：SRC-USER-1029</p>
+<p>- 页面：PG-GDS；PG-ROUTE</p>
+<p>- 规则：RULE-CONVERSION</p>
+<p>- 接口：API-GDS；API-ROUTES</p>
+<p>- 数据表：TBL-GDS；TBL-ROUTE；TBL-GAP</p>
+<p>- 状态：需求已登记；关联口径待确认</p>
+<p>- 用途：区分查询、验价、生单行为，观察持续查询没有后续行为的范围。</p>
+<p>- 缺口与待确认：关联键、去重、统计对象、观察窗口、流量门槛及缺失数据处理待定；日级零值不能证明单次查询无转化。</p>
+<p>- 实现：新规则未实现</p>
+<p>- 部署：未部署本轮变更</p>
+<p>- 验收：待用户确认口径并操作评审</p>
+<p>- 负责人：业务确认人/数据负责人待指定</p>
+<p></p>
+<a id="gds-req-005"></a>
+<h3>GDS-REQ-005 · 宽泛配置与低效航线收敛</h3>
+<p></p>
+<p>- 需求来源：SRC-USER-1029</p>
+<p>- 页面：PG-ROUTE；PG-EXEC；PG-REVIEW</p>
+<p>- 规则：RULE-CONFIG</p>
+<p>- 接口：API-ROUTES</p>
+<p>- 数据表：TBL-ROUTE；TBL-GAP</p>
+<p>- 状态：需求已登记；调整规则待确认</p>
+<p>- 用途：将航线流量和效果追溯到业务配置，讨论逐步减少无效范围。</p>
+<p>- 缺口与待确认：配置展开方式、归属ID、效果定义、最小样本、保留例外、审批和恢复条件待定。</p>
+<p>- 实现：新规则未实现</p>
+<p>- 部署：未部署本轮变更</p>
+<p>- 验收：待用户确认口径并操作评审</p>
+<p>- 负责人：业务确认人/数据负责人待指定</p>
+<p></p>
+<a id="gds-req-006"></a>
+<h3>GDS-REQ-006 · 识别验价突破白名单</h3>
+<p></p>
+<p>- 需求来源：SRC-USER-1029</p>
+<p>- 页面：PG-WHITE；PG-ROUTE</p>
+<p>- 规则：RULE-WHITE</p>
+<p>- 接口：</p>
+<p>- 数据表：TBL-GAP</p>
+<p>- 状态：需求已登记；验价适用规则待确认</p>
+<p>- 用途：识别验价发生时未命中适用白名单的请求，并解释是否允许例外。</p>
+<p>- 缺口与待确认：验价是否复用查询白名单、历史缓存/订单触发例外、当时版本和命中日志待确认。</p>
+<p>- 实现：新规则未实现</p>
+<p>- 部署：未部署本轮变更</p>
+<p>- 验收：待用户确认口径并操作评审</p>
+<p>- 负责人：业务确认人/数据负责人待指定</p>
+<p></p>
+<h2>业务规则与未决问题</h2>
+<p></p>
+<a id="rule-qs"></a>
+<h3>RULE-QS · GDS查定比与MPIS占比</h3>
+<p></p>
+<p>- 状态：既有口径</p>
+<p>- 说明：Q为非MPIS查询（含NDC），S为出票航段；汇总按SUM(Q)/SUM(S)，MPIS占比为MPIS/全部查询。缺分母不计算。</p>
+<p>- 待确认：真实分母完整性、目标版本及具体来源仍需数据核验。</p>
+<p></p>
+<a id="rule-route"></a>
+<h3>RULE-ROUTE · 航线没有分母时不计算查定比</h3>
+<p></p>
+<p>- 状态：既有边界</p>
+<p>- 说明：航线查询使用请求/验价/生单质量；现有航线API不提供出票航段分母。</p>
+<p>- 待确认：不以平台或PCC总航段替代航线分母。</p>
+<p></p>
+<a id="rule-white"></a>
+<h3>RULE-WHITE · 三层白名单与验价范围</h3>
+<p></p>
+<p>- 状态：待确认</p>
+<p>- 说明：分别记录外部平台发送、内部接收、规则判断、放行或拦截。</p>
+<p>- 待确认：各层组合方式、阶段、生效时间、例外及版本如何确定？</p>
+<p></p>
+<a id="rule-channel"></a>
+<h3>RULE-CHANNEL · 预期与实际资源通道</h3>
+<p></p>
+<p>- 状态：待确认</p>
+<p>- 说明：预期MP/MPIS与实际调用分别表达，并保存分流或回退原因。</p>
+<p>- 待确认：何种配置要求MPIS？哪些情况允许回退MP？没有实际调用如何分类？</p>
+<p></p>
+<a id="rule-conversion"></a>
+<h3>RULE-CONVERSION · 查询、验价、生单关联</h3>
+<p></p>
+<p>- 状态：待确认</p>
+<p>- 说明：分别计量三类行为，再按确认的关联方式判断后续行为。</p>
+<p>- 待确认：使用请求链、会话、订单还是航线日聚合？多次重试和观察窗口如何处理？</p>
+<p></p>
+<a id="rule-config"></a>
+<h3>RULE-CONFIG · 宽泛配置收敛与上下线</h3>
+<p></p>
+<p>- 状态：待确认</p>
+<p>- 说明：建议调整应关联到具体配置、范围、证据及可恢复方案。</p>
+<p>- 待确认：何谓无效？谁确认？缩减与恢复窗口、护栏和执行回执如何约定？</p>
+<p></p>
+<h2>原型索引与模块对应</h2>
+<p></p>
+<a id="pg-gds"></a>
+<h3>PG-GDS · GDS资源治理</h3>
+<p></p>
+<p>- 路由：/resource-governance/gds</p>
+<p>- 组件：frontend/src/features/resource-governance/ResourceGovernancePage.vue</p>
+<p>- 状态：原页面已接入模拟评审，正式部署与验收未核验</p>
+<p></p>
+<a id="pg-ota"></a>
+<h3>PG-OTA · OTA渠道质量</h3>
+<p></p>
+<p>- 路由：/resource-governance/ota</p>
+<p>- 组件：frontend/src/features/resource-governance/ResourceGovernancePage.vue</p>
+<p>- 状态：原页面已接入模拟评审，正式部署与验收未核验</p>
+<p></p>
+<a id="pg-route"></a>
+<h3>PG-ROUTE · 航线配置诊断</h3>
+<p></p>
+<p>- 路由：/resource-governance/route-diagnosis</p>
+<p>- 组件：frontend/src/views/GdsRouteGovernanceView.vue</p>
+<p>- 状态：原页面已接入模拟评审，正式部署与验收未核验</p>
+<p></p>
+<a id="pg-white"></a>
+<h3>PG-WHITE · 白名单管理</h3>
+<p></p>
+<p>- 路由：/resource-governance/whitelist</p>
+<p>- 组件：frontend/src/views/GdsRouteGovernanceView.vue</p>
+<p>- 状态：原页面已接入模拟评审，正式部署与验收未核验</p>
+<p></p>
+<a id="pg-exec"></a>
+<h3>PG-EXEC · 治理执行</h3>
+<p></p>
+<p>- 路由：/resource-governance/execution</p>
+<p>- 组件：frontend/src/views/GdsRouteGovernanceView.vue</p>
+<p>- 状态：原页面已接入模拟评审，正式部署与验收未核验</p>
+<p></p>
+<a id="pg-review"></a>
+<h3>PG-REVIEW · 治理复盘</h3>
+<p></p>
+<p>- 路由：/resource-governance/review</p>
+<p>- 组件：frontend/src/views/GdsRouteGovernanceView.vue</p>
+<p>- 状态：原页面已接入模拟评审，正式部署与验收未核验</p>
+<p></p>
+<h2>字段与数据口径</h2>
+<p></p>
+<a id="fld-001"></a>
+<h3>FLD-001 · 开始日期</h3>
+<p></p>
+<p>- 字段标识：startDate</p>
+<p>- 类型：string(date)</p>
+<p>- 状态：已有前端契约</p>
+<p>- 用途：查询范围起点，按业务日期，不等同请求事件时间。</p>
+<p>- 接口字段：query.startDate</p>
+<p>- 存储映射：服务解析的期间；时区以正式契约核验</p>
+<p>- 关联需求：GDS-REQ-001</p>
+<p></p>
+<a id="fld-002"></a>
+<h3>FLD-002 · 结束日期</h3>
+<p></p>
+<p>- 字段标识：endDate</p>
+<p>- 类型：string(date)</p>
+<p>- 状态：已有前端契约</p>
+<p>- 用途：查询范围终点；原页面默认昨日，不假定当天数据完整。</p>
+<p>- 接口字段：query.endDate</p>
+<p>- 存储映射：服务解析的期间</p>
+<p>- 关联需求：GDS-REQ-001</p>
+<p></p>
+<a id="fld-003"></a>
+<h3>FLD-003 · 平台</h3>
+<p></p>
+<p>- 字段标识：platform</p>
+<p>- 类型：string</p>
+<p>- 状态：已有前端契约</p>
+<p>- 用途：请求所属平台，与站点共同限定范围。</p>
+<p>- 接口字段：query.platform / filters.platform</p>
+<p>- 存储映射：已聚合维度</p>
+<p>- 关联需求：GDS-REQ-001</p>
+<p></p>
+<a id="fld-004"></a>
+<h3>FLD-004 · 站点</h3>
+<p></p>
+<p>- 字段标识：site</p>
+<p>- 类型：string</p>
+<p>- 状态：已有前端契约</p>
+<p>- 用途：平台下的站点归属，不等于用户配置主体。</p>
+<p>- 接口字段：query.site / filters.site</p>
+<p>- 存储映射：已聚合维度</p>
+<p>- 关联需求：GDS-REQ-001</p>
+<p></p>
+<a id="fld-005"></a>
+<h3>FLD-005 · GDS</h3>
+<p></p>
+<p>- 字段标识：gds</p>
+<p>- 类型：string</p>
+<p>- 状态：已有前端契约</p>
+<p>- 用途：资源系统代码；不等同MP/MPIS通道。</p>
+<p>- 接口字段：query.gds</p>
+<p>- 存储映射：已聚合维度</p>
+<p>- 关联需求：GDS-REQ-001</p>
+<p></p>
+<a id="fld-006"></a>
+<h3>FLD-006 · PCC</h3>
+<p></p>
+<p>- 字段标识：pcc</p>
+<p>- 类型：string</p>
+<p>- 状态：已有前端契约</p>
+<p>- 用途：资源账户范围，和平台/站点组合分析。</p>
+<p>- 接口字段：query.pcc</p>
+<p>- 存储映射：已聚合维度</p>
+<p>- 关联需求：GDS-REQ-001</p>
+<p></p>
+<a id="fld-007"></a>
+<h3>FLD-007 · 资源通道</h3>
+<p></p>
+<p>- 字段标识：resourceChannel</p>
+<p>- 类型：enum(MP,MPIS)</p>
+<p>- 状态：已有前端契约</p>
+<p>- 用途：当前实际资源通道统计维度，不能证明配置本应走哪条。</p>
+<p>- 接口字段：query.resourceChannel</p>
+<p>- 存储映射：已聚合维度</p>
+<p>- 关联需求：GDS-REQ-001</p>
+<p></p>
+<a id="fld-008"></a>
+<h3>FLD-008 · 接口组</h3>
+<p></p>
+<p>- 字段标识：apiGroup</p>
+<p>- 类型：string</p>
+<p>- 状态：已有前端契约</p>
+<p>- 用途：区分接口来源，NDC仍纳入非MPIS查询口径。</p>
+<p>- 接口字段：query.apiGroup</p>
+<p>- 存储映射：已聚合维度</p>
+<p>- 关联需求：GDS-REQ-001</p>
+<p></p>
+<a id="fld-009"></a>
+<h3>FLD-009 · 查询量</h3>
+<p></p>
+<p>- 字段标识：searchRequests</p>
+<p>- 类型：integer</p>
+<p>- 状态：已有前端契约</p>
+<p>- 用途：现有GDS经营范围与接口组范围口径不同，结合ratioApplicable看待；不能冒充OTA入口原始请求量。</p>
+<p>- 接口字段：summary.searchRequests</p>
+<p>- 存储映射：既有聚合服务计算字段</p>
+<p>- 关联需求：GDS-REQ-001；GDS-REQ-004</p>
+<p></p>
+<a id="fld-010"></a>
+<h3>FLD-010 · 验价量</h3>
+<p></p>
+<p>- 字段标识：verifyRequests</p>
+<p>- 类型：integer</p>
+<p>- 状态：已有前端契约</p>
+<p>- 用途：验价阶段请求量；不等同有多少查询产生验价。</p>
+<p>- 接口字段：summary.verifyRequests</p>
+<p>- 存储映射：既有聚合服务计算字段</p>
+<p>- 关联需求：GDS-REQ-001；GDS-REQ-004</p>
+<p></p>
+<a id="fld-011"></a>
+<h3>FLD-011 · 生单请求量</h3>
+<p></p>
+<p>- 字段标识：orderRequests</p>
+<p>- 类型：integer</p>
+<p>- 状态：已有前端契约</p>
+<p>- 用途：生单阶段请求量，不等同已支付或已出票订单数。</p>
+<p>- 接口字段：summary.orderRequests</p>
+<p>- 存储映射：既有聚合服务计算字段</p>
+<p>- 关联需求：GDS-REQ-001；GDS-REQ-004</p>
+<p></p>
+<a id="fld-012"></a>
+<h3>FLD-012 · 出票航段</h3>
+<p></p>
+<p>- 字段标识：segmentCount</p>
+<p>- 类型：integer|null</p>
+<p>- 状态：已有前端契约</p>
+<p>- 用途：查定比分母；NULL表示缺失或不适用，不补为0。</p>
+<p>- 接口字段：summary.segmentCount</p>
+<p>- 存储映射：GDS日指标；航线API无此字段</p>
+<p>- 关联需求：GDS-REQ-001</p>
+<p></p>
+<a id="fld-013"></a>
+<h3>FLD-013 · 查定比</h3>
+<p></p>
+<p>- 字段标识：queryToSegmentRatio</p>
+<p>- 类型：decimal-string|null</p>
+<p>- 状态：已有前端契约</p>
+<p>- 用途：Q/S，按汇总分子分母重算；缺失/部分同步时不输出结论。</p>
+<p>- 接口字段：summary.queryToSegmentRatio</p>
+<p>- 存储映射：服务计算，无需新增页面同名表列</p>
+<p>- 关联需求：GDS-REQ-001</p>
+<p></p>
+<a id="fld-014"></a>
+<h3>FLD-014 · 航线</h3>
+<p></p>
+<p>- 字段标识：route</p>
+<p>- 类型：string</p>
+<p>- 状态：已有前端契约</p>
+<p>- 用途：现有航线维度，不假定已经与内部配置ID关联。</p>
+<p>- 接口字段：query.route / rows.route</p>
+<p>- 存储映射：Hive航线日汇总</p>
+<p>- 关联需求：GDS-REQ-001</p>
+<p></p>
+<a id="fld-101"></a>
+<h3>FLD-101 · 请求关联标识</h3>
+<p></p>
+<p>- 字段标识：requestTraceId</p>
+<p>- 类型：待数据核对后确定</p>
+<p>- 状态：候选数据需求，未新增表列</p>
+<p>- 用途：关联入口、规则判断和实际调用；重试与去重规则待定。</p>
+<p>- 接口字段：无已确认接口映射</p>
+<p>- 存储映射：待核对日志、配置快照及关联键；不生成DDL</p>
+<p>- 关联需求：GDS-REQ-002；GDS-REQ-003；GDS-REQ-004；GDS-REQ-006</p>
+<p></p>
+<a id="fld-102"></a>
+<h3>FLD-102 · 行为阶段</h3>
+<p></p>
+<p>- 字段标识：requestStage</p>
+<p>- 类型：待数据核对后确定</p>
+<p>- 状态：候选数据需求，未新增表列</p>
+<p>- 用途：明确查询/验价/生单；不能靠接口名猜测行为。</p>
+<p>- 接口字段：无已确认接口映射</p>
+<p>- 存储映射：待核对日志、配置快照及关联键；不生成DDL</p>
+<p>- 关联需求：GDS-REQ-004；GDS-REQ-006</p>
+<p></p>
+<a id="fld-103"></a>
+<h3>FLD-103 · 生效配置版本</h3>
+<p></p>
+<p>- 字段标识：configVersion</p>
+<p>- 类型：待数据核对后确定</p>
+<p>- 状态：候选数据需求，未新增表列</p>
+<p>- 用途：回溯请求发生时的白名单及路由配置。</p>
+<p>- 接口字段：无已确认接口映射</p>
+<p>- 存储映射：待核对日志、配置快照及关联键；不生成DDL</p>
+<p>- 关联需求：GDS-REQ-002；GDS-REQ-003；GDS-REQ-006</p>
+<p></p>
+<a id="fld-104"></a>
+<h3>FLD-104 · 白名单层级</h3>
+<p></p>
+<p>- 字段标识：whitelistLayer</p>
+<p>- 类型：待数据核对后确定</p>
+<p>- 状态：候选数据需求，未新增表列</p>
+<p>- 用途：区分用户平台配置、内部全局和外部平台；外部配置可能不可获取。</p>
+<p>- 接口字段：无已确认接口映射</p>
+<p>- 存储映射：待核对日志、配置快照及关联键；不生成DDL</p>
+<p>- 关联需求：GDS-REQ-002；GDS-REQ-006</p>
+<p></p>
+<a id="fld-105"></a>
+<h3>FLD-105 · 命中与放行结果</h3>
+<p></p>
+<p>- 字段标识：whitelistDecision</p>
+<p>- 类型：待数据核对后确定</p>
+<p>- 状态：候选数据需求，未新增表列</p>
+<p>- 用途：分别表达命中、拦截、放行和例外，不简单用一个是否违规字段替代。</p>
+<p>- 接口字段：无已确认接口映射</p>
+<p>- 存储映射：待核对日志、配置快照及关联键；不生成DDL</p>
+<p>- 关联需求：GDS-REQ-002；GDS-REQ-006</p>
+<p></p>
+<a id="fld-106"></a>
+<h3>FLD-106 · 预期通道</h3>
+<p></p>
+<p>- 字段标识：expectedChannel</p>
+<p>- 类型：待数据核对后确定</p>
+<p>- 状态：候选数据需求，未新增表列</p>
+<p>- 用途：按生效配置与确认规则推导；尚无可用数据来源证明。</p>
+<p>- 接口字段：无已确认接口映射</p>
+<p>- 存储映射：待核对日志、配置快照及关联键；不生成DDL</p>
+<p>- 关联需求：GDS-REQ-003</p>
+<p></p>
+<a id="fld-107"></a>
+<h3>FLD-107 · 实际通道</h3>
+<p></p>
+<p>- 字段标识：actualChannel</p>
+<p>- 类型：待数据核对后确定</p>
+<p>- 状态：候选数据需求，未新增表列</p>
+<p>- 用途：实际MP/MPIS及未调用，需请求级证据；不拿聚合通道反推单请求。</p>
+<p>- 接口字段：无已确认接口映射</p>
+<p>- 存储映射：待核对日志、配置快照及关联键；不生成DDL</p>
+<p>- 关联需求：GDS-REQ-003</p>
+<p></p>
+<a id="fld-108"></a>
+<h3>FLD-108 · 回退原因</h3>
+<p></p>
+<p>- 字段标识：fallbackReason</p>
+<p>- 类型：待数据核对后确定</p>
+<p>- 状态：候选数据需求，未新增表列</p>
+<p>- 用途：解释应走MPIS却走MP，是否允许要按业务规则判断。</p>
+<p>- 接口字段：无已确认接口映射</p>
+<p>- 存储映射：待核对日志、配置快照及关联键；不生成DDL</p>
+<p>- 关联需求：GDS-REQ-003</p>
+<p></p>
+<a id="fld-109"></a>
+<h3>FLD-109 · 内部配置标识</h3>
+<p></p>
+<p>- 字段标识：configId</p>
+<p>- 类型：待数据核对后确定</p>
+<p>- 状态：候选数据需求，未新增表列</p>
+<p>- 用途：连接始发地/目的地配置及展开航线范围。</p>
+<p>- 接口字段：无已确认接口映射</p>
+<p>- 存储映射：待核对日志、配置快照及关联键；不生成DDL</p>
+<p>- 关联需求：GDS-REQ-005</p>
+<p></p>
+<a id="fld-015"></a>
+<h3>FLD-015 · 分析维度</h3>
+<p></p>
+<p>- 字段标识：groupBy</p>
+<p>- 类型：string</p>
+<p>- 状态：已有前端契约</p>
+<p>- 用途：切换组合、平台、站点、GDS、PCC或接口组等聚合维度，不能把不同粒度直接拼接。</p>
+<p>- 接口字段：query.groupBy</p>
+<p>- 存储映射：查询参数；不是新增数据库列</p>
+<p>- 关联需求：GDS-REQ-001</p>
+<p></p>
+<a id="fld-016"></a>
+<h3>FLD-016 · 仅看超标</h3>
+<p></p>
+<p>- 字段标识：breachOnly</p>
+<p>- 类型：boolean</p>
+<p>- 状态：已有前端契约</p>
+<p>- 用途：按既有目标筛选；目标未确认、数据不完整或不适用时不能补出超标结论。</p>
+<p>- 接口字段：query.breachOnly</p>
+<p>- 存储映射：查询参数；不是新增数据库列</p>
+<p>- 关联需求：GDS-REQ-001</p>
+<p></p>
+<a id="fld-017"></a>
+<h3>FLD-017 · 航线关键字</h3>
+<p></p>
+<p>- 字段标识：keyword</p>
+<p>- 类型：string</p>
+<p>- 状态：已有前端契约</p>
+<p>- 用途：查询已限定范围中的航线或对象，不代替完整配置归属。</p>
+<p>- 接口字段：query.keyword</p>
+<p>- 存储映射：查询参数；不是新增数据库列</p>
+<p>- 关联需求：GDS-REQ-001</p>
+<p></p>
+<h2>接口契约</h2>
+<p></p>
+<a id="api-gds"></a>
+<h3>API-GDS · GDS日汇总</h3>
+<p></p>
+<p>- 路径：/v1/resource-governance/gds/overview</p>
+<p>- 方法：GET</p>
+<p>- 状态：已有代码接口；本轮只模拟</p>
+<p>- 请求：startDate/endDate；platform/site/gds/pcc/resourceChannel/apiGroup；overview增加groupBy/breachOnly；routes增加route/keyword</p>
+<p>- 响应：ApiEnvelope；具体TS类型见frontend/src/features/resource-governance/api.ts</p>
+<p>- 证据：backend/data_report_api/api/resource_governance.py</p>
+<p>- 缺口与待确认：OpenAPI为评审契约摘录，不是服务端校验、鉴权或全量schema证明。</p>
+<p>- 关联需求：GDS-REQ-001</p>
+<p></p>
+<a id="api-ota"></a>
+<h3>API-OTA · OTA质量汇总</h3>
+<p></p>
+<p>- 路径：/v1/resource-governance/ota/overview</p>
+<p>- 方法：GET</p>
+<p>- 状态：已有代码接口；本轮只模拟</p>
+<p>- 请求：startDate/endDate；platform/site/gds/pcc/resourceChannel/apiGroup；overview增加groupBy/breachOnly；routes增加route/keyword</p>
+<p>- 响应：ApiEnvelope；具体TS类型见frontend/src/features/resource-governance/api.ts</p>
+<p>- 证据：backend/data_report_api/api/resource_governance.py</p>
+<p>- 缺口与待确认：OpenAPI为评审契约摘录，不是服务端校验、鉴权或全量schema证明。</p>
+<p>- 关联需求：GDS-REQ-001</p>
+<p></p>
+<a id="api-routes"></a>
+<h3>API-ROUTES · 航线日汇总</h3>
+<p></p>
+<p>- 路径：/v1/resource-governance/gds/routes</p>
+<p>- 方法：GET</p>
+<p>- 状态：已有代码接口；本轮只模拟</p>
+<p>- 请求：startDate/endDate；platform/site/gds/pcc/resourceChannel/apiGroup；overview增加groupBy/breachOnly；routes增加route/keyword</p>
+<p>- 响应：ApiEnvelope；具体TS类型见frontend/src/features/resource-governance/api.ts</p>
+<p>- 证据：backend/data_report_api/api/resource_governance.py</p>
+<p>- 缺口与待确认：OpenAPI为评审契约摘录，不是服务端校验、鉴权或全量schema证明。</p>
+<p>- 关联需求：GDS-REQ-001</p>
+<p></p>
+<h2>数据来源与表设计边界</h2>
+<p></p>
+<a id="tbl-gds"></a>
+<h3>TBL-GDS · bi_gds_resource_metric_day</h3>
+<p></p>
+<p>- 粒度：日×资源/平台/站点等现有服务组合；准确唯一键待核对</p>
+<p>- 状态：服务默认表名，未连接数据库核验</p>
+<p>- 证据：backend/data_report_api/services/resource_governance.py: DEFAULT_GDS_METRIC_TABLE</p>
+<p>- 缺口与待确认：数据库名可配置；真实字段/唯一键/完整性不能仅凭代码认定。</p>
+<p>- 负责人：数据/业务负责人待指定</p>
+<p>- 执行状态：本轮未执行DDL、ETL或查库</p>
+<p></p>
+<a id="tbl-ota"></a>
+<h3>TBL-OTA · bi_ota_gds_request_day</h3>
+<p></p>
+<p>- 粒度：现有OTA请求日聚合，准确键待核对</p>
+<p>- 状态：服务引用表名，未核验实际库</p>
+<p>- 证据：backend/data_report_api/services/resource_governance.py: REQUEST_TABLE_NAME</p>
+<p>- 缺口与待确认：不能把调用资源的聚合量当作所有OTA入口请求量。</p>
+<p>- 负责人：数据/业务负责人待指定</p>
+<p>- 执行状态：本轮未执行DDL、ETL或查库</p>
+<p></p>
+<a id="tbl-route"></a>
+<h3>TBL-ROUTE · dws_gds_airroute_day</h3>
+<p></p>
+<p>- 粒度：航线请求日汇总，维度保留情况待核验</p>
+<p>- 状态：Hive默认表名，可被配置覆盖</p>
+<p>- 证据：backend/data_report_api/services/gds_route_analysis.py: GDS_ROUTE_HIVE_TABLE</p>
+<p>- 缺口与待确认：不提供航线出票航段分母，也未证明配置归属ID可用。</p>
+<p>- 负责人：数据/业务负责人待指定</p>
+<p>- 执行状态：本轮未执行DDL、ETL或查库</p>
+<p></p>
+<a id="tbl-gap"></a>
+<h3>TBL-GAP · 请求日志与生效配置快照（待盘点）</h3>
+<p></p>
+<p>- 粒度：候选请求/配置版本粒度，未定</p>
+<p>- 状态：数据缺口；未设计实体表名</p>
+<p>- 证据：SRC-USER-1029</p>
+<p>- 缺口与待确认：需核对日志/配置已有数据再确定复用、关联与存储；没有DDL和ETL实现。</p>
+<p>- 负责人：数据/业务负责人待指定</p>
+<p>- 执行状态：本轮未执行DDL、ETL或查库</p>
+<p></p>
+<h2>演练场景</h2>
+<p></p>
+<a id="scn-normal"></a>
+<h3>SCN-NORMAL · 正常样例</h3>
+<p></p>
+<p>- 操作步骤：进入GDS资源治理；调整日期/维度并查询；分析此项并查看下钻；导出当前范围</p>
+<p>- 预期：当前筛选与样例、图层和PRD对应，导出本机文件。</p>
+<p>- 适用范围：已有交互演练</p>
+<p>- 状态：用户待操作，未业务验收</p>
+<p></p>
+<a id="scn-empty"></a>
+<h3>SCN-EMPTY · 查询结果为零</h3>
+<p></p>
+<p>- 操作步骤：选择“查询结果为零”；查看汇总与列表</p>
+<p>- 预期：没有记录，不误报查询失败或超标；导出没有样例行。</p>
+<p>- 适用范围：已有交互演练</p>
+<p>- 状态：用户待操作，未业务验收</p>
+<p></p>
+<a id="scn-partial"></a>
+<h3>SCN-PARTIAL · 航段同步不完整</h3>
+<p></p>
+<p>- 操作步骤：选择“航段数据不完整”；查看查定比与维度榜</p>
+<p>- 预期：请求量保留；分母/比率为空，不输出超标结论。</p>
+<p>- 适用范围：GDS汇总演练，OTA及航线不适用</p>
+<p>- 状态：用户待操作，未业务验收</p>
+<p></p>
+<a id="scn-error"></a>
+<h3>SCN-ERROR · 查询失败及恢复</h3>
+<p></p>
+<p>- 操作步骤：选择“查询失败与重试”；查看错误；切回正常样例</p>
+<p>- 预期：失败显示原因，恢复后重新查询，不连接生产。</p>
+<p>- 适用范围：已有交互演练</p>
+<p>- 状态：用户待操作，未业务验收</p>
+<p></p>
+<a id="scn-denied"></a>
+<h3>SCN-DENIED · 接口无查询权限</h3>
+<p></p>
+<p>- 操作步骤：选择“无查询权限”；查看拒绝说明</p>
+<p>- 预期：接口模拟拒绝；保留菜单不代表有权限读取数据。</p>
+<p>- 适用范围：模拟权限，不是正式鉴权验收</p>
+<p>- 状态：用户待操作，未业务验收</p>
+<p></p>
+<a id="scn-discuss"></a>
+<h3>SCN-DISCUSS · 新治理业务讨论</h3>
+<p></p>
+<p>- 操作步骤：逐项查看REQ-002至REQ-006；核对候选字段与数据来源；确认未决规则后再设计场景</p>
+<p>- 预期：不预设阈值、观察窗口、白名单优先级或自动上下线。</p>
+<p>- 适用范围：讨论提纲，尚无新规则可运行</p>
+<p>- 状态：用户待操作，未业务验收</p>
+<p></p></html>

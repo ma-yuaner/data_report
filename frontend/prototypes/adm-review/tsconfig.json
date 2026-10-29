@@ -1,6 +1,6 @@
 {
   "extends": "../../tsconfig.app.json",
-  "compilerOptions": { "tsBuildInfoFile": "../../node_modules/.tmp/adm-review.tsbuildinfo" },
+  "compilerOptions": { "resolveJsonModule": true, "tsBuildInfoFile": "../../node_modules/.tmp/adm-review.tsbuildinfo" },
   "include": [
     "./**/*.ts",
     "./**/*.vue",

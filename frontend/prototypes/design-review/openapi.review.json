@@ -1,0 +1,550 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "资源治理已有接口评审摘录",
+    "version": "1.0",
+    "description": "代码契约摘录；不代替完整服务规范、权限校验或真实数据核验。不包含待讨论的新治理接口。"
+  },
+  "paths": {
+    "/v1/resource-governance/gds/overview": {
+      "get": {
+        "operationId": "api_gds",
+        "summary": "GDS日汇总",
+        "x-design-id": "API-GDS",
+        "parameters": [
+          {
+            "name": "startDate",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "查询范围起点，按业务日期，不等同请求事件时间。"
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "查询范围终点；原页面默认昨日，不假定当天数据完整。"
+          },
+          {
+            "name": "platform",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "请求所属平台，与站点共同限定范围。"
+          },
+          {
+            "name": "site",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "平台下的站点归属，不等于用户配置主体。"
+          },
+          {
+            "name": "gds",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "资源系统代码；不等同MP/MPIS通道。"
+          },
+          {
+            "name": "pcc",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "资源账户范围，和平台/站点组合分析。"
+          },
+          {
+            "name": "resourceChannel",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "",
+                "MP",
+                "MPIS"
+              ]
+            },
+            "description": "当前实际资源通道统计维度，不能证明配置本应走哪条。"
+          },
+          {
+            "name": "apiGroup",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "区分接口来源，NDC仍纳入非MPIS查询口径。"
+          },
+          {
+            "name": "groupBy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "切换组合、平台、站点、GDS、PCC或接口组等聚合维度，不能把不同粒度直接拼接。"
+          },
+          {
+            "name": "breachOnly",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "按既有目标筛选；目标未确认、数据不完整或不适用时不能补出超标结论。"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功封装；此schema只覆盖评审使用的公共字段",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "available",
+                        "summary",
+                        "dimension",
+                        "trend"
+                      ],
+                      "properties": {
+                        "available": {
+                          "type": "boolean"
+                        },
+                        "summary": {
+                          "$ref": "#/components/schemas/Metric"
+                        },
+                        "dimension": {
+                          "type": "object",
+                          "required": [
+                            "rows"
+                          ],
+                          "properties": {
+                            "rows": {
+                              "type": "array",
+                              "items": {
+                                "$ref": "#/components/schemas/Metric"
+                              }
+                            }
+                          }
+                        },
+                        "trend": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/Metric"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "参数非法"
+          },
+          "401": {
+            "description": "认证层拒绝时返回；实际策略待核验"
+          },
+          "403": {
+            "description": "权限层拒绝时返回；实际策略待核验"
+          }
+        }
+      }
+    },
+    "/v1/resource-governance/ota/overview": {
+      "get": {
+        "operationId": "api_ota",
+        "summary": "OTA质量汇总",
+        "x-design-id": "API-OTA",
+        "parameters": [
+          {
+            "name": "startDate",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "查询范围起点，按业务日期，不等同请求事件时间。"
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "查询范围终点；原页面默认昨日，不假定当天数据完整。"
+          },
+          {
+            "name": "platform",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "请求所属平台，与站点共同限定范围。"
+          },
+          {
+            "name": "site",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "平台下的站点归属，不等于用户配置主体。"
+          },
+          {
+            "name": "gds",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "资源系统代码；不等同MP/MPIS通道。"
+          },
+          {
+            "name": "pcc",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "资源账户范围，和平台/站点组合分析。"
+          },
+          {
+            "name": "resourceChannel",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "",
+                "MP",
+                "MPIS"
+              ]
+            },
+            "description": "当前实际资源通道统计维度，不能证明配置本应走哪条。"
+          },
+          {
+            "name": "apiGroup",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "区分接口来源，NDC仍纳入非MPIS查询口径。"
+          },
+          {
+            "name": "groupBy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "切换组合、平台、站点、GDS、PCC或接口组等聚合维度，不能把不同粒度直接拼接。"
+          },
+          {
+            "name": "breachOnly",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "按既有目标筛选；目标未确认、数据不完整或不适用时不能补出超标结论。"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功封装；此schema只覆盖评审使用的公共字段",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "available",
+                        "summary",
+                        "dimension",
+                        "trend"
+                      ],
+                      "properties": {
+                        "available": {
+                          "type": "boolean"
+                        },
+                        "summary": {
+                          "$ref": "#/components/schemas/Metric"
+                        },
+                        "dimension": {
+                          "type": "object",
+                          "required": [
+                            "rows"
+                          ],
+                          "properties": {
+                            "rows": {
+                              "type": "array",
+                              "items": {
+                                "$ref": "#/components/schemas/Metric"
+                              }
+                            }
+                          }
+                        },
+                        "trend": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/Metric"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "参数非法"
+          },
+          "401": {
+            "description": "认证层拒绝时返回；实际策略待核验"
+          },
+          "403": {
+            "description": "权限层拒绝时返回；实际策略待核验"
+          }
+        }
+      }
+    },
+    "/v1/resource-governance/gds/routes": {
+      "get": {
+        "operationId": "api_routes",
+        "summary": "航线日汇总",
+        "x-design-id": "API-ROUTES",
+        "parameters": [
+          {
+            "name": "startDate",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "查询范围起点，按业务日期，不等同请求事件时间。"
+          },
+          {
+            "name": "endDate",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "查询范围终点；原页面默认昨日，不假定当天数据完整。"
+          },
+          {
+            "name": "platform",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "请求所属平台，与站点共同限定范围。"
+          },
+          {
+            "name": "site",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "平台下的站点归属，不等于用户配置主体。"
+          },
+          {
+            "name": "gds",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "资源系统代码；不等同MP/MPIS通道。"
+          },
+          {
+            "name": "pcc",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "资源账户范围，和平台/站点组合分析。"
+          },
+          {
+            "name": "resourceChannel",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "",
+                "MP",
+                "MPIS"
+              ]
+            },
+            "description": "当前实际资源通道统计维度，不能证明配置本应走哪条。"
+          },
+          {
+            "name": "apiGroup",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "区分接口来源，NDC仍纳入非MPIS查询口径。"
+          },
+          {
+            "name": "route",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "现有航线维度，不假定已经与内部配置ID关联。"
+          },
+          {
+            "name": "keyword",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "查询已限定范围中的航线或对象，不代替完整配置归属。"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功封装；此schema只覆盖评审使用的公共字段",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "success",
+                    "data"
+                  ],
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "available",
+                        "summary",
+                        "rows"
+                      ],
+                      "properties": {
+                        "available": {
+                          "type": "boolean"
+                        },
+                        "summary": {
+                          "$ref": "#/components/schemas/Metric"
+                        },
+                        "rows": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "description": "完整GdsRouteMetricRow见已有TypeScript契约；不提供航段分母。"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "参数非法"
+          },
+          "401": {
+            "description": "认证层拒绝时返回；实际策略待核验"
+          },
+          "403": {
+            "description": "权限层拒绝时返回；实际策略待核验"
+          },
+          "503": {
+            "description": "航线查询不可用"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Metric": {
+        "type": "object",
+        "properties": {
+          "searchRequests": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "verifyRequests": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "orderRequests": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "segmentCount": {
+            "type": "integer",
+            "nullable": true
+          },
+          "queryToSegmentRatio": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
