@@ -6,9 +6,9 @@ const output = new URL('产品评审台/', workspace)
 const inbox = new URL('产品评审资料/ADM/', workspace)
 const artifacts = [
   [new URL('./dist/index.html', import.meta.url), 'index.html'],
-  [new URL('../adm-review/dist/index.html', import.meta.url), 'ADM产品验收台_DEMO_0.3.html'],
-  [new URL('../adm-review/使用说明_0.3.html', import.meta.url), 'ADM产品验收台_先看使用说明.html'],
-  [new URL('../adm-review/PRD_0.3.html', import.meta.url), 'ADM管理PRD_0.3.html'],
+  [new URL('../adm-review/dist/index.html', import.meta.url), 'ADM产品验收台_DEMO_0.4.html'],
+  [new URL('../adm-review/使用说明_0.4.html', import.meta.url), 'ADM产品验收台_先看使用说明.html'],
+  [new URL('../adm-review/PRD_0.4.html', import.meta.url), 'ADM管理PRD_0.4.html'],
 ]
 // Check all inputs before updating the deliverable directory.
 for (const [source] of artifacts) {

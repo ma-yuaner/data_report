@@ -2,9 +2,9 @@
 import { systemMenus } from '../adm-review/system-navigation'
 export const modules = systemMenus.map(menu => ({
   id: menu.id, name: menu.title,
-  status: menu.id === 'adm' ? '0.3 中台兼容原型' : '原系统已有菜单 · 原型待接入',
-  description: menu.id === 'adm' ? '沿用原中台完整菜单，ADM功能索引收在ADM管理下，公共能力明确复用。' : '保留正式系统的菜单名称和位置；此模块本轮未制作可操作原型。',
-  artifact: menu.id === 'adm' ? 'ADM产品验收台_DEMO_0.3.html' : '',
+  status: menu.id === 'adm' ? '0.4 原页面动态交互' : '原系统已有菜单 · 原型待接入',
+  description: menu.id === 'adm' ? '直接复用正式ADM页面，弹窗抽屉真实联动，点击组件定位PRD。' : '保留正式系统的菜单名称和位置；此模块本轮未制作可操作原型。',
+  artifact: menu.id === 'adm' ? 'ADM产品验收台_DEMO_0.4.html' : '',
   source: menu.id === 'adm' ? 'frontend/prototypes/adm-review' : 'frontend/src/layouts/AppLayout.vue',
   document: menu.id === 'adm' ? 'docs/product/modules/adm/README.md' : 'README.md',
   next: menu.id === 'adm' ? '打开原型，先从ADM管理→我的工作台开始。' : '新增或调整前先核对原页面、权限及公共能力，避免独立重复开发。',

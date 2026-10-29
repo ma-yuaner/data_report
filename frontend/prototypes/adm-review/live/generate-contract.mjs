@@ -1,0 +1,18 @@
+import { readdir, writeFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
+import { inspectFile } from './contract-tools.mjs'
+import { describe } from './semantics.ts'
+const directory=new URL('../../../src/features/adm/',import.meta.url)
+const files=(await readdir(directory)).filter(name=>name.endsWith('.vue')).sort()
+const definitions=[]
+for(const file of files)definitions.push(...(await inspectFile(fileURLToPath(new URL(file,directory)))).entries)
+definitions.push(...(await inspectFile(fileURLToPath(new URL('../../../src/components/FormDialog.vue',import.meta.url)))).entries.map(item=>({...item,file:'frontend/src/components/FormDialog.vue'})))
+await writeFile(new URL('./generated-contract.ts',import.meta.url),`// Generated from the actual ADM Vue templates. Do not hand-edit.\nexport interface LiveDefinition {id:string;component:string;file:string;kind:string;title:string;binding:string;condition:string;control:string;required:boolean;limit:string;options:string;placeholder:string;fieldKey?:string}\nexport const definitions:LiveDefinition[]=${JSON.stringify(definitions,null,2)}\n`,'utf8')
+const lines=['# ADM原页面交互原型与组件PRD 0.4','','2026-10-29。基于正式前端组件直接复用，不复制另一套页面；当前为本机模拟，未接生产、未部署。','','## 页面与动态图层','','实际菜单保持原数据中台：ADM管理→我的工作台 / ADM台账。详情从任务或单号打开。新建主单使用原FormDialog，编辑订单使用原抽屉，操作/审核/交接/附件预览使用原弹窗，单据内容由原页签切换；不再把这些窗口伪装成菜单。','','原组件源码：frontend/src/features/adm/下10个Vue组件及其公共控件。通过原型专属Vite别名将HTTP、账号和导出store替换为本机适配层；正式构建不受影响，不把AppLayout的真实登录/API引入原型。','','点击/聚焦字段、按钮、表格、页签时，右侧PRD切换到对应组件。业务点击正常执行，不拦截输入、中文组合或保存；打开的原弹窗/抽屉限制在左侧演示舞台内，右侧PRD保持可见。','','## 数据、规则与边界','','0.4使用独立本机缓存，不覆盖0.3数据。支持主单/订单新增编辑、分派接收、办理锁、恢复/申诉/差异、审核/财务、交接/协办/责任提案、结案检查、附件预览、统一演示XLSX与JSON历史试导，以及模拟页头导出抽屉。旧38/44列模板转换、真实消息发送/订单和财务核验不在本版模拟范围，点击会明确说明。运营的发送开关不能启用真实投递。','','本版首先还原现有正式前端及其字段。0.3中新增的简化流程、预罚和分次回款等方案不因复用旧页面自动视为已迁入正式组件，后续应在这些共享组件上评审差异后逐项改造，不能把两版能力混称完全一致。服务端鉴权、金额和事务仍须正式开发/验证，本机allowedActions只是演示。','','## 当前组件清单','',...files.map(file=>`- ${file}`),'','## 逐组件功能、字段与操作','','字段类型、长度和条件直接抽取自Vue模板；含义与流转由semantics.ts维护。动态循环字段按原声明展开。与源码同步生成，源码发生改变后重新构建更新。','']
+for(const file of [...new Set(definitions.map(item=>item.file))]){lines.push(`### ${file}`,'');for(const entry of definitions.filter(item=>item.file===file)){const spec=describe(entry);lines.push(`#### ${entry.title} · ${entry.kind}`,`- 定位：${entry.id}；控件：${entry.control}；绑定/动作：${entry.binding || '内容区'}。`,`- 用途：${spec.purpose}`,`- 条件：${spec.when}`,`- 操作结果：${spec.result}`,`- 选项来源：${entry.options || '以当前页面展示为准'}。`,`- 原组件显示前置：${entry.condition || '当前页面已打开'}。`,'')}}
+const markdown=lines.join('\n')
+await writeFile(new URL('../../../../docs/product/modules/adm/prototype-prd-v04.md',import.meta.url),markdown,'utf8')
+const escape=value=>String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
+const html=lines.map(line=>line.startsWith('#### ')?`<h4>${escape(line.slice(5))}</h4>`:line.startsWith('### ')?`<h3>${escape(line.slice(4))}</h3>`:line.startsWith('## ')?`<h2>${escape(line.slice(3))}</h2>`:line.startsWith('# ')?`<h1>${escape(line.slice(2))}</h1>`:`<p>${escape(line)}</p>`).join('\n')
+await writeFile(new URL('../PRD_0.4.html',import.meta.url),`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ADM原页面组件PRD 0.4</title><style>body{font:15px/1.9 system-ui,'Microsoft YaHei';color:#182235;background:#f2f5f9;margin:0}main{max-width:1000px;margin:auto;background:white;padding:28px;overflow-wrap:anywhere}h2{margin-top:36px}h4{border-top:1px solid #dde4ed;padding-top:16px}p{margin:8px 0}</style><main>${html}</main></html>`,'utf8')
+console.log(`Live-source PRD: ${files.length} actual ADM Vue components, ${definitions.length} linked component definitions.`)

@@ -1,0 +1,5 @@
+import { reactive } from 'vue'
+import { liveState } from './http'
+import { writeCsv } from '../workspace'
+export const exportStore=reactive({drawerOpen:false,activeCount:0,items:[] as {id:string;kind:string;name:string;content:string;status:string}[],async createBackground(kind:string,scope:Record<string,any>){const cases=liveState.cases.filter((item:any)=>(!scope.caseId||item.id===scope.caseId)&&(!scope.search||JSON.stringify(item).includes(scope.search))&&(!scope.status||item.status===scope.status)&&(!scope.activeOnly||item.status!=='CLOSED'));const lines=kind==='adm_lines';const rows:any[][]=[lines?['ADM号','订单号','平台','币种','金额','状态']:['ADM号','下发方','币种','主单金额','状态']];for(const item of cases){if(lines)for(const line of item.lines)rows.push([item.admNo,line.orderNo,line.platform,line.currency,line.amount,line.status]);else rows.push([item.admNo,item.supplierName,item.currency,item.originalAmount,item.status])}exportStore.items.unshift({id:`export-${Date.now()}`,kind,name:`${kind}-本机模拟.csv`,content:writeCsv(rows),status:'本机已生成'});exportStore.drawerOpen=true}})
+export const useComprehensiveExportStore=()=>exportStore
