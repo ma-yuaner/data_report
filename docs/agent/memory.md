@@ -62,6 +62,7 @@ data_need本次交付（2026-10-21）：用户确认马远尔为申请人、目�
 
 ## GDS必须保留的业务口径
 
+- 2026-10-30用户要求后续GDS治理按[固定规则V1](../business/air_ticketing/gds-mpis-governance-rules.md)执行；覆盖分析、SQL、PRD、原型、开发和配置建议。全局准入/1A限定/600万cells、MPIS优先与NDC独立匹配、请求与调用分层、增量容量收益为默认规范；7542条仅为本次版本。来源0/1/2、空Office/优先级等仍待技术确认，不把规范确认当生产执行授权。
 - 公司当前查定比：非`*_MPIS`查询量 / 出票`seg_num`，包括NDC查询；不能套用行业含义自行改成PNR或生单成功数。
 - `flag=1`出票；历史NULL暂按1；`flag=0`订位单独分析。订位和出票是两种归属，不能相加，也不能从日汇总证明具体订单换配置。
 - 服务表`bi_gds_resource_metric_day`中`MP_TOTAL`用于正式比率；`API_GROUP`用于MP、MPIS、NDC接口质量；两类行不能叠加。

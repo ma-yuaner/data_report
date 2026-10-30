@@ -25,6 +25,7 @@
 
 - 项目协作、记忆、任务交接与提示词：阅读[项目入口](../../agent/README.md)
 - GDS治理当前业务闭环复评、真实分析优先级与数据缺口：阅读[闭环复评V3](../../product/gds-resource-governance-reassessment-v3.md)
+- GDS白名单、MPIS/NDC分流、容量与后续分析/开发默认依据：先读[用户确认的固定规则V1](gds-mpis-governance-rules.md)，再读对应版本资料与实际数据；规则确认和生产执行分开。
 - 页面字段、组件、状态和跨层验收约定：阅读[产品交付规范](../../product/product-delivery-contract.md)
 
 - 理解公司机票业务全流程：阅读 [business-model.md](business-model.md)
