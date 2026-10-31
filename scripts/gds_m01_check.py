@@ -72,6 +72,8 @@ def schema_columns(path):
             continue
         if "|" in line:
             parts = [p.strip() for p in line.strip("|").split("|")]
+        elif "\t" in line:
+            parts = next(csv.reader([line], delimiter="\t"))
         elif "," in line:
             parts = next(csv.reader([line]))
         else:

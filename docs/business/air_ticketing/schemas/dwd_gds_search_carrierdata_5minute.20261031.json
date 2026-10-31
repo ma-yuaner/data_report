@@ -1,0 +1,453 @@
+{
+  "table": "lywz.dwd_gds_search_carrierdata_5minute",
+  "source": "用户提供Q0 Result_1.xlsx",
+  "receivedDate": "2026-10-31",
+  "sha256": "0c721337cf195ed001b84e28641eda162f6f153b0b592826af97c629b1feee78",
+  "querySheet": [
+    "DESCRIBE lywz.dwd_gds_search_carrierdata_5minute"
+  ],
+  "columnCount": 87,
+  "partitionColumns": [
+    "dt"
+  ],
+  "columns": [
+    {
+      "name": "sys_product_type",
+      "type": "string",
+      "comment": "产品大类"
+    },
+    {
+      "name": "req_source",
+      "type": "string",
+      "comment": "系统标识(数据来源)"
+    },
+    {
+      "name": "data_source",
+      "type": "int",
+      "comment": "数据来源"
+    },
+    {
+      "name": "operator_date",
+      "type": "string",
+      "comment": "操作日期"
+    },
+    {
+      "name": "operator_hour",
+      "type": "string",
+      "comment": "操作小时"
+    },
+    {
+      "name": "api_method",
+      "type": "string",
+      "comment": "请求接口类型"
+    },
+    {
+      "name": "source_api_group",
+      "type": "string",
+      "comment": "API分组(来源编号)"
+    },
+    {
+      "name": "gds_code",
+      "type": "string",
+      "comment": "GDS编码"
+    },
+    {
+      "name": "pcc_code",
+      "type": "string",
+      "comment": "配置PCC号"
+    },
+    {
+      "name": "airline",
+      "type": "string",
+      "comment": "航司"
+    },
+    {
+      "name": "carrierdata",
+      "type": "array<string>",
+      "comment": "该航线的所有销售航司"
+    },
+    {
+      "name": "formsegment",
+      "type": "array<struct<journeysequence:int,segmentsequence:int,carrier:string,flightnumber:string,depairport:string,arrairport:string,cabingrade:string,cabin:string,deptime:string,arrtime:string,codeshare:string,aircraftcode:string,depterminal:string,airliftflag:string>>",
+      "comment": "去程航段信息"
+    },
+    {
+      "name": "retsegment",
+      "type": "array<struct<journeysequence:int,segmentsequence:int,carrier:string,flightnumber:string,depairport:string,arrairport:string,cabingrade:string,cabin:string,deptime:string,arrtime:string,codeshare:string,aircraftcode:string,depterminal:string,airliftflag:string>>",
+      "comment": "回程航段信息"
+    },
+    {
+      "name": "airroute_code",
+      "type": "string",
+      "comment": "航线"
+    },
+    {
+      "name": "dep_city",
+      "type": "string",
+      "comment": "出发城市"
+    },
+    {
+      "name": "arr_city",
+      "type": "string",
+      "comment": "到达城市"
+    },
+    {
+      "name": "flight_class",
+      "type": "string",
+      "comment": "航班类型"
+    },
+    {
+      "name": "merge_code",
+      "type": "string",
+      "comment": "数据合并编码"
+    },
+    {
+      "name": "filterflag",
+      "type": "int",
+      "comment": "过滤标识(1-OTA黑名单  2-GDS黑名单  3.。。。。。)"
+    },
+    {
+      "name": "successflag",
+      "type": "int",
+      "comment": "成功状态 (0：成功；1：失败)"
+    },
+    {
+      "name": "apirequestsubcount",
+      "type": "int",
+      "comment": "API请求记录子接口汇总次数"
+    },
+    {
+      "name": "executetime",
+      "type": "bigint",
+      "comment": "接口执行时间"
+    },
+    {
+      "name": "gdsexecutetime",
+      "type": "bigint",
+      "comment": "调用GDS花费时间"
+    },
+    {
+      "name": "api_execute_avg_time",
+      "type": "bigint",
+      "comment": "接口调用平均时间"
+    },
+    {
+      "name": "timeinterval",
+      "type": "int",
+      "comment": "search-verify时间差，search-order时间差单位为秒"
+    },
+    {
+      "name": "hitcacheflag",
+      "type": "int",
+      "comment": "缓存类型：1.被动缓存，2.主动缓存,0.无缓存"
+    },
+    {
+      "name": "pricechange",
+      "type": "int",
+      "comment": "是否变价(0:否；1：是)"
+    },
+    {
+      "name": "apimethod",
+      "type": "int",
+      "comment": "请求接口类型(0：Shopping；1：Verify；2：Order；3：Pay)"
+    },
+    {
+      "name": "flightway",
+      "type": "int",
+      "comment": "行程类型(1单程、2往返、3多程)"
+    },
+    {
+      "name": "directflightcount",
+      "type": "int",
+      "comment": "返回的直飞方案数"
+    },
+    {
+      "name": "connectingflightcount",
+      "type": "int",
+      "comment": "返回的中转方案数"
+    },
+    {
+      "name": "infantnum",
+      "type": "int",
+      "comment": "婴儿请求人数"
+    },
+    {
+      "name": "childnum",
+      "type": "int",
+      "comment": "儿童请求人数"
+    },
+    {
+      "name": "adultnum",
+      "type": "int",
+      "comment": "成人请求人数"
+    },
+    {
+      "name": "dt_mine",
+      "type": "string",
+      "comment": "时间"
+    },
+    {
+      "name": "requesttime",
+      "type": "string",
+      "comment": "请求日期(格式：yyyy-MM-dd hh:mm:ss)"
+    },
+    {
+      "name": "searchtime",
+      "type": "string",
+      "comment": "查询日期(格式：yyyy-MM-dd hh:mm:ss)"
+    },
+    {
+      "name": "traceid",
+      "type": "string",
+      "comment": "全量路ID"
+    },
+    {
+      "name": "referenceid",
+      "type": "string",
+      "comment": "uid"
+    },
+    {
+      "name": "otacode",
+      "type": "string",
+      "comment": "平台"
+    },
+    {
+      "name": "otasitecode",
+      "type": "string",
+      "comment": "站点"
+    },
+    {
+      "name": "searchmode",
+      "type": "int",
+      "comment": "调用类型：1.OTA同步，2.OTA线程池异步，3.OTA MQ异步 4.GDS自调用"
+    },
+    {
+      "name": "deptime",
+      "type": "string",
+      "comment": "出发时间"
+    },
+    {
+      "name": "arrtime",
+      "type": "string",
+      "comment": "抵达时间"
+    },
+    {
+      "name": "resultflag",
+      "type": "int",
+      "comment": "执行结果（0：成功；1：失败）"
+    },
+    {
+      "name": "errormessage",
+      "type": "string",
+      "comment": "错误信息"
+    },
+    {
+      "name": "datediffdepart",
+      "type": "bigint",
+      "comment": "查询多少天后的机票时间间隔，单位：天"
+    },
+    {
+      "name": "datediffroundtrip",
+      "type": "bigint",
+      "comment": "往返的时间间隔，单位：天"
+    },
+    {
+      "name": "datedifference",
+      "type": "bigint",
+      "comment": "查询时间差"
+    },
+    {
+      "name": "pay",
+      "type": "int",
+      "comment": "是否已支付（0：未支付；1：已支付）"
+    },
+    {
+      "name": "gdsreal",
+      "type": "string",
+      "comment": "是否是真正的去请求GDS"
+    },
+    {
+      "name": "mpisflag",
+      "type": "string",
+      "comment": "是否为MPIS请求"
+    },
+    {
+      "name": "ndcflag",
+      "type": "string",
+      "comment": "是否为NDC请求"
+    },
+    {
+      "name": "gdschannelalias",
+      "type": "string",
+      "comment": "GDS字段分表"
+    },
+    {
+      "name": "gdscachevalidtime",
+      "type": "bigint",
+      "comment": "GDS有效时间"
+    },
+    {
+      "name": "cacherefreshtime",
+      "type": "bigint",
+      "comment": "GDS刷新时间"
+    },
+    {
+      "name": "operatortype",
+      "type": "string",
+      "comment": "业务场景（业务操作类型）"
+    },
+    {
+      "name": "gdsapimethod",
+      "type": "string",
+      "comment": "GDS接口名称"
+    },
+    {
+      "name": "bizmethod",
+      "type": "string",
+      "comment": "业务调用请求接口类型"
+    },
+    {
+      "name": "mincabincount",
+      "type": "bigint",
+      "comment": "最小舱位数"
+    },
+    {
+      "name": "pricechangerange",
+      "type": "bigint",
+      "comment": "变价金额范围"
+    },
+    {
+      "name": "errorgdsmethod",
+      "type": "string",
+      "comment": "errorGdsMethod"
+    },
+    {
+      "name": "errorgdscode",
+      "type": "string",
+      "comment": "GDS报错的编码"
+    },
+    {
+      "name": "errorgdsmsg",
+      "type": "string",
+      "comment": "GDS报错的信息"
+    },
+    {
+      "name": "requestlogsize",
+      "type": "string",
+      "comment": "请求报文累计大小"
+    },
+    {
+      "name": "responselogsize",
+      "type": "string",
+      "comment": "响应报文累计大小"
+    },
+    {
+      "name": "ndccarrierdata",
+      "type": "array<string>",
+      "comment": "ndc航司数据"
+    },
+    {
+      "name": "dep_airport",
+      "type": "string",
+      "comment": "出发机场"
+    },
+    {
+      "name": "arr_airport",
+      "type": "string",
+      "comment": "到达机场"
+    },
+    {
+      "name": "api_request_flag",
+      "type": "bigint",
+      "comment": "API要求标记,0-不计算,1-要计"
+    },
+    {
+      "name": "api_request_weight",
+      "type": "decimal(10,4)",
+      "comment": "API接口计算权重"
+    },
+    {
+      "name": "api_request_price",
+      "type": "decimal(10,4)",
+      "comment": "API每次请求单价(预估)CNY"
+    },
+    {
+      "name": "api_real_price",
+      "type": "decimal(10,4)",
+      "comment": "API每次请求实际单价CNY"
+    },
+    {
+      "name": "api_error_flag",
+      "type": "int",
+      "comment": "API请求错误是否计算,0-不计算，1-要计算"
+    },
+    {
+      "name": "merge_code_hour",
+      "type": "string",
+      "comment": "数据合并编码小时"
+    },
+    {
+      "name": "gds_avsource_a",
+      "type": "string",
+      "comment": "实时GDS的航司AvSource统计"
+    },
+    {
+      "name": "ndc_avsource_a",
+      "type": "string",
+      "comment": "实时NDC的航司AvSource统计"
+    },
+    {
+      "name": "gds_avsource_b",
+      "type": "string",
+      "comment": "缓存的GDS航司AvSource统计"
+    },
+    {
+      "name": "gds_avsource_c",
+      "type": "string",
+      "comment": "AVS的GDS航司AvSource统计"
+    },
+    {
+      "name": "gds_avsource_d",
+      "type": "string",
+      "comment": "未知的GDS航司AvSource统计"
+    },
+    {
+      "name": "ndc_avsource_b",
+      "type": "string",
+      "comment": "缓存的NDC航司AvSource统计"
+    },
+    {
+      "name": "ndc_avsource_c",
+      "type": "string",
+      "comment": "AVS的NDC航司AvSource统计"
+    },
+    {
+      "name": "ndc_avsource_d",
+      "type": "string",
+      "comment": "未知的NDC航司AvSource统计"
+    },
+    {
+      "name": "externalinterfacecallstatistics",
+      "type": "map<string,int>",
+      "comment": "子接口调用统计"
+    },
+    {
+      "name": "cabin_grade",
+      "type": "string",
+      "comment": "舱等"
+    },
+    {
+      "name": "cabin",
+      "type": "string",
+      "comment": "舱位"
+    },
+    {
+      "name": "dt",
+      "type": "string",
+      "comment": ""
+    }
+  ],
+  "limitations": [
+    "表结构不证明字段值域、数据完整性、实际外呼或跨资源关联语义"
+  ]
+}
