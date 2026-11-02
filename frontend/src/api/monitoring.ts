@@ -80,6 +80,12 @@ export interface MonitorRuleDetail {
   rule: MonitorRule
   versions: Array<Record<string, unknown> & { id: number; versionNo: number; conditions: MonitorCondition[]; groupDimensions?: ResourceGrainDimension[] }>
   logs: Array<Record<string, unknown>>
+  dailySegment?: {
+    notificationReady: boolean
+    stale: boolean
+    snapshot: { businessDate: string; segmentTotal: number; thresholdValue: number; referenceLimit?: number; siteCountsJson: string; sourceAsOf: string; sourceDurationMs: number } | null
+    lastRun: { status: string; startedAt: string; durationMs?: number; errorMessage?: string } | null
+  } | null
 }
 
 export interface MonitorEvent {
@@ -223,7 +229,7 @@ export interface MonitorNotifyEndpointInput {
 }
 
 export interface MonitorRuleInput {
-  templateCode: 'ORDER_SEGMENT_THRESHOLD' | 'GDS_QUERY_RATIO_DAILY' | 'OTA_SUCCESS_RATE_DAILY'
+  templateCode: 'ORDER_SEGMENT_THRESHOLD' | 'DAILY_SEGMENT_THRESHOLD' | 'GDS_QUERY_RATIO_DAILY' | 'OTA_SUCCESS_RATE_DAILY'
   ruleName: string
   severity: string
   effectiveStartAt?: string

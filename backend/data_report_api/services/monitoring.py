@@ -14,6 +14,7 @@ from typing import Any
 from .data_source import DataSource
 from ..shared.placement_locations import resolve_airports, resolved_location
 from ..time_utils import business_now_naive
+from ..shared.daily_segment import TEMPLATE as DAILY_SEGMENT_TEMPLATE, EVENT as DAILY_SEGMENT_EVENT, validate_daily_conditions
 
 
 LOGGER = logging.getLogger(__name__)
@@ -41,6 +42,7 @@ SMART_TASK_LOG_TABLE = "smart_placement_operation_log"
 SMART_TEMPLATE = "SMART_PLACEMENT_ORDER"
 SMART_ORDER_SOURCES = frozenset({"平台手工订单", "直连订单"})
 MANUAL_RULE_TEMPLATES = frozenset({
+    DAILY_SEGMENT_TEMPLATE,
     "ORDER_SEGMENT_THRESHOLD",
     "GDS_QUERY_RATIO_DAILY",
     "OTA_SUCCESS_RATE_DAILY",
@@ -69,6 +71,7 @@ EVENT_RESOLUTION_CODES = frozenset({
 })
 ENDPOINT_STATUSES = frozenset({"ACTIVE", "DISABLED"})
 NOTIFY_EVENT_CODES = frozenset({
+    DAILY_SEGMENT_EVENT,
     "SMART_ORDER_MATCHED", "SMART_ATTENTION_REMINDER",
     "SMART_ATTENTION_ESCALATED", "SMART_POLICY_EXPIRED",
     "RESOURCE_GOVERNANCE_DAILY_ALERT",
@@ -668,7 +671,7 @@ class MonitoringService:
             pending_notifications = int(_first_value(cursor.fetchone()) or 0)
             cursor.execute(
                 f"""SELECT COUNT(1) failed_runs FROM {self._table(RUN_TABLE)}
-                    WHERE status='FAILED' AND started_at>=%s""",
+                    WHERE status IN ('FAILED','PARTIAL') AND started_at>=%s""",
                 (today_start,),
             )
             failed_runs = int(_first_value(cursor.fetchone()) or 0)
@@ -826,7 +829,7 @@ class MonitoringService:
         _require(user, "monitor.rule.manage", "当前账号没有监控规则管理权限")
         template_code = str(values.get("templateCode") or "").strip().upper()
         if template_code not in MANUAL_RULE_TEMPLATES:
-            raise ValueError("当前手工配置仅开放订单航段、GDS查定比和OTA成功率模板；智能投放规则由投放成功自动生成")
+            raise ValueError("当前手工配置支持订单航段、日累计航段、GDS查定比和OTA成功率模板")
         rule_name = str(values.get("ruleName") or "").strip()[:200]
         if not rule_name:
             raise ValueError("规则名称不能为空")
@@ -861,7 +864,16 @@ class MonitoringService:
             "wecomEndpointIds": endpoint_ids,
         }
         is_resource_rule = template_code in RESOURCE_RULE_TEMPLATES
+        is_daily_segment = template_code == DAILY_SEGMENT_TEMPLATE
+        if is_daily_segment and endpoint_ids:
+            raise ValueError("日累计航段通知请在通知路由中绑定指定群")
+        if is_daily_segment and not values.get("ownerUserId") and owner_name != actor_name:
+            # A business contact name does not bind that person to the creator's account.
+            owner_id = None
+            notify_policy["ownerUserId"] = None
         schedule_seconds = 86400 if is_resource_rule else max(30, min(int(values.get("scheduleSeconds") or 60), 86400))
+        if is_daily_segment:
+            schedule_seconds = 300
         connection = cursor = None
         try:
             connection = self.source.connect(); connection.begin(); cursor = connection.cursor()
@@ -882,6 +894,14 @@ class MonitoringService:
                 if found_ids != set(endpoint_ids):
                     raise ValueError("选择的企业微信通知群不存在或已停用")
             conditions, template_fields = self._validated_conditions(cursor, int(template["id"]), values.get("conditions"))
+            daily_line_id = validate_daily_conditions(conditions) if is_daily_segment else None
+            if is_daily_segment:
+                cursor.execute(
+                    f"SELECT id FROM {self._table(RULE_TABLE)} WHERE source_business_type='DAILY_SEGMENT_LINE' AND source_business_id=%s",
+                    (daily_line_id,),
+                )
+                if cursor.fetchone():
+                    raise ValueError("该业务线已有日累计规则，请查看或启用原规则，避免重复提醒")
             grain_field_codes = {
                 code for code, field in template_fields.items()
                 if str(field.get("value_type") or "").strip().upper() == "ANALYSIS_GRAIN"
@@ -918,13 +938,14 @@ class MonitoringService:
                     rule_code,rule_name,template_id,template_code,business_type,
                     owner_user_id,owner_user_name,severity,status,effective_start_at,effective_end_at,
                     schedule_seconds,notify_policy_json,current_version_no,
-                    created_by_id,created_by_name,created_at,updated_by_id,updated_by_name,updated_at
-                ) VALUES ({','.join(['%s'] * 20)})""",
+                    created_by_id,created_by_name,created_at,updated_by_id,updated_by_name,updated_at,
+                    source_business_type,source_business_id
+                ) VALUES ({','.join(['%s'] * 22)})""",
                 (rule_code, rule_name, template["id"], template_code,
-                 "RESOURCE_GOVERNANCE" if is_resource_rule else "ORDER_RISK", owner_id, owner_name,
+                 "DAILY_SALES" if is_daily_segment else ("RESOURCE_GOVERNANCE" if is_resource_rule else "ORDER_RISK"), owner_id, owner_name,
                  severity, status, effective_start, effective_end, schedule_seconds,
                  json.dumps(notify_policy, ensure_ascii=False), 1, actor_id, actor_name, current,
-                 actor_id, actor_name, current),
+                 actor_id, actor_name, current, "DAILY_SEGMENT_LINE" if is_daily_segment else None, daily_line_id),
             )
             rule_id = int(cursor.lastrowid)
             cursor.execute(
@@ -1063,10 +1084,39 @@ class MonitoringService:
                 item["conditions"] = conditions_by_version.get(int(version["id"]), [])
                 item["groupDimensions"] = _rule_group_dimensions(version)
                 public_versions.append(item)
+            daily_segment = None
+            if rule.get("template_code") == DAILY_SEGMENT_TEMPLATE:
+                cursor.execute(
+                    f"SELECT * FROM {self._table('monitor_daily_segment_snapshot')} WHERE rule_id=%s AND business_date=%s",
+                    (rule_id, business_now_naive().date()),
+                )
+                snapshot = _dict_row(cursor, cursor.fetchone())
+                cursor.execute(
+                    f"SELECT status,started_at,finished_at,duration_ms,error_message FROM {self._table(RUN_TABLE)} WHERE job_type='DAILY_SEGMENT' ORDER BY started_at DESC,id DESC LIMIT 1",
+                )
+                last_run = _dict_row(cursor, cursor.fetchone())
+                cursor.execute(
+                    f"""SELECT COUNT(1) FROM {self._table(NOTIFY_ROUTE_TABLE)} r
+                    JOIN {self._table(MESSAGE_TEMPLATE_TABLE)} t ON t.id=r.template_id
+                      AND t.status='ACTIVE' AND t.event_code=r.event_code AND t.channel='WECOM'
+                    JOIN {self._table(NOTIFY_ENDPOINT_TABLE)} e ON e.id=r.endpoint_id
+                      AND e.status='ACTIVE' AND e.channel='WECOM'
+                    WHERE r.event_code=%s AND r.status='ACTIVE' AND r.channel='WECOM'
+                      AND r.use_smart_default_endpoints=0""",
+                    (DAILY_SEGMENT_EVENT,),
+                )
+                notification_ready = bool(_first_value(cursor.fetchone()))
+                daily_segment = {
+                    "snapshot": _public_row(snapshot) if snapshot else None,
+                    "lastRun": _public_row(last_run) if last_run else None,
+                    "notificationReady": notification_ready,
+                    "stale": bool(snapshot and business_now_naive() - snapshot["source_as_of"] > timedelta(minutes=10)),
+                }
             return {
                 "rule": _public_row(rule, groupDimensions=_rule_group_dimensions(versions[0] if versions else None)),
                 "versions": public_versions,
                 "logs": [_public_row(row) for row in logs],
+                "dailySegment": daily_segment,
             }
         except ValueError:
             raise
@@ -1817,7 +1867,9 @@ class MonitoringService:
         params: list[Any] = []
         if job_type:
             where.append("job_type=%s"); params.append(job_type.strip().upper())
-        if status:
+        if status == "FAILED":
+            where.append("status IN ('FAILED','PARTIAL')")
+        elif status:
             where.append("status=%s"); params.append(status.strip().upper())
         limit = max(1, min(int(limit), 500))
         connection = cursor = None
@@ -2204,6 +2256,8 @@ class MonitoringService:
         strategy = _clean_text(values.get("recipientStrategy") or "TASK_ASSIGNEE").upper()
         status = _clean_text(values.get("status") or "ACTIVE").upper()
         use_defaults = bool(values.get("useSmartDefaultEndpoints"))
+        if event_code == DAILY_SEGMENT_EVENT and (use_defaults or strategy != "NONE"):
+            raise ValueError("日累计航段通知必须指定通知群，并选择不动态@人员")
         if not route_name:
             raise ValueError("通知路由名称不能为空")
         if event_code not in NOTIFY_EVENT_CODES:

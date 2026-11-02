@@ -188,6 +188,7 @@ def test_template_catalog_only_returns_user_creatable_templates():
     assert "template_code IN" in template_query
     assert "SMART_PLACEMENT_ORDER" not in template_params
     assert set(template_params) == {
+        "DAILY_SEGMENT_THRESHOLD",
         "ORDER_SEGMENT_THRESHOLD",
         "GDS_QUERY_RATIO_DAILY",
         "OTA_SUCCESS_RATE_DAILY",
@@ -377,7 +378,7 @@ def test_manual_rule_rejects_non_executable_template_before_database_access():
     source, _connection, _cursor = source_with_cursor()
     service = MonitoringService({}, source=source)
 
-    with pytest.raises(ValueError, match="仅开放订单航段、GDS查定比和OTA成功率模板"):
+    with pytest.raises(ValueError, match="当前手工配置支持"):
         service.create_rule(
             {"id": 1, "is_admin": True},
             {"templateCode": "METRIC_THRESHOLD", "ruleName": "利润阈值", "conditions": []},

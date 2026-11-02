@@ -265,6 +265,22 @@
       <template v-if="ruleDetail">
         <div class="detail-hero"><span>{{ ruleDetail.rule.ruleCode }}</span><h2>{{ ruleDetail.rule.ruleName }}</h2><div><a-tag :color="ruleStatusMeta[ruleDetail.rule.status]?.color || 'default'">{{ ruleStatusMeta[ruleDetail.rule.status]?.label || ruleDetail.rule.status }}</a-tag><a-tag>{{ ruleDetail.rule.templateCode }}</a-tag><a-tag>版本 {{ ruleDetail.rule.currentVersionNo }}</a-tag></div></div>
         <section class="detail-section"><h3>运行信息</h3><div class="detail-grid"><div><label>负责人</label><span>{{ ruleDetail.rule.ownerUserName || '系统' }}</span></div><div><label>累计命中</label><span>{{ number(ruleDetail.rule.hitCount) }}</span></div><div><label>生效时间</label><span>{{ displayTime(ruleDetail.rule.effectiveStartAt) }}</span></div><div><label>失效时间</label><span>{{ displayTime(ruleDetail.rule.effectiveEndAt) }}</span></div></div></section>
+        <section v-if="ruleDetail.dailySegment" class="detail-section">
+          <h3>今日累计航段</h3>
+          <a-alert v-if="!ruleDetail.dailySegment.notificationReady" type="warning" show-icon message="尚未配置有效群通知路由" description="请在通知管理中将携程日累计航段提醒绑定至机票1部-业务分析群。" />
+          <a-alert v-if="ruleDetail.dailySegment.stale" type="warning" show-icon message="累计结果已超过十分钟未更新，请检查五分钟调度" />
+          <a-alert v-if="['FAILED', 'PARTIAL'].includes(ruleDetail.dailySegment.lastRun?.status || '')" type="error" show-icon message="最近一次累计检查存在失败，以下保留上次成功结果" :description="ruleDetail.dailySegment.lastRun?.errorMessage || '请在监控运行中查看原因'" />
+          <div v-if="ruleDetail.dailySegment.snapshot" class="detail-grid">
+            <div><label>当前累计</label><strong>{{ number(ruleDetail.dailySegment.snapshot.segmentTotal) }} 段</strong></div>
+            <div><label>提醒阈值</label><span>{{ number(ruleDetail.dailySegment.snapshot.thresholdValue) }} 段</span></div>
+            <div><label>参考上限（不触发提醒）</label><span>{{ ruleDetail.dailySegment.snapshot.referenceLimit == null ? '未配置' : number(ruleDetail.dailySegment.snapshot.referenceLimit) }}</span></div>
+            <div><label>数据截至（每五分钟检查）</label><span>{{ displayTime(ruleDetail.dailySegment.snapshot.sourceAsOf) }}</span></div>
+            <div><label>本轮取数耗时</label><span>{{ duration(ruleDetail.dailySegment.snapshot.sourceDurationMs) }}</span></div>
+            <div v-for="site in dailySiteCounts" :key="site.name"><label>{{ site.name }}</label><span>{{ number(site.count) }} 段</span></div>
+          </div>
+          <a-empty v-else description="今日尚无成功累计结果，请检查任务调度与监控运行" />
+          <p class="grain-hint">按北京时间出票日累计有效出票关联航段，每天首次达到阈值提醒。数据截至时间可用于判断结果是否延迟。</p>
+        </section>
         <section v-for="version in ruleDetail.versions" :key="version.id" class="detail-section"><h3>版本 {{ version.versionNo }} 条件</h3><p v-if="version.groupDimensions?.length" class="grain-hint">异常分析粒度：按{{ grainText(version.groupDimensions) }}分别生成异常，未配置时按整个范围汇总。</p><div class="condition-list"><article v-for="condition in version.conditions" :key="condition.id"><span>{{ fieldName(condition.fieldCode) }}</span><strong>{{ operatorName(condition.operatorCode) }}</strong><code>{{ formatConditionValue(condition.valueJson) }}</code><a-tag v-if="condition.conditionRole === 'EXCLUDE'" color="red">排除</a-tag></article></div></section>
       </template>
     </a-drawer>
@@ -280,11 +296,18 @@
       <a-form layout="vertical" class="rule-form">
         <div class="rule-form-grid">
           <a-form-item label="创建方式" required class="span-2"><a-segmented v-model:value="creationMode" :options="[{ value: 'template', label: '从规则模板创建' }, { value: 'custom', label: '自定义配置' }]" block /></a-form-item>
-          <a-form-item :label="creationMode === 'template' ? '规则模板' : '已接入数据集'" required class="span-2"><a-segmented v-model:value="ruleForm.templateCode" :options="manualTemplateOptions" block /></a-form-item>
+          <a-form-item :label="creationMode === 'template' ? '规则模板' : '已接入数据集'" required class="span-2"><a-select v-model:value="ruleForm.templateCode" :options="manualTemplateOptions" /></a-form-item>
           <a-form-item v-if="creationMode === 'custom'" class="span-2"><a-alert type="warning" show-icon message="自定义规则仍需选择一个已接入的数据集" description="数据集决定可用字段、计算粒度和执行器；本次只保存监控任务，不会自动制造重复模板。确认具有稳定复用价值后，可在规则模板中另行发布。" /></a-form-item>
           <a-form-item label="规则名称" required class="span-2"><a-input v-model:value="ruleForm.ruleName" placeholder="例如：当日订单航段数不少于6段" /></a-form-item>
           <a-form-item label="告警等级" required><a-select v-model:value="ruleForm.severity" :options="severityOptions" /></a-form-item>
-          <template v-if="ruleForm.templateCode === 'ORDER_SEGMENT_THRESHOLD'">
+          <template v-if="ruleForm.templateCode === 'DAILY_SEGMENT_THRESHOLD'">
+            <a-form-item label="业务线" required><a-select v-model:value="ruleForm.businessLine" :options="dailyLineOptions" @change="applyDailyPreset" /></a-form-item>
+            <a-form-item label="当日累计提醒阈值（段）" required><a-input-number v-model:value="ruleForm.dailyThreshold" :min="1" :max="1000000000" :precision="0" style="width:100%" /></a-form-item>
+            <a-form-item label="参考上限（段，仅展示）"><a-input-number v-model:value="ruleForm.referenceLimit" :min="1" :max="1000000000" :precision="0" style="width:100%" /></a-form-item>
+            <a-form-item label="包含站点" class="span-2"><span>{{ dailySitesText }}</span></a-form-item>
+            <a-form-item class="span-2"><a-alert type="info" show-icon message="每五分钟检查，每天首次达标提醒一次" description="同一业务线只建一条任务。通知路由选择“携程日累计航段提醒”并绑定“机票1部-业务分析群”；参考上限不触发第二次提醒或停卖。" /></a-form-item>
+          </template>
+          <template v-else-if="ruleForm.templateCode === 'ORDER_SEGMENT_THRESHOLD'">
             <a-form-item label="航段判断" required><div class="compact-fields"><a-select v-model:value="ruleForm.segmentOperator" :options="segmentOperatorOptions" /><a-input-number v-model:value="ruleForm.segmentCount" :min="1" /></div></a-form-item>
             <a-form-item label="平台名称"><a-input v-model:value="ruleForm.platformName" placeholder="留空表示全部平台" /></a-form-item>
             <a-form-item label="站点名称"><a-input v-model:value="ruleForm.siteName" placeholder="留空表示全部站点" /></a-form-item>
@@ -308,7 +331,7 @@
             <a-form-item label="最小请求量" required><a-input-number v-model:value="ruleForm.minRequests" :min="1" style="width:100%" /></a-form-item>
             <a-form-item label="成功率下限" required><a-input-number v-model:value="ruleForm.minSuccessRate" :min="0" :max="100" :precision="2" style="width:100%" addon-after="%" /></a-form-item>
           </template>
-          <a-form-item label="异常分析粒度"><a-select v-model:value="ruleForm.groupDimensions" mode="multiple" :options="grainOptions" allow-clear placeholder="留空按整个范围汇总告警" /></a-form-item>
+          <a-form-item v-if="ruleForm.templateCode !== 'DAILY_SEGMENT_THRESHOLD'" label="异常分析粒度"><a-select v-model:value="ruleForm.groupDimensions" mode="multiple" :options="grainOptions" allow-clear placeholder="留空按整个范围汇总告警" /></a-form-item>
           <a-form-item v-if="ruleForm.groupDimensions.length" label="拆分说明" class="span-2"><span class="grain-hint">命中时按所选维度分别生成异常，例如选择PCC后，查定比超限的PCC会各自产生一条异常，正常PCC不会产生。</span></a-form-item>
           <a-form-item label="生效时间"><a-date-picker v-model:value="ruleForm.effectiveStartAt" :locale="dateLocale" show-time value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" /></a-form-item>
           <a-form-item label="失效时间"><a-date-picker v-model:value="ruleForm.effectiveEndAt" :locale="dateLocale" show-time value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" /></a-form-item>
@@ -317,7 +340,7 @@
           <a-form-item class="span-2"><a-alert type="info" show-icon message="命中通知在“通知配置”中统一管理" description="规则只负责识别异常；消息格式、通知群和动态@人员可随时调整，无需删除或重建规则。" /></a-form-item>
         </div>
       </a-form>
-      <div class="dialog-actions"><a-button @click="createRuleOpen=false">取消</a-button><a-button type="primary" :loading="saving" @click="saveNewRule">{{ ruleForm.templateCode === 'ORDER_SEGMENT_THRESHOLD' ? '创建并生效' : '创建日检查规则' }}</a-button></div>
+      <div class="dialog-actions"><a-button @click="createRuleOpen=false">取消</a-button><a-button type="primary" :loading="saving" @click="saveNewRule">{{ ['ORDER_SEGMENT_THRESHOLD', 'DAILY_SEGMENT_THRESHOLD'].includes(ruleForm.templateCode) ? '创建并生效' : '创建日检查规则' }}</a-button></div>
     </a-modal>
 
     <a-modal v-model:open="eventStatusOpen" title="处理监控事件" :footer="null" :mask-closable="false" width="min(720px, 94vw)">
@@ -400,7 +423,7 @@
     </a-modal>
 
     <a-modal v-model:open="notifyRouteOpen" :title="notifyRouteForm.id ? '编辑通知路由' : '新增通知路由'" :footer="null" :mask-closable="false" width="min(760px, 94vw)">
-      <a-form layout="vertical" class="endpoint-form"><a-form-item label="路由名称" required><a-input v-model:value="notifyRouteForm.routeName" /></a-form-item><div class="route-form-grid"><a-form-item label="事件类型" required><a-select v-model:value="notifyRouteForm.eventCode" :options="notificationEventOptions" @change="syncRouteTemplate" /></a-form-item><a-form-item label="消息模板" required><a-select v-model:value="notifyRouteForm.templateId" :options="routeTemplateOptions" /></a-form-item><a-form-item label="动态@人员" required><a-select v-model:value="notifyRouteForm.recipientStrategy" :options="recipientStrategyOptions" /></a-form-item><a-form-item label="指定通知群"><a-select v-model:value="notifyRouteForm.endpointId" :options="notifyEndpointOptions" allow-clear placeholder="也可选择全部默认通知群" /></a-form-item><a-form-item label="使用全部默认通知群"><a-switch v-model:checked="notifyRouteForm.useSmartDefaultEndpoints" /></a-form-item><a-form-item label="状态"><a-select v-model:value="notifyRouteForm.status" :options="endpointStatusOptions" /></a-form-item></div></a-form>
+      <a-form layout="vertical" class="endpoint-form"><a-form-item label="路由名称" required><a-input v-model:value="notifyRouteForm.routeName" /></a-form-item><div class="route-form-grid"><a-form-item label="事件类型" required><a-select v-model:value="notifyRouteForm.eventCode" :options="notificationEventOptions" @change="syncRouteTemplate" /></a-form-item><a-form-item label="消息模板" required><a-select v-model:value="notifyRouteForm.templateId" :options="routeTemplateOptions" /></a-form-item><a-form-item label="动态@人员" required><a-select v-model:value="notifyRouteForm.recipientStrategy" :options="recipientStrategyOptions" :disabled="notifyRouteForm.eventCode === 'DAILY_SEGMENT_THRESHOLD_ALERT'" /></a-form-item><a-form-item label="指定通知群"><a-select v-model:value="notifyRouteForm.endpointId" :options="notifyEndpointOptions" allow-clear placeholder="也可选择全部默认通知群" /></a-form-item><a-form-item label="使用全部默认通知群"><a-switch v-model:checked="notifyRouteForm.useSmartDefaultEndpoints" :disabled="notifyRouteForm.eventCode === 'DAILY_SEGMENT_THRESHOLD_ALERT'" /></a-form-item><a-form-item label="状态"><a-select v-model:value="notifyRouteForm.status" :options="endpointStatusOptions" /></a-form-item></div></a-form>
       <div class="dialog-actions"><a-button @click="notifyRouteOpen=false">取消</a-button><a-button type="primary" :loading="saving" @click="saveNotifyRoute">保存路由</a-button></div>
     </a-modal>
   </div>
@@ -459,6 +482,7 @@ const actionUpdateForm = ref<MonitorActionOrderUpdateInput>({ action: 'ACCEPT', 
 const defaultRuleForm = () => ({
   templateCode: 'ORDER_SEGMENT_THRESHOLD' as MonitorRuleInput['templateCode'], ruleName: '', severity: 'P2',
   segmentOperator: 'GTE', segmentCount: 6, platformName: '', siteName: '', airlineCode: '', productType: '',
+  businessLine: 'LEYOU_1', dailyThreshold: 2500, referenceLimit: 3000 as number | null,
   gdsCode: '1A', pccCode: '', platformCode: '', siteCode: '', apiGroup: '', minRequests: 100,
   maxQueryRatio: 4000, successStage: 'search', minSuccessRate: 95, groupDimensions: [] as ResourceGrainDimension[],
   effectiveStartAt: '', effectiveEndAt: '', ownerUserName: authStore.user?.displayName || '',
@@ -477,15 +501,32 @@ const notifyRouteForm = ref(emptyNotifyRouteForm())
 const ruleStatusMeta: Record<string, { label: string; color: string }> = { ACTIVE: { label: '运行中', color: 'green' }, SCHEDULED: { label: '待生效', color: 'blue' }, PAUSED: { label: '已暂停', color: 'orange' }, EXPIRED: { label: '已过期', color: 'default' }, DISABLED: { label: '已停用', color: 'red' } }
 const eventStatusMeta: Record<string, { label: string; color: string }> = { OPEN: { label: '待处理', color: 'red' }, ACKNOWLEDGED: { label: '已关注', color: 'blue' }, OBSERVING: { label: '观察中', color: 'purple' }, ESCALATED: { label: '已升级', color: 'volcano' }, ACTION_PENDING: { label: '待技术执行', color: 'orange' }, ACTION_IN_PROGRESS: { label: '技术执行中', color: 'processing' }, ACTION_APPLIED: { label: '控制已生效', color: 'cyan' }, RESOLVED: { label: '已解决', color: 'green' }, IGNORED: { label: '已忽略', color: 'default' }, CLOSED: { label: '已关闭', color: 'default' } }
 const actionStatusMeta: Record<string, { label: string; color: string }> = { PENDING: { label: '待接单', color: 'orange' }, ACCEPTED: { label: '已接单', color: 'blue' }, EXECUTING: { label: '执行中', color: 'processing' }, SUCCEEDED: { label: '控制已生效', color: 'cyan' }, FAILED: { label: '执行失败', color: 'red' }, CANCELLED: { label: '已取消', color: 'default' }, RECOVERY_PENDING: { label: '待恢复', color: 'purple' }, RECOVERED: { label: '已恢复', color: 'green' } }
-const runStatusMeta: Record<string, { label: string; color: string }> = { RUNNING: { label: '运行中', color: 'processing' }, SUCCESS: { label: '成功', color: 'green' }, FAILED: { label: '失败', color: 'red' }, SKIPPED: { label: '跳过', color: 'default' } }
+const runStatusMeta: Record<string, { label: string; color: string }> = { RUNNING: { label: '运行中', color: 'processing' }, SUCCESS: { label: '成功', color: 'green' }, FAILED: { label: '失败', color: 'red' }, PARTIAL: { label: '部分失败', color: 'orange' }, SKIPPED: { label: '跳过', color: 'default' } }
 const severityMeta: Record<string, string> = { P0: 'red', P1: 'orange', P2: 'blue', P3: 'default' }
-const templates = [{ value: 'SMART_PLACEMENT_ORDER', label: '智能投放收单匹配' }, { value: 'ORDER_SEGMENT_THRESHOLD', label: '订单航段阈值监控' }, { value: 'GDS_QUERY_RATIO_DAILY', label: 'GDS查定比日异常' }, { value: 'OTA_SUCCESS_RATE_DAILY', label: 'OTA成功率日异常' }, { value: 'METRIC_THRESHOLD', label: '经营指标阈值监控' }, { value: 'STATE_TIMEOUT', label: '业务状态超时监控' }]
+const templates = [{ value: 'SMART_PLACEMENT_ORDER', label: '智能投放收单匹配' }, { value: 'ORDER_SEGMENT_THRESHOLD', label: '订单航段阈值监控' }, { value: 'DAILY_SEGMENT_THRESHOLD', label: '携程单日累计航段' }, { value: 'GDS_QUERY_RATIO_DAILY', label: 'GDS查定比日异常' }, { value: 'OTA_SUCCESS_RATE_DAILY', label: 'OTA成功率日异常' }, { value: 'METRIC_THRESHOLD', label: '经营指标阈值监控' }, { value: 'STATE_TIMEOUT', label: '业务状态超时监控' }]
 const templateOptions = [{ value: '', label: '全部模板' }, ...templates]
 const manualTemplateOptions = [
   { value: 'ORDER_SEGMENT_THRESHOLD', label: '订单航段' },
+  { value: 'DAILY_SEGMENT_THRESHOLD', label: '携程单日累计航段' },
   { value: 'GDS_QUERY_RATIO_DAILY', label: 'GDS查定比（日）' },
   { value: 'OTA_SUCCESS_RATE_DAILY', label: 'OTA成功率（日）' },
 ]
+const dailyLineOptions = [{ value: 'LEYOU_1', label: '乐游1部' }, { value: 'HONGKONG_1', label: '香港1部' }]
+const dailySitesText = computed(() => ruleForm.value.businessLine === 'HONGKONG_1' ? '香港携程一部、香港携程一部公布、香港携程一部特惠' : '乐游携程一部、乐游携程一部公布、乐游携程一部特惠')
+const dailySiteCounts = computed(() => {
+  try {
+    const sites = JSON.parse(ruleDetail.value?.dailySegment?.snapshot?.siteCountsJson || '{}') as Record<string, number>
+    return Object.entries(sites).map(([name, count]) => ({ name, count }))
+  } catch { return [] }
+})
+function applyDailyPreset() {
+  const hongkong = ruleForm.value.businessLine === 'HONGKONG_1'
+  ruleForm.value.dailyThreshold = hongkong ? 5500 : 2500
+  ruleForm.value.referenceLimit = hongkong ? 6100 : 3000
+  ruleForm.value.ruleName = `${hongkong ? '香港1部' : '乐游1部'}携程单日总航段销量提醒`
+  ruleForm.value.ownerUserName = '袁健'
+}
+watch(() => ruleForm.value.templateCode, code => { if (code === 'DAILY_SEGMENT_THRESHOLD') applyDailyPreset() })
 const ruleStatusOptions = [{ value: '', label: '全部状态' }, ...Object.entries(ruleStatusMeta).map(([value, meta]) => ({ value, label: meta.label }))]
 const eventStatusOptions = [{ value: '', label: '全部事件状态' }, { value: 'UNRESOLVED', label: '全部未完成' }, ...Object.entries(eventStatusMeta).map(([value, meta]) => ({ value, label: meta.label }))]
 const actionStatusOptions = [{ value: '', label: '全部工单状态' }, ...Object.entries(actionStatusMeta).map(([value, meta]) => ({ value, label: meta.label }))]
@@ -543,12 +584,13 @@ const availableActionTransitions = computed(() => actionTransitions[actionDetail
 const canUpdateActiveAction = computed(() => canManageActions.value && availableActionTransitions.value.length > 0)
 const diagnosticRuleOptions = computed(() => (rules.value?.rows || []).filter(item => ['SMART_PLACEMENT_ORDER', 'ORDER_SEGMENT_THRESHOLD'].includes(item.templateCode)).map(item => ({ value: item.id, label: `${item.ruleCode} · ${item.ruleName}` })))
 const createRuleMeta = computed(() => ({
+  DAILY_SEGMENT_THRESHOLD: { title: '新建携程日累计航段监控', message: '按业务线累计当天销量', description: '北京时间出票日，三个站点合计；每五分钟检查，每日首次达到阈值提醒。' },
   ORDER_SEGMENT_THRESHOLD: { title: '新建订单航段监控', message: '分钟级增量规则', description: '只检查新进或发生变化的订单，不扫描全部历史数据。' },
   GDS_QUERY_RATIO_DAILY: { title: '新建GDS查定比日规则', message: '每日资源异常检查', description: '每日ADS同步完成后汇总检查一次；GDS使用seg_num航段数计算查定比，航段未同步完整时不会误报。' },
   OTA_SUCCESS_RATE_DAILY: { title: '新建OTA成功率日规则', message: '每日接口质量检查', description: '每日按平台及可选站点、接口分组检查查询、验价或生单成功率。' },
 }[ruleForm.value.templateCode]))
 const notifyEndpointOptions = computed(() => notifyEndpoints.value.filter(item => item.status === 'ACTIVE').map(item => ({ value: item.id, label: item.endpointName })))
-const notificationEventOptions = [{ value: 'SMART_ORDER_MATCHED', label: '智能收单命中' }, { value: 'SMART_ATTENTION_REMINDER', label: '关注首次催办' }, { value: 'SMART_ATTENTION_ESCALATED', label: '关注升级提醒' }, { value: 'SMART_POLICY_EXPIRED', label: '政策到期' }, { value: 'RESOURCE_GOVERNANCE_DAILY_ALERT', label: 'GDS/OTA资源日异常' }]
+const notificationEventOptions = [{ value: 'DAILY_SEGMENT_THRESHOLD_ALERT', label: '携程日累计航段提醒' }, { value: 'SMART_ORDER_MATCHED', label: '智能收单命中' }, { value: 'SMART_ATTENTION_REMINDER', label: '关注首次催办' }, { value: 'SMART_ATTENTION_ESCALATED', label: '关注升级提醒' }, { value: 'SMART_POLICY_EXPIRED', label: '政策到期' }, { value: 'RESOURCE_GOVERNANCE_DAILY_ALERT', label: 'GDS/OTA资源日异常' }]
 const recipientStrategyOptions = [{ value: 'TASK_ASSIGNEE', label: '投放任务负责人' }, { value: 'ATTENTION_OWNER', label: '订单关注负责人' }, { value: 'RULE_OWNER', label: '监控规则负责人' }, { value: 'NONE', label: '不动态@人员' }]
 const routeTemplateOptions = computed(() => messageTemplates.value.filter(item => item.eventCode === notifyRouteForm.value.eventCode && item.status === 'ACTIVE').map(item => ({ value: item.id, label: item.templateName })))
 const messageTemplateSourceOptions = computed(() => messageTemplates.value.map(item => ({ value: item.id, label: `${notificationEventOptions.find(event => event.value === item.eventCode)?.label || item.eventCode} · ${item.templateName}` })))
@@ -586,7 +628,7 @@ const actionTargetText = (record?: MonitorActionOrder) => {
     .map(field => `${grainLabels[field]}：${target[field]}`)
     .join(' · ')
 }
-const jobTypeName = (value: string) => ({ FEATURE_ETL: '订单特征采集', RULE_MATCH: '规则匹配', RESOURCE_DAILY: '资源治理日检查', RESOURCE_LIFECYCLE: '资源异常升级', SMART_LIFECYCLE: '智能收单闭环', NOTIFY: '通知发送' }[value] || value)
+const jobTypeName = (value: string) => ({ DAILY_SEGMENT: '携程日累计航段检查', FEATURE_ETL: '订单特征采集', RULE_MATCH: '规则匹配', RESOURCE_DAILY: '资源治理日检查', RESOURCE_LIFECYCLE: '资源异常升级', SMART_LIFECYCLE: '智能收单闭环', NOTIFY: '通知发送' }[value] || value)
 const eventActionName = (value: string) => ({ ASSIGN: '分配责任人', ACKNOWLEDGE: '确认关注', OBSERVE: '延后观察', ESCALATE: '逾期升级', RESOLVE: '已解决', IGNORE: '已忽略', CLOSE: '已关闭', STATUS_CHANGE: '状态变更', ACKNOWLEDGED: '确认关注', OBSERVING: '延后观察', ESCALATED: '逾期升级', RESOLVED: '已解决', IGNORED: '已忽略', CLOSED: '已关闭' }[value] || value)
 const isEventOverdue = (record: MonitorEvent) => !['RESOLVED', 'IGNORED', 'CLOSED'].includes(record.eventStatus) && Boolean(record.observeUntil || record.dueAt) && new Date(String(record.observeUntil || record.dueAt).replace(' ', 'T')).getTime() < Date.now()
 const summaryValue = (key: typeof summaryCards[number]['key']) => key === 'pendingNotifications' ? overview.value?.pendingNotifications : key === 'failedRuns' ? overview.value?.failedRuns : key in (overview.value?.ruleSummary || {}) ? overview.value?.ruleSummary[key as keyof MonitorOverview['ruleSummary']] : overview.value?.eventSummary[key as keyof MonitorOverview['eventSummary']]
@@ -604,7 +646,7 @@ function openSummary(key: typeof summaryCards[number]['key']) {
   if (key === 'escalatedEvents') query.status = 'ESCALATED'
   void router.push({ path: '/monitoring/alerts', query })
 }
-const fieldName = (code: string) => ({ platform_code: '平台编码', platform_name: '平台名称', site_code: '站点编码', site_name: '站点名称', ota_code: '平台编码', ota_site_code: '站点编码', gds_code: 'GDS', pcc_code: 'PCC', source_api_group: '接口分组', search_request_count_all: '查询请求量', verify_request_count_all: '验价请求量', order_request_count_all: '生单请求量', query_to_segment_ratio: '查定比', query_to_pnr_ratio: '查定比（历史口径字段）', search_success_rate: '查询成功率', verify_success_rate: '验价成功率', order_success_rate: '生单成功率', order_source: '订单来源', airline_code: '航司', departure_location_codes: '出发地', arrival_location_codes: '到达地', route_text: '航程', flight_nos: '航班号', cabin_codes: '舱位', product_type: '产品类型', journey_type: '航程类型', order_time: '订单时间', first_departure_time: '起飞时间', segment_count: '航段数' }[code] || code)
+const fieldName = (code: string) => ({ business_line: '业务线', segment_total: '当日累计航段提醒值', reference_limit: '参考上限（仅展示）', platform_code: '平台编码', platform_name: '平台名称', site_code: '站点编码', site_name: '站点名称', ota_code: '平台编码', ota_site_code: '站点编码', gds_code: 'GDS', pcc_code: 'PCC', source_api_group: '接口分组', search_request_count_all: '查询请求量', verify_request_count_all: '验价请求量', order_request_count_all: '生单请求量', query_to_segment_ratio: '查定比', query_to_pnr_ratio: '查定比（历史口径字段）', search_success_rate: '查询成功率', verify_success_rate: '验价成功率', order_success_rate: '生单成功率', order_source: '订单来源', airline_code: '航司', departure_location_codes: '出发地', arrival_location_codes: '到达地', route_text: '航程', flight_nos: '航班号', cabin_codes: '舱位', product_type: '产品类型', journey_type: '航程类型', order_time: '订单时间', first_departure_time: '起飞时间', segment_count: '航段数' }[code] || code)
 const operatorName = (code: string) => ({ EQ: '等于', IN: '属于', BETWEEN: '介于', OVERLAP: '存在交集', SUBSET_OF: '全部包含于', DISJOINT: '不得包含', GTE: '大于等于', GT: '大于', LTE: '小于等于', LT: '小于' }[code] || code)
 const conditionScalar = (value: unknown) => String(value).replace(/^(\d{4}-\d{2}-\d{2})T(?=\d{2}:\d{2})/, '$1 ')
 function formatConditionValue(raw: string) { try { const value = JSON.parse(raw); return Array.isArray(value) ? value.map(conditionScalar).join(' ～ ') : conditionScalar(value) } catch { return conditionScalar(raw) } }
@@ -653,12 +695,17 @@ async function openRuleById(id: number) { const record = rules.value?.rows.find(
 function openStatus(record: MonitorRule) { statusRule.value = record; statusForm.value = { status: record.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE', note: '' }; statusOpen.value = true }
 async function saveStatus() { if (!statusRule.value) return; saving.value = true; try { await monitoringApi.updateRuleStatus(statusRule.value.id, statusForm.value); message.success('规则状态已更新'); statusOpen.value = false; await Promise.all([loadOverview(), loadRules()]) } catch (failure) { message.error(failure instanceof Error ? failure.message : '规则状态更新失败') } finally { saving.value = false } }
 const splitValues = (value: string) => value.replace(/，/g, ',').split(',').map(item => item.trim().toUpperCase()).filter(Boolean)
-async function openCreateRule() { ruleForm.value = defaultRuleForm(); creationMode.value = 'template'; if (!ruleTemplates.value.length) await loadTemplates(); createRuleOpen.value = true }
+async function openCreateRule() { ruleForm.value = defaultRuleForm(); creationMode.value = 'template'; createRuleOpen.value = true; if (!ruleTemplates.value.length) { try { await loadTemplates() } catch { message.warning('模板目录加载失败，仍可填写；保存时会检查模板是否已部署') } } }
 async function saveNewRule() {
   if (!ruleForm.value.ruleName.trim()) { message.warning('请填写规则名称'); return }
   if (ruleForm.value.effectiveStartAt && ruleForm.value.effectiveEndAt && ruleForm.value.effectiveEndAt <= ruleForm.value.effectiveStartAt) { message.warning('失效时间必须晚于生效时间'); return }
   const conditions: MonitorRuleInput['conditions'] = []
-  if (ruleForm.value.templateCode === 'ORDER_SEGMENT_THRESHOLD') {
+  if (ruleForm.value.templateCode === 'DAILY_SEGMENT_THRESHOLD') {
+    if (!Number.isInteger(ruleForm.value.dailyThreshold) || ruleForm.value.dailyThreshold < 1) { message.warning('请填写有效的整数提醒阈值'); return }
+    if (ruleForm.value.referenceLimit != null && (!Number.isInteger(ruleForm.value.referenceLimit) || ruleForm.value.referenceLimit < ruleForm.value.dailyThreshold)) { message.warning('参考上限须为不小于提醒阈值的整数'); return }
+    conditions.push({ fieldCode: 'business_line', operatorCode: 'EQ', value: ruleForm.value.businessLine }, { fieldCode: 'segment_total', operatorCode: 'GTE', value: ruleForm.value.dailyThreshold })
+    if (ruleForm.value.referenceLimit != null) conditions.push({ fieldCode: 'reference_limit', operatorCode: 'EQ', value: ruleForm.value.referenceLimit })
+  } else if (ruleForm.value.templateCode === 'ORDER_SEGMENT_THRESHOLD') {
     if (!ruleForm.value.segmentCount || ruleForm.value.segmentCount < 1) { message.warning('请填写有效航段阈值'); return }
     conditions.push({ fieldCode: 'segment_count', operatorCode: ruleForm.value.segmentOperator, value: ruleForm.value.segmentCount })
     if (ruleForm.value.platformName.trim()) conditions.push({ fieldCode: 'platform_name', operatorCode: 'EQ', value: ruleForm.value.platformName.trim() })
@@ -690,8 +737,8 @@ async function saveNewRule() {
     if (ruleForm.value.siteCode.trim()) conditions.push({ fieldCode: 'ota_site_code', operatorCode: 'EQ', value: ruleForm.value.siteCode.trim().toUpperCase() })
     if (ruleForm.value.apiGroup.trim()) conditions.push({ fieldCode: 'source_api_group', operatorCode: 'EQ', value: ruleForm.value.apiGroup.trim() })
   }
-  const groupDimensions = ruleForm.value.templateCode === 'ORDER_SEGMENT_THRESHOLD' ? [] : ruleForm.value.groupDimensions
-  const payload: MonitorRuleInput = { templateCode: ruleForm.value.templateCode, ruleName: ruleForm.value.ruleName.trim(), severity: ruleForm.value.severity, effectiveStartAt: ruleForm.value.effectiveStartAt || undefined, effectiveEndAt: ruleForm.value.effectiveEndAt || undefined, ownerUserName: ruleForm.value.ownerUserName.trim() || undefined, scheduleSeconds: ruleForm.value.templateCode === 'ORDER_SEGMENT_THRESHOLD' ? 60 : 86400, changeReason: ruleForm.value.changeReason.trim() || undefined, notifyPolicy: { channels: ['IN_APP'], wecomEndpointIds: [] }, groupDimensions, conditions }
+  const groupDimensions = ['ORDER_SEGMENT_THRESHOLD', 'DAILY_SEGMENT_THRESHOLD'].includes(ruleForm.value.templateCode) ? [] : ruleForm.value.groupDimensions
+  const payload: MonitorRuleInput = { templateCode: ruleForm.value.templateCode, ruleName: ruleForm.value.ruleName.trim(), severity: ruleForm.value.severity, effectiveStartAt: ruleForm.value.effectiveStartAt || undefined, effectiveEndAt: ruleForm.value.effectiveEndAt || undefined, ownerUserName: ruleForm.value.ownerUserName.trim() || undefined, scheduleSeconds: ruleForm.value.templateCode === 'DAILY_SEGMENT_THRESHOLD' ? 300 : ruleForm.value.templateCode === 'ORDER_SEGMENT_THRESHOLD' ? 60 : 86400, changeReason: ruleForm.value.changeReason.trim() || undefined, notifyPolicy: { channels: ['IN_APP'], wecomEndpointIds: [] }, groupDimensions, conditions }
   saving.value = true
   try { const result = await monitoringApi.createRule(payload); message.success(`规则 ${result.ruleCode} 已创建`); createRuleOpen.value = false; await Promise.all([loadOverview(), loadRules(1)]) } catch (failure) { message.error(failure instanceof Error ? failure.message : '规则创建失败') } finally { saving.value = false }
 }
@@ -818,7 +865,16 @@ function selectMessageTemplateSource(id: number) { const source = messageTemplat
 function openCopyMessageTemplate(record?: MonitorMessageTemplate) { const source = record || messageTemplates.value.find(item => item.status === 'ACTIVE') || messageTemplates.value[0]; if (!source) { message.warning('暂无可复制的基础模板'); return } selectMessageTemplateSource(source.id); messageTemplateOpen.value = true }
 function appendTemplateField(field: { code: string; label: string }) { const line = `【${field.label}】：{${field.code}}`; if (!messageTemplateForm.value.bodyTemplate.includes(`{${field.code}}`)) messageTemplateForm.value.bodyTemplate = `${messageTemplateForm.value.bodyTemplate.trim()}\n${line}`.trim() }
 async function saveMessageTemplate() { const form = messageTemplateForm.value; if (!form.titleTemplate.trim() || !form.bodyTemplate.trim()) { message.warning('请完整填写消息标题和正文'); return } if (!form.id && (!form.sourceTemplateId || !form.templateName.trim())) { message.warning('请选择基础模板并填写模板名称'); return } saving.value = true; try { if (form.id) await monitoringApi.updateMessageTemplate(form.id, { titleTemplate: form.titleTemplate.trim(), bodyTemplate: form.bodyTemplate.trim(), status: form.status }); else await monitoringApi.createMessageTemplate({ sourceTemplateId: form.sourceTemplateId!, templateName: form.templateName.trim(), titleTemplate: form.titleTemplate.trim(), bodyTemplate: form.bodyTemplate.trim(), status: form.status }); message.success(form.id ? '消息模板已更新' : '消息模板已复制创建'); messageTemplateOpen.value = false; await loadNotificationModel() } catch (failure) { message.error(failure instanceof Error ? failure.message : '消息模板保存失败') } finally { saving.value = false } }
-function syncRouteTemplate() { const template = messageTemplates.value.find(item => item.eventCode === notifyRouteForm.value.eventCode && item.status === 'ACTIVE'); notifyRouteForm.value.templateId = template?.id }
+function syncRouteTemplate() {
+  const template = messageTemplates.value.find(item => item.eventCode === notifyRouteForm.value.eventCode && item.status === 'ACTIVE')
+  notifyRouteForm.value.templateId = template?.id
+  if (notifyRouteForm.value.eventCode === 'DAILY_SEGMENT_THRESHOLD_ALERT') {
+    notifyRouteForm.value.recipientStrategy = 'NONE'
+    notifyRouteForm.value.useSmartDefaultEndpoints = false
+    notifyRouteForm.value.endpointId = notifyEndpoints.value.find(item => item.status === 'ACTIVE' && item.endpointName === '机票1部-业务分析群')?.id
+    notifyRouteForm.value.routeName = '携程日累计航段提醒'
+  }
+}
 function openNotifyRoute(record?: MonitorNotifyRoute) { notifyRouteForm.value = record ? { id: record.id, routeName: record.routeName, eventCode: record.eventCode, templateId: record.templateId, recipientStrategy: record.recipientStrategy, endpointId: record.endpointId || undefined, useSmartDefaultEndpoints: record.useSmartDefaultEndpoints, priorityNo: record.priorityNo, status: record.status } : emptyNotifyRouteForm(); if (!record) syncRouteTemplate(); notifyRouteOpen.value = true }
 async function saveNotifyRoute() { const form = notifyRouteForm.value; if (!form.routeName.trim() || !form.templateId) { message.warning('请填写路由名称并选择消息模板'); return } if (!form.endpointId && !form.useSmartDefaultEndpoints) { message.warning('请选择通知群，或启用全部智能默认群'); return } const payload: MonitorNotifyRouteInput = { routeName: form.routeName.trim(), eventCode: form.eventCode, templateId: form.templateId, recipientStrategy: form.recipientStrategy, endpointId: form.endpointId || null, useSmartDefaultEndpoints: form.useSmartDefaultEndpoints, priorityNo: form.priorityNo, status: form.status }; saving.value = true; try { if (form.id) await monitoringApi.updateNotifyRoute(form.id, payload); else await monitoringApi.createNotifyRoute(payload); message.success('通知路由已保存'); notifyRouteOpen.value = false; await loadNotificationModel() } catch (failure) { message.error(failure instanceof Error ? failure.message : '通知路由保存失败') } finally { saving.value = false } }
 
@@ -852,7 +908,7 @@ watch(activePage, page => {
 .event-action-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0 14px; }.event-history { margin-top: 8px; padding: 14px 16px 2px; border: 1px solid #e6ebf2; border-radius: 12px; background: #fafcff; }.event-history h3 { margin: 0 0 14px; font-size: 15px; }.event-history-row { display: flex; justify-content: space-between; gap: 16px; }.event-history-row span,.event-history p { color: #667085; }.event-history p { margin: 4px 0 0; }
 .action-note { margin: 12px 0 0; padding: 12px; border-radius: 8px; color: #475467; background: #f7f9fc; white-space: pre-wrap; }
 .detail-hero { margin: -8px 0 18px; padding: 20px; border: 1px solid #d9e4f2; border-radius: 13px; background: linear-gradient(135deg,#f3f7fd,#fff); }.detail-hero > span { color: #718198; font-size: 11px; }.detail-hero h2 { margin: 4px 0 10px; color: #253a58; font-size: 20px; }.detail-section { margin-bottom: 15px; padding: 16px; border: 1px solid #e4e9f0; border-radius: 11px; }.detail-section h3 { margin: 0 0 12px; color: #31445f; font-size: 14px; }.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }.detail-grid > div { padding: 10px 12px; border-radius: 8px; background: #f7f9fc; }.detail-grid label,.detail-grid span { display: block; }.detail-grid label { color: #8a95a8; font-size: 11px; }.detail-grid span { margin-top: 3px; color: #344054; }.condition-list { display: grid; gap: 8px; }.condition-list article { display: grid; grid-template-columns: 120px 90px minmax(0,1fr) auto; align-items: center; gap: 9px; padding: 10px 12px; border-radius: 8px; background: #f7f9fc; }.condition-list code { overflow: hidden; color: #344054; text-overflow: ellipsis; white-space: nowrap; }.status-form { margin-top: 18px; }.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin: 18px -24px -24px; padding: 14px 24px; border-top: 1px solid #e5eaf1; }
-.rule-form { margin-top: 18px; }.grain-hint { display: block; color: #7c8798; font-size: 11px; line-height: 1.6; }.muted-text { color: #98a2b3; font-size: 12px; }.rule-form-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0 14px; }.rule-form-grid .span-2 { grid-column: span 2; }.compact-fields { display: grid; grid-template-columns: 48% 52%; }.compact-fields > :first-child { border-radius: 6px 0 0 6px; }.compact-fields > :last-child { width: 100%; margin-left: -1px; border-radius: 0 6px 6px 0; }
+.rule-form { margin-top: 18px; max-height: calc(100dvh - 300px); overflow-y: auto; overflow-x: hidden; }.grain-hint { display: block; color: #7c8798; font-size: 11px; line-height: 1.6; }.muted-text { color: #98a2b3; font-size: 12px; }.rule-form-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0 14px; }.rule-form-grid .span-2 { grid-column: span 2; }.compact-fields { display: grid; grid-template-columns: 48% 52%; }.compact-fields > :first-child { border-radius: 6px 0 0 6px; }.compact-fields > :last-child { width: 100%; margin-left: -1px; border-radius: 0 6px 6px 0; }
 .endpoint-tip { margin-bottom: 14px; }.endpoint-form { margin-top: 16px; }.endpoint-switches,.route-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }.monitor-panel code { color: #526276; font-size: 12px; }.notification-tab-toolbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; }.notification-tab-toolbar h3,.notification-tab-toolbar p { margin: 0; }.notification-tab-toolbar p { margin-top: 4px; color: #7e8a9d; font-size: 11px; }.notification-model-grid { display: grid; grid-template-columns: .9fr 1.1fr; gap: 14px; margin-top: 18px; }.notification-model-card { min-width: 0; padding: 15px; border: 1px solid #e3e9f0; border-radius: 11px; background: #fbfcfe; }.notification-model-card > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }.notification-model-card h3,.notification-model-card p { margin: 0; }.notification-model-card p { margin-top: 4px; color: #7e8a9d; font-size: 11px; line-height: 1.5; }
 .template-card-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; }.template-card-grid article { min-width: 0; padding: 18px; border: 1px solid #e2e9f1; border-radius: 12px; background: #fbfcfe; }.template-card-grid header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }.template-card-grid header span,.template-card-grid header code { display: block; color: #78869a; font-size: 10px; }.template-card-grid h3 { margin: 4px 0; color: #2d405b; }.template-card-grid > article > p { min-height: 42px; color: #667085; line-height: 1.6; }.template-meta { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin: 14px 0; }.template-meta span { padding: 9px; border-radius: 7px; color: #8994a5; font-size: 10px; background: #f1f5f9; }.template-meta strong { display: block; margin-top: 3px; color: #344054; font-size: 11px; }.template-fields { display: flex; flex-wrap: wrap; gap: 6px; }
 .template-field-list { display: flex; flex-wrap: wrap; gap: 8px; }.template-field-list button { display: inline-flex; align-items: center; gap: 7px; padding: 6px 9px; border: 1px solid #d9e4f0; border-radius: 7px; color: #344054; background: #f8fbff; cursor: pointer; }.template-field-list button:hover { border-color: #69a5df; background: #eef6ff; }.template-field-list code { color: #4f6f95; }.message-preview { min-height: 180px; max-height: 340px; margin: 0; padding: 16px; overflow: auto; border: 1px solid #dce5ef; border-radius: 9px; color: #26384f; font: 13px/1.75 ui-monospace,SFMono-Regular,Consolas,monospace; white-space: pre-wrap; background: #f7f9fc; }
