@@ -286,6 +286,12 @@ function exportRows() { guardSmartExport(data.value?.total ?? 0, runExport) }
 async function backToSource() { const context = store.restoreDrillSource(); if (!context) return; await router.push(context.sourcePath); requestAnimationFrame(() => window.scrollTo({ top: context.scrollY })) }
 
 onMounted(() => {
+  if (route.query.fromMissed === '1' && typeof route.query.otaOrderNo === 'string') {
+    for (const key of Object.keys(pageState.draft)) (pageState.draft as Record<string, string>)[key] = ''
+    pageState.draft.otaOrderNo = route.query.otaOrderNo
+    pageState.draft.platform = typeof route.query.platform === 'string' ? route.query.platform : ''
+    pageState.applied = { ...pageState.draft }
+  }
   const queryType = String(route.query.smartType || '') as SmartType; const queryStage = String(route.query.stage || '') as SmartStage
   if (['all', 'down', 'void'].includes(queryType)) pageState.smartType = queryType
   if (stageOptions.value.some(item => item.value === queryStage)) stage.value = queryStage

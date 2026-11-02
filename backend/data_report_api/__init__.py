@@ -72,6 +72,8 @@ def required_menu_code(path: str) -> str | None:
         return "smart"
     if path.startswith("/api/v1/smart-analysis/filter-options"):
         return "smart"
+    if path.startswith("/api/v1/smart-placement/missed-orders"):
+        return "smart.placement.missed"
     if path.startswith("/api/v1/smart-placement/orders"):
         return "smart.placement.orders"
     if path.startswith("/api/v1/smart-placement"):
@@ -106,6 +108,7 @@ def create_app(config: type[Config] = Config, auth_store=None) -> Flask:
             return manager.store.get_user_by_id(int(user_id))
 
         app.config["HR_MAIL_USER_RESOLVER"] = resolve_hr_mail_user
+        app.config["MISSED_ORDER_USER_RESOLVER"] = resolve_hr_mail_user
         def resolve_adm_user(user_id):
             user = manager.store.get_user_by_id(int(user_id))
             if user and "adm.scope.team" in set(user.get("permissions") or []):

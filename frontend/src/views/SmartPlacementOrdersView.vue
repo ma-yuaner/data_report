@@ -18,6 +18,7 @@
       <div><h2>收单监控与跟进</h2><p>汇总已投放政策命中的真实订单，识别需要立即关注的来单，并展示平台、航司、政策、人员和处理状态。</p></div>
       <a-button class="hero-action" :loading="loading" @click="load(1)"><ReloadOutlined /> 刷新当前结果</a-button>
     </section>
+    <a-alert v-if="filters.otaOrderNo" type="info" show-icon class="page-alert" :message="`正在精确查询订单 ${filters.otaOrderNo}，不限制命中日期；点击重置退出精确查询。`" />
 
     <div class="summary-grid">
       <article v-for="card in summaryCards" :key="card.key" class="summary-card">
@@ -141,6 +142,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import {
   Drawer as ADrawer,
   Empty as AEmpty,
@@ -170,7 +172,8 @@ const page = ref(1)
 const pageSize = ref(30)
 const today = businessToday()
 const dateRange = ref<[string, string]>([`${today.slice(0, 7)}-01`, today])
-const filters = ref({ keyword: '', attentionStatus: '', platform: '', airline: '', owner: '' })
+const route = useRoute()
+const filters = ref({ keyword: '', attentionStatus: '', platform: '', airline: '', owner: '', otaOrderNo: '' })
 const detailOpen = ref(false)
 const attentionOpen = ref(false)
 const activeOrder = ref<PlacementOrderRow>()
@@ -278,7 +281,7 @@ async function load(targetPage = page.value, automatic = false) {
 }
 function resetFilters() {
   dateRange.value = [`${today.slice(0, 7)}-01`, today]
-  filters.value = { keyword: '', attentionStatus: '', platform: '', airline: '', owner: '' }
+  filters.value = { keyword: '', attentionStatus: '', platform: '', airline: '', owner: '', otaOrderNo: '' }
   void load(1)
 }
 function changePage(value: { current?: number; pageSize?: number }) {
@@ -308,6 +311,10 @@ async function saveAttention() {
 
 let refreshTimer: ReturnType<typeof setInterval> | undefined
 onMounted(() => {
+  if (typeof route.query.otaOrderNo === 'string') {
+    filters.value.otaOrderNo = route.query.otaOrderNo
+    filters.value.platform = typeof route.query.platform === 'string' ? route.query.platform : ''
+  }
   void load(1)
   refreshTimer = setInterval(() => {
     if (!document.hidden && !loading.value && !attentionOpen.value && !saving.value) void load(page.value, true)

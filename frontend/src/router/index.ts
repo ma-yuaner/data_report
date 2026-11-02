@@ -54,6 +54,7 @@ const router = createRouter({
         { path: 'smart-analysis/details', name: 'smart-details', component: () => import('@/views/SmartDetailView.vue'), meta: { title: '出票明细', section: '智能分析', menuCode: 'smart.details' } },
         { path: 'smart-analysis/placement/policies', name: 'smart-placement-policies', component: () => import('@/views/SmartPlacementPolicyView.vue'), meta: { title: '投放政策', section: '智能分析', menuCode: 'smart.placement.policies' } },
         { path: 'smart-analysis/placement/orders', name: 'smart-placement-orders', component: () => import('@/views/SmartPlacementOrdersView.vue'), meta: { title: '收单情况', section: '智能分析', menuCode: 'smart.placement.orders' } },
+        { path: 'smart-analysis/placement/missed-orders', name: 'smart-placement-missed-orders', component: () => import('@/views/SmartMissedOrdersView.vue'), meta: { title: '漏处理订单', section: '智能分析', menuCode: 'smart.placement.missed' } },
         { path: 'business-configuration', redirect: '/business-configuration/targets' },
         { path: 'business-configuration/targets', name: 'target-management', component: () => import('@/views/TargetManagementView.vue'), meta: { title: '目标配置', section: '业务配置', menuCode: 'business_config.targets' } },
         { path: 'business-configuration/target-progress', name: 'target-progress', component: () => import('@/views/TargetProgressView.vue'), meta: { title: '目标进度', section: '业务配置', menuCode: 'business_config.target_progress' } },

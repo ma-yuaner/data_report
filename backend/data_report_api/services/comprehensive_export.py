@@ -42,10 +42,12 @@ SMART_TREND_DAILY_KIND = "smart_trend_daily"
 SMART_TREND_MONTHLY_KIND = "smart_trend_monthly"
 SMART_DIMENSIONS_KIND = "smart_dimensions"
 SMART_DETAILS_KIND = "smart_details"
+MISSED_ORDERS_KIND = "smart_missed_orders"
 ADM_CASES_KIND = "adm_cases"
 ADM_LINES_KIND = "adm_lines"
 HR_MAIL_FILE_KIND = "hr_mail_file"
 BACKGROUND_EXPORT_KINDS = {
+    MISSED_ORDERS_KIND,
     ADM_CASES_KIND,
     ADM_LINES_KIND,
     HR_MAIL_FILE_KIND,
@@ -58,6 +60,7 @@ BACKGROUND_EXPORT_KINDS = {
     SMART_DETAILS_KIND,
 }
 TASK_LABELS = {
+    MISSED_ORDERS_KIND: "漏处理订单",
     ADM_CASES_KIND: "ADM主单",
     ADM_LINES_KIND: "ADM订单明细",
     HR_MAIL_FILE_KIND: "HR邮件附件",
@@ -99,6 +102,12 @@ def _require_export(user: dict[str, Any]) -> None:
 
 def _require_kind(user: dict[str, Any], kind: str) -> None:
     menu_codes = set(user.get("menu_codes") or user.get("menuCodes") or [])
+    if kind == MISSED_ORDERS_KIND:
+        from .missed_orders import require_menu, EXPORT_PERMISSION as MISSED_EXPORT_PERMISSION
+        require_menu(user)
+        if not (_is_admin(user) or MISSED_EXPORT_PERMISSION in permission_codes(user)):
+            raise PermissionError("当前账号没有漏处理订单导出权限")
+        return
     if kind == HR_MAIL_FILE_KIND:
         if not (_is_admin(user) or "hr.mail" in menu_codes):
             raise PermissionError("当前账号没有HR报表邮件菜单权限")
@@ -553,6 +562,8 @@ class ComprehensiveExportService:
         _require_kind(user, row["business_type"])
         if row["business_type"] in {ADM_CASES_KIND, ADM_LINES_KIND}:
             self._validate_adm_export(user, json.loads(row["filters_json"])["_admSelection"])
+        elif row["business_type"] == MISSED_ORDERS_KIND:
+            self._missed_export_actor(int(user['id']), json.loads(row['filters_json']))
         elif row["business_type"] == HR_MAIL_FILE_KIND:
             values = json.loads(row["filters_json"])
             self._hr_mail_file(user, values)
@@ -632,7 +643,15 @@ class ComprehensiveExportService:
             raise ValueError("不支持的导出任务类型")
         _require_kind(user, kind)
         payload = {str(key): value for key, value in values.items() if key != "kind" and not str(key).startswith("_adm")}
-        if kind == HR_MAIL_FILE_KIND:
+        if kind == MISSED_ORDERS_KIND:
+            from .missed_orders import MissedOrdersService, MissedOrdersUnavailable, normalize
+            payload = normalize(payload)
+            actor = self._missed_export_actor(int(user['id']))
+            try:
+                payload['_missedScope'] = MissedOrdersService(self.config).scope_signature(actor)
+            except MissedOrdersUnavailable as error:
+                raise ComprehensiveExportUnavailable(str(error)) from error
+        elif kind == HR_MAIL_FILE_KIND:
             batch_id = str(payload.get("batchId") or "").strip()
             file_id = str(payload.get("fileId") or "").strip()
             if not batch_id or not file_id or len(batch_id) > 100 or len(file_id) > 100:
@@ -662,6 +681,24 @@ class ComprehensiveExportService:
         )
         self._start_worker()
         return task
+
+    def _missed_export_actor(self, user_id: int, values=None):
+        from .missed_orders import MissedOrdersService, MissedOrdersUnavailable
+        resolver = self.config.get('MISSED_ORDER_USER_RESOLVER')
+        if not callable(resolver):
+            raise PermissionError('漏处理导出缺少可信账号解析器')
+        actor = resolver(user_id)
+        if not actor or not actor.get('is_enabled',True):
+            raise PermissionError('账号已停用或不存在')
+        _require_kind(actor, MISSED_ORDERS_KIND)
+        if values:
+            try:
+                signature = MissedOrdersService(self.config).scope_signature(actor)
+            except MissedOrdersUnavailable as error:
+                raise ComprehensiveExportUnavailable(str(error)) from error
+            if values.get('_missedScope') != signature:
+                raise PermissionError('人员可见范围已变化，请重新创建导出任务')
+        return actor
 
     def _hr_mail_file(self, user: dict[str, Any], values: dict[str, Any]):
         from .hr_mail.service import Service as HrMailService
@@ -735,7 +772,19 @@ class ComprehensiveExportService:
         exported_rows = 1
         if self.store.cancellation_requested(task_id):
             raise ComprehensiveExportCancelled()
-        if kind in {ADM_CASES_KIND, ADM_LINES_KIND}:
+        if kind == MISSED_ORDERS_KIND:
+            from .missed_orders import MissedOrdersService, MissedOrdersCancelled
+            actor = self._missed_export_actor(int(task['user_id']),values)
+            def update_missed_total(total):
+                nonlocal exported_rows
+                exported_rows = total
+                self.store.set_total(task_id,total)
+            try:
+                content,name = MissedOrdersService(self.config).export(actor,values,on_total=update_missed_total,
+                    cancelled=lambda: self.store.cancellation_requested(task_id))
+            except MissedOrdersCancelled as error:
+                raise ComprehensiveExportCancelled() from error
+        elif kind in {ADM_CASES_KIND, ADM_LINES_KIND}:
             from .adm.exchange import export_workbook
             resolver = self.config.get("ADM_USER_RESOLVER")
             if not callable(resolver):

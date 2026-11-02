@@ -67,10 +67,11 @@
               <a-menu-item v-if="canSeeMenu('smart.dimensions')" key="/smart-analysis/dimensions">维度分析</a-menu-item>
               <a-menu-item v-if="canSeeMenu('smart.details')" key="/smart-analysis/details">出票明细</a-menu-item>
             </a-sub-menu>
-            <a-sub-menu v-if="canSeeMenu('smart.placement.policies') || canSeeMenu('smart.placement.orders')" key="smart-placement">
+            <a-sub-menu v-if="canSeeMenu('smart.placement.policies') || canSeeMenu('smart.placement.orders') || canSeeMenu('smart.placement.missed')" key="smart-placement">
               <template #title>智能投放</template>
               <a-menu-item v-if="canSeeMenu('smart.placement.policies')" key="/smart-analysis/placement/policies">投放政策</a-menu-item>
               <a-menu-item v-if="canSeeMenu('smart.placement.orders')" key="/smart-analysis/placement/orders">收单情况</a-menu-item>
+              <a-menu-item v-if="canSeeMenu('smart.placement.missed')" key="/smart-analysis/placement/missed-orders">漏处理订单</a-menu-item>
             </a-sub-menu>
           </a-sub-menu>
           <a-sub-menu v-if="canSeeGroup('business_config')" key="business-configuration">
@@ -188,7 +189,7 @@ const headerTag = computed(() => route.path === '/home' ? '数据工作台' : ro
 const canSeeMenu = (code: string) => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.menuCodes?.includes(code))
 const canSeeGroup = (code: string) => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.menuCodes?.some(item => item === code || item.startsWith(`${code}.`)))
 const canViewMonitorActions = computed(() => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.permissions?.includes('monitor.action.view')))
-const exportMenuCodes = new Set(['adm.center', 'gds_route.diagnosis', 'governance.gds', 'governance.ota', 'smart.overview', 'smart.dimensions', 'smart.details'])
+const exportMenuCodes = new Set(['adm.center', 'gds_route.diagnosis', 'governance.gds', 'governance.ota', 'smart.overview', 'smart.dimensions', 'smart.details', 'smart.placement.missed'])
 const canExport = computed(() => Boolean(authStore.user?.isAdmin)
   || Boolean(authStore.user?.permissions?.includes('analysis.comprehensive.export'))
   || Boolean(authStore.user?.menuCodes?.some(code => exportMenuCodes.has(code))))

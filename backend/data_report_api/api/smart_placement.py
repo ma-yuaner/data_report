@@ -249,6 +249,7 @@ def register_routes(api: Blueprint) -> None:
                     start_date=request.args.get("startDate", ""),
                     end_date=request.args.get("endDate", ""),
                     attention_status=request.args.get("attentionStatus", ""),
+                    ota_order_no=request.args.get("otaOrderNo", ""),
                     platform=request.args.get("platform", ""),
                     airline=request.args.get("airline", ""),
                     owner=request.args.get("owner", ""),

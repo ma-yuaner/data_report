@@ -1705,19 +1705,48 @@ class SmartPlacementService:
             if cursor is not None: cursor.close()
             if connection is not None: connection.close()
 
+    def related_order_matches(self, user: dict[str, Any], ota_order_no: str, platform: str) -> dict[str, Any]:
+        if not (_is_admin(user) or 'smart.placement.orders' in (user.get('menu_codes') or user.get('menuCodes') or [])):
+            raise PermissionError('当前账号没有收单情况权限')
+        visibility, params = self._order_visibility_condition(user)
+        connection = cursor = None
+        try:
+            connection = self.source.connect(); cursor = connection.cursor()
+            cursor.execute(f"""SELECT m.id,m.task_id,m.external_policy_id,m.attention_status,m.matched_at,
+                t.task_no,t.opportunity_name FROM {self._table(MATCH_TABLE)} m
+                JOIN {self._table(TASK_TABLE)} t ON t.id=m.task_id
+                WHERE m.ota_order_no=%s AND m.platform_name=%s AND {visibility}
+                ORDER BY m.matched_at DESC,m.id DESC LIMIT 101""",
+                tuple([_text(ota_order_no,'OTA订单号',50),_text(platform,'平台',100),*params]))
+            rows = _dict_rows(cursor,list(cursor.fetchall()))
+            return {'available':True,'rows':[_public_row(row) for row in rows[:100]],'truncated':len(rows)>100,
+                    'message':'仅展示当前权限内、平台和订单号均相同的真实命中记录；没有记录不代表从未投放。'}
+        except (PermissionError,ValueError):
+            raise
+        except Exception as error:
+            raise SmartPlacementUnavailable('投放关联暂不可用，请检查投放监控配套表') from error
+        finally:
+            if cursor is not None: cursor.close()
+            if connection is not None: connection.close()
+
     def list_orders(
         self, *, user: dict[str, Any], start_date: str = "", end_date: str = "", attention_status: str = "",
         platform: str = "", airline: str = "", owner: str = "", keyword: str = "",
-        page: int = 1, page_size: int = 30,
+        page: int = 1, page_size: int = 30, ota_order_no: str = "",
     ) -> dict[str, Any]:
-        first = _date_value(start_date, "开始日期") or _business_now().date()
-        last = _date_value(end_date, "结束日期") or first
+        exact_order = _text(ota_order_no, "OTA订单号", 50)
+        first = _business_now().date() if exact_order else _date_value(start_date, "开始日期") or _business_now().date()
+        last = first if exact_order else _date_value(end_date, "结束日期") or first
         if last < first or (last - first).days > 366:
             raise ValueError("订单查询日期范围不合法或超过366天")
         page = max(1, int(page)); page_size = max(1, min(int(page_size), 100))
         visibility, visibility_params = self._order_visibility_condition(user)
-        where = ["m.matched_at >= %s", "m.matched_at < %s", visibility]
-        params: list[Any] = [datetime.combine(first, time.min), datetime.combine(last + timedelta(days=1), time.min), *visibility_params]
+        if exact_order:
+            where = [visibility,"m.ota_order_no=%s"]
+            params: list[Any] = [*visibility_params,exact_order]
+        else:
+            where = ["m.matched_at >= %s", "m.matched_at < %s",visibility]
+            params = [datetime.combine(first, time.min), datetime.combine(last + timedelta(days=1), time.min),*visibility_params]
         if attention_status:
             where.append("m.attention_status=%s"); params.append(_text(attention_status, "关注状态", 20))
         if platform:

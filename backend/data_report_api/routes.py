@@ -7,7 +7,10 @@ from .api import hr_mail
 
 from .api import targets, core, resource_governance, telemetry, dashboard, analysis, smart_analysis, smart_placement, monitoring, risk_upload
 
+from .api import missed_orders
+
 api = Blueprint("api", __name__)
+missed_orders.register_routes(api)
 
 adm.register_routes(api)
 adm_exchange.register_routes(api)

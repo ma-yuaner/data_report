@@ -195,7 +195,7 @@ def test_admin_can_manage_users_and_ordinary_user_cannot(auth_client):
     assert menu_assigned.status_code == 200
     assert menu_assigned.get_json()["data"]["menuCodes"] == [
         "smart", "smart.comprehensive", "smart.details", "smart.dimensions", "smart.overview",
-        "smart.placement.orders", "smart.placement.policies",
+        "smart.placement.missed", "smart.placement.orders", "smart.placement.policies",
     ]
 
     duplicate_email = auth_client.post(
