@@ -132,8 +132,8 @@
             <PlacementField label="航司" required state="数据下拉" hint="来自综合分析ADS的航司代码"><a-select v-model:value="taskForm.airlineCode" :options="airlineSelectOptions" :loading="dimensionsLoading" show-search option-filter-prop="label" allow-clear placeholder="请选择航司" /></PlacementField>
             <PlacementField label="航程类型" hint="单程、往返或多程"><a-select v-model:value="taskForm.journeyType" :options="journeyOptions" allow-clear placeholder="请选择航程类型" /></PlacementField>
             <PlacementField label="航段类型" hint="直达或中转；与单程、往返是两个不同维度"><a-select v-model:value="taskForm.segmentType" :options="segmentTypeOptions" allow-clear placeholder="请选择航段类型" /></PlacementField>
-            <PlacementField label="出发地" hint="填写城市或机场三字码"><a-input v-model:value="taskForm.departureCode" placeholder="例如：PVG" /></PlacementField>
-            <PlacementField label="到达地" hint="填写城市或机场三字码"><a-input v-model:value="taskForm.arrivalCode" placeholder="例如：KUL" /></PlacementField>
+            <PlacementField label="出发地"><PlacementLocationSelect v-model:type="taskForm.departureType" v-model:code="taskForm.departureCode" label="出发地" /></PlacementField>
+            <PlacementField label="目的地"><PlacementLocationSelect v-model:type="taskForm.arrivalType" v-model:code="taskForm.arrivalCode" label="目的地" /></PlacementField>
             <PlacementField label="航班号" hint="多个航班号使用英文逗号分隔"><a-input v-model:value="taskForm.flightNos" placeholder="例如：HO1366,HO1365" /></PlacementField>
             <PlacementField label="包含舱位" hint="允许匹配的舱位，例如：Y,B,M"><a-input v-model:value="taskForm.includeCabins" placeholder="请输入包含舱位" /></PlacementField>
             <PlacementField label="排除舱位" hint="明确禁止匹配的舱位，例如：X,N"><a-input v-model:value="taskForm.excludeCabins" placeholder="请输入排除舱位" /></PlacementField>
@@ -252,8 +252,8 @@
             <PlacementField label="站点编码" hint="由站点名称自动带出"><a-input v-model:value="executionForm.siteCode" readonly /></PlacementField>
             <PlacementField label="航司" required><a-select v-model:value="executionForm.airlineCode" :options="executionAirlineOptions" :loading="dimensionsLoading" show-search option-filter-prop="label" allow-clear placeholder="请选择航司" /></PlacementField>
             <PlacementField label="航段类型"><a-select v-model:value="executionForm.segmentType" :options="segmentTypeOptions" allow-clear placeholder="请选择航段类型" /></PlacementField>
-            <PlacementField label="出发地"><a-input v-model:value="executionForm.departureCode" /></PlacementField>
-            <PlacementField label="到达地"><a-input v-model:value="executionForm.arrivalCode" /></PlacementField>
+            <PlacementField label="出发地"><PlacementLocationSelect v-model:type="executionForm.departureType" v-model:code="executionForm.departureCode" label="实际出发地" /></PlacementField>
+            <PlacementField label="目的地"><PlacementLocationSelect v-model:type="executionForm.arrivalType" v-model:code="executionForm.arrivalCode" label="实际目的地" /></PlacementField>
             <PlacementField label="航班号"><a-input v-model:value="executionForm.flightNos" /></PlacementField>
             <PlacementField label="包含舱位"><a-input v-model:value="executionForm.includeCabins" /></PlacementField>
             <PlacementField label="排除舱位"><a-input v-model:value="executionForm.excludeCabins" /></PlacementField>
@@ -338,8 +338,8 @@
                   <a-descriptions-item label="航司">{{ detail.task.airlineCode }}</a-descriptions-item>
                   <a-descriptions-item label="航程类型">{{ journeyLabel(detail.task.journeyType) }}</a-descriptions-item>
                   <a-descriptions-item label="航段类型">{{ segmentTypeLabel(detail.task.segmentType) }}</a-descriptions-item>
-                  <a-descriptions-item label="出发地">{{ valueOrDash(detail.task.departureCode, '不限') }}</a-descriptions-item>
-                  <a-descriptions-item label="到达地">{{ valueOrDash(detail.task.arrivalCode, '不限') }}</a-descriptions-item>
+                  <a-descriptions-item label="出发地">{{ placementLocationName(detail.task.departureType, detail.task.departureCode) }}</a-descriptions-item>
+                  <a-descriptions-item label="目的地">{{ placementLocationName(detail.task.arrivalType, detail.task.arrivalCode) }}</a-descriptions-item>
                   <a-descriptions-item label="航班号">{{ valueOrDash(detail.task.flightNos, '不限') }}</a-descriptions-item>
                   <a-descriptions-item label="包含舱位">{{ valueOrDash(detail.task.includeCabins, '不限') }}</a-descriptions-item>
                   <a-descriptions-item label="排除舱位">{{ valueOrDash(detail.task.excludeCabins, '无') }}</a-descriptions-item>
@@ -450,6 +450,8 @@ import { ReloadOutlined, SearchOutlined } from '@ant-design/icons-vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '@/components/PageHeader.vue'
 import PlacementField from '@/components/PlacementField.vue'
+import PlacementLocationSelect from '@/components/PlacementLocationSelect.vue'
+import { placementLocationName, placementRouteName } from '@/utils/placementLocation'
 import PlacedPolicyChangeDialog from '@/components/PlacedPolicyChangeDialog.vue'
 import { useAuthStore } from '@/stores/auth'
 import {
@@ -582,7 +584,7 @@ const formatter = new Intl.NumberFormat('zh-CN', { minimumFractionDigits: 2, max
 const number = (value: number | null | undefined) => new Intl.NumberFormat('zh-CN').format(Number(value || 0))
 const money = (value: string | number | null | undefined) => value == null ? '—' : formatter.format(Number(value))
 const displayTime = (value: unknown) => value ? String(value).replace('T', ' ').slice(0, 16) : '—'
-const routeName = (record?: Partial<PlacementTaskRow>) => [record?.departureCode, record?.arrivalCode].filter(Boolean).join('-') || '不限航程'
+const routeName = (record?: Partial<PlacementTaskRow>) => placementRouteName(record)
 function orderSourceValues(value: unknown): string[] {
   const rawValues = Array.isArray(value) ? value : String(value || '').split(/[,，;；]+/)
   const cleaned = rawValues.map(item => String(item).trim())
@@ -593,7 +595,7 @@ const valueOrDash = (value: unknown, fallback = '—') => value === null || valu
 const numberValue = (value: unknown, unit: string) => value === null || value === undefined || value === '' ? '—' : `${new Intl.NumberFormat('zh-CN').format(Number(value))} ${unit}`
 const moneyValue = (value: unknown) => value === null || value === undefined || value === '' ? '—' : `${formatter.format(Number(value))} 元`
 const percentValue = (value: unknown) => value === null || value === undefined || value === '' ? '待同步' : `${(Number(value) * 100).toFixed(1)}%`
-const monitorFieldNames: Record<string, string> = { platform_name: '平台名称', site_name: '站点名称', order_source: '订单来源', airline_code: '航司', departure_location_codes: '出发地', arrival_location_codes: '到达地', flight_nos: '航班号', cabin_codes: '舱位', product_type: '产品类型', trip_type: '航程类型', journey_type: '航段类型', advance_sale_days: '提前销售天数', estimated_profit_cny: '预估利润', order_time: '销售时间', first_departure_time: '去程旅行时间' }
+const monitorFieldNames: Record<string, string> = { platform_name: '平台名称', site_name: '站点名称', order_source: '订单来源', airline_code: '航司', departure_location_codes: '历史出发地', arrival_location_codes: '历史目的地', departure_airport: '覆盖出发机场', arrival_airport: '覆盖目的机场', flight_nos: '航班号', cabin_codes: '舱位', product_type: '产品类型', trip_type: '航程类型', journey_type: '航段类型', advance_sale_days: '提前销售天数', estimated_profit_cny: '预估利润', order_time: '销售时间', first_departure_time: '去程旅行时间' }
 const monitorOperatorNames: Record<string, string> = { EQ: '等于', IN: '属于', BETWEEN: '介于', OVERLAP: '存在交集', SUBSET_OF: '全部属于', DISJOINT: '不包含', GTE: '大于等于', LTE: '小于等于', GT: '大于', LT: '小于' }
 const monitorFieldName = (value: string) => monitorFieldNames[value] || value
 const monitorOperatorName = (value: string) => monitorOperatorNames[value] || value
@@ -635,7 +637,7 @@ function businessToday() { return new Date().toLocaleDateString('sv-SE', { timeZ
 function plusDays(day: string, amount: number) { const value = new Date(`${day}T00:00:00+08:00`); value.setDate(value.getDate() + amount); return value.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' }) }
 function blankTask(): PlacementTaskInput {
   const today = businessToday()
-  return { opportunityName: '', opportunitySource: 'MANUAL', analysisRuleCode: '', analysisStartDate: `${today.slice(0, 7)}-01`, analysisEndDate: today, platformCode: '', platformName: '', siteCode: '', siteName: '', airlineCode: '', departureCode: '', arrivalCode: '', journeyType: '', segmentType: '', flightNos: '', includeCabins: '', excludeCabins: '', productType: '', orderSource: [], orderStartDate: today, orderEndDate: plusDays(today, 7), advanceSaleDays: undefined, travelStartDate: today, travelEndDate: plusDays(today, 30), placementMethod: '', lossThresholdMin: undefined, lossThresholdMax: undefined, longTerm: false, analysisConclusion: '', riskNote: '', priority: 'MEDIUM', expectedCompleteAt: `${plusDays(today, 1)} 18:00:00`, suggestedEffectiveStart: `${today} 00:00:00`, suggestedEffectiveEnd: `${plusDays(today, 7)} 23:59:59`, submit: false }
+  return { opportunityName: '', opportunitySource: 'MANUAL', analysisRuleCode: '', analysisStartDate: `${today.slice(0, 7)}-01`, analysisEndDate: today, platformCode: '', platformName: '', siteCode: '', siteName: '', airlineCode: '', departureType: 'AIRPORT', arrivalType: 'AIRPORT', departureCode: '', arrivalCode: '', journeyType: '', segmentType: '', flightNos: '', includeCabins: '', excludeCabins: '', productType: '', orderSource: [], orderStartDate: today, orderEndDate: plusDays(today, 7), advanceSaleDays: undefined, travelStartDate: today, travelEndDate: plusDays(today, 30), placementMethod: '', lossThresholdMin: undefined, lossThresholdMax: undefined, longTerm: false, analysisConclusion: '', riskNote: '', priority: 'MEDIUM', expectedCompleteAt: `${plusDays(today, 1)} 18:00:00`, suggestedEffectiveStart: `${today} 00:00:00`, suggestedEffectiveEnd: `${plusDays(today, 7)} 23:59:59`, submit: false }
 }
 const taskForm = ref<PlacementTaskInput>(blankTask())
 
@@ -705,7 +707,7 @@ function taskToForm(task: Record<string, string | number | boolean | null>): Pla
   return {
     opportunityName: String(task.opportunityName || ''), opportunitySource: String(task.opportunitySource || 'MANUAL'), analysisRuleCode: String(task.analysisRuleCode || ''),
     analysisStartDate: String(task.analysisStartDate || ''), analysisEndDate: String(task.analysisEndDate || ''), platformCode: String(task.platformCode || ''), platformName: String(task.platformName || ''),
-    siteCode: String(task.siteCode || ''), siteName: String(task.siteName || ''), airlineCode: String(task.airlineCode || ''), departureCode: String(task.departureCode || ''), arrivalCode: String(task.arrivalCode || ''),
+    siteCode: String(task.siteCode || ''), siteName: String(task.siteName || ''), airlineCode: String(task.airlineCode || ''), departureType: (task.departureType || 'LEGACY') as PlacementTaskInput['departureType'], arrivalType: (task.arrivalType || 'LEGACY') as PlacementTaskInput['arrivalType'], departureCode: String(task.departureCode || ''), arrivalCode: String(task.arrivalCode || ''),
     journeyType: String(task.journeyType || ''), segmentType: String(task.segmentType || ''), flightNos: String(task.flightNos || ''), includeCabins: String(task.includeCabins || ''), excludeCabins: String(task.excludeCabins || ''), productType: String(task.productType || ''), orderSource: orderSourceValues(task.orderSource),
     orderStartDate: String(task.orderStartDate || ''), orderEndDate: String(task.orderEndDate || ''), advanceSaleDays: optionalNumber(task.advanceSaleDays), travelStartDate: String(task.travelStartDate || ''), travelEndDate: String(task.travelEndDate || ''),
     placementMethod: String(task.placementMethod || ''), lossThresholdMin: optionalNumber(task.lossThresholdMin), lossThresholdMax: optionalNumber(task.lossThresholdMax), longTerm: yesNo(task.longTermFlag) === '是', suggestedEffectiveStart: String(task.suggestedEffectiveStart || ''), suggestedEffectiveEnd: String(task.suggestedEffectiveEnd || ''),
@@ -749,6 +751,8 @@ function openCreateFromAnalysis() {
   form.platformName = queryText('platformName')
   form.siteName = queryText('siteName')
   form.airlineCode = queryText('airlineCode')
+  form.departureType = (queryText('departureType') || 'LEGACY') as PlacementTaskInput['departureType']
+  form.arrivalType = (queryText('arrivalType') || 'LEGACY') as PlacementTaskInput['arrivalType']
   form.departureCode = queryText('departureCode')
   form.arrivalCode = queryText('arrivalCode')
   form.productType = queryText('productType')
@@ -977,7 +981,7 @@ async function openExecution(row: PlacementTaskRow) {
     const result = await fetchPlacementTask(row.id)
     const task = result.task
     const today = businessToday()
-    executionForm.value = { result: 'SUCCESS', retryRequired: false, externalPolicyId: '', externalPolicyName: '', actualPlacementAt: `${today} 12:00:00`, effectiveStartAt: String(task.suggestedEffectiveStart || `${today} 12:00:00`), effectiveEndAt: String(task.suggestedEffectiveEnd || `${plusDays(today, 7)} 23:59:59`), longTerm: yesNo(task.longTermFlag) === '是', platformCode: task.platformCode || '', platformName: task.platformName, siteCode: task.siteCode || '', siteName: task.siteName || '', airlineCode: task.airlineCode, segmentType: task.segmentType || '', departureCode: task.departureCode || '', arrivalCode: task.arrivalCode || '', flightNos: task.flightNos || '', includeCabins: task.includeCabins || '', excludeCabins: task.excludeCabins || '', productType: task.productType || '', orderSource: orderSourceValues(task.orderSource), lossThresholdMin: optionalNumber(task.lossThresholdMin), lossThresholdMax: optionalNumber(task.lossThresholdMax), placementChannel: '', proofUrl: '', executionNote: '', failureType: '', failureReason: '', nextHandleAt: '' }
+    executionForm.value = { result: 'SUCCESS', retryRequired: false, externalPolicyId: '', externalPolicyName: '', actualPlacementAt: `${today} 12:00:00`, effectiveStartAt: String(task.suggestedEffectiveStart || `${today} 12:00:00`), effectiveEndAt: String(task.suggestedEffectiveEnd || `${plusDays(today, 7)} 23:59:59`), longTerm: yesNo(task.longTermFlag) === '是', platformCode: task.platformCode || '', platformName: task.platformName, siteCode: task.siteCode || '', siteName: task.siteName || '', airlineCode: task.airlineCode, segmentType: task.segmentType || '', departureType: task.departureType || 'LEGACY', arrivalType: task.arrivalType || 'LEGACY', departureCode: task.departureCode || '', arrivalCode: task.arrivalCode || '', flightNos: task.flightNos || '', includeCabins: task.includeCabins || '', excludeCabins: task.excludeCabins || '', productType: task.productType || '', orderSource: orderSourceValues(task.orderSource), lossThresholdMin: optionalNumber(task.lossThresholdMin), lossThresholdMax: optionalNumber(task.lossThresholdMax), placementChannel: '', proofUrl: '', executionNote: '', failureType: '', failureReason: '', nextHandleAt: '' }
     executionOpen.value = true
   } catch (failure) { message.error(failure instanceof Error ? failure.message : '任务条件加载失败') }
   finally { saving.value = false }

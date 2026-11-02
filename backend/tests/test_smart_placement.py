@@ -15,7 +15,7 @@ def service_with_cursor():
     source.database = "sibebid"
     connection = source.connect.return_value
     cursor = connection.cursor.return_value
-    return SmartPlacementService({}, source=source), connection, cursor
+    return SmartPlacementService({}, source=source, airport_source=source), connection, cursor
 
 
 def task_payload(**changes):
@@ -693,11 +693,14 @@ def test_analysis_coverage_applies_business_filters_and_returns_real_workflow_st
     assert "coverage_execution.effective_start_at" in query
     assert "latest_execution.execution_result='SUCCESS'" in query
     assert "NOT EXISTS" in query
-    assert params[:-1] == (
+    assert params[:10] == (
         datetime(2026, 10, 16), datetime(2026, 10, 1), datetime(2026, 10, 1),
         date(2026, 10, 15), date(2026, 10, 1),
         "携程", "EK", "直连订单", "HKG-DXB", "HKG-DXB",
     )
+    assert params[10:-1] == ("HKG", "DXB")
+    assert "t.departure_type<>'LEGACY'" in query
+    assert query.count("%s") == len(params)
     assert params[-1] == 1001
 
 

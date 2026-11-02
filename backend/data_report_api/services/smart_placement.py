@@ -14,6 +14,7 @@ from typing import Any
 
 from .data_source import DataSource
 from .monitoring import MonitorRuleCompiler, MonitoringUnavailable
+from ..shared.placement_locations import AIRPORT_TABLE, ACTIVE_AIRPORT, LOCATION_COLUMNS, location_fields, location_type, resolve_airports, resolved_location
 from ..time_utils import as_business_naive, business_now_naive
 
 
@@ -278,6 +279,7 @@ def _task_fields(values: dict[str, Any], *, submit: bool) -> dict[str, Any]:
         _required_value(values, "estimatedMonthTicketCount", "预估月票数")
         _required_value(values, "estimatedMonthProfitCny", "预估月利润")
 
+    locations = {**location_fields(values, "departure"), **location_fields(values, "arrival")}
     return {
         "opportunity_name": _text(values.get("opportunityName"), "机会名称", 200, required=True),
         "opportunity_source": source,
@@ -289,8 +291,8 @@ def _task_fields(values: dict[str, Any], *, submit: bool) -> dict[str, Any]:
         "site_code": _code(values.get("siteCode"), "站点编码") or None,
         "site_name": _text(values.get("siteName"), "站点名称", 150) or None,
         "airline_code": _code(values.get("airlineCode"), "航司", required=True).upper(),
-        "departure_code": _code(values.get("departureCode"), "出发地").upper() or None,
-        "arrival_code": _code(values.get("arrivalCode"), "到达地").upper() or None,
+        "departure_code": locations["departure_code"], "arrival_code": locations["arrival_code"],
+        "departure_type": locations["departure_type"], "arrival_type": locations["arrival_type"],
         # route_text is retained for legacy rows only. New policies match the
         # structured departure/arrival fields and do not require a full route.
         "route_text": None,
@@ -394,12 +396,85 @@ class SmartPlacementService:
         config: dict[str, Any],
         source: DataSource | None = None,
         monitor_rule_compiler: MonitorRuleCompiler | None = None,
+        airport_source: DataSource | None = None,
     ):
         self.source = source or DataSource({**config, "DATA_MODE": "mysql"})
-        self.monitor_rule_compiler = monitor_rule_compiler or MonitorRuleCompiler()
+        airport_config = {**config, "DATA_MODE": "mysql", "MYSQL_DATABASE": "sibedb"}
+        for key in ("HOST", "PORT", "USER", "PASSWORD", "CHARSET", "CONNECT_TIMEOUT", "READ_TIMEOUT", "WRITE_TIMEOUT", "POOL_SIZE", "POOL_MIN_CACHED"):
+            if config.get(f"ERP_MYSQL_{key}") not in (None, ""):
+                airport_config[f"MYSQL_{key}"] = config[f"ERP_MYSQL_{key}"]
+        self.airport_source = airport_source or DataSource(airport_config)
+        self.monitor_rule_compiler = monitor_rule_compiler or MonitorRuleCompiler(location_resolver=self._resolve_location)
+
+    def _resolve_location(self, _cursor, kind: str, code: str, now: datetime) -> list[str]:
+        connection = cursor = None
+        try:
+            connection = self.airport_source.connect(); cursor = connection.cursor()
+            return resolve_airports(cursor, kind, code, now)
+        except ValueError:
+            raise
+        except Exception as error:
+            raise SmartPlacementUnavailable("机场映射不可用，请核对ERP连接及sibedb.base_airport读取权限") from error
+        finally:
+            if cursor is not None: cursor.close()
+            if connection is not None: connection.close()
+
+    def _endpoint_geography(self, endpoint: str) -> dict[str, list[str]]:
+        connection = cursor = None
+        try:
+            connection = self.airport_source.connect(); cursor = connection.cursor()
+            now = _now()
+            cursor.execute(f"SELECT DISTINCT city_code,country_code FROM {AIRPORT_TABLE} WHERE (airport_code=%s OR city_code=%s) AND {ACTIVE_AIRPORT}", (endpoint, endpoint, now, now))
+            rows = _dict_rows(cursor, list(cursor.fetchall()))
+            return {kind: sorted({str(row[column]).upper() for row in rows if row.get(column)}) for kind, column in (("CITY", "city_code"), ("COUNTRY", "country_code"))}
+        except Exception as error:
+            raise SmartPlacementUnavailable("机场映射不可用，无法判断国家或城市投放覆盖") from error
+        finally:
+            if cursor is not None: cursor.close()
+            if connection is not None: connection.close()
 
     def _table(self, name: str) -> str:
         return f"{self.source.database}.{name}"
+
+    def location_options(self, kind: str, keyword: str = "") -> dict[str, Any]:
+        kind = location_type(kind)
+        if kind == "LEGACY":
+            raise ValueError("请选择机场、城市或国家")
+        keyword = _text(keyword, "地点关键词", 100)
+        column = LOCATION_COLUMNS[kind]
+        connection = cursor = None
+        try:
+            connection = self.airport_source.connect(); cursor = connection.cursor()
+            now = _now()
+            where = ACTIVE_AIRPORT
+            params: list[Any] = [now, now]
+            if keyword:
+                where += f" AND ({column} LIKE %s OR airport_cname LIKE %s OR airport_ename LIKE %s)"
+                params.extend([f"%{keyword}%"] * 3)
+            limit = 300 if kind == "COUNTRY" else 50
+            cursor.execute(
+                f"SELECT {column} AS code, MIN(airport_cname) AS airport_name, COUNT(DISTINCT airport_code) AS airport_count "
+                f"FROM {AIRPORT_TABLE} WHERE {where} AND {column}<>'' GROUP BY {column} ORDER BY {column} LIMIT %s",
+                tuple([*params, limit + 1]),
+            )
+            rows = _dict_rows(cursor, list(cursor.fetchall()))
+            return {"source": AIRPORT_TABLE, "truncated": len(rows) > limit, "rows": [
+                {"value": row["code"], "label": f'{row["code"]} · {row["airport_name"]}' if kind == "AIRPORT" else str(row["code"])}
+                for row in rows[:limit]
+            ]}
+        except ValueError:
+            raise
+        except Exception as error:
+            LOGGER.exception("Placement location dictionary failed")
+            raise SmartPlacementUnavailable("地点字典不可用，请核对sibedb.base_airport及读取权限") from error
+        finally:
+            if cursor is not None: cursor.close()
+            if connection is not None: connection.close()
+
+    def _validate_locations(self, cursor, fields: dict[str, Any], now: datetime) -> None:
+        for side in ("departure", "arrival"):
+            if fields.get(f"{side}_code") and fields.get(f"{side}_type", "LEGACY") != "LEGACY":
+                self._resolve_location(cursor, fields[f"{side}_type"], fields[f"{side}_code"], now)
 
     def dimension_options(self) -> dict[str, Any]:
         """Return canonical single-select values from the MySQL ADS mirror."""
@@ -674,7 +749,7 @@ class SmartPlacementService:
                 f"""
                 SELECT id, task_no, opportunity_name, opportunity_source,
                        platform_name, site_name, airline_code, departure_code,
-                       arrival_code, route_text, journey_type, segment_type,
+                       arrival_code, departure_type, arrival_type, route_text, journey_type, segment_type,
                        include_cabins, exclude_cabins,
                        product_type, order_source, placement_method, estimated_month_ticket_count,
                        estimated_month_profit_cny, priority, status,
@@ -790,8 +865,24 @@ class SmartPlacementService:
             if route == "__NULL__":
                 where.append("NULLIF(TRIM(t.route_text),'') IS NULL AND NULLIF(TRIM(t.departure_code),'') IS NULL AND NULLIF(TRIM(t.arrival_code),'') IS NULL")
             else:
-                where.append("((NULLIF(TRIM(t.route_text),'') IS NULL AND NULLIF(TRIM(t.departure_code),'') IS NULL AND NULLIF(TRIM(t.arrival_code),'') IS NULL) OR t.route_text=%s OR CONCAT_WS('-',NULLIF(t.departure_code,''),NULLIF(t.arrival_code,''))=%s)")
-                params.extend([route, route])
+                parts = route.upper().split("-")
+                if len(parts) == 2 and all(re.fullmatch(r"[A-Z]{3}", part) for part in parts):
+                    endpoint_conditions = []
+                    params.extend([route, route])
+                    for side, endpoint in zip(("departure", "arrival"), parts):
+                        geography = self._endpoint_geography(endpoint)
+                        alternatives = [f"NULLIF(TRIM(t.{side}_code),'') IS NULL", f"t.{side}_code=%s"]
+                        params.append(endpoint)
+                        for kind in ("CITY", "COUNTRY"):
+                            codes = geography[kind]
+                            if codes:
+                                alternatives.append(f"(t.{side}_type='{kind}' AND t.{side}_code IN ({','.join(['%s'] * len(codes))}))")
+                                params.extend(codes)
+                        endpoint_conditions.append("(" + " OR ".join(alternatives) + ")")
+                    where.append("(((NULLIF(TRIM(t.route_text),'') IS NULL AND NULLIF(TRIM(t.departure_code),'') IS NULL AND NULLIF(TRIM(t.arrival_code),'') IS NULL) OR t.route_text=%s OR CONCAT_WS('-',NULLIF(t.departure_code,''),NULLIF(t.arrival_code,''))=%s) OR ((t.departure_type<>'LEGACY' OR t.arrival_type<>'LEGACY') AND " + " AND ".join(endpoint_conditions) + "))")
+                else:
+                    where.append("((NULLIF(TRIM(t.route_text),'') IS NULL AND NULLIF(TRIM(t.departure_code),'') IS NULL AND NULLIF(TRIM(t.arrival_code),'') IS NULL) OR t.route_text=%s OR CONCAT_WS('-',NULLIF(t.departure_code,''),NULLIF(t.arrival_code,''))=%s)")
+                    params.extend([route, route])
 
         condition = " AND ".join(where)
         connection = cursor = None
@@ -802,7 +893,7 @@ class SmartPlacementService:
                 f"""
                 SELECT t.id,t.task_no,t.opportunity_name,t.status,t.priority,
                        t.platform_name,t.site_name,t.airline_code,t.departure_code,
-                       t.arrival_code,t.route_text,t.product_type,t.order_source,
+                       t.arrival_code,t.departure_type,t.arrival_type,t.route_text,t.product_type,t.order_source,
                        t.analysis_start_date,t.analysis_end_date,
                        t.current_assignee_name,t.monitoring_started_at,t.updated_at,
                        (SELECT e.external_policy_id FROM {self._table(EXECUTION_TABLE)} e
@@ -823,6 +914,25 @@ class SmartPlacementService:
             raw_rows = _dict_rows(cursor, list(cursor.fetchall()))
             truncated = len(raw_rows) > limit
             raw_rows = raw_rows[:limit]
+            location_cache: dict[tuple[str, str], list[str]] = {}
+            for row in raw_rows:
+                for side in ("departure", "arrival"):
+                    kind, code = row.get(f"{side}_type", "LEGACY"), row.get(f"{side}_code")
+                    if kind in {"CITY", "COUNTRY"} and code:
+                        key = (kind, code)
+                        if key not in location_cache:
+                            column = LOCATION_COLUMNS[kind]
+                            now = _now()
+                            dictionary_connection = dictionary_cursor = None
+                            try:
+                                dictionary_connection = self.airport_source.connect(); dictionary_cursor = dictionary_connection.cursor()
+                                dictionary_cursor.execute(f"SELECT DISTINCT airport_code,city_code FROM {AIRPORT_TABLE} WHERE {column}=%s AND {ACTIVE_AIRPORT}", (code, now, now))
+                                airports = _dict_rows(dictionary_cursor, list(dictionary_cursor.fetchall()))
+                                location_cache[key] = sorted({str(value).strip().upper() for airport in airports for value in (airport.get("airport_code"), airport.get("city_code")) if value})
+                            finally:
+                                if dictionary_cursor is not None: dictionary_cursor.close()
+                                if dictionary_connection is not None: dictionary_connection.close()
+                        row[f"{side}_coverage_codes"] = location_cache[key]
             status_counts = {status: 0 for status in TASK_STATUSES}
             matched_order_count = 0
             for row in raw_rows:
@@ -916,11 +1026,15 @@ class SmartPlacementService:
         try:
             connection = self.source.connect(); connection.begin(); cursor = connection.cursor()
             placeholders = ",".join(["%s"] * len(columns))
+            self._validate_locations(cursor, fields, now)
             cursor.execute(f"INSERT INTO {self._table(TASK_TABLE)} ({','.join(columns)}) VALUES ({placeholders})", tuple(params))
             task_id = int(cursor.lastrowid)
             self._log(cursor, task_id=task_id, action="SUBMIT" if status != "DRAFT" else "CREATE", actor=actor, to_status=status, note="提交数据经理审核" if status != "DRAFT" else "保存草稿")
             connection.commit()
             return {"id": task_id, "taskNo": task_no, "status": status}
+        except ValueError:
+            if connection is not None: connection.rollback()
+            raise
         except Exception as error:
             if connection is not None: connection.rollback()
             LOGGER.exception("Smart placement task create failed")
@@ -946,6 +1060,7 @@ class SmartPlacementService:
             editable_people = {int(task.get("created_by_id") or 0), int(task.get("current_assignee_id") or 0)}
             if actor[0] not in editable_people and actor[2] != "ADMIN":
                 raise PermissionError("只能由创建人、当前负责人或管理员编辑该任务")
+            self._validate_locations(cursor, fields, now)
             resume_stage = str(task.get("resume_review_stage") or "DATA_MANAGER")
             next_status = (
                 "PENDING_POLICY_REVIEW" if submit and resume_stage == "POLICY_MANAGER"
@@ -1452,8 +1567,8 @@ class SmartPlacementService:
             "site_code": _code(values.get("siteCode"), "站点编码") or None,
             "site_name": _text(values.get("siteName"), "站点名称", 150) or None,
             "airline_code": _code(values.get("airlineCode"), "航司").upper() or None,
-            "departure_code": _code(values.get("departureCode"), "出发地").upper() or None,
-            "arrival_code": _code(values.get("arrivalCode"), "到达地").upper() or None,
+            **location_fields(values, "departure"),
+            **location_fields(values, "arrival"),
             "route_text": None,
             "segment_type": _segment_type(values.get("segmentType"), "实际航段类型"),
             "flight_nos": _text(values.get("flightNos"), "航班号", 500) or None,
@@ -1477,6 +1592,11 @@ class SmartPlacementService:
                 raise ValueError("只有执行中的任务可以登记投放结果")
             if int(task.get("current_assignee_id") or 0) != actor[0] and actor[2] != "ADMIN":
                 raise PermissionError("只能由任务认领人或管理员登记投放结果")
+            for side in ("departure", "arrival"):
+                supplied = dict(execution)
+                if f"{side}Type" not in values:
+                    supplied.pop(f"{side}_type", None)
+                execution.update(resolved_location(task, supplied, side))
             resolved_loss_threshold_min = loss_threshold_min if loss_threshold_supplied else task.get("loss_threshold_min")
             resolved_loss_threshold_max = loss_threshold_max if loss_threshold_supplied else task.get("loss_threshold_max")
             cursor.execute(f"SELECT COALESCE(MAX(attempt_no),0)+1 FROM {self._table(EXECUTION_TABLE)} WHERE task_id=%s", (task_id,))
@@ -1488,13 +1608,13 @@ class SmartPlacementService:
                     task_id, attempt_no, execution_result, external_policy_id,
                     external_policy_name, actual_placement_at, effective_start_at,
                     effective_end_at, platform_code, platform_name, site_code,
-                    site_name, airline_code, departure_code, arrival_code, route_text,
+                    site_name, airline_code, departure_code, arrival_code, departure_type, arrival_type, route_text,
                     segment_type, flight_nos, include_cabins, exclude_cabins,
                     product_type, order_source, loss_threshold_min, loss_threshold_max,
                     long_term_flag, placement_channel, proof_url,
                     execution_note, failure_type, failure_reason, retry_required,
                     next_handle_at, operator_id, operator_name, created_at
-                ) VALUES ({','.join(['%s'] * 35)})
+                ) VALUES ({','.join(['%s'] * 37)})
                 """,
                 (
                     task_id, attempt, result, policy_id or None,
@@ -1505,8 +1625,8 @@ class SmartPlacementService:
                     execution["site_code"] or task.get("site_code"),
                     execution["site_name"] or task.get("site_name"),
                     execution["airline_code"] or task.get("airline_code"),
-                    execution["departure_code"] or task.get("departure_code"),
-                    execution["arrival_code"] or task.get("arrival_code"),
+                    execution["departure_code"], execution["arrival_code"],
+                    execution["departure_type"], execution["arrival_type"],
                     None,
                     execution["segment_type"] or task.get("segment_type"),
                     execution["flight_nos"] or task.get("flight_nos"),
@@ -1536,8 +1656,8 @@ class SmartPlacementService:
                     "site_code": execution["site_code"] or task.get("site_code"),
                     "site_name": execution["site_name"] or task.get("site_name"),
                     "airline_code": execution["airline_code"] or task.get("airline_code"),
-                    "departure_code": execution["departure_code"] or task.get("departure_code"),
-                    "arrival_code": execution["arrival_code"] or task.get("arrival_code"),
+                    "departure_code": execution["departure_code"],
+                    "arrival_code": execution["arrival_code"],
                     "route_text": None,
                     "segment_type": execution["segment_type"] or task.get("segment_type"),
                     "flight_nos": execution["flight_nos"] or task.get("flight_nos"),

@@ -12,6 +12,7 @@ from decimal import Decimal
 from typing import Any
 
 from .data_source import DataSource
+from ..shared.placement_locations import resolve_airports, resolved_location
 from ..time_utils import business_now_naive
 
 
@@ -394,6 +395,9 @@ def _compare_condition(actual: Any, operator: str, expected: Any) -> bool:
 class MonitorRuleCompiler:
     """Compile a successful execution or its confirmed amendment into an immutable version."""
 
+    def __init__(self, location_resolver=None):
+        self.location_resolver = location_resolver or resolve_airports
+
     def sync_smart_placement(
         self,
         *,
@@ -455,8 +459,31 @@ class MonitorRuleCompiler:
         elif order_sources and set(order_sources) != SMART_ORDER_SOURCES:
             add("order_source", "IN", "STRING_SET", order_sources)
         add("airline_code", "IN", "STRING_SET", _split_values(execution.get("airline_code") or task.get("airline_code")))
-        add("departure_location_codes", "OVERLAP", "STRING_SET", _split_values(execution.get("departure_code") or task.get("departure_code")))
-        add("arrival_location_codes", "OVERLAP", "STRING_SET", _split_values(execution.get("arrival_code") or task.get("arrival_code")))
+        location_scopes = {}
+        previous_scopes = {}
+        if existing_rule and any(resolved_location(task, execution, side)[f"{side}_type"] != "LEGACY" for side in ("departure", "arrival")):
+            cursor.execute(
+                f"SELECT condition_snapshot_json FROM {_qualified(database, VERSION_TABLE)} WHERE rule_id=%s AND version_no=%s",
+                (existing_rule["id"], existing_rule["current_version_no"]),
+            )
+            previous = _first_value(cursor.fetchone())
+            if previous:
+                previous_scopes = json.loads(previous).get("locationScopes", {})
+        for side in ("departure", "arrival"):
+            endpoint = resolved_location(task, execution, side)
+            kind, code = endpoint[f"{side}_type"], endpoint[f"{side}_code"]
+            if not code:
+                continue
+            if kind == "LEGACY":
+                add(f"{side}_location_codes", "OVERLAP", "STRING_SET", _split_values(code))
+            else:
+                saved = previous_scopes.get(side, {})
+                if saved.get("type") == kind and saved.get("code") == code and saved.get("airportCodes"):
+                    airports = saved["airportCodes"]
+                else:
+                    airports = self.location_resolver(cursor, kind, code, now)
+                add(f"{side}_airport", "IN", "STRING_SET", airports)
+                location_scopes[side] = {"type": kind, "code": code, "airportCodes": airports}
 
         add("flight_nos", "OVERLAP", "STRING_SET", _split_values(execution.get("flight_nos") or task.get("flight_nos")))
         add("cabin_codes", "SUBSET_OF", "STRING_SET", _split_values(execution.get("include_cabins") or task.get("include_cabins")))
@@ -492,6 +519,7 @@ class MonitorRuleCompiler:
             "externalPolicyId": execution.get("external_policy_id"),
             "conditionRelation": "AND",
             "conditions": conditions,
+            "locationScopes": location_scopes,
         }
         snapshot_text = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, default=_json_value)
         rule_hash = hashlib.sha256(snapshot_text.encode("utf-8")).hexdigest()

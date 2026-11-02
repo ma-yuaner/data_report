@@ -6,6 +6,17 @@ from .common import json_body, ok
 
 
 def register_routes(api: Blueprint) -> None:
+    @api.get("/v1/smart-placement/locations")
+    def smart_placement_locations():
+        try:
+            return ok(SmartPlacementService(current_app.config).location_options(
+                request.args.get("type", "AIRPORT"), request.args.get("keyword", ""),
+            ))
+        except ValueError as error:
+            return jsonify({"success": False, "message": str(error), "data": None}), 400
+        except SmartPlacementUnavailable as error:
+            return jsonify({"success": False, "message": str(error), "data": None}), 503
+
     @api.post("/v1/smart-placement/tasks/policy-changes/preview")
     @api.post("/v1/smart-placement/tasks/policy-changes")
     def change_placed_policies():

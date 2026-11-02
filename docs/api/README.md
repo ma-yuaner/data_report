@@ -22,7 +22,7 @@
 | [上传说明](../business/air_ticketing/risk-data-upload.md) / [行为监控](../product/user-behavior-monitoring-v1.md) | 上传队列和行为采集 |
 
 <!-- BEGIN:API_ROUTES -->
-共 **177个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
+共 **178个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
 
 <a id="auth"></a>
 
@@ -140,6 +140,7 @@
 | 方法 | 完整路径 | 处理函数 / 源码 |
 |---|---|---|
 | `GET` | `/api/v1/smart-placement/dimensions` | [smart_placement_dimensions](../../backend/data_report_api/api/smart_placement.py) |
+| `GET` | `/api/v1/smart-placement/locations` | [smart_placement_locations](../../backend/data_report_api/api/smart_placement.py) |
 | `GET` | `/api/v1/smart-placement/orders` | [smart_placement_orders](../../backend/data_report_api/api/smart_placement.py) |
 | `PATCH` | `/api/v1/smart-placement/orders/<int:match_id>/attention` | [update_smart_placement_attention](../../backend/data_report_api/api/smart_placement.py) |
 | `GET` | `/api/v1/smart-placement/tasks` | [smart_placement_tasks](../../backend/data_report_api/api/smart_placement.py) |

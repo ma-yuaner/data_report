@@ -96,6 +96,7 @@ import SmartAnalysisFilters from '@/components/SmartAnalysisFilters.vue'
 import { smartAnalysisApi, type SmartComprehensiveData, type SmartDimensionData, type SmartDimensionPath, type SmartFilters, type SmartMetrics, type SmartPlacementCoverageTask, type SmartStage } from '@/api/smartAnalysis'
 import { useSmartAnalysisStore } from '@/stores/smartAnalysis'
 import { useAuthStore } from '@/stores/auth'
+import { placementRouteName } from '@/utils/placementLocation'
 
 type AnalysisRow = SmartDimensionData['rows'][number] & { analysisPath: SmartDimensionPath[]; relatedTasks: SmartPlacementCoverageTask[] }
 
@@ -156,14 +157,21 @@ function metricSet(metrics: SmartMetrics) { return metrics[activeKey.value] }
 function count(value: number | null | undefined) { return value == null ? '—' : integer.format(Number(value)) }
 function money(value: string | null | undefined) { return value == null ? '—' : currency.format(Number(value)) }
 function percent(value: number | null | undefined) { return value == null ? '—' : `${(Number(value) * 100).toFixed(1)}%` }
-function routeName(task: SmartPlacementCoverageTask) { return task.routeText || [task.departureCode, task.arrivalCode].filter(Boolean).join('-') || '全部航线' }
+function routeName(task: SmartPlacementCoverageTask) { return task.routeText || ((!task.departureCode && !task.arrivalCode) ? '全部航线' : placementRouteName(task)) }
 function taskValue(task: SmartPlacementCoverageTask, key: keyof SmartFilters) {
-  const values: Record<string, string | null> = { platform: task.platformName, site: task.siteName, airline: task.airlineCode, route: routeName(task) === '全部航线' ? null : routeName(task), productType: task.productType, orderSource: task.orderSource }
+  const values: Record<string, string | null> = { platform: task.platformName, site: task.siteName, airline: task.airlineCode, route: task.routeText || [task.departureCode, task.arrivalCode].filter(Boolean).join('-') || null, productType: task.productType, orderSource: task.orderSource }
   return values[key] || null
 }
 function relatedTasks(path: SmartDimensionPath[]) {
   const wildcardDimensions = new Set<keyof SmartFilters>(['site', 'route', 'productType', 'orderSource'])
   return (data.value?.placement.rows || []).filter(task => path.every(item => {
+    if (item.key === 'route' && [task.departureType, task.arrivalType].some(type => type && type !== 'LEGACY')) {
+      if (!task.departureCode && !task.arrivalCode) return true
+      const parts = String(item.value).toUpperCase().split('-')
+      if (parts.length !== 2 || item.value === '__NULL__') return false
+      return (!task.departureCode || task.departureCode === parts[0] || task.departureCoverageCodes?.includes(parts[0]))
+        && (!task.arrivalCode || task.arrivalCode === parts[1] || task.arrivalCoverageCodes?.includes(parts[1]))
+    }
     const actual = taskValue(task, item.key)
     if (!actual) return wildcardDimensions.has(item.key)
     return item.value !== '__NULL__' && actual === item.name

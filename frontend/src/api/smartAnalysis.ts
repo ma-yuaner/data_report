@@ -117,6 +117,10 @@ export interface SmartPlacementCoverageTask {
   airlineCode: string
   departureCode: string | null
   arrivalCode: string | null
+  departureType?: string
+  arrivalType?: string
+  departureCoverageCodes?: string[]
+  arrivalCoverageCodes?: string[]
   routeText: string | null
   productType: string | null
   orderSource: string | null

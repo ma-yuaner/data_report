@@ -2,6 +2,13 @@ import { http, type ApiEnvelope } from './http'
 
 export type PlacementTaskStatus = 'DRAFT' | 'PENDING_DATA_REVIEW' | 'PENDING_POLICY_REVIEW' | 'CLAIMABLE' | 'IN_PROGRESS' | 'MONITORING' | 'FAILED' | 'REJECTED' | 'CLOSED' | 'ENDED'
 export type PlacementPriority = 'HIGH' | 'MEDIUM' | 'LOW'
+export type PlacementLocationType = 'AIRPORT' | 'CITY' | 'COUNTRY' | 'LEGACY'
+
+export async function fetchPlacementLocations(type: PlacementLocationType, keyword = '') {
+  const response = await http.get<ApiEnvelope<{ source: string; truncated: boolean; rows: { value: string; label: string }[] }>>('/v1/smart-placement/locations', { params: { type, keyword } })
+  if (!response.data.success) throw new Error(response.data.message)
+  return response.data.data
+}
 
 export interface PlacementTaskRow {
   id: number
@@ -13,6 +20,8 @@ export interface PlacementTaskRow {
   airlineCode: string
   departureCode: string | null
   arrivalCode: string | null
+  departureType?: PlacementLocationType
+  arrivalType?: PlacementLocationType
   routeText: string | null
   journeyType: string | null
   segmentType: string | null
@@ -162,6 +171,8 @@ export interface PlacementTaskInput {
   airlineCode: string
   departureCode?: string
   arrivalCode?: string
+  departureType?: PlacementLocationType
+  arrivalType?: PlacementLocationType
   journeyType?: string
   segmentType?: string
   flightNos?: string
