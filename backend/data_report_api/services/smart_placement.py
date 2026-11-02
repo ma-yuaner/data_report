@@ -1006,32 +1006,91 @@ class SmartPlacementService:
             if cursor is not None: cursor.close()
             if connection is not None: connection.close()
 
+    def _insert_new_task(self, cursor, *, fields, actor, submit, now, task_no):
+        status = "PENDING_DATA_REVIEW" if submit else "DRAFT"
+        columns = ["task_no", *fields.keys(), "status", "submitted_at", "created_by_id", "created_by_name",
+            "updated_by_id", "updated_by_name", "created_at", "updated_at"]
+        params = [task_no, *fields.values(), status, now if submit else None,
+            actor[0], actor[1], actor[0], actor[1], now, now]
+        self._validate_locations(cursor, fields, now)
+        placeholders = ",".join(["%s"] * len(columns))
+        cursor.execute(f"INSERT INTO {self._table(TASK_TABLE)} ({','.join(columns)}) VALUES ({placeholders})", tuple(params))
+        task_id = int(cursor.lastrowid)
+        self._log(cursor, task_id=task_id, action="SUBMIT" if submit else "CREATE", actor=actor,
+            to_status=status, note="提交数据经理审核" if submit else "保存草稿")
+        return {"id": task_id, "taskNo": task_no, "status": status}
+
+    def create_import_tasks(self, user, rows, batch_key, *, submit=False):
+        """One transaction, new inserts only; deterministic unique task_no makes retries safe."""
+        from hashlib import sha256
+        _require_permission(user, PERMISSION_CREATE, "当前账号没有投放机会录入权限")
+        actor = _actor(user)
+        if not rows or len(rows) > 200:
+            raise ValueError("每次导入1至200条新机会")
+        fields = [_task_fields(row['values'], submit=submit) for row in rows]
+        task_nos = ['SPI' + sha256(f'{batch_key}:{index}'.encode()).hexdigest()[:29].upper() for index in range(len(rows))]
+        lock_name = 'placement-import:' + batch_key[:40]
+        connection = cursor = None
+        locked = False
+        try:
+            connection = self.source.connect(); cursor = connection.cursor()
+            cursor.execute('SELECT GET_LOCK(%s, 5) AS acquired', (lock_name,))
+            lock_row = cursor.fetchone()
+            locked = bool(lock_row and (lock_row.get('acquired') if isinstance(lock_row, dict) else lock_row[0]) == 1)
+            if not locked:
+                raise ValueError('该批次正在导入，请稍后用当前预览重试')
+            connection.begin()
+            cursor.execute(f"SELECT id,task_no,status FROM {self._table(TASK_TABLE)} WHERE task_no IN ({','.join(['%s'] * len(task_nos))})", tuple(task_nos))
+            existing = _dict_rows(cursor, list(cursor.fetchall()))
+            if existing:
+                if len(existing) != len(rows):
+                    raise ValueError('该批次部分任务已存在或已被删除，请核对原任务；不会补写或覆盖')
+                connection.commit()
+                return {'count': len(existing), 'alreadyImported': True,
+                        'rows': [{'id': row['id'], 'taskNo': row['task_no'], 'status': row['status']} for row in existing]}
+            created = []
+            now = _now()
+            for row, values, task_no in zip(rows, fields, task_nos):
+                try:
+                    created.append(self._insert_new_task(cursor, fields=values, actor=actor, submit=submit, now=now, task_no=task_no))
+                except ValueError as error:
+                    raise ValueError(f"第{row['line']}行：{error}；整批未导入") from error
+            connection.commit()
+            return {'count': len(created), 'alreadyImported': False, 'rows': created}
+        except (ValueError, PermissionError):
+            if connection is not None: connection.rollback()
+            raise
+        except Exception as error:
+            if connection is not None:
+                try:
+                    connection.rollback()
+                except Exception:
+                    LOGGER.warning('Placement import rollback acknowledgement unavailable', exc_info=True)
+            LOGGER.exception('Placement opportunity import failed')
+            raise SmartPlacementUnavailable('未能确认批量新建结果；请保留当前预览重试，系统会先核对该批次，不会覆盖已有任务') from error
+        finally:
+            if cursor is not None:
+                if locked:
+                    try:
+                        cursor.execute('SELECT RELEASE_LOCK(%s)', (lock_name,))
+                    except Exception:
+                        LOGGER.warning('Placement import lock release failed', exc_info=True)
+                cursor.close()
+            if connection is not None: connection.close()
+
     def create_task(self, user: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
         _require_permission(user, PERMISSION_CREATE, "当前账号没有投放机会录入权限")
         actor = _actor(user)
         submit = _bool(values.get("submit"))
         fields = _task_fields(values, submit=submit)
-        status = "PENDING_DATA_REVIEW" if submit else "DRAFT"
         now = _now()
         task_no = self._task_no()
-        columns = ["task_no", *fields.keys(), "status", "submitted_at", "created_by_id", "created_by_name",
-            "updated_by_id", "updated_by_name", "created_at", "updated_at",
-        ]
-        params = [
-            task_no, *fields.values(),
-            status, now if status == "PENDING_DATA_REVIEW" else None,
-            actor[0], actor[1], actor[0], actor[1], now, now,
-        ]
         connection = cursor = None
         try:
             connection = self.source.connect(); connection.begin(); cursor = connection.cursor()
-            placeholders = ",".join(["%s"] * len(columns))
-            self._validate_locations(cursor, fields, now)
-            cursor.execute(f"INSERT INTO {self._table(TASK_TABLE)} ({','.join(columns)}) VALUES ({placeholders})", tuple(params))
-            task_id = int(cursor.lastrowid)
-            self._log(cursor, task_id=task_id, action="SUBMIT" if status != "DRAFT" else "CREATE", actor=actor, to_status=status, note="提交数据经理审核" if status != "DRAFT" else "保存草稿")
+            result = self._insert_new_task(cursor, fields=fields, actor=actor, submit=submit, now=now, task_no=task_no)
             connection.commit()
-            return {"id": task_id, "taskNo": task_no, "status": status}
+            return result
         except ValueError:
             if connection is not None: connection.rollback()
             raise

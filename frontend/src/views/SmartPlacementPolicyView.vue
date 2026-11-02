@@ -6,7 +6,10 @@
 
     <section class="placement-hero">
       <div><h2>投放政策协作中心</h2><p>数据部发现值得投放的机会，完成两级审核后进入认领池；政策人员认领并登记投放结果，系统持续匹配订单并触发来单提醒。</p></div>
-      <a-button v-if="canCreate" class="hero-action" data-telemetry-code="placement-task-create" data-telemetry-name="新建投放机会" @click="openCreate">＋ 新建分析机会</a-button>
+      <a-space v-if="canCreate" wrap class="hero-action-group">
+        <a-button class="hero-action" @click="importOpen = true">批量导入</a-button>
+        <a-button class="hero-action" data-telemetry-code="placement-task-create" data-telemetry-name="新建投放机会" @click="openCreate">＋ 新建分析机会</a-button>
+      </a-space>
     </section>
 
     <section class="summary-grid">
@@ -90,6 +93,7 @@
     </a-card>
 
     <PlacedPolicyChangeDialog v-model:open="policyChangeOpen" :rows="policyChangeRows" @saved="policyChangeSaved" />
+    <OpportunityImportDialog v-model:open="importOpen" @imported="load(1)" />
 
     <a-modal
       v-model:open="createOpen"
@@ -454,6 +458,7 @@ import PlacementLocationSelect from '@/components/PlacementLocationSelect.vue'
 import { placementLocationName, placementRouteName } from '@/utils/placementLocation'
 import PlacedPolicyChangeDialog from '@/components/PlacedPolicyChangeDialog.vue'
 import { useAuthStore } from '@/stores/auth'
+import OpportunityImportDialog from '@/components/OpportunityImportDialog.vue'
 import {
   batchReviewPlacementTasks, cancelPlacementTask, claimPlacementTask, createPlacementEffectReview, createPlacementTask, deletePlacementTask, executePlacementTask, fetchPlacementTask, fetchPlacementTaskMonitoring,
   fetchPlacementDimensions, fetchPlacementTasks, reviewPlacementTask, updatePlacementTask,
@@ -478,6 +483,7 @@ const filters = ref({ keyword: '', status: '', platform: '', airline: '', owner:
 const page = ref(1)
 const pageSize = ref(30)
 const createOpen = ref(false)
+const importOpen = ref(false)
 const reviewOpen = ref(false)
 const claimOpen = ref(false)
 const executionOpen = ref(false)
@@ -1032,6 +1038,7 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.hero-action-group { position: relative; z-index: 1; flex: none; }
 :global(.placement-create-modal .ant-modal-content) { overflow: hidden; border: 1px solid #dfe6ef; border-radius: 14px; box-shadow: 0 24px 70px rgba(29,44,68,.22); }
 :global(.placement-create-modal .ant-modal-header) { margin-bottom: 0; padding: 21px 24px 17px; border-bottom: 1px solid #e8edf4; }
 :global(.placement-create-modal .ant-modal-title) { color: #20324d; font-size: 18px; font-weight: 700; }
