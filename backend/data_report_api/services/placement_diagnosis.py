@@ -17,6 +17,8 @@ PROBLEMS = {'ALL', 'PLATFORM_GAP', 'ALL_NO_ORDERS', 'INTERRUPTED', 'DUE', 'DATA_
 MAX_POLICIES = 2000
 MAX_RECEIPTS = 100000
 LOGGER = logging.getLogger(__name__)
+SUCCESS_FRESH_MINUTES = 30
+RUNNING_GRACE_MINUTES = 15
 
 
 def require_menu(user):
@@ -42,6 +44,47 @@ def followup_value(row):
         return value if isinstance(value, dict) else {}
     except (ValueError, TypeError):
         return {}
+
+
+def pipeline_health(runs, now):
+    """A normal in-flight refresh may use the most recent successful completed run."""
+    if not runs:
+        return {'status': 'MISSING', 'code': 'MISSING', 'healthy': False, 'message': '未找到运行记录',
+                'startedAt': '', 'finishedAt': '', 'lastSuccessAt': ''}
+    latest = runs[0]
+    if latest.get('source_code'):
+        runs = [row for row in runs if row.get('source_code') == latest['source_code']]
+    completed = next((row for row in runs if row['status'] in {'SUCCESS', 'FAILED'}), None)
+    success = next((row for row in runs if row['status'] == 'SUCCESS' and stamp(row.get('finished_at'))), None)
+    last_success = stamp(success['finished_at']) if success else None
+    def fresh(value):
+        finished = stamp(value)
+        return bool(finished and now - timedelta(minutes=SUCCESS_FRESH_MINUTES) <= finished <= now)
+    result = {'status': latest['status'], 'healthy': False, 'code': 'UNKNOWN', 'message': '运行状态待核对',
+              'startedAt': str(latest.get('started_at') or ''), 'finishedAt': str(latest.get('finished_at') or ''),
+              'lastSuccessAt': str(last_success or '')}
+    if latest['status'] == 'SUCCESS':
+        ready = fresh(latest.get('finished_at'))
+        result.update(code='READY' if ready else 'STALE', healthy=ready,
+                      message='最近运行成功' if ready else '最近成功结果已超过30分钟或时间异常')
+    elif latest['status'] == 'FAILED':
+        result.update(code='FAILED', message='最近一轮失败，需核对采集/匹配任务')
+    elif latest['status'] == 'RUNNING':
+        started = stamp(latest.get('started_at'))
+        if not started or started > now:
+            result.update(code='INVALID_TIME', message='运行开始时间异常，需核对')
+        else:
+            minutes = (now - started).total_seconds() / 60
+            result['runningMinutes'] = round(minutes, 1)
+            if minutes > RUNNING_GRACE_MINUTES:
+                result.update(code='RUNNING_LONG', message=f'本轮已运行{minutes:.0f}分钟，请核对是否超时')
+            elif completed and completed['status'] == 'SUCCESS' and fresh(completed.get('finished_at')):
+                result.update(code='UPDATING', healthy=True, message='正在刷新，沿用最近成功数据')
+            elif completed and completed['status'] == 'FAILED':
+                result.update(code='PREVIOUS_FAILED', message='正在重试，上轮失败尚未恢复')
+            else:
+                result.update(code='WAITING_SUCCESS', message='正在运行，尚无可用的近期成功结果')
+    return result
 
 
 def observation(row):
@@ -248,15 +291,13 @@ class PlacementDiagnosisService:
             platforms = sorted({platform_name(row) for row in policies})
             if len(platforms) > 40:
                 raise ValueError('平台超过40个，请缩小查询范围')
-            cursor.execute(f"""SELECT job_type,status,finished_at FROM {table('monitor_run_log')}
-                WHERE status<>'SKIPPED' AND started_at>=%s AND
-                ((job_type='RULE_MATCH' AND source_code='RULE_MATCH:RT_ORDER_FEATURE') OR
-                 (job_type='FEATURE_ETL' AND source_code LIKE 'BI_ISSUE_HOLD_PNR_DAY:%%')) ORDER BY id DESC LIMIT 50""", (now - timedelta(minutes=30),))
             health = {}
-            for run in _dict_rows(cursor, list(cursor.fetchall())):
-                health.setdefault(run['job_type'], {'status': run['status'], 'finishedAt': str(run.get('finished_at') or '')})
-            healthy = all(health.get(kind, {}).get('status') == 'SUCCESS' and stamp(health[kind]['finishedAt'])
-                          and now - timedelta(minutes=30) <= stamp(health[kind]['finishedAt']) <= now for kind in ('FEATURE_ETL', 'RULE_MATCH'))
+            for kind, source, operator in [('FEATURE_ETL', 'BI_ISSUE_HOLD_PNR_DAY:%', 'LIKE'), ('RULE_MATCH', 'RULE_MATCH:RT_ORDER_FEATURE', '=')]:
+                cursor.execute(f"""SELECT source_code,status,started_at,finished_at FROM {table('monitor_run_log')}
+                    WHERE job_type=%s AND status<>'SKIPPED' AND source_code {operator} %s
+                    ORDER BY started_at DESC,id DESC LIMIT 100""", (kind, source))
+                health[kind] = pipeline_health(_dict_rows(cursor, list(cursor.fetchall())), now)
+            healthy = all(health[kind]['healthy'] for kind in ('FEATURE_ETL', 'RULE_MATCH'))
             execution_rows = {int(row['execution_id']): row for row in policies if row.get('execution_id') and row.get('order_scope_complete')}
             receipts = []
             if execution_rows:

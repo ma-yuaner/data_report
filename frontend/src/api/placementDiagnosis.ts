@@ -66,7 +66,7 @@ export interface RouteDiagnosisResult {
   days: number
   asOf: string
   windowStart: string
-  health: Record<string, { status: string; finishedAt: string }>
+  health: Record<string, { status: string; finishedAt: string; startedAt: string; lastSuccessAt: string; code: string; message: string; healthy: boolean }>
   dataHealthy: boolean
   scopeNote: string
 }

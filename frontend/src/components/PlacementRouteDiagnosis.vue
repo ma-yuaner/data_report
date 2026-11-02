@@ -14,6 +14,7 @@
         <template #actions><a-button type="primary" :loading="loading" @click="query(1)">查询</a-button></template>
       </FilterPanel>
       <a-alert v-if="data && !data.dataHealthy" type="warning" show-icon class="diagnosis-alert" message="采集或匹配最近运行未确认正常，无单政策暂标记“数据待核对”" :description="healthText" />
+      <a-alert v-else-if="updating" type="info" show-icon class="diagnosis-alert" message="采集或匹配正在刷新，当前沿用最近成功数据" :description="healthText" />
       <div v-if="data" class="diagnosis-caption">{{ data.scopeNote }} · 本次 {{ data.days }} 天窗口 {{ data.windowStart }} 至 {{ data.asOf }} · 条件有差异时需展开核对；范围可能重叠，订单不可跨行相加。</div>
       <a-table :loading="loading" :columns="columns" :data-source="data?.rows || []" row-key="key" :pagination="false" :scroll="{ x: tableWidth, y: 470 }" size="middle">
         <template #bodyCell="{ column, record }">
@@ -117,7 +118,11 @@ const routeName = (row: DiagnosticRoute) => row.routeText || `${location(row.dep
 const tripName = (type: string | null) => ({ ONE_WAY: '单程', ROUND_TRIP: '往返', MULTI_CITY: '多程' } as Record<string,string>)[type || ''] || type || '不限航程'
 const columns = computed(() => [{ title: '航司 / 投放范围', key: 'route', width: 290, fixed: 'left' as const }, { title: '诊断', key: 'diagnosis', width: 180 }, ...(data.value?.platforms || []).map(platform => ({ title: platform, key: `platform:${platform}`, platform, width: 190 }))])
 const tableWidth = computed(() => Math.max(1000, 470 + (data.value?.platforms.length || 0) * 190))
-const healthText = computed(() => ['FEATURE_ETL', 'RULE_MATCH'].map(kind => `${kind === 'FEATURE_ETL' ? '采集' : '匹配'}：${data.value?.health[kind]?.status || '近30分钟无成功证据'} ${data.value?.health[kind]?.finishedAt || ''}`).join('；'))
+const updating = computed(() => Object.values(data.value?.health || {}).some(item => item.code === 'UPDATING'))
+const healthText = computed(() => ['FEATURE_ETL', 'RULE_MATCH'].map(kind => {
+  const item = data.value?.health[kind]
+  return `${kind === 'FEATURE_ETL' ? '采集' : '匹配'}：${item?.message || '未找到运行记录'}${item?.status === 'RUNNING' ? `（开始于 ${item.startedAt || '未知'}）` : ''}；上次成功 ${item?.lastSuccessAt || '尚无记录'}`
+}).join('；'))
 let sequence = 0
 let applied = { ...filters.value }
 async function query(target = page.value, useApplied = false) {
