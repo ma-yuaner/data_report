@@ -79,3 +79,27 @@ def register_routes(api: Blueprint) -> None:
             return ok(TargetManagementService(current_app.config).save(g.current_user, json_body()), "目标已保存"), 201
         except (PermissionError, ValueError, TargetManagementUnavailable) as error:
             return _target_error(error)
+
+    @api.delete("/v1/business-configuration/targets")
+    def target_management_delete():
+        try:
+            return ok(
+                TargetManagementService(current_app.config).set_deleted(
+                    g.current_user, json_body(), restore=False,
+                ),
+                "目标已删除",
+            )
+        except (PermissionError, ValueError, TargetManagementUnavailable) as error:
+            return _target_error(error)
+
+    @api.post("/v1/business-configuration/targets/restore")
+    def target_management_restore():
+        try:
+            return ok(
+                TargetManagementService(current_app.config).set_deleted(
+                    g.current_user, json_body(), restore=True,
+                ),
+                "目标已恢复",
+            )
+        except (PermissionError, ValueError, TargetManagementUnavailable) as error:
+            return _target_error(error)

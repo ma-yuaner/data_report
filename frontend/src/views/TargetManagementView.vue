@@ -56,7 +56,17 @@
             <div v-if="gdsMeasure(record, String(column.key))" class="gds-pair"><strong>{{ formatNumber(gdsMeasure(record, String(column.key))?.target ?? 0) }}</strong></div>
             <span v-else>--</span>
           </template>
-          <template v-else-if="column.key === 'actions'"><a-space size="small"><a-button type="link" size="small" @click="openDetail(record)"><EyeOutlined />详情</a-button><a-button type="link" size="small" @click="openEdit(record)"><EditOutlined />编辑</a-button><a-button type="link" size="small" @click="openCopy(record)"><CopyOutlined />复制</a-button></a-space></template>
+          <template v-else-if="column.key === 'actions'">
+            <a-space size="small">
+              <a-button type="link" size="small" @click="openDetail(record)"><EyeOutlined />详情</a-button>
+              <template v-if="record.status !== 'DELETED'">
+                <a-button type="link" size="small" @click="openEdit(record)"><EditOutlined />编辑</a-button>
+                <a-button type="link" size="small" @click="openCopy(record)"><CopyOutlined />复制</a-button>
+                <a-button type="link" danger size="small" @click="confirmDelete(record)"><DeleteOutlined />删除</a-button>
+              </template>
+              <a-button v-else type="link" size="small" @click="confirmRestore(record)"><UndoOutlined />恢复</a-button>
+            </a-space>
+          </template>
         </template>
       </a-table>
     </a-card>
@@ -83,7 +93,7 @@
         <a-form-item v-if="activeScene !== 'policy'" label="目标航段数"><a-input-number v-model:value="form.target" :min="0" :step="1000" class="full-width" /></a-form-item>
         <div class="form-grid two"><a-form-item label="状态"><a-select v-model:value="form.status" :options="editStatusOptions" /></a-form-item><a-form-item label="配置来源"><a-input value="手工配置" disabled /></a-form-item></div>
         <a-form-item label="配置说明"><a-textarea v-model:value="form.remark" :rows="3" placeholder="填写长期保留在目标配置上的业务说明" /></a-form-item>
-        <a-form-item :label="editingId ? '本次修改原因' : '本次配置原因'" :required="Boolean(editingId)"><a-textarea v-model:value="form.changeReason" :rows="2" :placeholder="editingId ? '请说明本次修改原因，将写入审计日志' : '选填；未填写时记录为“新建目标配置”'" /></a-form-item>
+        <a-form-item :label="editingId ? '本次修改原因（选填）' : '本次配置原因（选填）'"><a-textarea v-model:value="form.changeReason" :rows="2" placeholder="选填；未填写时系统会记录默认操作说明" /></a-form-item>
       </a-form>
       <div class="drawer-actions"><a-button @click="editorOpen = false">取消</a-button><a-button type="primary" :loading="saving" @click="submitTarget">保存目标</a-button></div>
     </a-drawer>
@@ -99,6 +109,7 @@
           <a-descriptions-item :label="detailRow.scene === 'policy' ? '目标航段合计' : '目标航段'">{{ formatNumber(detailRow.target) }}</a-descriptions-item>
           <a-descriptions-item v-for="code in detailRow.scene === 'policy' ? policyGdsCodes : []" :key="code" :label="`${code} 目标航段`">{{ formatNumber(detailRow.gdsBreakdown?.[code]?.target ?? 0) }}</a-descriptions-item>
           <a-descriptions-item label="配置状态"><a-tag :color="statusColor(detailRow.status)">{{ statusLabel(detailRow.status) }}</a-tag></a-descriptions-item>
+          <a-descriptions-item v-if="detailRow.deletedAt" label="删除信息">{{ detailRow.deletedAt }} · {{ detailRow.deletedByName || '未知操作人' }}<span v-if="detailRow.deleteReason"> · {{ detailRow.deleteReason }}</span></a-descriptions-item>
           <a-descriptions-item label="统计口径">{{ detailRow.metric }}（{{ detailRow.metricCode }} / {{ detailRow.metricVersion }}）</a-descriptions-item>
           <a-descriptions-item label="配置说明">{{ detailRow.remark || '未填写' }}</a-descriptions-item>
         </a-descriptions>
@@ -114,10 +125,10 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { message } from 'ant-design-vue'
-import { ApartmentOutlined, BranchesOutlined, CopyOutlined, DatabaseOutlined, EditOutlined, EyeOutlined, PlusOutlined, ReloadOutlined, TeamOutlined } from '@ant-design/icons-vue'
+import { Modal, message } from 'ant-design-vue'
+import { ApartmentOutlined, BranchesOutlined, CopyOutlined, DatabaseOutlined, DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined, ReloadOutlined, TeamOutlined, UndoOutlined } from '@ant-design/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
-import { fetchTargetMetrics, fetchTargetOptions, fetchTargets, saveTarget, type TargetMetric, type TargetOptions, type TargetRow, type TargetStatus } from '@/api/targetManagement'
+import { deleteTarget, fetchTargetMetrics, fetchTargetOptions, fetchTargets, restoreTarget, saveTarget, type TargetMetric, type TargetOptions, type TargetRow, type TargetStatus } from '@/api/targetManagement'
 
 type SceneKey = 'platform' | 'gds' | 'policy'
 type EditableStatus = 'ACTIVE' | 'DRAFT' | 'PAUSED'
@@ -143,7 +154,7 @@ const editingId = ref<string | null>(null)
 const copyingSourcePeriod = ref<string | null>(null)
 const detailRow = ref<TargetRow | null>(null)
 const form = reactive({
-  period: currentPeriod, departmentCode: '', departmentName: '', platformCode: '', platformName: '', gdsCode: '', policyCode: '', policyName: '',
+  period: currentPeriod, originalPeriod: currentPeriod, departmentCode: '', departmentName: '', platformCode: '', platformName: '', gdsCode: '', policyCode: '', policyName: '',
   ownerUserId: undefined as number | undefined, ownerName: '', policyLeaderUserId: undefined as number | undefined, policyMemberUserIds: [] as number[],
   metricCode: '', metricVersion: 'V1', target: 0, status: 'ACTIVE' as EditableStatus, remark: '', changeReason: '',
   itemId: undefined as number | undefined, itemIds: {} as Record<string, number>, gdsTargets: Object.fromEntries(policyGdsCodes.map(code => [code, 0])) as Record<string, number>,
@@ -164,14 +175,20 @@ const periodOptions = computed(() => Array.from({ length: 13 }, (_, index) => {
   const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
   return { value, label: `${date.getFullYear()}年${date.getMonth() + 1}月` }
 }))
-const statusOptions = [{ value: 'ALL', label: '全部状态' }, { value: 'ACTIVE', label: '执行中' }, { value: 'DRAFT', label: '草稿' }, { value: 'PAUSED', label: '已暂停' }, { value: 'CLOSED', label: '已结束' }, { value: 'VOID', label: '已作废' }]
+const statusOptions = [{ value: 'ALL', label: '全部状态' }, { value: 'ACTIVE', label: '执行中' }, { value: 'DRAFT', label: '草稿' }, { value: 'PAUSED', label: '已暂停' }, { value: 'CLOSED', label: '已结束' }, { value: 'VOID', label: '已作废' }, { value: 'DELETED', label: '已删除' }]
 const editStatusOptions = statusOptions.filter(item => ['ACTIVE', 'DRAFT', 'PAUSED'].includes(item.value))
 const platformSelectOptions = computed(() => options.value.platforms.map(item => ({ value: item.code, label: `${item.name} (${item.code})` })))
 const gdsSelectOptions = computed(() => options.value.gds.map(item => ({ value: item.code, label: item.name })))
-const userSelectOptions = computed(() => options.value.users.map(item => ({
-  value: item.id,
-  label: item.wechatId ? `${item.name} · ${item.wechatId}` : item.name,
-})))
+const userSelectOptions = computed(() => {
+  const nameCounts = options.value.users.reduce<Record<string, number>>((counts, item) => {
+    counts[item.name] = (counts[item.name] ?? 0) + 1
+    return counts
+  }, {})
+  return options.value.users.map(item => ({
+    value: item.id,
+    label: nameCounts[item.name] > 1 ? `${item.name} · ${item.wechatId || `用户ID ${item.id}`}` : item.name,
+  }))
+})
 const policyLeaderSelectOptions = computed(() => userSelectOptions.value.filter(item => form.policyMemberUserIds.includes(item.value)))
 const departmentSelectOptions = computed(() => options.value.departments.map(item => ({ value: item.code, label: item.name })))
 const supportedMetrics = computed(() => metrics.value.filter(item => item.unitCode === 'SEGMENT' && item.supportedScenes.includes(sceneApi[activeScene.value])))
@@ -186,7 +203,7 @@ const editorTitle = computed(() => editingId.value ? '编辑目标' : copyingSou
 const baseColumns = {
   period: { title: '目标月份', dataIndex: 'period', key: 'period', width: 105 },
   owner: { title: '责任人 / 部门', key: 'owner', width: 160 }, metric: { title: '统计口径', key: 'metric', width: 210 }, target: { title: '目标航段', key: 'target', width: 110, align: 'right' as const },
-  status: { title: '状态', key: 'status', width: 100 }, actions: { title: '操作', key: 'actions', width: 205, fixed: 'right' as const },
+  status: { title: '状态', key: 'status', width: 100 }, actions: { title: '操作', key: 'actions', width: 275, fixed: 'right' as const },
 }
 const columns = computed(() => activeScene.value === 'policy' ? [
   { title: '政策员', key: 'policy-members', width: 230, fixed: 'left' as const },
@@ -213,19 +230,19 @@ async function loadMeta() {
   catch (error) { void message.error(error instanceof Error ? error.message : '目标基础数据加载失败') }
 }
 function resetForm() {
-  Object.assign(form, { period: selectedPeriod.value, departmentCode: '', departmentName: '', platformCode: '', platformName: '', gdsCode: options.value.gds[0]?.code ?? '', policyCode: '', policyName: '', ownerUserId: undefined, ownerName: '', policyLeaderUserId: undefined, policyMemberUserIds: [], metricCode: supportedMetrics.value[0]?.code ?? '', metricVersion: supportedMetrics.value[0]?.version ?? 'V1', target: 0, status: 'ACTIVE', remark: '', changeReason: '', itemId: undefined, itemIds: {} })
+  Object.assign(form, { period: selectedPeriod.value, originalPeriod: selectedPeriod.value, departmentCode: '', departmentName: '', platformCode: '', platformName: '', gdsCode: options.value.gds[0]?.code ?? '', policyCode: '', policyName: '', ownerUserId: undefined, ownerName: '', policyLeaderUserId: undefined, policyMemberUserIds: [], metricCode: supportedMetrics.value[0]?.code ?? '', metricVersion: supportedMetrics.value[0]?.version ?? 'V1', target: 0, status: 'ACTIVE', remark: '', changeReason: '', itemId: undefined, itemIds: {} })
   policyGdsCodes.forEach(code => { form.gdsTargets[code] = 0 })
 }
 function openCreate() { editingId.value = null; copyingSourcePeriod.value = null; resetForm(); editorOpen.value = true }
 function openEdit(row: TargetRow) {
   editingId.value = row.id; copyingSourcePeriod.value = null
-  Object.assign(form, { period: row.period, departmentCode: row.departmentCode, departmentName: row.department, platformCode: row.platformCode, platformName: row.platform ?? '', gdsCode: row.gds ?? '', policyCode: row.policyCode, policyName: row.policy ?? '', ownerUserId: row.ownerUserId ?? undefined, ownerName: row.owner, policyLeaderUserId: row.policyLeaderUserId ?? undefined, policyMemberUserIds: [...row.policyMemberUserIds], metricCode: row.metricCode, metricVersion: row.metricVersion, target: row.target, status: ['ACTIVE', 'DRAFT', 'PAUSED'].includes(row.status) ? row.status : 'ACTIVE', remark: row.remark, changeReason: '', itemId: row.itemId, itemIds: { ...row.itemIds } })
+  Object.assign(form, { period: row.period, originalPeriod: row.period, departmentCode: row.departmentCode, departmentName: row.department, platformCode: row.platformCode, platformName: row.platform ?? '', gdsCode: row.gds ?? '', policyCode: row.policyCode, policyName: row.policy ?? '', ownerUserId: row.ownerUserId ?? undefined, ownerName: row.owner, policyLeaderUserId: row.policyLeaderUserId ?? undefined, policyMemberUserIds: [...row.policyMemberUserIds], metricCode: row.metricCode, metricVersion: row.metricVersion, target: row.target, status: ['ACTIVE', 'DRAFT', 'PAUSED'].includes(row.status) ? row.status : 'ACTIVE', remark: row.remark, changeReason: '', itemId: row.itemId, itemIds: { ...row.itemIds } })
   policyGdsCodes.forEach(code => { form.gdsTargets[code] = row.gdsBreakdown?.[code]?.target ?? 0 }); editorOpen.value = true
 }
 function nextMonth(period: string) { const [year, month] = period.split('-').map(Number); const value = new Date(year, month, 1); return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}` }
 function openCopy(row: TargetRow) {
   openEdit(row); editingId.value = null; copyingSourcePeriod.value = row.period
-  Object.assign(form, { period: nextMonth(row.period), itemId: undefined, itemIds: {}, changeReason: `复制${row.period}目标配置` })
+  Object.assign(form, { period: nextMonth(row.period), originalPeriod: nextMonth(row.period), policyCode: '', itemId: undefined, itemIds: {}, changeReason: `复制${row.period}目标配置` })
   editorOpen.value = true
 }
 function openDetail(row: TargetRow) { detailRow.value = row; detailOpen.value = true }
@@ -243,22 +260,52 @@ async function submitTarget() {
   if (activeScene.value === 'policy' && !form.policyMemberUserIds.length) { void message.warning('请至少选择一名政策员'); return }
   if (activeScene.value === 'policy' && !form.policyLeaderUserId) { void message.warning('请选择组长'); return }
   if (activeScene.value === 'policy' && form.policyLeaderUserId && !form.policyMemberUserIds.includes(form.policyLeaderUserId)) { void message.warning('组长必须包含在政策员组合中'); return }
-  if (editingId.value && !form.changeReason.trim()) { void message.warning('请填写本次修改原因'); return }
   const total = activeScene.value === 'policy' ? policyGdsCodes.reduce((sum, code) => sum + Number(form.gdsTargets[code] || 0), 0) : Number(form.target || 0)
   if (total <= 0) { void message.warning('目标航段数合计必须大于0'); return }
   const selectedMetric = metrics.value.find(item => item.code === form.metricCode && item.version === form.metricVersion) ?? supportedMetrics.value[0]
   if (!selectedMetric) { void message.warning('当前场景没有可用指标口径'); return }
+  if (editingId.value && form.period !== form.originalPeriod) {
+    const confirmed = await confirmAction('确认修改目标月份？', `系统会在${form.period}新建目标，并软删除${form.originalPeriod}的原目标；历史记录和进度数据会保留。`)
+    if (!confirmed) return
+  }
   saving.value = true
   try {
-    await saveTarget({ scene: sceneApi[activeScene.value], period: form.period, departmentCode: form.departmentCode, departmentName: form.departmentName.trim(), platformCode: form.platformCode || undefined, platformName: form.platformName || undefined, gdsCode: form.gdsCode || undefined, policyGroupCode: form.policyCode || undefined, policyGroupName: form.policyName.trim() || undefined, policyLeaderUserId: activeScene.value === 'policy' ? form.policyLeaderUserId : undefined, policyMemberUserIds: activeScene.value === 'policy' ? form.policyMemberUserIds : undefined, ownerUserId: activeScene.value === 'policy' ? form.policyLeaderUserId! : form.ownerUserId!, ownerName: activeScene.value === 'policy' ? options.value.users.find(item => item.id === form.policyLeaderUserId)?.name ?? '' : form.ownerName, metricCode: selectedMetric.code, metricVersion: selectedMetric.version, targetValue: activeScene.value === 'policy' ? undefined : Number(form.target), itemId: editingId.value && activeScene.value !== 'policy' ? form.itemId : undefined, itemIds: activeScene.value === 'policy' ? form.itemIds : undefined, gdsTargets: activeScene.value === 'policy' ? policyGdsCodes.map(code => ({ gdsCode: code, targetValue: Number(form.gdsTargets[code] || 0) })) : undefined, status: form.status, remark: form.remark.trim(), changeReason: form.changeReason.trim(), copyMode: Boolean(copyingSourcePeriod.value) })
+    await saveTarget({ scene: sceneApi[activeScene.value], period: form.period, originalPeriod: editingId.value ? form.originalPeriod : form.period, departmentCode: form.departmentCode, departmentName: form.departmentName.trim(), platformCode: form.platformCode || undefined, platformName: form.platformName || undefined, gdsCode: form.gdsCode || undefined, policyGroupCode: form.policyCode || undefined, policyGroupName: form.policyName.trim() || undefined, policyLeaderUserId: activeScene.value === 'policy' ? form.policyLeaderUserId : undefined, policyMemberUserIds: activeScene.value === 'policy' ? form.policyMemberUserIds : undefined, ownerUserId: activeScene.value === 'policy' ? form.policyLeaderUserId! : form.ownerUserId!, ownerName: activeScene.value === 'policy' ? options.value.users.find(item => item.id === form.policyLeaderUserId)?.name ?? '' : form.ownerName, metricCode: selectedMetric.code, metricVersion: selectedMetric.version, targetValue: activeScene.value === 'policy' ? undefined : Number(form.target), itemId: editingId.value && activeScene.value !== 'policy' ? form.itemId : undefined, itemIds: editingId.value && activeScene.value === 'policy' ? form.itemIds : undefined, gdsTargets: activeScene.value === 'policy' ? policyGdsCodes.map(code => ({ gdsCode: code, targetValue: Number(form.gdsTargets[code] || 0) })) : undefined, status: form.status, remark: form.remark.trim(), changeReason: form.changeReason.trim(), copyMode: Boolean(copyingSourcePeriod.value) })
     editorOpen.value = false; selectedPeriod.value = form.period; await Promise.all([loadTargets(), loadMeta()]); void message.success('目标已写入数据库，可到目标进度点击“立即更新”')
   } catch (error) { void message.error(error instanceof Error ? error.message : '目标保存失败') }
   finally { saving.value = false }
 }
 
+function confirmAction(title: string, content: string) {
+  return new Promise<boolean>(resolve => {
+    Modal.confirm({ title, content, okText: '确认', cancelText: '取消', onOk: () => resolve(true), onCancel: () => resolve(false) })
+  })
+}
+function lifecycleItemIds(row: TargetRow) { return row.scene === 'policy' ? Object.values(row.itemIds) : [row.itemId] }
+function confirmDelete(row: TargetRow) {
+  Modal.confirm({
+    title: '确认删除目标？', content: '删除后目标不会参与展示和ETL，历史数据仍会保留，可在“已删除”状态中恢复。',
+    okText: '删除', okType: 'danger', cancelText: '取消',
+    async onOk() {
+      await deleteTarget({ scene: sceneApi[row.scene], planId: row.planId, itemIds: lifecycleItemIds(row) })
+      await loadTargets(); void message.success('目标已软删除')
+    },
+  })
+}
+function confirmRestore(row: TargetRow) {
+  Modal.confirm({
+    title: '确认恢复目标？', content: '若当前月份已有相同有效目标，系统会拒绝恢复，避免重复累计。',
+    okText: '恢复', cancelText: '取消',
+    async onOk() {
+      await restoreTarget({ scene: sceneApi[row.scene], planId: row.planId, itemIds: lifecycleItemIds(row) })
+      await loadTargets(); void message.success('目标已恢复')
+    },
+  })
+}
+
 function formatNumber(value: number) { return Math.round(Number(value)).toLocaleString('zh-CN') }
-function statusLabel(status: TargetStatus) { return ({ ACTIVE: '执行中', DRAFT: '草稿', PAUSED: '已暂停', CLOSED: '已结束', VOID: '已作废' } as const)[status] ?? status }
-function statusColor(status: TargetStatus) { return status === 'ACTIVE' ? 'green' : status === 'PAUSED' ? 'orange' : status === 'VOID' ? 'red' : 'default' }
+function statusLabel(status: TargetStatus) { return ({ ACTIVE: '执行中', DRAFT: '草稿', PAUSED: '已暂停', CLOSED: '已结束', VOID: '已作废', DELETED: '已删除' } as const)[status] ?? status }
+function statusColor(status: TargetStatus) { return status === 'ACTIVE' ? 'green' : status === 'PAUSED' ? 'orange' : ['VOID', 'DELETED'].includes(status) ? 'red' : 'default' }
 function sceneName(scene: SceneKey) { return sceneMetas[scene].title }
 function objectName(row: TargetRow) { return row.scene === 'platform' ? row.platform || '未命名平台' : row.scene === 'gds' ? row.gds || '未命名GDS' : row.policy || '未命名政策组' }
 function objectSubline(row: TargetRow) { return row.scene === 'policy' ? `${row.department} · ${row.owner}` : `${row.department} · ${row.metric}` }

@@ -82,6 +82,11 @@ def _stable_code(prefix: str, value: str) -> str:
     return f"{prefix}_{digest}"
 
 
+def _new_policy_group_code() -> str:
+    """Return an identity for one policy target, not a digest of its members."""
+    return f"POLICY_{uuid.uuid4().hex.upper()}"
+
+
 def _decimal(value: Any) -> float | None:
     return None if value is None else float(value)
 
@@ -96,10 +101,12 @@ def _iso(value: Any) -> str | None:
     return value.isoformat() if isinstance(value, (date, datetime)) else (str(value) if value else None)
 
 
-def _row_status(plan_status: str, enabled: Any) -> str:
+def _row_status(plan_status: str, enabled: Any, deleted_at: Any = None) -> str:
+    if deleted_at:
+        return "DELETED"
     if not bool(enabled):
         return "PAUSED"
-    return "ACTIVE" if plan_status in {"ACTIVE", "PUBLISHED"} else plan_status
+    return plan_status
 
 
 def _boolean_query(value: Any, *, default: bool = False) -> bool:
@@ -337,6 +344,7 @@ class TargetManagementService:
                        policy_leader_user_id,policy_leader_name_snapshot,
                        owner_user_id,owner_name_snapshot,target_value,unit_code,
                        allocation_source,enabled,sort_order,remark,
+                       deleted_at,deleted_by_user_id,deleted_by_name_snapshot,delete_reason,
                        created_by,created_at,updated_by,updated_at
                 FROM {self._table('biz_target_item')}
                 WHERE {' AND '.join(conditions)}
@@ -371,6 +379,7 @@ class TargetManagementService:
         after: dict[str, Any],
         change_reason: str,
         user: dict[str, Any],
+        action: str | None = None,
     ) -> None:
         actor_id = int(user.get("id") or 0) or None
         actor_name = str(
@@ -384,7 +393,7 @@ class TargetManagementService:
                  changed_by_user_id,changed_by_name_snapshot)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (
-                uuid.uuid4().hex, plan_id, scene, _change_action(before, status),
+                uuid.uuid4().hex, plan_id, scene, action or _change_action(before, status),
                 json.dumps(item_ids, ensure_ascii=False),
                 json.dumps(before, ensure_ascii=False) if before else None,
                 json.dumps(after, ensure_ascii=False), change_reason,
@@ -471,7 +480,7 @@ class TargetManagementService:
                 cursor.execute(
                     f"""SELECT policy_group_code AS code, max(policy_group_name_snapshot) AS name
                         FROM {self._table('biz_target_item')}
-                        WHERE coalesce(policy_group_code, '') <> ''
+                        WHERE coalesce(policy_group_code, '') <> '' AND deleted_at IS NULL
                         GROUP BY policy_group_code ORDER BY name, code"""
                 )
                 policies = [{"code": row["code"], "name": row["name"] or row["code"]} for row in cursor.fetchall()]
@@ -517,7 +526,7 @@ class TargetManagementService:
         scene = _scene(scene_value)
         period, start, end = _month(period_value)
         status = str(status_value or "ALL").strip().upper()
-        if status not in EDIT_STATUSES | {"ALL", "CLOSED", "VOID"}:
+        if status not in EDIT_STATUSES | {"ALL", "CLOSED", "VOID", "DELETED"}:
             raise ValueError("目标状态不合法")
         keyword = str(keyword_value or "").strip()
         import pymysql
@@ -528,9 +537,13 @@ class TargetManagementService:
             with connection.cursor(pymysql.cursors.DictCursor) as cursor:
                 filters = ["p.target_scene=%s", "p.period_start=%s", "p.period_end=%s"]
                 params: list[Any] = [scene, start, end]
+                if status == "DELETED":
+                    filters.append("i.deleted_at IS NOT NULL")
+                else:
+                    filters.append("i.deleted_at IS NULL")
                 if status == "PAUSED":
                     filters.append("i.enabled=0")
-                elif status != "ALL":
+                elif status not in {"ALL", "DELETED"}:
                     filters.append("p.status=%s")
                     params.append(status)
                     filters.append("i.enabled=1")
@@ -736,7 +749,7 @@ class TargetManagementService:
                             WHERE pr2.target_item_id=i.id AND pr2.stat_date<=CURRENT_DATE
                             ORDER BY pr2.stat_date DESC LIMIT 1)
                 WHERE p.target_scene=%s AND p.period_start=%s AND p.period_end=%s
-                  AND p.status IN ('ACTIVE','PUBLISHED') AND i.enabled=1 AND i.unit_code='SEGMENT'
+                  AND p.status='ACTIVE' AND i.enabled=1 AND i.deleted_at IS NULL AND i.unit_code='SEGMENT'
                 ORDER BY i.sort_order, i.id""",
             (scene, start, end),
         )
@@ -1128,9 +1141,12 @@ class TargetManagementService:
             "remaining": _decimal(row["remaining_value"]) if row["stat_date"] is not None else None,
             "requiredDaily": _decimal(row["required_daily_value"]),
             "profit": _decimal(row["profit_cumulative"]), "profitPerSegment": _decimal(row["profit_per_segment"]),
-            "status": _row_status(str(row["plan_status"]), row["enabled"]),
+            "status": _row_status(str(row["plan_status"]), row["enabled"], row.get("deleted_at")),
             "dataStatus": row["data_status"] if row["stat_date"] is not None else "PENDING_ETL",
             "dataThroughDate": _iso(row["data_through_date"]), "remark": row["remark"] or "",
+            "deletedAt": _iso(row.get("deleted_at")),
+            "deletedByName": str(row.get("deleted_by_name_snapshot") or ""),
+            "deleteReason": str(row.get("delete_reason") or ""),
             "itemIds": {row["gds_code"]: int(row["id"])} if row["gds_code"] else {},
         }
 
@@ -1138,6 +1154,9 @@ class TargetManagementService:
         _require(user, MANAGE_PERMISSION, "当前账号没有目标配置权限")
         scene = _scene(values.get("scene"))
         period, start, end = _month(values.get("period"))
+        original_period = str(values.get("originalPeriod") or period).strip()
+        _, original_start, original_end = _month(original_period)
+        month_changed = original_period != period
         copy_mode = values.get("copyMode") is True
         department_name = _text(values.get("departmentName"), "归属部门", required=True, maximum=100)
         department_code = _text(values.get("departmentCode"), "部门编码", required=True, maximum=64)
@@ -1186,9 +1205,9 @@ class TargetManagementService:
             policy_leader_name = str(people[policy_leader_user_id]["name"])
             owner_name = policy_leader_name
             policy_name = ""
-            policy_code = _text(values.get("policyGroupCode"), "政策组编码", maximum=100) or _stable_code(
-                "POLICY", ",".join(str(value) for value in sorted(policy_member_user_ids))
-            )
+            supplied_policy_code = _text(values.get("policyGroupCode"), "政策组编码", maximum=100)
+            editing_policy = isinstance(values.get("itemIds"), dict) and bool(values.get("itemIds"))
+            policy_code = supplied_policy_code if editing_policy and not copy_mode and not month_changed else _new_policy_group_code()
 
         try:
             roster_owner = self._roster_owner(owner_user_id)
@@ -1237,6 +1256,36 @@ class TargetManagementService:
                 raise ValueError("所选指标口径不支持当前场景")
             if scene == "GDS" and metric_code == "GDS_1A_ELIGIBLE_SEGMENT" and gds_code != "1A":
                 raise ValueError("1A考核有效航段只能用于1A目标")
+
+            raw_item_ids = values.get("itemIds") if scene == "POLICY" else None
+            requested_item_ids = (
+                [int(value) for value in raw_item_ids.values() if value]
+                if isinstance(raw_item_ids, dict)
+                else ([int(values["itemId"])] if values.get("itemId") else [])
+            )
+            source_plan_id: int | None = None
+            source_snapshot: dict[str, Any] | None = None
+            if requested_item_ids:
+                placeholders = ",".join(["%s"] * len(requested_item_ids))
+                cursor.execute(
+                    f"""SELECT DISTINCT p.id AS plan_id, p.period_start, p.period_end
+                        FROM {self._table('biz_target_plan')} p
+                        JOIN {self._table('biz_target_item')} i ON i.plan_id=p.id
+                        WHERE p.target_scene=%s AND i.id IN ({placeholders}) AND i.deleted_at IS NULL
+                        FOR UPDATE""",
+                    (scene, *requested_item_ids),
+                )
+                source_plans = [dict(row) for row in cursor.fetchall()]
+                if len(source_plans) != 1:
+                    raise ValueError("要编辑的目标不存在或不属于同一计划")
+                source_plan_id = int(source_plans[0]["plan_id"])
+                if source_plans[0]["period_start"] != original_start or source_plans[0]["period_end"] != original_end:
+                    raise ValueError("原目标月份已变化，请刷新页面后重试")
+                source_snapshot = self._configuration_snapshot(
+                    cursor, source_plan_id, item_ids=requested_item_ids,
+                )
+                if not source_snapshot:
+                    raise ValueError("要编辑的目标不存在")
             cursor.execute(
                 f"""SELECT id, status FROM {self._table('biz_target_plan')}
                     WHERE target_scene=%s AND period_type='MONTH' AND period_start=%s AND period_end=%s
@@ -1263,6 +1312,17 @@ class TargetManagementService:
                 )
                 plan_id = int(cursor.lastrowid)
 
+            if scene == "POLICY" and source_snapshot and not month_changed:
+                source_policy_code = str(source_snapshot["items"][0].get("policy_group_code") or "")
+                cursor.execute(
+                    f"""SELECT COUNT(DISTINCT owner_user_id) AS owner_count
+                        FROM {self._table('biz_target_item')}
+                        WHERE plan_id=%s AND policy_group_code=%s AND deleted_at IS NULL""",
+                    (source_plan_id, source_policy_code),
+                )
+                shared_group = int((cursor.fetchone() or {}).get("owner_count") or 0) > 1
+                policy_code = _new_policy_group_code() if shared_group else source_policy_code
+
             entries: list[tuple[str, Decimal, int | None]] = []
             if scene == "POLICY":
                 targets = values.get("gdsTargets")
@@ -1273,24 +1333,66 @@ class TargetManagementService:
                     if not isinstance(item, dict):
                         raise ValueError("GDS目标格式不合法")
                     code = _text(item.get("gdsCode"), "GDS", required=True, maximum=32).upper()
-                    entries.append((code, _number(item.get("targetValue")), int(item_ids[code]) if item_ids.get(code) else None))
+                    existing_id = int(item_ids[code]) if item_ids.get(code) else None
+                    entries.append((code, _number(item.get("targetValue")), None if month_changed else existing_id))
             else:
                 existing_id = values.get("itemId")
-                entries.append((gds_code, _number(values.get("targetValue")), int(existing_id) if existing_id else None))
+                entries.append((gds_code, _number(values.get("targetValue")), None if month_changed else (int(existing_id) if existing_id else None)))
             if sum((entry[1] for entry in entries), Decimal("0")) <= 0:
                 raise ValueError("目标航段数合计必须大于0")
 
-            requested_item_ids = [entry[2] for entry in entries if entry[2]]
-            before_snapshot = self._configuration_snapshot(
-                cursor,
-                plan_id,
-                item_ids=requested_item_ids,
-                policy_group_code=policy_code if scene == "POLICY" else "",
+            edit_item_ids = [entry[2] for entry in entries if entry[2]]
+            before_snapshot = source_snapshot if source_snapshot else self._configuration_snapshot(
+                cursor, plan_id, item_ids=edit_item_ids,
             )
-            if before_snapshot and not change_reason:
-                raise ValueError("修改目标配置时请填写本次操作原因")
             if not change_reason:
-                change_reason = "新建目标配置"
+                change_reason = "调整目标配置" if before_snapshot else "新建目标配置"
+
+            excluded_ids = requested_item_ids if source_plan_id == plan_id and not month_changed else []
+            exclusion_sql = ""
+            duplicate_params: list[Any] = [plan_id, metric_code, metric_version, department_code, owner_user_id]
+            if excluded_ids:
+                exclusion_sql = f" AND i.id NOT IN ({','.join(['%s'] * len(excluded_ids))})"
+                duplicate_params.extend(excluded_ids)
+            if scene in {"PLATFORM", "GDS"}:
+                identity_column = "platform_code" if scene == "PLATFORM" else "gds_code"
+                identity_value = platform_code if scene == "PLATFORM" else gds_code
+                cursor.execute(
+                    f"""SELECT i.id,i.deleted_at FROM {self._table('biz_target_item')} i
+                        WHERE i.plan_id=%s AND i.metric_code=%s AND i.metric_version=%s
+                          AND i.department_code=%s AND i.owner_user_id=%s
+                          AND i.{identity_column}=%s{exclusion_sql}
+                        LIMIT 1""",
+                    (*duplicate_params[:5], identity_value, *duplicate_params[5:]),
+                )
+                duplicate_row = cursor.fetchone()
+                if duplicate_row and duplicate_row.get("deleted_at"):
+                    raise ValueError(f"{period}已存在相同的已删除目标，请在“已删除”筛选中恢复")
+                if duplicate_row:
+                    raise ValueError(f"{period}已存在相同平台或GDS、指标、责任人和部门的目标，请编辑已有配置")
+            else:
+                cursor.execute(
+                    f"""SELECT DISTINCT i.policy_group_code,i.deleted_at
+                        FROM {self._table('biz_target_item')} i
+                        WHERE i.plan_id=%s AND i.metric_code=%s AND i.metric_version=%s
+                          AND i.department_code=%s AND i.owner_user_id=%s
+                          {exclusion_sql}""",
+                    tuple(duplicate_params),
+                )
+                requested_members = sorted(policy_member_user_ids)
+                for candidate in cursor.fetchall():
+                    candidate_code = str(candidate.get("policy_group_code") or "")
+                    if not candidate_code:
+                        continue
+                    cursor.execute(
+                        f"""SELECT member_user_id FROM {self._table('biz_target_policy_member')}
+                            WHERE plan_id=%s AND policy_group_code=%s ORDER BY member_user_id""",
+                        (plan_id, candidate_code),
+                    )
+                    if [int(row["member_user_id"]) for row in cursor.fetchall()] == requested_members:
+                        if candidate.get("deleted_at"):
+                            raise ValueError("当前月份已存在完全相同的已删除政策员目标，请在“已删除”筛选中恢复")
+                        raise ValueError("当前月份已存在完全相同的政策员目标，请编辑已有配置")
 
             saved_ids: list[int] = []
             for entry_gds, target_value, existing_id in entries:
@@ -1317,12 +1419,13 @@ class TargetManagementService:
                             policy_leader_user_id=%s,policy_leader_name_snapshot=%s,
                             policy_member_user_id=%s,policy_member_name_snapshot=%s,
                             owner_user_id=%s,owner_name_snapshot=%s,target_value=%s,unit_code=%s,
-                            enabled=%s,remark=%s,updated_by=%s WHERE id=%s AND plan_id=%s""",
+                            enabled=%s,remark=%s,updated_by=%s
+                            WHERE id=%s AND plan_id=%s AND deleted_at IS NULL""",
                         (*fields, existing_id, plan_id),
                     )
                     if cursor.rowcount == 0:
                         cursor.execute(
-                            f"SELECT id FROM {self._table('biz_target_item')} WHERE id=%s AND plan_id=%s",
+                            f"SELECT id FROM {self._table('biz_target_item')} WHERE id=%s AND plan_id=%s AND deleted_at IS NULL",
                             (existing_id, plan_id),
                         )
                         if not cursor.fetchone():
@@ -1384,16 +1487,42 @@ class TargetManagementService:
             )
             if not after_snapshot:
                 raise TargetManagementUnavailable("目标保存后无法生成审计快照")
+            if month_changed and source_plan_id and requested_item_ids and source_snapshot:
+                actor_name = str(
+                    user.get("display_name") or user.get("displayName")
+                    or user.get("username") or user.get("user_name") or ""
+                ).strip()[:100]
+                placeholders = ",".join(["%s"] * len(requested_item_ids))
+                cursor.execute(
+                    f"""UPDATE {self._table('biz_target_item')}
+                        SET deleted_at=NOW(), deleted_by_user_id=%s,
+                            deleted_by_name_snapshot=%s, delete_reason=%s, updated_by=%s
+                        WHERE plan_id=%s AND id IN ({placeholders}) AND deleted_at IS NULL""",
+                    (actor_id, actor_name, change_reason, actor_id, source_plan_id, *requested_item_ids),
+                )
+                if cursor.rowcount != len(requested_item_ids):
+                    raise ValueError("原目标已被修改或删除，请刷新页面后重试")
+                source_after = self._configuration_snapshot(
+                    cursor, source_plan_id, item_ids=requested_item_ids,
+                )
+                if not source_after:
+                    raise TargetManagementUnavailable("原目标迁移后无法生成审计快照")
+                self._write_change_log(
+                    cursor, plan_id=source_plan_id, scene=scene, status=status,
+                    item_ids=requested_item_ids, before=source_snapshot, after=source_after,
+                    change_reason=change_reason, user=user, action="DELETE",
+                )
             self._write_change_log(
                 cursor,
                 plan_id=plan_id,
                 scene=scene,
                 status=status,
                 item_ids=saved_ids,
-                before=before_snapshot,
+                before=None if month_changed else before_snapshot,
                 after=after_snapshot,
                 change_reason=change_reason,
                 user=user,
+                action="CREATE" if month_changed else None,
             )
             connection.commit()
             return {"planId": plan_id, "itemIds": saved_ids, "scene": scene, "period": period}
@@ -1407,3 +1536,146 @@ class TargetManagementService:
         finally:
             if cursor is not None: cursor.close()
             if connection is not None: connection.close()
+
+    def set_deleted(self, user: dict[str, Any], values: dict[str, Any], *, restore: bool = False) -> dict[str, Any]:
+        """Soft-delete or restore one logical target (all GDS rows for policy targets)."""
+        _require(user, MANAGE_PERMISSION, "当前账号没有目标配置权限")
+        scene = _scene(values.get("scene"))
+        try:
+            plan_id = int(values.get("planId"))
+            item_ids = list(dict.fromkeys(int(value) for value in values.get("itemIds", []) if value))
+        except Exception as error:
+            raise ValueError("目标编号不合法") from error
+        if not plan_id or not item_ids:
+            raise ValueError("请选择要操作的目标")
+        reason = _text(values.get("reason"), "操作原因", maximum=1000)
+        import pymysql
+
+        connection = cursor = None
+        try:
+            connection = self.source.connect()
+            connection.begin()
+            cursor = connection.cursor(pymysql.cursors.DictCursor)
+            placeholders = ",".join(["%s"] * len(item_ids))
+            cursor.execute(
+                f"""SELECT i.*, p.target_scene
+                    FROM {self._table('biz_target_item')} i
+                    JOIN {self._table('biz_target_plan')} p ON p.id=i.plan_id
+                    WHERE i.plan_id=%s AND i.id IN ({placeholders}) FOR UPDATE""",
+                (plan_id, *item_ids),
+            )
+            rows = [dict(row) for row in cursor.fetchall()]
+            if len(rows) != len(item_ids) or any(str(row["target_scene"]) != scene for row in rows):
+                raise ValueError("要操作的目标不存在或不属于当前计划")
+            if restore and any(row.get("deleted_at") is None for row in rows):
+                raise ValueError("目标未删除，无需恢复")
+            if not restore and any(row.get("deleted_at") is not None for row in rows):
+                raise ValueError("目标已删除，请刷新页面")
+            policy_code = str(rows[0].get("policy_group_code") or "") if scene == "POLICY" else ""
+            if scene == "POLICY":
+                first_policy_row = rows[0]
+                deleted_filter = "IS NOT NULL" if restore else "IS NULL"
+                cursor.execute(
+                    f"""SELECT id FROM {self._table('biz_target_item')}
+                        WHERE plan_id=%s AND policy_group_code=%s
+                          AND department_code=%s AND owner_user_id=%s
+                          AND metric_code=%s AND metric_version=%s
+                          AND deleted_at {deleted_filter}""",
+                    (plan_id, policy_code, first_policy_row["department_code"],
+                     first_policy_row["owner_user_id"], first_policy_row["metric_code"],
+                     first_policy_row["metric_version"]),
+                )
+                logical_item_ids = {int(row["id"]) for row in cursor.fetchall()}
+                if logical_item_ids != set(item_ids):
+                    raise ValueError("政策员目标必须一次操作全部GDS明细，请刷新页面后重试")
+            before = self._configuration_snapshot(cursor, plan_id, item_ids=item_ids)
+            if not before:
+                raise ValueError("要操作的目标不存在")
+
+            if restore:
+                first = rows[0]
+                identity_filter = ""
+                identity_params: list[Any] = []
+                if scene == "PLATFORM":
+                    identity_filter = " AND platform_code=%s"
+                    identity_params = [first["platform_code"]]
+                elif scene == "GDS":
+                    identity_filter = " AND gds_code=%s"
+                    identity_params = [first["gds_code"]]
+                cursor.execute(
+                    f"""SELECT DISTINCT policy_group_code FROM {self._table('biz_target_item')}
+                        WHERE plan_id=%s AND metric_code=%s AND metric_version=%s
+                          AND department_code=%s AND owner_user_id=%s
+                          AND deleted_at IS NULL{identity_filter}
+                          AND id NOT IN ({placeholders})""",
+                    (plan_id, first["metric_code"], first["metric_version"],
+                     first["department_code"], first["owner_user_id"], *identity_params, *item_ids),
+                )
+                candidates = [str(row.get("policy_group_code") or "") for row in cursor.fetchall()]
+                duplicate = bool(candidates) if scene != "POLICY" else False
+                if scene == "POLICY" and candidates:
+                    cursor.execute(
+                        f"""SELECT member_user_id FROM {self._table('biz_target_policy_member')}
+                            WHERE plan_id=%s AND policy_group_code=%s ORDER BY member_user_id""",
+                        (plan_id, policy_code),
+                    )
+                    members = [int(row["member_user_id"]) for row in cursor.fetchall()]
+                    for candidate_code in candidates:
+                        cursor.execute(
+                            f"""SELECT member_user_id FROM {self._table('biz_target_policy_member')}
+                                WHERE plan_id=%s AND policy_group_code=%s ORDER BY member_user_id""",
+                            (plan_id, candidate_code),
+                        )
+                        if [int(row["member_user_id"]) for row in cursor.fetchall()] == members:
+                            duplicate = True
+                            break
+                if duplicate:
+                    raise ValueError("当前月份已存在相同的有效目标，请编辑已有配置，不能直接恢复")
+
+            actor_id = int(user.get("id") or 0) or None
+            actor_name = str(
+                user.get("display_name") or user.get("displayName")
+                or user.get("username") or user.get("user_name") or ""
+            ).strip()[:100]
+            if restore:
+                cursor.execute(
+                    f"""UPDATE {self._table('biz_target_item')}
+                        SET deleted_at=NULL,deleted_by_user_id=NULL,
+                            deleted_by_name_snapshot='',delete_reason='',updated_by=%s
+                        WHERE plan_id=%s AND id IN ({placeholders}) AND deleted_at IS NOT NULL""",
+                    (actor_id, plan_id, *item_ids),
+                )
+            else:
+                cursor.execute(
+                    f"""UPDATE {self._table('biz_target_item')}
+                        SET deleted_at=NOW(),deleted_by_user_id=%s,
+                            deleted_by_name_snapshot=%s,delete_reason=%s,updated_by=%s
+                        WHERE plan_id=%s AND id IN ({placeholders}) AND deleted_at IS NULL""",
+                    (actor_id, actor_name, reason, actor_id, plan_id, *item_ids),
+                )
+            if cursor.rowcount != len(item_ids):
+                raise ValueError("目标状态已变化，请刷新页面后重试")
+            after = self._configuration_snapshot(cursor, plan_id, item_ids=item_ids)
+            if not after:
+                raise TargetManagementUnavailable("目标操作后无法生成审计快照")
+            self._write_change_log(
+                cursor, plan_id=plan_id, scene=scene, status="ACTIVE",
+                item_ids=item_ids, before=before, after=after,
+                change_reason=reason, user=user, action="RESTORE" if restore else "DELETE",
+            )
+            connection.commit()
+            return {"planId": plan_id, "itemIds": item_ids, "scene": scene}
+        except (PermissionError, ValueError, TargetManagementUnavailable):
+            if connection is not None:
+                connection.rollback()
+            raise
+        except Exception as error:
+            if connection is not None:
+                connection.rollback()
+            LOGGER.exception("Target lifecycle operation failed")
+            raise TargetManagementUnavailable("目标操作失败") from error
+        finally:
+            if cursor is not None:
+                cursor.close()
+            if connection is not None:
+                connection.close()

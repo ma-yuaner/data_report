@@ -1,7 +1,7 @@
 import { http, type ApiEnvelope } from './http'
 
 export type TargetScene = 'PLATFORM' | 'GDS' | 'POLICY'
-export type TargetStatus = 'ACTIVE' | 'DRAFT' | 'PAUSED' | 'CLOSED' | 'VOID'
+export type TargetStatus = 'ACTIVE' | 'DRAFT' | 'PAUSED' | 'CLOSED' | 'VOID' | 'DELETED'
 
 export interface TargetMetric {
   code: string
@@ -88,6 +88,9 @@ export interface TargetRow {
   dataStatus: string
   dataThroughDate?: string | null
   remark: string
+  deletedAt?: string | null
+  deletedByName?: string
+  deleteReason?: string
   gdsBreakdown?: Record<string, TargetGdsMeasure>
 }
 
@@ -187,6 +190,7 @@ export interface TargetEtlRefreshStatus {
 export interface SaveTargetInput {
   scene: TargetScene
   period: string
+  originalPeriod?: string
   departmentCode?: string
   departmentName: string
   platformCode?: string
@@ -208,6 +212,13 @@ export interface SaveTargetInput {
   remark?: string
   changeReason?: string
   copyMode?: boolean
+}
+
+export interface TargetLifecycleInput {
+  scene: TargetScene
+  planId: number
+  itemIds: number[]
+  reason?: string
 }
 
 export async function fetchTargets(params: { scene: TargetScene; period: string; status?: string; keyword?: string }) {
@@ -242,5 +253,15 @@ export async function fetchTargetOptions() {
 
 export async function saveTarget(input: SaveTargetInput) {
   const response = await http.post<ApiEnvelope<{ planId: number; itemIds: number[] }>>('/v1/business-configuration/targets', input)
+  return response.data.data
+}
+
+export async function deleteTarget(input: TargetLifecycleInput) {
+  const response = await http.delete<ApiEnvelope<{ planId: number; itemIds: number[] }>>('/v1/business-configuration/targets', { data: input })
+  return response.data.data
+}
+
+export async function restoreTarget(input: TargetLifecycleInput) {
+  const response = await http.post<ApiEnvelope<{ planId: number; itemIds: number[] }>>('/v1/business-configuration/targets/restore', input)
   return response.data.data
 }

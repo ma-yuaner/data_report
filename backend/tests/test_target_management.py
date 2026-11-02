@@ -7,6 +7,8 @@ from data_report_api.services.target_management import (
     _boolean_query,
     _change_action,
     _json_ready,
+    _new_policy_group_code,
+    _row_status,
 )
 
 
@@ -91,6 +93,21 @@ def test_target_change_action_distinguishes_create_update_pause_and_resume():
     assert _change_action({"items": [{"enabled": 1}]}, "ACTIVE") == "UPDATE"
     assert _change_action({"items": [{"enabled": 1}]}, "PAUSED") == "PAUSE"
     assert _change_action({"items": [{"enabled": 0}]}, "ACTIVE") == "RESUME"
+
+
+def test_policy_group_codes_are_unique_target_identities():
+    first = _new_policy_group_code()
+    second = _new_policy_group_code()
+
+    assert first.startswith("POLICY_")
+    assert first != second
+    assert len(first) <= 100
+
+
+def test_deleted_status_has_priority_over_plan_and_enabled_status():
+    assert _row_status("ACTIVE", 1) == "ACTIVE"
+    assert _row_status("ACTIVE", 0) == "PAUSED"
+    assert _row_status("ACTIVE", 1, datetime(2026, 11, 2)) == "DELETED"
 
 
 def test_target_audit_snapshot_is_json_serializable():

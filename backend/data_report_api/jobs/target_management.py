@@ -327,7 +327,7 @@ class TargetManagementDailyJob:
                                i.policy_leader_user_id, i.policy_leader_name_snapshot
                         FROM {self.target_database}.biz_target_plan p
                         JOIN {self.target_database}.biz_target_item i ON i.plan_id=p.id
-                        WHERE p.status IN ('ACTIVE','PUBLISHED') AND i.enabled=1
+                        WHERE p.status='ACTIVE' AND i.enabled=1 AND i.deleted_at IS NULL
                           AND p.period_start<=%s AND p.period_end>=%s
                           AND i.metric_code IN ('ISSUED_AIRLIFT_SEGMENT','REWARD_SEGMENT','GDS_1A_ELIGIBLE_SEGMENT')""",
                     (biz_date, biz_date),
@@ -880,7 +880,7 @@ class TargetManagementDailyJob:
                           ON pm.plan_id=i.plan_id
                          AND pm.policy_group_code=i.policy_group_code
                          AND p.target_scene='POLICY'
-                        WHERE p.status IN ('ACTIVE','PUBLISHED') AND i.enabled=1
+                        WHERE p.status='ACTIVE' AND i.enabled=1 AND i.deleted_at IS NULL
                           AND p.period_start<=%s
                         GROUP BY i.id, p.period_start, p.period_end, p.target_scene,
                                  i.metric_code, i.platform_code, i.gds_code,

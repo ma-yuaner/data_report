@@ -107,6 +107,13 @@
   {
     "path": "/api/v1/business-configuration/targets",
     "methods": [
+      "DELETE"
+    ],
+    "endpoint": "api.target_management_delete"
+  },
+  {
+    "path": "/api/v1/business-configuration/targets",
+    "methods": [
       "GET"
     ],
     "endpoint": "api.target_management_list"
@@ -131,6 +138,13 @@
       "GET"
     ],
     "endpoint": "api.target_management_options"
+  },
+  {
+    "path": "/api/v1/business-configuration/targets/restore",
+    "methods": [
+      "POST"
+    ],
+    "endpoint": "api.target_management_restore"
   },
   {
     "path": "/api/v1/dashboard/overview",
