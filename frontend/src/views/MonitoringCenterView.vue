@@ -512,7 +512,7 @@ const manualTemplateOptions = [
   { value: 'OTA_SUCCESS_RATE_DAILY', label: 'OTA成功率（日）' },
 ]
 const dailyLineOptions = [{ value: 'LEYOU_1', label: '乐游1部' }, { value: 'HONGKONG_1', label: '香港1部' }]
-const dailySitesText = computed(() => ruleForm.value.businessLine === 'HONGKONG_1' ? '香港携程一部、香港携程一部公布、香港携程一部特惠' : '乐游携程一部、乐游携程一部公布、乐游携程一部特惠')
+const dailySitesText = computed(() => ruleForm.value.businessLine === 'HONGKONG_1' ? '香港携程一部、香港携程公布、香港携程一部特惠' : '乐游携程一部、乐游携程一部公布、乐游携程一部特惠')
 const dailySiteCounts = computed(() => {
   try {
     const sites = JSON.parse(ruleDetail.value?.dailySegment?.snapshot?.siteCountsJson || '{}') as Record<string, number>

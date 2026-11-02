@@ -3,7 +3,7 @@
 -- 默认最近7天，含今天；今天只统计至 @as_of，其余日期统计完整出票日。
 -- 注意：历史结果使用当前订单/退改状态重算，不是当时提醒时的历史快照。
 -- 与执行器相同：COUNT(DISTINCT 出票ID,航段ID)，不乘人数，不使用trip_count。
--- 香港公布映射未补齐前，“完整业务线航段”返回NULL；已匹配站点航段仅供核对。
+-- 任一业务线映射未完整匹配时，“完整业务线航段”返回NULL；已匹配站点航段仅供核对。
 
 SET SESSION time_zone = '+08:00';
 SET @as_of = NOW();
@@ -24,7 +24,7 @@ FROM (
     UNION ALL SELECT '乐游1部', '乐游携程一部公布'
     UNION ALL SELECT '乐游1部', '乐游携程一部特惠'
     UNION ALL SELECT '香港1部', '香港携程一部'
-    UNION ALL SELECT '香港1部', '香港携程一部公布'
+    UNION ALL SELECT '香港1部', '香港携程公布'
     UNION ALL SELECT '香港1部', '香港携程一部特惠'
 ) e
 LEFT JOIN sibe_ota_site s
@@ -36,7 +36,7 @@ ORDER BY e.business_line, e.site_name;
 -- 10秒查询预算；如果超时，应缩短@days并检查索引，不取消日期范围扫描全表。
 SELECT /*+ MAX_EXECUTION_TIME(10000) */
     calendar.business_date AS `出票日期`,
-    lines.business_line AS `业务线`,
+    business_groups.business_line AS `业务线`,
     COALESCE(mapping.site_count, 0) AS `已匹配站点数`,
     3 AS `应匹配站点数`,
     CASE WHEN mapping.site_count = 3 AND mapping.mapping_rows = 3 AND mapping.code_count = 3
@@ -44,9 +44,9 @@ SELECT /*+ MAX_EXECUTION_TIME(10000) */
     COALESCE(sales.segment_total, 0) AS `已匹配站点航段`,
     CASE WHEN mapping.site_count = 3 AND mapping.mapping_rows = 3 AND mapping.code_count = 3
          THEN COALESCE(sales.segment_total, 0) ELSE NULL END AS `完整业务线航段`,
-    lines.threshold_value AS `提醒阈值`,
+    business_groups.threshold_value AS `提醒阈值`,
     CASE WHEN mapping.site_count = 3 AND mapping.mapping_rows = 3 AND mapping.code_count = 3
-         THEN CASE WHEN COALESCE(sales.segment_total, 0) >= lines.threshold_value
+         THEN CASE WHEN COALESCE(sales.segment_total, 0) >= business_groups.threshold_value
                    THEN '达到提醒值' ELSE '未达到' END
          ELSE '不判定，先补映射' END AS `阈值判断`,
     @as_of AS `本次核对截至时间`
@@ -60,7 +60,7 @@ FROM (
 CROSS JOIN (
     SELECT '乐游1部' AS business_line, 2500 AS threshold_value
     UNION ALL SELECT '香港1部', 5500
-) lines
+) business_groups
 LEFT JOIN (
     SELECT
         CASE WHEN ota_site_cname IN ('乐游携程一部','乐游携程一部公布','乐游携程一部特惠')
@@ -71,9 +71,9 @@ LEFT JOIN (
     FROM sibe_ota_site
     WHERE ota_code = 'CTRIP'
       AND ota_site_cname IN ('乐游携程一部','乐游携程一部公布','乐游携程一部特惠',
-                            '香港携程一部','香港携程一部公布','香港携程一部特惠')
+                            '香港携程一部','香港携程公布','香港携程一部特惠')
     GROUP BY business_line
-) mapping ON mapping.business_line = lines.business_line
+) mapping ON mapping.business_line = business_groups.business_line
 LEFT JOIN (
     SELECT STRAIGHT_JOIN
         DATE(oii.issue_ticket_time) AS business_date,
@@ -89,11 +89,11 @@ LEFT JOIN (
       AND oii.issue_ticket_time < @as_of
       AND oi.ota_code = 'CTRIP'
       AND sos.ota_site_cname IN ('乐游携程一部','乐游携程一部公布','乐游携程一部特惠',
-                               '香港携程一部','香港携程一部公布','香港携程一部特惠')
+                               '香港携程一部','香港携程公布','香港携程一部特惠')
       AND oi.order_status = 'TICKETED'
       AND oii.refund_issue_flag = 0
       AND oii.refund_flag <> 3
       AND os.airlift_flag = 1
     GROUP BY DATE(oii.issue_ticket_time), business_line
-) sales ON sales.business_date = calendar.business_date AND sales.business_line = lines.business_line
-ORDER BY calendar.business_date DESC, lines.business_line;
+) sales ON sales.business_date = calendar.business_date AND sales.business_line = business_groups.business_line
+ORDER BY calendar.business_date DESC, business_groups.business_line;

@@ -5,7 +5,7 @@ TEMPLATE = "DAILY_SEGMENT_THRESHOLD"
 EVENT = "DAILY_SEGMENT_THRESHOLD_ALERT"
 LINES = {
     "LEYOU_1": (1, "乐游1部", ("乐游携程一部", "乐游携程一部公布", "乐游携程一部特惠")),
-    "HONGKONG_1": (2, "香港1部", ("香港携程一部", "香港携程一部公布", "香港携程一部特惠")),
+    "HONGKONG_1": (2, "香港1部", ("香港携程一部", "香港携程公布", "香港携程一部特惠")),
 }
 
 
