@@ -22,7 +22,7 @@
 | [上传说明](../business/air_ticketing/risk-data-upload.md) / [行为监控](../product/user-behavior-monitoring-v1.md) | 上传队列和行为采集 |
 
 <!-- BEGIN:API_ROUTES -->
-共 **184个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
+共 **186个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
 
 <a id="auth"></a>
 
@@ -330,6 +330,15 @@
 | `GET` | `/api/v1/smart-placement/missed-orders` | [missed_order_list](../../backend/data_report_api/api/missed_orders.py) |
 | `GET` | `/api/v1/smart-placement/missed-orders/<int:record_id>` | [missed_order_detail](../../backend/data_report_api/api/missed_orders.py) |
 | `GET` | `/api/v1/smart-placement/missed-orders/options` | [missed_order_options](../../backend/data_report_api/api/missed_orders.py) |
+
+<a id="placement_diagnosis"></a>
+
+## placement_diagnosis（placement_diagnosis）
+
+| 方法 | 完整路径 | 处理函数 / 源码 |
+|---|---|---|
+| `GET` | `/api/v1/smart-placement/route-diagnosis` | [placement_route_diagnosis](../../backend/data_report_api/api/placement_diagnosis.py) |
+| `POST` | `/api/v1/smart-placement/tasks/<int:task_id>/route-followups` | [placement_route_followup](../../backend/data_report_api/api/placement_diagnosis.py) |
 
 <a id="placement_import"></a>
 

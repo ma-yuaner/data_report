@@ -19,6 +19,8 @@
       <a-button class="hero-action" :loading="loading" @click="load(1)"><ReloadOutlined /> 刷新当前结果</a-button>
     </section>
     <a-alert v-if="filters.otaOrderNo" type="info" show-icon class="page-alert" :message="`正在精确查询订单 ${filters.otaOrderNo}，不限制命中日期；点击重置退出精确查询。`" />
+    <a-alert v-if="filters.executionId" type="info" show-icon class="page-alert" :message="`当前仅查看投放执行记录 #${filters.executionId} 的收单；点击重置退出。`" />
+    <a-alert v-if="filters.diagnosticFrom" type="info" show-icon class="page-alert" :message="`诊断下钻按实际来单时间 ${filters.diagnosticFrom} 至 ${filters.diagnosticTo} 查询；日期选择器暂不生效，点击重置退出。`" />
     <a-alert type="info" show-icon class="page-alert" message="异常订单保留业务收单和原始利润，单独标记为不计考核；考核指标按主归属统计，并排除已确认异常的订单。" />
 
     <div class="summary-grid">
@@ -33,6 +35,7 @@
       <div class="filter-bar">
         <a-range-picker
           v-model:value="dateRange"
+          :disabled="!!filters.diagnosticFrom"
           :locale="dateLocale"
           value-format="YYYY-MM-DD"
           :allow-clear="false"
@@ -189,7 +192,7 @@ const pageSize = ref(30)
 const today = businessToday()
 const dateRange = ref<[string, string]>([`${today.slice(0, 7)}-01`, today])
 const route = useRoute()
-const filters = ref({ keyword: '', attentionStatus: '', assessmentScope: 'ALL', platform: '', airline: '', owner: '', otaOrderNo: '' })
+const filters = ref({ keyword: '', attentionStatus: '', assessmentScope: 'ALL', platform: '', airline: '', owner: '', otaOrderNo: '', executionId: '', diagnosticFrom: '', diagnosticTo: '' })
 const detailOpen = ref(false)
 const attentionOpen = ref(false)
 const activeOrder = ref<PlacementOrderRow>()
@@ -305,7 +308,7 @@ async function load(targetPage = page.value, automatic = false) {
 }
 function resetFilters() {
   dateRange.value = [`${today.slice(0, 7)}-01`, today]
-  filters.value = { keyword: '', attentionStatus: '', assessmentScope: 'ALL', platform: '', airline: '', owner: '', otaOrderNo: '' }
+  filters.value = { keyword: '', attentionStatus: '', assessmentScope: 'ALL', platform: '', airline: '', owner: '', otaOrderNo: '', executionId: '', diagnosticFrom: '', diagnosticTo: '' }
   void load(1)
 }
 function changePage(value: { current?: number; pageSize?: number }) {
@@ -345,6 +348,14 @@ async function saveAttention() {
 
 let refreshTimer: ReturnType<typeof setInterval> | undefined
 onMounted(() => {
+  if (typeof route.query.executionId === 'string' && /^[1-9]\d*$/.test(route.query.executionId)) {
+    filters.value.executionId = route.query.executionId
+    if (typeof route.query.diagnosticFrom === 'string' && typeof route.query.diagnosticTo === 'string') {
+      filters.value.diagnosticFrom = route.query.diagnosticFrom; filters.value.diagnosticTo = route.query.diagnosticTo
+    }
+    const start = String(route.query.startDate || ''); const end = String(route.query.endDate || '')
+    if (/^\d{4}-\d{2}-\d{2}$/.test(start) && /^\d{4}-\d{2}-\d{2}$/.test(end)) dateRange.value = [start, end]
+  }
   if (typeof route.query.otaOrderNo === 'string') {
     filters.value.otaOrderNo = route.query.otaOrderNo
     filters.value.platform = typeof route.query.platform === 'string' ? route.query.platform : ''

@@ -1789,7 +1789,8 @@ class SmartPlacementService:
     def list_orders(
         self, *, user: dict[str, Any], start_date: str = "", end_date: str = "", attention_status: str = "",
         platform: str = "", airline: str = "", owner: str = "", keyword: str = "",
-        page: int = 1, page_size: int = 30, ota_order_no: str = "", assessment_scope: str = 'ALL',
+        page: int = 1, page_size: int = 30, ota_order_no: str = "", assessment_scope: str = 'ALL', execution_id: int = 0,
+        diagnostic_from: str = '', diagnostic_to: str = '',
     ) -> dict[str, Any]:
         exact_order = _text(ota_order_no, "OTA订单号", 50)
         first = _business_now().date() if exact_order else _date_value(start_date, "开始日期") or _business_now().date()
@@ -1799,8 +1800,19 @@ class SmartPlacementService:
         page = max(1, int(page)); page_size = max(1, min(int(page_size), 100))
         if assessment_scope not in {'ALL', 'NORMAL', 'EXCLUDED'}:
             raise ValueError('订单分类筛选不支持')
+        if type(execution_id) is not int or execution_id < 0:
+            raise ValueError('投放执行记录筛选不合法')
+        diagnostic_start = _datetime_value(diagnostic_from, '诊断来单开始时间')
+        diagnostic_end = _datetime_value(diagnostic_to, '诊断来单结束时间')
+        if diagnostic_start or diagnostic_end:
+            if not diagnostic_start or not diagnostic_end or not execution_id or exact_order or diagnostic_end < diagnostic_start or diagnostic_end - diagnostic_start > timedelta(days=31):
+                raise ValueError('诊断下钻须指定执行记录和31天以内的完整来单时间窗口')
         visibility, visibility_params = self._order_visibility_condition(user)
-        if exact_order:
+        if diagnostic_start:
+            where = [visibility, 'm.order_time>=%s', 'm.order_time<=%s']
+            params: list[Any] = [*visibility_params, diagnostic_start, diagnostic_end]
+            first, last = diagnostic_start.date(), diagnostic_end.date()
+        elif exact_order:
             where = [visibility,"m.ota_order_no=%s"]
             params: list[Any] = [*visibility_params,exact_order]
         else:
@@ -1808,6 +1820,8 @@ class SmartPlacementService:
             params = [datetime.combine(first, time.min), datetime.combine(last + timedelta(days=1), time.min),*visibility_params]
         if attention_status:
             where.append("m.attention_status=%s"); params.append(_text(attention_status, "关注状态", 20))
+        if execution_id:
+            where.append('m.execution_id=%s'); params.append(execution_id)
         if assessment_scope != 'ALL':
             where.append('COALESCE(e.is_excluded,0)=%s')
             params.append(1 if assessment_scope == 'EXCLUDED' else 0)

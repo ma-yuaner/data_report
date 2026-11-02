@@ -24,6 +24,7 @@
 - 浏览器：本次工具明确返回 `Local browser use is disabled in Work settings`。在用户启用或工具明确报告设置变化前，跳过浏览器启动、真实点击、中文输入、缩放与滚动验收；不换自动化路径绕过禁用。保留静态/类型/接口验证，交付列明交互未实测。
 - Python：项目 `.venv/Scripts/python.exe` 的 `_ctypes` DLL 加载已确认失败，不再反复尝试相同解释器。已验证可用入口为 `C:/Users/Administrator/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe`，在进程内向 `sys.path` 追加 `D:/data_center_code/data_report/.venv/Lib/site-packages` 后运行 pytest；不修改公共环境，不绕过完整 Flask 导入。
 - Ruff：此前原生入口出现挂起/弹窗，未取得成功结果；工具或运行环境修复前不重复启动该入口，不报告 Ruff 已通过。按改动运行已可用的语法及针对性检查。
+- 前端生产构建：npm/PowerShell包装曾在产物生成后触发Windows libuv退出断言；复用已验证路径，在frontend目录由bundled Python subprocess直接运行`node node_modules/vite/bin/vite.js build`，stdout/stderr写入UTF-8日志，再读取进程返回码；控制台摘要用ASCII或明确UTF-8，避免GBK打印失败被误判为构建失败。环境未变化不重走该包装失败路径；类型检查、ESLint按改动独立执行。
 - 旧 GDS 本地测试 `test_running_cancel_discards_late_query_result`：已在未修改的基线复现失败，旧夹具依赖的 `SELECT airroute_code` 前缀不再匹配当前查询。与 GDS/统一导出取消机制无关的任务不反复复现；本次漏处理订单验证记录为 88 通过、该存量项 1 项排除。涉及相关实现、修复夹具或基线变化时重新评估，不能将其永久豁免或宣称全套通过。
 - 架构检查已有 ADM HTTP 依赖与循环报告；无关改动复用已记录基线，不反复全量扫描或扩大修复。涉及对应依赖方向时重新检查。直接相关检查已通过后，只有新增变更、失败或未解决风险才追加测试。
 

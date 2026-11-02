@@ -105,6 +105,7 @@ HR报表邮件  [/hr-mail]
 - **风控分析**：已有总览、出退改利润、差错、订单明细和数据上传入口。上传由独立Worker执行Hive增量合并；网络、目标表、精度变更及真实文件仍需按[上传说明](docs/business/air_ticketing/risk-data-upload.md)核验。
 - **客服分析**：退票、改签、清Q/航变分析为禁用预留项，尚无对应页面路由。
 - **智能分析**：采用“智能整体分析”和“智能投放”两组三级菜单。智能分析现已固定读取MySQL年度指标及明细表；投放政策支持Excel模板批量新建分析机会，先校验预览再确认，仅新建、不覆盖后续流程；生产表、规则计算与通知调度需按[智能投放说明](docs/business/air_ticketing/smart-placement-mvp.md)核对。
+- **航线诊断**：投放政策页内新增平台横向对比页签，识别零单、中断和跨平台差异，支持政策下钻、跟进及到期复查；沿用既有表，无新增DDL/调度，详见[智能投放说明](docs/business/air_ticketing/smart-placement-mvp.md)。
 - **收单异常与考核**：在关注订单时登记异常类型和原因，保留原始业务订单及利润，独立计算不含异常的考核口径；上线先执行`docs/sql/smart-placement-order-assessment-v1.sql`，详见[智能投放说明](docs/business/air_ticketing/smart-placement-mvp.md)。
 - **漏处理订单**：智能投放新增只读明细、筛选、订单证据联动和全局任务导出，固定读取`sibebid.bi_downgrade_missed_order_day`；需迁移数据并配置菜单/人员范围，真实数据与部署待验，详见[功能说明](docs/business/air_ticketing/missed-orders-v1.md)。
 - **业务配置与监控**：目标配置、目标进度、手动刷新，以及规则、事件、技术工单和通知配置已有实现。新增携程单日累计航段模板，五分钟统一汇总业务线三个站点并生成每日首次达标提醒；香港公布站点已按用户纠正为“香港携程公布”（CTHK001GB），六站映射齐全。正式启用需执行专用迁移、配置任务/群路由并建立调度，尚未部署；历史验证SQL可独立在ERP只读运行，无需迁移。完成量依赖ETL，通知和资源日检查依赖独立调度；详见[目标管理](docs/business/air_ticketing/target-management-v1.md)和[监控中心](docs/business/air_ticketing/monitoring-center-v1.md)。
@@ -182,7 +183,7 @@ docker compose up -d --build
 API统一前缀为`/api`。认证与账号管理使用`/api/auth/*`、`/api/admin/*`；业务接口主要使用`/api/v1/*`。登录后使用会话Cookie，非安全方法需携带CSRF头；JSON通常返回`success/message/data`，导出接口返回文件。具体权限、参数与错误见[完整接口目录](docs/api/README.md)及对应源码。
 
 <!-- BEGIN:API_SUMMARY -->
-当前静态登记 **184个HTTP方法/路径条目**（含认证与管理接口，不重复列自动HEAD/OPTIONS）。
+当前静态登记 **186个HTTP方法/路径条目**（含认证与管理接口，不重复列自动HEAD/OPTIONS）。
 
 | 接口领域 | 条目数 | 完整清单 |
 |---|---:|---|
@@ -204,6 +205,7 @@ API统一前缀为`/api`。认证与账号管理使用`/api/auth/*`、`/api/admi
 | adm_files | 4 | [adm_files](docs/api/README.md#adm_files) |
 | adm_operations | 10 | [adm_operations](docs/api/README.md#adm_operations) |
 | missed_orders | 3 | [missed_orders](docs/api/README.md#missed_orders) |
+| placement_diagnosis | 2 | [placement_diagnosis](docs/api/README.md#placement_diagnosis) |
 | placement_import | 3 | [placement_import](docs/api/README.md#placement_import) |
 <!-- END:API_SUMMARY -->
 

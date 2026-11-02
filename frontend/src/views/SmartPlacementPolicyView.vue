@@ -12,6 +12,8 @@
       </a-space>
     </section>
 
+    <a-tabs v-model:active-key="policyTab">
+    <a-tab-pane key="policies" tab="政策列表">
     <section class="summary-grid">
       <article v-for="item in summaryCards" :key="item.key" class="summary-card">
         <span>{{ item.label }}</span><strong :class="item.tone">{{ number(data?.summary[item.key] || 0) }}</strong><small>{{ item.note }}</small>
@@ -92,6 +94,9 @@
       </a-table>
     </a-card>
 
+    </a-tab-pane>
+    <a-tab-pane key="diagnosis" tab="航线诊断"><PlacementRouteDiagnosis @open-task="openDiagnosticTask" /></a-tab-pane>
+    </a-tabs>
     <PlacedPolicyChangeDialog v-model:open="policyChangeOpen" :rows="policyChangeRows" @saved="policyChangeSaved" />
     <OpportunityImportDialog v-model:open="importOpen" @imported="load(1)" />
 
@@ -462,6 +467,7 @@ import { placementLocationName, placementRouteName } from '@/utils/placementLoca
 import PlacedPolicyChangeDialog from '@/components/PlacedPolicyChangeDialog.vue'
 import { useAuthStore } from '@/stores/auth'
 import OpportunityImportDialog from '@/components/OpportunityImportDialog.vue'
+import PlacementRouteDiagnosis from '@/components/PlacementRouteDiagnosis.vue'
 import {
   batchReviewPlacementTasks, cancelPlacementTask, claimPlacementTask, createPlacementEffectReview, createPlacementTask, deletePlacementTask, executePlacementTask, fetchPlacementTask, fetchPlacementTaskMonitoring,
   fetchPlacementDimensions, fetchPlacementTasks, reviewPlacementTask, updatePlacementTask,
@@ -475,6 +481,7 @@ const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 const data = ref<PlacementTaskList>()
+const policyTab = ref('policies')
 const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
@@ -626,6 +633,7 @@ const reviewResultMap: Record<string, { label: string; color: string }> = {
   APPROVED: { label: '通过', color: 'green' }, RETURNED: { label: '退回修改', color: 'orange' }, REJECTED: { label: '驳回终止', color: 'red' },
 }
 const actionLabelMap: Record<string, string> = {
+  ROUTE_FOLLOWUP: '航线/平台跟进',
   ASSESSMENT_EXCLUDE: '标记异常（不计考核）', ASSESSMENT_RESTORE: '恢复正常（计入考核）',
   POLICY_CHANGE_REQUESTED: '待人工外部执行（仅请求）', POLICY_CHANGE_APPLIED: '已线下处理·补登记实际配置',
   CREATE: '保存草稿', UPDATE: '更新草稿', DELETE: '删除任务', WITHDRAW: '撤回修改', CANCEL: '作废任务', SUBMIT: '提交审核', RESUBMIT: '重新提交', REVIEW: '审核', CLAIM: '认领', EXECUTE: '登记投放', ATTENTION: '订单关注', STOP_MONITORING: '停止监控', STOP_MONITORING_CENTER: '从监控中心停止',
@@ -1022,6 +1030,7 @@ async function submitExecution() {
   saving.value = true
   try { const result = await executePlacementTask(activeTask.value.id, executionForm.value); message.success(result.monitorRule ? `投放已登记，监控规则 ${result.monitorRule.ruleCode} 已生效` : '投放结果已登记'); executionOpen.value = false; await load() } catch (failure) { message.error(failure instanceof Error ? failure.message : '登记失败') } finally { saving.value = false }
 }
+function openDiagnosticTask(id: number) { void openDetail({ id } as PlacementTaskRow) }
 async function openDetail(row: PlacementTaskRow) {
   detailOpen.value = true; detailLoading.value = true; detailTab.value = 'overview'; detail.value = undefined; monitoring.value = undefined
   try {
