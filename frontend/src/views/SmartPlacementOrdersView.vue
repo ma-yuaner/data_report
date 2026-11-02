@@ -19,6 +19,7 @@
       <a-button class="hero-action" :loading="loading" @click="load(1)"><ReloadOutlined /> 刷新当前结果</a-button>
     </section>
     <a-alert v-if="filters.otaOrderNo" type="info" show-icon class="page-alert" :message="`正在精确查询订单 ${filters.otaOrderNo}，不限制命中日期；点击重置退出精确查询。`" />
+    <a-alert type="info" show-icon class="page-alert" message="异常订单保留业务收单和原始利润，单独标记为不计考核；考核指标按主归属统计，并排除已确认异常的订单。" />
 
     <div class="summary-grid">
       <article v-for="card in summaryCards" :key="card.key" class="summary-card">
@@ -40,6 +41,7 @@
           <template #prefix><SearchOutlined /></template>
         </a-input>
         <a-select v-model:value="filters.attentionStatus" :options="attentionOptions" />
+        <a-select v-model:value="filters.assessmentScope" :options="assessmentOptions" />
         <a-input v-model:value="filters.platform" allow-clear placeholder="平台名称" />
         <a-input v-model:value="filters.airline" allow-clear placeholder="航司" />
         <a-input v-model:value="filters.owner" allow-clear placeholder="关注负责人" />
@@ -53,7 +55,7 @@
         :data-source="data?.rows || []"
         :loading="loading"
         :pagination="pagination"
-        :scroll="{ x: 1500 }"
+        :scroll="{ x: 1950 }"
         @change="changePage"
       >
         <template #emptyText>
@@ -91,12 +93,15 @@
           <template v-else-if="column.key === 'attention'">
             <div class="two-line"><a-tag :color="attentionMeta[record.attentionStatus]?.color || 'default'">{{ attentionMeta[record.attentionStatus]?.label || record.attentionStatus }}</a-tag><span>{{ record.attentionOwnerName || '未分配' }}</span></div>
           </template>
+          <template v-else-if="column.key === 'assessment'">
+            <div class="two-line"><a-tag :color="record.assessmentExcluded ? 'orange' : 'green'">{{ record.assessmentExcluded ? '异常 · 不计考核' : '正常 · 计入考核' }}</a-tag><span>{{ reasonLabel(record.exceptionReasonCode) }}</span><a-button v-if="record.assessmentNote" type="link" size="small" @click="openDetail(record)">查看说明</a-button></div>
+          </template>
           <template v-else-if="column.key === 'matchedAt'">{{ displayTime(record.matchedAt) }}</template>
           <template v-else-if="column.key === 'action'">
             <a-space>
               <a-button size="small" @click="openDetail(record)">详情</a-button>
-              <a-button v-if="canManageAttention && !['COMPLETED', 'NO_ACTION'].includes(record.attentionStatus)" size="small" type="primary" @click="openAttention(record)">
-                {{ record.attentionStatus === 'IN_PROGRESS' ? '处理结果' : '开始关注' }}
+              <a-button v-if="canManageAttention" size="small" type="primary" @click="openAttention(record)">
+                {{ ['COMPLETED', 'NO_ACTION'].includes(record.attentionStatus) ? '关注／分类' : record.attentionStatus === 'IN_PROGRESS' ? '处理结果' : '开始关注' }}
               </a-button>
             </a-space>
           </template>
@@ -106,6 +111,7 @@
 
     <a-drawer v-model:open="detailOpen" title="命中订单详情" :width="'min(760px, 100vw)'" class="placement-order-drawer">
       <template v-if="activeOrder">
+        <section class="order-detail-section"><h3>考核分类</h3><a-tag :color="activeOrder.assessmentExcluded ? 'orange' : 'green'">{{ activeOrder.assessmentExcluded ? '异常订单 · 不计考核' : '正常订单 · 计入考核' }}</a-tag><p class="assessment-note">{{ activeOrder.assessmentNote || '尚未登记异常说明' }}</p><p>{{ reasonLabel(activeOrder.exceptionReasonCode) }} · {{ activeOrder.assessmentUpdatedBy || '尚无分类操作' }} · {{ displayTime(activeOrder.assessmentUpdatedAt) }}</p><small>同一平台、同一OTA订单统一分类；业务利润、命中记录和关注流程完整保留。</small></section>
         <div class="order-detail-hero"><span>OTA订单号</span><h2>{{ activeOrder.otaOrderNo }}</h2><p>{{ activeOrder.platformName || '—' }} · {{ activeOrder.airlineCode || '—' }} · {{ activeOrder.routeText || routeName(activeOrder) }}</p></div>
         <section class="order-detail-section"><h3>订单与命中信息</h3><div class="order-detail-grid">
           <div><label>出票票号</label><span>{{ currentValue(activeOrder.currentTicketNo, activeOrder.ticketNo, activeOrder) || '待同步' }}</span></div><div><label>乘客姓名</label><span>{{ currentValue(activeOrder.currentPassengerName, activeOrder.passengerName, activeOrder) || '待同步' }}</span></div>
@@ -122,11 +128,20 @@
       </template>
     </a-drawer>
 
-    <a-modal v-model:open="attentionOpen" title="更新订单关注状态" width="min(620px, 94vw)" wrap-class-name="placement-order-action-modal" :footer="null" :mask-closable="false">
+    <a-modal v-model:open="attentionOpen" title="订单关注与考核分类" width="min(620px, 94vw)" wrap-class-name="placement-order-action-modal" :mask-closable="false" :closable="!saving" :keyboard="!saving">
       <a-alert v-if="activeOrder" type="info" show-icon class="modal-alert" :message="`${activeOrder.otaOrderNo} · ${activeOrder.externalPolicyId}`" />
       <a-form layout="vertical">
+        <a-alert v-if="attentionError" type="error" show-icon :message="attentionError" />
+        <a-form-item label="订单类型" required>
+          <a-radio-group v-model:value="attentionForm.assessmentExcluded" :disabled="saving" :options="[{ value: false, label: '正常订单 · 计入考核' }, { value: true, label: '异常订单 · 不计考核' }]" @change="assessmentChanged" />
+        </a-form-item>
+        <a-alert v-if="attentionForm.assessmentExcluded" type="warning" show-icon message="该平台此订单在各政策下均不计考核；业务收单和原始利润继续保留。" />
+        <a-form-item v-if="attentionForm.assessmentExcluded" label="异常类型" required><a-select v-model:value="attentionForm.exceptionReasonCode" :options="reasonOptions" :disabled="saving" /></a-form-item>
+        <a-form-item v-if="attentionForm.assessmentExcluded || activeOrder?.assessmentExcluded" :label="attentionForm.assessmentExcluded ? '异常说明' : '恢复计入考核的原因'" required>
+          <a-textarea v-model:value="attentionForm.assessmentNote" :rows="3" :maxlength="1000" show-count :disabled="saving" :placeholder="attentionForm.assessmentExcluded ? '说明售后问题或其他异常的事实及原因，不能只填写亏损金额' : '说明为何恢复为正常订单'" />
+        </a-form-item>
         <a-form-item label="关注状态" required>
-          <a-select v-model:value="attentionForm.status" :options="updateAttentionOptions" />
+          <a-select v-model:value="attentionForm.status" :options="updateAttentionOptions" :disabled="saving" />
         </a-form-item>
         <a-form-item v-if="['COMPLETED', 'NO_ACTION'].includes(attentionForm.status)" label="处理结果" required>
           <a-input v-model:value="attentionForm.resolutionCode" placeholder="例如：已重点跟进、无需处理、异常订单" />
@@ -135,7 +150,7 @@
           <a-textarea v-model:value="attentionForm.resolutionNote" :rows="4" placeholder="记录业务关注结果，便于复盘" />
         </a-form-item>
       </a-form>
-      <div class="dialog-actions"><a-button @click="attentionOpen=false">取消</a-button><a-button type="primary" :loading="saving" @click="saveAttention">保存关注状态</a-button></div>
+      <template #footer><a-button :disabled="saving" @click="attentionOpen=false">取消</a-button><a-button type="primary" :loading="saving" @click="saveAttention">保存关注与分类</a-button></template>
     </a-modal>
   </div>
 </template>
@@ -149,6 +164,7 @@ import {
   Form as AForm,
   FormItem as AFormItem,
   RangePicker as ARangePicker,
+  RadioGroup as ARadioGroup,
   message,
 } from 'ant-design-vue'
 import dateLocale from 'ant-design-vue/es/date-picker/locale/zh_CN'
@@ -173,11 +189,15 @@ const pageSize = ref(30)
 const today = businessToday()
 const dateRange = ref<[string, string]>([`${today.slice(0, 7)}-01`, today])
 const route = useRoute()
-const filters = ref({ keyword: '', attentionStatus: '', platform: '', airline: '', owner: '', otaOrderNo: '' })
+const filters = ref({ keyword: '', attentionStatus: '', assessmentScope: 'ALL', platform: '', airline: '', owner: '', otaOrderNo: '' })
 const detailOpen = ref(false)
 const attentionOpen = ref(false)
 const activeOrder = ref<PlacementOrderRow>()
-const attentionForm = ref({ status: 'IN_PROGRESS', resolutionCode: '', resolutionNote: '' })
+const attentionForm = ref({ status: 'IN_PROGRESS', resolutionCode: '', resolutionNote: '', assessmentExcluded: false, assessmentVersion: 0, exceptionReasonCode: 'AFTER_SALES', assessmentNote: '' })
+const attentionError = ref('')
+const assessmentOptions = [{ value: 'ALL', label: '全部订单类型' }, { value: 'NORMAL', label: '正常 · 计入考核' }, { value: 'EXCLUDED', label: '异常 · 不计考核' }]
+const reasonOptions = [{ value: 'AFTER_SALES', label: '售后问题' }, { value: 'DATA_ERROR', label: '数据异常' }, { value: 'OTHER', label: '其他异常' }]
+const reasonLabel = (code: unknown) => reasonOptions.find(item => item.value === code)?.label || '无异常类型'
 
 const attentionMeta: Record<string, { label: string; color: string }> = {
   PENDING: { label: '待关注', color: 'orange' },
@@ -223,10 +243,13 @@ function statusFreshnessLabel(record: PlacementOrderRow) {
   return record.statusFreshnessStatus === 'FRESH' ? '状态已更新' : record.statusFreshnessStatus === 'STALE' ? '状态源超过时效' : '状态时效待核对'
 }
 const summaryCards = [
+  { key: 'assessmentOrderCount', label: '考核订单', note: '主归属订单，排除已标记异常', tone: 'blue', format: number },
+  { key: 'assessmentProfitCny', label: '考核口径利润', note: '仅正常订单的业务估算利润', tone: 'green', format: nullableMoney },
+  { key: 'abnormalOrderCount', label: '异常订单', note: '保留业务记录，不计入考核', tone: 'orange', format: number },
   { key: 'primaryOrderCount', label: '归属订单', note: '按订单主归属去重', tone: 'blue', format: number },
   { key: 'ticketCount', label: '命中票数', note: '匹配订单票数合计', tone: 'blue', format: number },
   { key: 'segmentCount', label: '命中航段', note: '匹配订单航段合计', tone: 'blue', format: number },
-  { key: 'estimatedProfit', label: '预估利润', note: '命中订单业务估算利润', tone: 'green', format: (value: unknown) => `${money(value)} 元` },
+  { key: 'estimatedProfit', label: '业务预估利润', note: '保留原业务口径，包含异常订单', tone: 'green', format: (value: unknown) => `${money(value)} 元` },
   { key: 'pendingCount', label: '待关注', note: '待处理及已升级订单', tone: 'orange', format: number },
   { key: 'activePolicyCount', label: '活跃政策', note: '期间内命中的政策数', tone: 'violet', format: number },
   { key: 'waitingSyncCount', label: '明细待同步', note: '结果源缺单，含已出票兜底记录', tone: 'orange', format: number },
@@ -242,11 +265,12 @@ const columns = [
   { title: '当前结果', key: 'outcome', width: 140 },
   { title: '消息', key: 'message', width: 100 },
   { title: '业务关注', key: 'attention', width: 135 },
+  { title: '考核分类', key: 'assessment', width: 185 },
   { title: '命中时间', key: 'matchedAt', width: 155 },
   { title: '操作', key: 'action', width: 170, fixed: 'right' as const },
 ]
 const pagination = computed(() => ({ current: page.value, pageSize: pageSize.value, total: data.value?.total || 0, showSizeChanger: true, showTotal: (total: number) => `共 ${number(total)} 条` }))
-const summaryValue = (key: typeof summaryCards[number]['key']) => data.value?.summary?.[key] ?? 0
+const summaryValue = (key: typeof summaryCards[number]['key']) => key === 'assessmentProfitCny' ? data.value?.summary?.[key] : data.value?.summary?.[key] ?? 0
 function businessToday() { return new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' }) }
 function displayTime(value: unknown) { return value ? String(value).replace('T', ' ').slice(0, 16) : '—' }
 function routeName(record?: PlacementOrderRow) { return [record?.departureCode, record?.arrivalCode].filter(Boolean).join('-') || '不限航程' }
@@ -281,7 +305,7 @@ async function load(targetPage = page.value, automatic = false) {
 }
 function resetFilters() {
   dateRange.value = [`${today.slice(0, 7)}-01`, today]
-  filters.value = { keyword: '', attentionStatus: '', platform: '', airline: '', owner: '', otaOrderNo: '' }
+  filters.value = { keyword: '', attentionStatus: '', assessmentScope: 'ALL', platform: '', airline: '', owner: '', otaOrderNo: '' }
   void load(1)
 }
 function changePage(value: { current?: number; pageSize?: number }) {
@@ -291,21 +315,31 @@ function changePage(value: { current?: number; pageSize?: number }) {
   void load(page.value)
 }
 function openDetail(record: PlacementOrderRow) { activeOrder.value = record; detailOpen.value = true }
+function assessmentChanged() { attentionForm.value.assessmentNote = ''; attentionError.value = '' }
 function openAttention(record: PlacementOrderRow) {
   activeOrder.value = record
-  attentionForm.value = { status: record.attentionStatus === 'IN_PROGRESS' ? 'COMPLETED' : 'IN_PROGRESS', resolutionCode: '', resolutionNote: '' }
+  attentionError.value = ''
+  attentionForm.value = { status: ['IN_PROGRESS', 'COMPLETED', 'NO_ACTION'].includes(record.attentionStatus) ? record.attentionStatus : 'IN_PROGRESS',
+    resolutionCode: String(record.resolutionCode || ''), resolutionNote: String(record.resolutionNote || ''),
+    assessmentExcluded: Boolean(record.assessmentExcluded), assessmentVersion: Number(record.assessmentVersion || 0),
+    exceptionReasonCode: record.exceptionReasonCode || 'AFTER_SALES', assessmentNote: record.assessmentExcluded ? record.assessmentNote || '' : '' }
   attentionOpen.value = true
 }
 async function saveAttention() {
-  if (!activeOrder.value) return
+  if (!activeOrder.value || saving.value) return
+  attentionError.value = ''
+  if ((attentionForm.value.assessmentExcluded || activeOrder.value.assessmentExcluded) && !attentionForm.value.assessmentNote.trim()) {
+    attentionError.value = '请填写异常说明或恢复计入考核的原因'; return
+  }
   saving.value = true
   try {
-    await updatePlacementAttention(activeOrder.value.id, attentionForm.value)
-    message.success('关注状态已更新')
+    const result = await updatePlacementAttention(activeOrder.value.id, attentionForm.value)
+    activeOrder.value = { ...activeOrder.value, ...result, attentionStatus: result.status }
+    message.success('关注状态与考核分类已保存')
     attentionOpen.value = false
     await load()
   } catch (failure) {
-    message.error(failure instanceof Error ? failure.message : '状态更新失败')
+    attentionError.value = failure instanceof Error ? failure.message : '保存失败，请保留输入并刷新核对后重试'
   } finally { saving.value = false }
 }
 
@@ -326,7 +360,9 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
 <style scoped>
 :global(.placement-order-action-modal .ant-modal-content) { overflow: hidden; border: 1px solid #dfe6ef; border-radius: 14px; box-shadow: 0 20px 55px rgba(29,44,68,.2); }
 :global(.placement-order-action-modal .ant-modal-header) { margin-bottom: 0; padding: 20px 22px 16px; border-bottom: 1px solid #e8edf4; }
-:global(.placement-order-action-modal .ant-modal-body) { padding: 18px 22px 22px; }
+:global(.placement-order-action-modal .ant-modal-body) { max-height: calc(100vh - 230px); overflow-y: auto; padding: 18px 22px 22px; }
+:global(.placement-order-action-modal .ant-modal-footer) { margin-top: 0; padding: 14px 22px; border-top: 1px solid #e8edf4; }
+.assessment-note { white-space: pre-wrap; overflow-wrap: anywhere; }
 .placement-orders-page { padding-bottom: 34px; }
 .page-alert { margin-bottom: 14px; border-radius: 10px; }
 .orders-hero { position: relative; display: flex; min-height: 124px; align-items: center; justify-content: space-between; gap: 24px; overflow: hidden; margin-bottom: 16px; padding: 24px 28px; border-radius: 16px; color: #fff; background: linear-gradient(110deg,#2049a6 0%,#1768bd 55%,#0f8d9c 100%); box-shadow: 0 10px 30px rgba(27,41,70,.08); }.orders-hero::after { position: absolute; top: -115px; right: -70px; width: 320px; height: 320px; border: 40px solid rgba(255,255,255,.08); border-radius: 50%; content: ''; }.orders-hero h2 { position: relative; z-index: 1; margin: 0 0 6px; color: #fff; font-size: 20px; }.orders-hero p { position: relative; z-index: 1; max-width: 760px; margin: 0; color: #d8e9ff; }.hero-action { position: relative; z-index: 1; flex: none; border: 0; color: #1a55a4; font-weight: 700; }

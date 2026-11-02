@@ -249,6 +249,7 @@ def register_routes(api: Blueprint) -> None:
                     start_date=request.args.get("startDate", ""),
                     end_date=request.args.get("endDate", ""),
                     attention_status=request.args.get("attentionStatus", ""),
+                    assessment_scope=request.args.get("assessmentScope", "ALL"),
                     ota_order_no=request.args.get("otaOrderNo", ""),
                     platform=request.args.get("platform", ""),
                     airline=request.args.get("airline", ""),
@@ -274,6 +275,8 @@ def register_routes(api: Blueprint) -> None:
             )
         except PermissionError as error:
             return jsonify({"success": False, "message": str(error), "data": None}), 403
+        except PlacementChangeConflict as error:
+            return jsonify({"success": False, "message": str(error), "data": None}), 409
         except ValueError as error:
             return jsonify({"success": False, "message": str(error), "data": None}), 400
         except SmartPlacementUnavailable as error:

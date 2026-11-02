@@ -399,9 +399,12 @@
                   </div>
                 </section>
                 <div v-if="monitoring.effectSummary" class="effect-grid">
+                  <div><label>考核订单（排除异常）</label><strong>{{ numberValue(monitoring.effectSummary.assessmentOrderCount, '单') }}</strong></div>
+                  <div><label>考核口径利润</label><strong>{{ moneyValue(monitoring.effectSummary.assessmentProfitCny) }}</strong></div>
+                  <div><label>异常订单（不计考核）</label><strong>{{ numberValue(monitoring.effectSummary.abnormalOrderCount, '单') }}</strong></div>
                   <div><label>归属收单</label><strong>{{ numberValue(monitoring.effectSummary.attributedOrderCount, '单') }}</strong></div>
                   <div><label>出票票数</label><strong>{{ numberValue(monitoring.effectSummary.ticketCount, '票') }}</strong></div>
-                  <div><label>预估利润</label><strong>{{ moneyValue(monitoring.effectSummary.estimatedProfitCny) }}</strong></div>
+                  <div><label>业务预估利润（含异常）</label><strong>{{ moneyValue(monitoring.effectSummary.estimatedProfitCny) }}</strong></div>
                   <div><label>智能参与率</label><strong>{{ percentValue(monitoring.effectSummary.smartParticipationRate) }}</strong></div>
                   <div><label>智能成功率</label><strong>{{ percentValue(monitoring.effectSummary.smartSuccessRate) }}</strong></div>
                   <div><label>待同步 / 延迟</label><strong>{{ number(monitoring.effectSummary.waitingSyncCount) }} / {{ number(monitoring.effectSummary.staleCount) }}</strong></div>
@@ -623,6 +626,7 @@ const reviewResultMap: Record<string, { label: string; color: string }> = {
   APPROVED: { label: '通过', color: 'green' }, RETURNED: { label: '退回修改', color: 'orange' }, REJECTED: { label: '驳回终止', color: 'red' },
 }
 const actionLabelMap: Record<string, string> = {
+  ASSESSMENT_EXCLUDE: '标记异常（不计考核）', ASSESSMENT_RESTORE: '恢复正常（计入考核）',
   POLICY_CHANGE_REQUESTED: '待人工外部执行（仅请求）', POLICY_CHANGE_APPLIED: '已线下处理·补登记实际配置',
   CREATE: '保存草稿', UPDATE: '更新草稿', DELETE: '删除任务', WITHDRAW: '撤回修改', CANCEL: '作废任务', SUBMIT: '提交审核', RESUBMIT: '重新提交', REVIEW: '审核', CLAIM: '认领', EXECUTE: '登记投放', ATTENTION: '订单关注', STOP_MONITORING: '停止监控', STOP_MONITORING_CENTER: '从监控中心停止',
 }

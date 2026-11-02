@@ -14,8 +14,10 @@ from typing import Any
 
 from .data_source import DataSource
 from .monitoring import MonitorRuleCompiler, MonitoringUnavailable
+from .placement_assessment import EXCLUSION_TABLE, assessment_aggregates, assessment_rates, classification_request, change_classification, order_count_expression
 from ..shared.placement_locations import AIRPORT_TABLE, ACTIVE_AIRPORT, LOCATION_COLUMNS, location_fields, location_type, resolve_airports, resolved_location
 from ..time_utils import as_business_naive, business_now_naive
+from ..shared.placement_errors import PlacementChangeConflict
 
 
 LOGGER = logging.getLogger(__name__)
@@ -69,10 +71,6 @@ PERMISSION_EFFECT_REVIEW = "smart_placement.effect_review"
 
 
 class SmartPlacementUnavailable(RuntimeError):
-    pass
-
-
-class PlacementChangeConflict(ValueError):
     pass
 
 
@@ -1791,7 +1789,7 @@ class SmartPlacementService:
     def list_orders(
         self, *, user: dict[str, Any], start_date: str = "", end_date: str = "", attention_status: str = "",
         platform: str = "", airline: str = "", owner: str = "", keyword: str = "",
-        page: int = 1, page_size: int = 30, ota_order_no: str = "",
+        page: int = 1, page_size: int = 30, ota_order_no: str = "", assessment_scope: str = 'ALL',
     ) -> dict[str, Any]:
         exact_order = _text(ota_order_no, "OTA订单号", 50)
         first = _business_now().date() if exact_order else _date_value(start_date, "开始日期") or _business_now().date()
@@ -1799,6 +1797,8 @@ class SmartPlacementService:
         if last < first or (last - first).days > 366:
             raise ValueError("订单查询日期范围不合法或超过366天")
         page = max(1, int(page)); page_size = max(1, min(int(page_size), 100))
+        if assessment_scope not in {'ALL', 'NORMAL', 'EXCLUDED'}:
+            raise ValueError('订单分类筛选不支持')
         visibility, visibility_params = self._order_visibility_condition(user)
         if exact_order:
             where = [visibility,"m.ota_order_no=%s"]
@@ -1808,6 +1808,9 @@ class SmartPlacementService:
             params = [datetime.combine(first, time.min), datetime.combine(last + timedelta(days=1), time.min),*visibility_params]
         if attention_status:
             where.append("m.attention_status=%s"); params.append(_text(attention_status, "关注状态", 20))
+        if assessment_scope != 'ALL':
+            where.append('COALESCE(e.is_excluded,0)=%s')
+            params.append(1 if assessment_scope == 'EXCLUDED' else 0)
         if platform:
             where.append("m.platform_name=%s"); params.append(_text(platform, "平台", 100))
         if airline:
@@ -1824,7 +1827,7 @@ class SmartPlacementService:
             connection = self.source.connect(); cursor = connection.cursor()
             cursor.execute(
                 f"""SELECT COUNT(1) AS order_count,
-                           COUNT(DISTINCT CASE WHEN COALESCE(a.attribution_type,'PRIMARY')='PRIMARY' THEN m.ota_order_no END) AS primary_order_count,
+                           {order_count_expression("COALESCE(a.attribution_type,'PRIMARY')='PRIMARY'")} AS primary_order_count,
                            SUM(CASE WHEN COALESCE(a.attribution_type,'PRIMARY')='PRIMARY' THEN COALESCE(o.ticket_count,m.ticket_count) END) AS ticket_count,
                            SUM(CASE WHEN COALESCE(a.attribution_type,'PRIMARY')='PRIMARY' THEN COALESCE(o.segment_count,m.segment_count) END) AS segment_count,
                            SUM(CASE WHEN COALESCE(a.attribution_type,'PRIMARY')='PRIMARY' THEN COALESCE(o.estimated_profit_cny,m.estimated_profit_cny) END) AS estimated_profit,
@@ -1835,10 +1838,12 @@ class SmartPlacementService:
                            SUM(CASE WHEN o.smart_succeeded=1 AND COALESCE(a.attribution_type,'PRIMARY')='PRIMARY' THEN 1 ELSE 0 END) AS smart_succeeded_count,
                            SUM(CASE WHEN o.smart_used=1 AND COALESCE(a.attribution_type,'PRIMARY')='PRIMARY' THEN 1 ELSE 0 END) AS smart_used_count,
                            SUM(CASE WHEN o.data_freshness_status='STALE' THEN 1 ELSE 0 END) AS stale_count,
-                           SUM(CASE WHEN o.data_freshness_status='MISSING' OR o.match_id IS NULL THEN 1 ELSE 0 END) AS waiting_sync_count
+                           SUM(CASE WHEN o.data_freshness_status='MISSING' OR o.match_id IS NULL THEN 1 ELSE 0 END) AS waiting_sync_count,
+                           {assessment_aggregates()}
                     FROM {self._table(MATCH_TABLE)} m
                     LEFT JOIN {self._table(OUTCOME_TABLE)} o ON o.match_id=m.id
                     LEFT JOIN {self._table(ATTRIBUTION_TABLE)} a ON a.match_id=m.id
+                    LEFT JOIN {self._table(EXCLUSION_TABLE)} e ON e.platform_name=m.platform_name AND e.ota_order_no=m.ota_order_no
                     WHERE {condition}""",
                 tuple(params),
             )
@@ -1848,7 +1853,8 @@ class SmartPlacementService:
             ticketed = int(summary.get("ticketedOrderCount") or 0)
             summary["smartParticipationRate"] = round(participated / ticketed, 6) if ticketed else None
             summary["smartSuccessRate"] = round(succeeded / participated, 6) if participated else None
-            cursor.execute(f"SELECT COUNT(1) FROM {self._table(MATCH_TABLE)} m WHERE {condition}", tuple(params))
+            assessment_rates(summary)
+            cursor.execute(f"SELECT COUNT(1) FROM {self._table(MATCH_TABLE)} m LEFT JOIN {self._table(EXCLUSION_TABLE)} e ON e.platform_name=m.platform_name AND e.ota_order_no=m.ota_order_no WHERE {condition}", tuple(params))
             total = int(cursor.fetchone()[0])
             cursor.execute(
                 f"""SELECT m.*,
@@ -1860,10 +1866,14 @@ class SmartPlacementService:
                            o.segment_count current_segment_count,o.estimated_profit_cny current_estimated_profit_cny,
                            o.order_status current_order_status,o.issue_status current_issue_status,
                            o.smart_confirm,o.smart_participated,o.smart_succeeded,o.smart_used,
-                           a.attribution_type,a.primary_match_id,a.matched_policy_count,a.attribution_note
+                           a.attribution_type,a.primary_match_id,a.matched_policy_count,a.attribution_note,
+                           COALESCE(e.is_excluded,0) assessment_excluded,COALESCE(e.version,0) assessment_version,
+                           e.reason_code exception_reason_code,e.reason_note assessment_note,
+                           e.updated_by_name assessment_updated_by,e.updated_at assessment_updated_at
                     FROM {self._table(MATCH_TABLE)} m
                     LEFT JOIN {self._table(OUTCOME_TABLE)} o ON o.match_id=m.id
                     LEFT JOIN {self._table(ATTRIBUTION_TABLE)} a ON a.match_id=m.id
+                    LEFT JOIN {self._table(EXCLUSION_TABLE)} e ON e.platform_name=m.platform_name AND e.ota_order_no=m.ota_order_no
                     WHERE {condition}
                     ORDER BY CASE m.attention_status WHEN 'ESCALATED' THEN 0 WHEN 'PENDING' THEN 1 WHEN 'IN_PROGRESS' THEN 2 ELSE 3 END,
                              m.matched_at DESC, m.id DESC LIMIT %s OFFSET %s""",
@@ -1874,7 +1884,7 @@ class SmartPlacementService:
         except Exception as error:
             LOGGER.exception("Smart placement order list failed")
             if _is_missing_table(error):
-                raise SmartPlacementUnavailable("智能投放表尚未创建，请先执行smart-placement-schema.sql") from error
+                raise SmartPlacementUnavailable("收单配套表未就绪，请核对基础表及smart-placement-order-assessment-v1.sql") from error
             raise SmartPlacementUnavailable("智能投放收单查询失败") from error
         finally:
             if cursor is not None: cursor.close()
@@ -1888,6 +1898,7 @@ class SmartPlacementService:
             raise ValueError("关注状态不支持")
         resolution_code = _text(values.get("resolutionCode"), "处理结果", 64, required=status in {"COMPLETED", "NO_ACTION"})
         note = _text(values.get("resolutionNote"), "处理说明", 10_000, required=status == "NO_ACTION")
+        assessment = classification_request(values)
         now = _now()
         connection = cursor = None
         try:
@@ -1901,6 +1912,7 @@ class SmartPlacementService:
             if not match:
                 raise ValueError("匹配订单不存在")
             old_status = str(match["attention_status"])
+            assessment_result = change_classification(self, cursor, match, actor, assessment, now)
             completed_at = now if status in {"COMPLETED", "NO_ACTION"} else None
             cursor.execute(
                 f"""UPDATE {self._table(MATCH_TABLE)}
@@ -1912,7 +1924,7 @@ class SmartPlacementService:
             )
             self._log(cursor, task_id=int(match["task_id"]), match_id=match_id, action="ATTENTION", actor=actor, from_status=old_status, to_status=status, note=note or resolution_code or "开始关注")
             connection.commit()
-            return {"id": match_id, "status": status, "ownerName": match.get("attention_owner_name") or actor[1]}
+            return {"id": match_id, "status": status, "ownerName": match.get("attention_owner_name") or actor[1], **_public_row(assessment_result)}
         except ValueError:
             if connection is not None: connection.rollback()
             raise
@@ -1920,7 +1932,7 @@ class SmartPlacementService:
             if connection is not None: connection.rollback()
             LOGGER.exception("Smart placement attention update failed")
             if _is_missing_table(error):
-                raise SmartPlacementUnavailable("智能投放表尚未创建，请先执行smart-placement-schema.sql") from error
+                raise SmartPlacementUnavailable("收单配套表未就绪，请核对基础表及smart-placement-order-assessment-v1.sql") from error
             raise SmartPlacementUnavailable("订单关注状态更新失败") from error
         finally:
             if cursor is not None: cursor.close()
@@ -1929,7 +1941,7 @@ class SmartPlacementService:
     def _effect_summary(self, cursor, task_id: int) -> dict[str, Any]:
         cursor.execute(
             f"""SELECT COUNT(1) raw_match_count,
-                       COUNT(DISTINCT CASE WHEN COALESCE(a.attribution_type,'PRIMARY')='PRIMARY' THEN m.ota_order_no END) attributed_order_count,
+                       {order_count_expression("COALESCE(a.attribution_type,'PRIMARY')='PRIMARY'")} attributed_order_count,
                        SUM(CASE WHEN COALESCE(a.attribution_type,'PRIMARY')='PRIMARY' THEN COALESCE(o.ticket_count,m.ticket_count) END) ticket_count,
                        SUM(CASE WHEN COALESCE(a.attribution_type,'PRIMARY')='PRIMARY' THEN COALESCE(o.segment_count,m.segment_count) END) segment_count,
                        SUM(CASE WHEN COALESCE(a.attribution_type,'PRIMARY')='PRIMARY' THEN COALESCE(o.estimated_profit_cny,m.estimated_profit_cny) END) estimated_profit_cny,
@@ -1940,14 +1952,17 @@ class SmartPlacementService:
                        SUM(CASE WHEN m.attention_status IN ('COMPLETED','NO_ACTION') THEN 1 ELSE 0 END) handled_count,
                        SUM(CASE WHEN o.data_freshness_status='STALE' THEN 1 ELSE 0 END) stale_count,
                        SUM(CASE WHEN o.data_freshness_status='MISSING' OR o.match_id IS NULL THEN 1 ELSE 0 END) waiting_sync_count,
-                       MIN(m.matched_at) first_matched_at,MAX(m.matched_at) last_matched_at
+                       MIN(m.matched_at) first_matched_at,MAX(m.matched_at) last_matched_at,
+                       {assessment_aggregates()}
                 FROM {self._table(MATCH_TABLE)} m
                 LEFT JOIN {self._table(OUTCOME_TABLE)} o ON o.match_id=m.id
                 LEFT JOIN {self._table(ATTRIBUTION_TABLE)} a ON a.match_id=m.id
+                LEFT JOIN {self._table(EXCLUSION_TABLE)} e ON e.platform_name=m.platform_name AND e.ota_order_no=m.ota_order_no
                 WHERE m.task_id=%s""",
             (task_id,),
         )
         summary = _public_row(_dict_row(cursor, cursor.fetchone()) or {})
+        assessment_rates(summary)
         ticketed = int(summary.get("ticketedOrderCount") or 0)
         participated = int(summary.get("smartParticipatedCount") or 0)
         succeeded = int(summary.get("smartSucceededCount") or 0)
@@ -1975,7 +1990,7 @@ class SmartPlacementService:
         except Exception as error:
             LOGGER.exception("Smart placement effect summary failed")
             if _is_missing_table(error):
-                raise SmartPlacementUnavailable("智能投放闭环表尚未创建，请执行smart-placement-lifecycle-notification-v2.sql") from error
+                raise SmartPlacementUnavailable("智能投放闭环表未就绪，请核对smart-placement-lifecycle-notification-v2.sql及smart-placement-order-assessment-v1.sql") from error
             raise SmartPlacementUnavailable("政策效果查询失败") from error
         finally:
             if cursor is not None: cursor.close()

@@ -98,6 +98,13 @@ export async function changePlacedPolicies(values: PlacedPolicyChangeInput, prev
 }
 
 export interface PlacementEffectSummary extends Record<string, string | number | null> {
+  assessmentOrderCount: number
+  abnormalOrderCount: number
+  assessmentTicketCount: number | null
+  assessmentSegmentCount: number | null
+  assessmentProfitCny: string | null
+  assessmentParticipationRate: number | null
+  assessmentSuccessRate: number | null
   rawMatchCount: number
   attributedOrderCount: number
   ticketCount: number | null
@@ -220,6 +227,12 @@ export interface PlacementOrderRow extends Record<string, string | number | null
   messageStatus: string
   attentionStatus: string
   attentionOwnerName: string | null
+  assessmentExcluded: number
+  assessmentVersion: number
+  exceptionReasonCode: string | null
+  assessmentNote: string | null
+  assessmentUpdatedBy: string | null
+  assessmentUpdatedAt: string | null
   outcomeStatus: string | null
   dataFreshnessStatus: string | null
   outcomeSourceTable: string | null
@@ -251,6 +264,9 @@ export interface PlacementOrderList {
   error: string
   period: { startDate: string; endDate: string }
   summary: {
+    assessmentOrderCount: number
+    abnormalOrderCount: number
+    assessmentProfitCny: string | null
     orderCount: number
     ticketCount: number
     segmentCount: number
@@ -367,8 +383,8 @@ export async function fetchPlacementOrders(params: Record<string, string | numbe
   return response.data.data
 }
 
-export async function updatePlacementAttention(id: number, values: { status: string; resolutionCode?: string; resolutionNote?: string }) {
-  const response = await http.patch<ApiEnvelope<{ id: number; status: string; ownerName: string }>>(`/v1/smart-placement/orders/${id}/attention`, values)
+export async function updatePlacementAttention(id: number, values: { status: string; resolutionCode?: string; resolutionNote?: string; assessmentExcluded?: boolean; assessmentVersion?: number; exceptionReasonCode?: string; assessmentNote?: string }) {
+  const response = await http.patch<ApiEnvelope<{ id: number; status: string; ownerName: string } & Partial<Pick<PlacementOrderRow, 'assessmentExcluded' | 'assessmentVersion' | 'exceptionReasonCode' | 'assessmentNote' | 'assessmentUpdatedBy' | 'assessmentUpdatedAt'>>>>(`/v1/smart-placement/orders/${id}/attention`, values)
   if (!response.data.success) throw new Error(response.data.message)
   return response.data.data
 }
