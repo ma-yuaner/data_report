@@ -130,7 +130,7 @@
         </section>
 
         <section class="form-section">
-          <header class="section-heading"><span>2</span><div><h3>投放范围</h3><p>平台保持单选；相似政策使用复制功能后更换平台。</p></div><em>14 个字段</em></header>
+          <header class="section-heading"><span>2</span><div><h3>投放范围</h3><p>平台保持单选；相似政策使用复制功能后更换平台。</p></div><em>{{ editingTaskId ? 14 : 15 }} 个字段</em></header>
           <div class="form-grid three">
             <PlacementField label="平台名称" required state="数据下拉" hint="来自综合分析ADS，单选后自动带出平台编码"><a-select v-model:value="taskForm.platformName" :options="platformSelectOptions" :loading="dimensionsLoading" show-search option-filter-prop="label" allow-clear placeholder="请选择平台" @change="selectPlatform" /></PlacementField>
             <PlacementField label="平台编码" hint="选择平台后由系统自动带出"><a-input v-model:value="taskForm.platformCode" readonly placeholder="选择平台后自动带出" /></PlacementField>
@@ -146,6 +146,7 @@
             <PlacementField label="航班号" hint="多个航班号使用英文逗号分隔"><a-input v-model:value="taskForm.flightNos" placeholder="例如：HO1366,HO1365" /></PlacementField>
             <PlacementField label="包含舱位" hint="允许匹配的舱位，例如：Y,B,M"><a-input v-model:value="taskForm.includeCabins" placeholder="请输入包含舱位" /></PlacementField>
             <PlacementField label="排除舱位" hint="明确禁止匹配的舱位，例如：X,N"><a-input v-model:value="taskForm.excludeCabins" placeholder="请输入排除舱位" /></PlacementField>
+            <PlacementCabinReference v-if="!editingTaskId" :airline="taskForm.airlineCode" :active="createOpen && !editingTaskId" />
           </div>
         </section>
 
@@ -462,6 +463,7 @@ import { ReloadOutlined, SearchOutlined } from '@ant-design/icons-vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '@/components/PageHeader.vue'
 import PlacementField from '@/components/PlacementField.vue'
+import PlacementCabinReference from '@/components/PlacementCabinReference.vue'
 import PlacementLocationSelect from '@/components/PlacementLocationSelect.vue'
 import { placementLocationName, placementRouteName } from '@/utils/placementLocation'
 import PlacedPolicyChangeDialog from '@/components/PlacedPolicyChangeDialog.vue'

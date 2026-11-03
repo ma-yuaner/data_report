@@ -22,7 +22,7 @@
 | [上传说明](../business/air_ticketing/risk-data-upload.md) / [行为监控](../product/user-behavior-monitoring-v1.md) | 上传队列和行为采集 |
 
 <!-- BEGIN:API_ROUTES -->
-共 **186个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
+共 **189个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
 
 <a id="auth"></a>
 
@@ -139,6 +139,7 @@
 
 | 方法 | 完整路径 | 处理函数 / 源码 |
 |---|---|---|
+| `GET` | `/api/v1/smart-placement/cabin-reference` | [smart_placement_cabin_reference](../../backend/data_report_api/api/smart_placement.py) |
 | `GET` | `/api/v1/smart-placement/dimensions` | [smart_placement_dimensions](../../backend/data_report_api/api/smart_placement.py) |
 | `GET` | `/api/v1/smart-placement/locations` | [smart_placement_locations](../../backend/data_report_api/api/smart_placement.py) |
 | `GET` | `/api/v1/smart-placement/orders` | [smart_placement_orders](../../backend/data_report_api/api/smart_placement.py) |
@@ -202,10 +203,12 @@
 | `GET` | `/api/v1/business-configuration/target-progress` | [target_progress_dashboard](../../backend/data_report_api/api/targets.py) |
 | `POST` | `/api/v1/business-configuration/target-progress/refresh` | [target_progress_refresh](../../backend/data_report_api/api/targets.py) |
 | `GET` | `/api/v1/business-configuration/target-progress/refresh/status` | [target_progress_refresh_status](../../backend/data_report_api/api/targets.py) |
+| `DELETE` | `/api/v1/business-configuration/targets` | [target_management_delete](../../backend/data_report_api/api/targets.py) |
 | `GET` | `/api/v1/business-configuration/targets` | [target_management_list](../../backend/data_report_api/api/targets.py) |
 | `POST` | `/api/v1/business-configuration/targets` | [target_management_save](../../backend/data_report_api/api/targets.py) |
 | `GET` | `/api/v1/business-configuration/targets/metrics` | [target_management_metrics](../../backend/data_report_api/api/targets.py) |
 | `GET` | `/api/v1/business-configuration/targets/options` | [target_management_options](../../backend/data_report_api/api/targets.py) |
+| `POST` | `/api/v1/business-configuration/targets/restore` | [target_management_restore](../../backend/data_report_api/api/targets.py) |
 
 <a id="risk_upload"></a>
 

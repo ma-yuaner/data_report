@@ -105,6 +105,7 @@ HR报表邮件  [/hr-mail]
 - **风控分析**：已有总览、出退改利润、差错、订单明细和数据上传入口。上传由独立Worker执行Hive增量合并；网络、目标表、精度变更及真实文件仍需按[上传说明](docs/business/air_ticketing/risk-data-upload.md)核验。
 - **客服分析**：退票、改签、清Q/航变分析为禁用预留项，尚无对应页面路由。
 - **智能分析**：采用“智能整体分析”和“智能投放”两组三级菜单。智能分析现已固定读取MySQL年度指标及明细表；投放政策支持Excel模板批量新建分析机会，先校验预览再确认，仅新建、不覆盖后续流程；生产表、规则计算与通知调度需按[智能投放说明](docs/business/air_ticketing/smart-placement-mvp.md)核对。
+- **参考舱位**：新建分析机会的排除舱位旁增加灰色只读参考，按航司读取ERP近一个自然月有效记录的cabin；不保存、不参与业务规则，详见[智能投放说明](docs/business/air_ticketing/smart-placement-mvp.md)。
 - **航线诊断**：投放政策页内新增平台横向对比页签，识别零单、中断和跨平台差异，支持政策下钻、跟进及到期复查；沿用既有表，无新增DDL/调度，详见[智能投放说明](docs/business/air_ticketing/smart-placement-mvp.md)。
 - **收单异常与考核**：在关注订单时登记异常类型和原因，保留原始业务订单及利润，独立计算不含异常的考核口径；上线先执行`docs/sql/smart-placement-order-assessment-v1.sql`，详见[智能投放说明](docs/business/air_ticketing/smart-placement-mvp.md)。
 - **漏处理订单**：智能投放新增只读明细、筛选、订单证据联动和全局任务导出，固定读取`sibebid.bi_downgrade_missed_order_day`；需迁移数据并配置菜单/人员范围，真实数据与部署待验，详见[功能说明](docs/business/air_ticketing/missed-orders-v1.md)。
@@ -183,7 +184,7 @@ docker compose up -d --build
 API统一前缀为`/api`。认证与账号管理使用`/api/auth/*`、`/api/admin/*`；业务接口主要使用`/api/v1/*`。登录后使用会话Cookie，非安全方法需携带CSRF头；JSON通常返回`success/message/data`，导出接口返回文件。具体权限、参数与错误见[完整接口目录](docs/api/README.md)及对应源码。
 
 <!-- BEGIN:API_SUMMARY -->
-当前静态登记 **186个HTTP方法/路径条目**（含认证与管理接口，不重复列自动HEAD/OPTIONS）。
+当前静态登记 **189个HTTP方法/路径条目**（含认证与管理接口，不重复列自动HEAD/OPTIONS）。
 
 | 接口领域 | 条目数 | 完整清单 |
 |---|---:|---|
@@ -193,9 +194,9 @@ API统一前缀为`/api`。认证与账号管理使用`/api/auth/*`、`/api/admi
 | 业务、风控分析与问题中心 | 17 | [analysis](docs/api/README.md#analysis) |
 | GDS/OTA资源治理与航线诊断 | 5 | [resource_governance](docs/api/README.md#resource_governance) |
 | 智能分析、导出与视图模板 | 13 | [smart_analysis](docs/api/README.md#smart_analysis) |
-| 智能投放与收单 | 20 | [smart_placement](docs/api/README.md#smart_placement) |
+| 智能投放与收单 | 21 | [smart_placement](docs/api/README.md#smart_placement) |
 | 监控、规则、事件、工单与通知 | 26 | [monitoring](docs/api/README.md#monitoring) |
-| 目标配置、进度与刷新 | 7 | [targets](docs/api/README.md#targets) |
+| 目标配置、进度与刷新 | 9 | [targets](docs/api/README.md#targets) |
 | 风控文件上传 | 2 | [risk_upload](docs/api/README.md#risk_upload) |
 | 数据加工工作台 | 13 | [data_workbench](docs/api/README.md#data_workbench) |
 | HR报表邮件 | 8 | [hr_mail](docs/api/README.md#hr_mail) |

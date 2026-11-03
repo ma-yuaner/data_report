@@ -3,9 +3,23 @@ from flask import Blueprint, current_app, g, jsonify, request
 from ..services.smart_placement import PlacementChangeConflict, SmartPlacementService, SmartPlacementUnavailable
 from ..services.monitoring import MonitoringService, MonitoringUnavailable
 from .common import json_body, ok
+from ..services.placement_cabin_reference import PlacementCabinReferenceService
 
 
 def register_routes(api: Blueprint) -> None:
+    @api.get('/v1/smart-placement/cabin-reference')
+    def smart_placement_cabin_reference():
+        try:
+            response = ok(PlacementCabinReferenceService(current_app.config).get(g.current_user, request.args.get('airline', '')))
+            response.headers['Cache-Control'] = 'no-store'
+            return response
+        except PermissionError as error:
+            return jsonify(success=False, message=str(error), data=None), 403
+        except ValueError as error:
+            return jsonify(success=False, message=str(error), data=None), 400
+        except SmartPlacementUnavailable as error:
+            return jsonify(success=False, message=str(error), data=None), 503
+
     @api.get("/v1/smart-placement/locations")
     def smart_placement_locations():
         try:
