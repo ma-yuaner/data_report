@@ -2,11 +2,13 @@
 
 ## 新建分析机会只读参考舱位（2026-11-03，待部署真实验收）
 
+交付回执：功能提交`31eadc3`已正常推送GitLab origin/main与GitHub github/main；2026-11-03 09:16:40（Asia/Shanghai）按申请人马远尔向配置发版群发送一次data_report测试247通知，HTTP 200、errcode=0、accepted，发送0.305秒。通知明确代码已推送待服务器部署，无@，未发送其他群。复用ETL仓库`analysis/scripts/work/send_wechat/qa_wecom_delivery.py`的release模板，先校验后--send；脱敏回执在忽略目录`.test-artifacts/cabin-release-receipts`，任务ID `placement-cabin-reference-20261103-31eadc3`，不保存Webhook。回执仅证明接口接收，不代表服务器部署或业务验收。
+
 用户确认只读cabin、显示于投放范围的排除舱位旁、纯参考不做其他作用，并明确sibebd库与发版申请人马远尔。主会话使用星桥/磐石/明鉴及frontend-design技能，无子代理。新增独立ERP只读服务/GET接口和只读展示组件，沿用新建权限，status/airline/update_time自然月边界及未来时间过滤，竖线拆分去重，空白不扩成全舱位。组件无model/emit写回，不改taskForm/API保存字段、包含排除值或后续流程；关闭/换航司有异步版本保护，失败不阻断新建，无长期缓存。详情及边界见业务MVP说明。
 
 验证：本机合成数据46项相关后端测试通过（1.94秒），SQLite自然月函数适配验证3月31日回推2月28日边界、状态/航司/过期/空时间/未来过滤、维护后重新读取、只SELECT cabin、权限/失败/no-store；相关ESLint、类型及69页组件检查通过，Vite直接构建返回0（50.09秒）。非真实MySQL查询/性能验收，浏览器禁用未重试；真实ERP、页面交互待部署验收。README自动清单同时补齐现有目标管理代码的2条路由登记，没有修改目标管理业务代码。
 
-部署更新api/web即可，无DDL/ETL/调度或ERP修改；沿用既有ERP只读账号需能读sibebd.hold_info_flight_list。未连接生产验证、未服务器部署。测试/构建日志及通知脱敏回执仅本地忽略；已有smart-placement-order-assessment-v1.sql本地改动不在本次提交范围。发版按用户授权在两端推送后发送一次申请人马远尔的测试247交付通知，实际结果另记。
+部署更新api/web即可，无DDL/ETL/调度或ERP修改；沿用既有ERP只读账号需能读sibebd.hold_info_flight_list。未连接生产验证、未服务器部署。测试/构建日志及通知脱敏回执仅本地忽略；已有smart-placement-order-assessment-v1.sql本地改动不在本次提交范围。发版按用户授权已完成两端推送及一次申请人马远尔的测试247交付通知，实际回执见本节。
 
 ## 航线诊断RUNNING提示修复（2026-11-02）
 
