@@ -37,7 +37,7 @@
           <p v-if="metric(business.key)?.profitMissingCount" class="missing-note">缺失 {{ count(metric(business.key)?.profitMissingCount) }} 票 · 已知 {{ money(metric(business.key)?.knownProfit) }} 元</p>
           <p v-if="business.key === 'issue' && metric(business.key)?.segmentMissingCount" class="missing-note">航段缺失 {{ count(metric(business.key)?.segmentMissingCount) }} 票</p>
           <p v-if="metric(business.key)?.productMissingCount" class="missing-note">待补充产品 {{ count(metric(business.key)?.productMissingCount) }} 票</p>
-          <button type="button" class="business-link" :disabled="!available || loading" @click="openDetail(business.key)">查看日汇总<ArrowRightOutlined /></button>
+          <button type="button" class="business-link" :disabled="!available || loading" @click="openDetail(business.key)">查看明细<ArrowRightOutlined /></button>
         </section>
       </div>
       <div class="charts-grid">
@@ -117,12 +117,12 @@
           </template>
 
           <template v-else-if="workspaceView === 'daily'">
-            <a-alert class="workspace-alert" type="info" show-icon message="真实日汇总" description="保留当前时间和维度条件；选择业务日后可继续追溯对应MySQL宽表。" />
+            <a-alert class="workspace-alert" type="info" show-icon message="真实日汇总" description="保留当前时间和维度条件；可直接下载所选期间的订单明细，也可选择某一天继续查看订单。" />
             <div class="drawer-scope daily-scope"><div><span>统计期间</span><strong>{{ drawerFilterScope.startDate }} 至 {{ drawerFilterScope.endDate }}</strong></div><p>{{ drawerScope }}</p></div>
             <a-alert v-if="drawerError" class="range-error" type="error" :message="drawerError" show-icon />
             <div class="daily-table-toolbar">
               <strong>日汇总明细</strong>
-              <label><span>业务类型</span><a-select v-model:value="drawerBusiness" :options="dailyBusinessOptions" :disabled="drawerLoading" /></label>
+              <div class="daily-download-actions"><label><span>业务类型</span><a-select v-model:value="drawerBusiness" :options="dailyBusinessOptions" :disabled="drawerLoading" /></label><a-button v-if="canExport" type="primary" :disabled="drawerLoading || !drawerData?.available || Boolean(drawerError)" @click="downloadDialogOpen = true"><DownloadOutlined />下载明细</a-button></div>
             </div>
             <a-table class="daily-detail-table" size="middle" :loading="drawerLoading" :columns="drawerColumns" :data-source="drawerRows" row-key="key" :pagination="{ pageSize: 20, hideOnSinglePage: true }" :scroll="{ x: 650 }">
               <template #bodyCell="{ column, record }">
@@ -130,7 +130,7 @@
                 <template v-else-if="column.key === 'count'"><strong>{{ count(record.count) }}</strong><small> 票</small></template>
                 <template v-else-if="column.key === 'segments'">{{ record.businessKey === 'issue' ? count(record.segmentCount) + ' 航段' : '—' }}</template>
                 <template v-else-if="column.key === 'profit'"><strong :class="{ negative: isNegative(record.profit) }">{{ money(record.profit) }}</strong><small> 元</small></template>
-                <template v-else-if="column.key === 'action'"><a-button type="link" size="small" @click="openWideDetail(record)">查看宽表明细<ArrowRightOutlined /></a-button></template>
+                <template v-else-if="column.key === 'action'"><a-button type="link" size="small" @click="openWideDetail(record)">查看订单明细<ArrowRightOutlined /></a-button></template>
               </template>
             </a-table>
           </template>
@@ -152,6 +152,7 @@
         </div>
       </div>
     </a-drawer>
+    <ComprehensiveDetailDownloadDialog v-model:open="downloadDialogOpen" :scope="drawerFilterScope" :scope-label="drawerScope" :business="drawerBusiness" />
   </div>
 </template>
 
@@ -163,6 +164,7 @@ import type { EChartsCoreOption } from 'echarts/core'
 import PageHeader from '@/components/PageHeader.vue'
 import FilterPanel from '@/components/FilterPanel.vue'
 import DateRangeField from '@/components/DateRangeField.vue'
+import ComprehensiveDetailDownloadDialog from '@/components/ComprehensiveDetailDownloadDialog.vue'
 import BaseChart from '@/components/BaseChart.vue'
 import { fetchComprehensive, fetchComprehensiveDiagnosis, fetchComprehensiveDetails, type BusinessKey, type ComparisonSortKey, type ComprehensiveData, type ComprehensiveDiagnosisData, type ComprehensiveDetailData, type ComprehensiveDetailRow, type ComprehensiveDetailValueType, type DimensionKey, type DimensionRow, type FilterScope } from '@/api/comprehensive'
 import { useAuthStore } from '@/stores/auth'
@@ -395,6 +397,7 @@ const drawerBusiness = ref<BusinessKey | ''>('')
 const drawerTitle = ref('日汇总明细')
 const drawerScope = ref('')
 const drawerFilterScope = ref<FilterScope>(todayScope())
+const downloadDialogOpen = ref(false)
 let drawerRequestId = 0
 async function openDailySummary(scope: FilterScope, title: string, business?: BusinessKey, cached?: ComprehensiveData, group: DimensionKey = groupDimension.value, resetNavigation = false) {
   const id = ++drawerRequestId
@@ -606,6 +609,7 @@ onMounted(() => { void load({ ...draft.value }) })
 .detail-scope > div > span, .daily-scope span { display: block; margin-bottom: 5px; color: #98a4b5; font-size: 10px; }
 .detail-scope label { flex: none; display: flex; align-items: center; gap: 8px; color: #64728a; font-size: 12px; }
 .detail-actions { display: flex; align-items: center; gap: 10px; }
+.daily-download-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
 .detail-scope :deep(.ant-select) { width: 132px; }
 .daily-scope, .detail-scope { padding: 14px 16px; border: 1px solid #e3e9f1; border-radius: 11px; background: #fff; box-shadow: 0 5px 18px rgb(41 61 91 / 4%); }
 .daily-scope { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
