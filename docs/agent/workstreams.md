@@ -1,5 +1,11 @@
 # 当前工作流与交接
 
+## 参考舱位库名更正（2026-11-03）
+
+验证：10项直接相关测试通过（4.48秒），确认数据源与SQL均使用sibedb、自然月/状态/航司过滤和只读约束保持；本轮仅后端库名与说明修正，未重复前端构建、浏览器或真实ERP验证。
+
+用户最新明确：hold_info_flight_list在sibedb，不是此前答复的sibebd。仅修正本功能ERP数据源库名、SELECT限定库及错误提示，并更新当前契约和决策；不改ERP花名册或其他公共连接默认库。先前31eadc3/402cf9b的功能交付及通知是历史回执，其sibebd引用由本次更正替代。只读参考、不保存、不参与规则的口径保持不变。本次按既有授权直接提交两端并发送更正发版通知，申请人马远尔；未部署、未执行DDL或访问真实ERP。
+
 ## 新建分析机会只读参考舱位（2026-11-03，待部署真实验收）
 
 交付回执：功能提交`31eadc3`已正常推送GitLab origin/main与GitHub github/main；2026-11-03 09:16:40（Asia/Shanghai）按申请人马远尔向配置发版群发送一次data_report测试247通知，HTTP 200、errcode=0、accepted，发送0.305秒。通知明确代码已推送待服务器部署，无@，未发送其他群。复用ETL仓库`analysis/scripts/work/send_wechat/qa_wecom_delivery.py`的release模板，先校验后--send；脱敏回执在忽略目录`.test-artifacts/cabin-release-receipts`，任务ID `placement-cabin-reference-20261103-31eadc3`，不保存Webhook。回执仅证明接口接收，不代表服务器部署或业务验收。

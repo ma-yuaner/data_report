@@ -2,7 +2,7 @@
 
 ## 2026-11-03 近期舱位仅作灰色只读参考
 
-用户确认ERP库为sibebd，只读hold_info_flight_list.cabin，以status=1、所选airline一致、update_time近一个自然月为条件。字段放在新建分析机会“投放范围”的排除舱位旁，置灰只读，只供参考，不自动填入包含/排除、不保存、不参与匹配或考核；不读cabin_except、不改ERP。发版申请人为马远尔，已授权开发完成直接提交发版。
+用户最新更正ERP库为sibedb（此前sibebd说明已替代），只读hold_info_flight_list.cabin，以status=1、所选airline一致、update_time近一个自然月为条件。字段放在新建分析机会“投放范围”的排除舱位旁，置灰只读，只供参考，不自动填入包含/排除、不保存、不参与匹配或考核；不读cabin_except、不改ERP。发版申请人为马远尔，已授权开发完成直接提交发版。
 
 ## 2026-11-02 航线诊断放在投放政策页内
 

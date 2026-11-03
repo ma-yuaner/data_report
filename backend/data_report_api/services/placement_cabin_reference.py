@@ -12,7 +12,7 @@ MAX_DISTINCT_VALUES = 2000
 
 class PlacementCabinReferenceService:
     def __init__(self, config, *, source=None):
-        erp = {**config, 'DATA_MODE': 'mysql', 'MYSQL_DATABASE': 'sibebd'}
+        erp = {**config, 'DATA_MODE': 'mysql', 'MYSQL_DATABASE': 'sibedb'}
         for key in ('HOST', 'PORT', 'USER', 'PASSWORD', 'CHARSET', 'CONNECT_TIMEOUT', 'READ_TIMEOUT', 'WRITE_TIMEOUT', 'POOL_SIZE', 'POOL_MIN_CACHED'):
             if config.get(f'ERP_MYSQL_{key}') not in (None, ''):
                 erp[f'MYSQL_{key}'] = config[f'ERP_MYSQL_{key}']
@@ -30,7 +30,7 @@ class PlacementCabinReferenceService:
         connection = cursor = None
         try:
             connection = self.source.connect(); cursor = connection.cursor()
-            cursor.execute(f"""SELECT DISTINCT cabin FROM `sibebd`.`hold_info_flight_list`
+            cursor.execute(f"""SELECT DISTINCT cabin FROM `sibedb`.`hold_info_flight_list`
                 WHERE status=1 AND airline=%s AND update_time>=DATE_SUB(%s, INTERVAL 1 MONTH)
                 AND update_time<=%s LIMIT {MAX_DISTINCT_VALUES + 1}""", (code, current, current))
             rows = list(cursor.fetchall())
@@ -49,7 +49,7 @@ class PlacementCabinReferenceService:
             raise
         except Exception as error:
             LOGGER.exception('Placement cabin reference lookup failed')
-            raise SmartPlacementUnavailable('参考舱位暂不可用，请核对ERP sibebd.hold_info_flight_list读取权限') from error
+            raise SmartPlacementUnavailable('参考舱位暂不可用，请核对ERP sibedb.hold_info_flight_list读取权限') from error
         finally:
             if cursor is not None: cursor.close()
             if connection is not None: connection.close()
