@@ -2,6 +2,8 @@
 
 ## 参考舱位库名更正（2026-11-03）
 
+交付回执：更正提交`c27bbd2`已正常推送GitLab/GitHub main；2026-11-03 09:25:27（Asia/Shanghai）按申请人马远尔发送一次更正通知，HTTP 200、errcode=0、accepted，0.260秒，明确sibedb替代上一版sibebd引用，待服务器更新API。任务ID `placement-cabin-reference-dbfix-20261103-c27bbd2`，脱敏回执在忽略目录`.test-artifacts/cabin-release-receipts`；未部署、未写ERP。
+
 验证：10项直接相关测试通过（4.48秒），确认数据源与SQL均使用sibedb、自然月/状态/航司过滤和只读约束保持；本轮仅后端库名与说明修正，未重复前端构建、浏览器或真实ERP验证。
 
 用户最新明确：hold_info_flight_list在sibedb，不是此前答复的sibebd。仅修正本功能ERP数据源库名、SELECT限定库及错误提示，并更新当前契约和决策；不改ERP花名册或其他公共连接默认库。先前31eadc3/402cf9b的功能交付及通知是历史回执，其sibebd引用由本次更正替代。只读参考、不保存、不参与规则的口径保持不变。本次按既有授权直接提交两端并发送更正发版通知，申请人马远尔；未部署、未执行DDL或访问真实ERP。
