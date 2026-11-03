@@ -8,6 +8,8 @@
 
 发布回执：功能本地提交`5b22d3a`。GitLab/GitHub普通推送均网络连接失败，未成功推送；随后GitLab联网推送被自动审批拒绝，理由为远端归属未验证及目的地/main写入授权不足，未绕过拒绝，GitHub联网推送未执行。已向用户发起两端main明确批准请求，待答复后继续；发版申请人也待答复。尚未发送群通知、部署服务器或取得业务验收。仅前端变更，部署需更新源码并重建web，沿用1818/5160端口，不需要本次DDL/ETL/API变更。
 
+发布阻塞已解除：用户随后明确批准上述GitLab与GitHub的main推送，并确认申请人马远尔；两端main均正常推送到`27f6cef`（含功能`5b22d3a`）。2026-11-03 15:08:45（Asia/Shanghai）复用既有`qa_wecom_delivery.py`，校验后向配置发版群发送一次data_report测试247通知，无@；HTTP 200、errcode=0、accepted，耗时0.253秒。任务ID `comprehensive-range-download-20261103-5b22d3a`，脱敏回执位于忽略目录`.test-artifacts/comprehensive-range-release-receipts`。通知明确代码已推送待服务器部署，未发送其他群。此处仅补记回执，不再触发通知；服务器部署、真实数据下载和业务验收仍未执行。
+
 ## 分析机会下载模板完整示例（2026-11-03）
 
 交付回执：实现提交`e1b8b00`已推送GitLab origin/main与GitHub github/main。服务器未部署；本轮未定位到可用的既有私密通知配置，未发送发版群通知，待复用原配置补发（申请人沿用马远尔）。不以两端推送代替服务器上线或业务验收。
