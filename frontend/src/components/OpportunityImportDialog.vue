@@ -3,11 +3,12 @@
     <div class="import-content">
       <a-alert type="info" show-icon message="只新增分析机会" description="不支持覆盖已有机会，不导入审核、认领、投放登记或后续修改。整批校验通过后才能确认。" />
       <a-space wrap class="import-controls">
-        <a-button :loading="downloading" :disabled="busy" @click="download">下载 Excel 模板</a-button>
+        <a-button :loading="downloading" :disabled="busy" @click="download">下载示例模板</a-button>
         <input ref="fileInput" class="file-input" type="file" accept=".xlsx" :disabled="busy" aria-label="选择分析机会Excel" @change="selectFile" />
         <a-button :disabled="busy" @click="fileInput?.click()">选择文件</a-button>
         <span>{{ file?.name || '每次最多200行，.xlsx文件不超过2MB' }}</span>
       </a-space>
+      <a-alert type="warning" show-icon message="模板第2行是完整填写示例，请先替换或删除再导入" description="多选字段用英文逗号（,）分隔，如 Y,B,M 或 平台手工订单,直连订单；逐字段要求见模板的填写说明。" />
       <div class="import-mode">
         <span>导入方式：</span>
         <a-radio-group v-model:value="submit" :disabled="busy || !!result" @change="invalidate">

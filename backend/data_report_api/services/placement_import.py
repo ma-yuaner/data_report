@@ -10,7 +10,7 @@ from zipfile import ZipFile
 
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from openpyxl import Workbook, load_workbook
-from openpyxl.styles import Font, PatternFill
+from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.datavalidation import DataValidation
 from ..time_utils import business_now_naive
 
@@ -79,12 +79,64 @@ def require_import(user):
     _actor(user)
 
 
+TEMPLATE_EXAMPLE = [
+    '完整填写示例（正式导入前请替换）',
+    '数据分析规则识别',
+    'DEMO_RULE_001',
+    datetime(2026, 10, 1, 0, 0, 0),
+    datetime(2026, 10, 31, 0, 0, 0),
+    'CTRIP',
+    '携程',
+    'DEMO_SITE_001',
+    '示例站点（请替换）',
+    'HO',
+    '机场',
+    'PVG',
+    '机场',
+    'BKK',
+    '单程',
+    '直达',
+    'HO1357,HO1359',
+    'Y,B,M',
+    'X,N',
+    '示例产品（请替换）',
+    '平台手工订单,直连订单',
+    datetime(2026, 11, 3, 0, 0, 0),
+    datetime(2026, 11, 30, 0, 0, 0),
+    7,
+    datetime(2026, 11, 10, 0, 0, 0),
+    datetime(2027, 1, 31, 0, 0, 0),
+    '小流量测试，具体政策请按真实分析填写',
+    0,
+    30,
+    '否',
+    datetime(2026, 11, 5, 0, 0, 0),
+    datetime(2026, 11, 12, 23, 59, 59),
+    128,
+    3660.25,
+    40,
+    1200,
+    '示例数据，请替换为实际分析依据。',
+    '示例仅说明填写格式，请核对实际政策和日期。',
+    '中',
+    datetime(2026, 11, 4, 18, 0, 0),
+]
+
+
 def template_bytes():
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = '机会导入'
     sheet.append([column[0] for column in COLUMNS])
+    sheet.append(TEMPLATE_EXAMPLE)
     sheet.freeze_panes = 'A2'
+    sheet.row_dimensions[2].height = 60
+    for cell in sheet[2]:
+        cell.fill = PatternFill('solid', fgColor='FFF2CC')
+        cell.alignment = Alignment(wrap_text=True, vertical='center')
+        if isinstance(cell.value, datetime):
+            key = COLUMNS[cell.column - 1][1]
+            cell.number_format = 'yyyy-mm-dd' if key.endswith('Date') else 'yyyy-mm-dd hh:mm:ss'
     for cell in sheet[1]:
         cell.font = Font(color='FFFFFF', bold=True)
         cell.fill = PatternFill('solid', fgColor='2456A6')
@@ -100,7 +152,9 @@ def template_bytes():
             letter = sheet.cell(1, index).column_letter
             validation.add(f'{letter}2:{letter}{MAX_ROWS + 1}')
     notes = workbook.create_sheet('填写说明')
-    notes.append(['批量新建分析机会', '仅填写“机会导入”工作表；第1行表头不可改名，不含示例业务数据。'])
+    notes.append(['批量新建分析机会', '仅填写“机会导入”工作表；第1行表头不可改名；第2行黄色为完整示例，正式导入前必须替换或删除，否则会作为真实机会导入。'])
+    notes.append(['多选分隔符', '航班号、包含舱位、排除舱位、订单来源均使用英文逗号（,），例如Y,B,M、平台手工订单,直连订单；不要使用竖线（|）。'])
+    notes.append(['单值字段', '平台、航司、出发代码、到达代码每格只填一个值；多个组合请分行填写。示例为虚构数据，需替换为真实业务编码、日期和分析。'])
     notes.append(['操作边界', '仅新建草稿或提交数据审核；不支持导入任务ID、状态、审核、负责人或投放登记。'])
     notes.append(['限制', '每次最多200行、2MB；不接受公式、合并单元格或宏；校验失败整批不写入。'])
     notes.append(['重复确认', '同账号、同内容、同导入方式重复确认返回原任务，不覆盖已有内容。'])
