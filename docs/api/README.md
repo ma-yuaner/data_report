@@ -22,7 +22,7 @@
 | [上传说明](../business/air_ticketing/risk-data-upload.md) / [行为监控](../product/user-behavior-monitoring-v1.md) | 上传队列和行为采集 |
 
 <!-- BEGIN:API_ROUTES -->
-共 **189个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
+共 **203个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
 
 <a id="auth"></a>
 
@@ -352,4 +352,25 @@
 | `POST` | `/api/v1/smart-placement/tasks/import/confirm` | [placement_import_confirm](../../backend/data_report_api/api/placement_import.py) |
 | `POST` | `/api/v1/smart-placement/tasks/import/preview` | [placement_import_preview](../../backend/data_report_api/api/placement_import.py) |
 | `GET` | `/api/v1/smart-placement/tasks/import/template` | [placement_import_template](../../backend/data_report_api/api/placement_import.py) |
+
+<a id="risk_verification"></a>
+
+## risk_verification（risk_verification）
+
+| 方法 | 完整路径 | 处理函数 / 源码 |
+|---|---|---|
+| `GET` | `/api/v1/risk-verification/candidates` | [risk_verification_candidates](../../backend/data_report_api/api/risk_verification.py) |
+| `GET` | `/api/v1/risk-verification/cases` | [risk_verification_cases](../../backend/data_report_api/api/risk_verification.py) |
+| `POST` | `/api/v1/risk-verification/cases` | [risk_verification_create](../../backend/data_report_api/api/risk_verification.py) |
+| `GET` | `/api/v1/risk-verification/cases/<case_id>` | [risk_verification_case](../../backend/data_report_api/api/risk_verification.py) |
+| `POST` | `/api/v1/risk-verification/cases/<case_id>/analyze` | [risk_verification_analyze](../../backend/data_report_api/api/risk_verification.py) |
+| `POST` | `/api/v1/risk-verification/cases/<case_id>/confirm` | [risk_verification_confirm](../../backend/data_report_api/api/risk_verification.py) |
+| `POST` | `/api/v1/risk-verification/cases/<case_id>/knowledge` | [risk_verification_draft](../../backend/data_report_api/api/risk_verification.py) |
+| `GET` | `/api/v1/risk-verification/cases/<case_id>/preview` | [risk_verification_preview](../../backend/data_report_api/api/risk_verification.py) |
+| `POST` | `/api/v1/risk-verification/cases/<case_id>/recover` | [risk_verification_recover](../../backend/data_report_api/api/risk_verification.py) |
+| `POST` | `/api/v1/risk-verification/cases/<case_id>/review` | [risk_verification_review](../../backend/data_report_api/api/risk_verification.py) |
+| `GET` | `/api/v1/risk-verification/knowledge` | [risk_verification_knowledge](../../backend/data_report_api/api/risk_verification.py) |
+| `POST` | `/api/v1/risk-verification/knowledge/<knowledge_id>/publish` | [risk_verification_publish](../../backend/data_report_api/api/risk_verification.py) |
+| `GET` | `/api/v1/risk-verification/orders/<value>/evidence` | [risk_verification_evidence](../../backend/data_report_api/api/risk_verification.py) |
+| `GET` | `/api/v1/risk-verification/status` | [risk_verification_status](../../backend/data_report_api/api/risk_verification.py) |
 <!-- END:API_ROUTES -->

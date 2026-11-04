@@ -10,6 +10,11 @@ def env_bool(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def explicit_erp_settings() -> bool:
+    """Risk reads must not inherit the historical ERP-to-main-DB fallback."""
+    return all(bool(os.getenv(f"ERP_MYSQL_{key}", "").strip()) for key in ("HOST", "DATABASE", "USER", "PASSWORD"))
+
+
 class Config:
     APP_ENV = os.getenv("APP_ENV", "development")
     APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Asia/Shanghai")
@@ -181,6 +186,16 @@ class Config:
     DATA_WORKBENCH_IMPORT_TIMEOUT = int(os.getenv("DATA_WORKBENCH_IMPORT_TIMEOUT", "300"))
     DATA_WORKBENCH_TIMEOUT = int(os.getenv("DATA_WORKBENCH_TIMEOUT", "600"))
     DATA_WORKBENCH_CONCURRENCY = int(os.getenv("DATA_WORKBENCH_CONCURRENCY", "1"))
+    RISK_VERIFICATION_ROOT = os.getenv("RISK_VERIFICATION_ROOT", "/app/var/risk-verification")
+    RISK_VERIFICATION_ERP_EXPLICIT = explicit_erp_settings()
+    RISK_AI_ENABLED = env_bool("RISK_AI_ENABLED", False)
+    RISK_AI_URL = os.getenv("RISK_AI_URL", "https://api.deepseek.com/chat/completions")
+    RISK_AI_KEY = os.getenv("RISK_AI_KEY", "")
+    RISK_AI_MODEL = os.getenv("RISK_AI_MODEL", "")
+    RISK_AI_TIMEOUT_SECONDS = int(os.getenv("RISK_AI_TIMEOUT_SECONDS", "60"))
+    RISK_AI_MAX_INPUT_CHARS = int(os.getenv("RISK_AI_MAX_INPUT_CHARS", "18000"))
+    RISK_AI_MAX_OUTPUT_TOKENS = int(os.getenv("RISK_AI_MAX_OUTPUT_TOKENS", "2000"))
+    RISK_AI_DAILY_CALL_LIMIT = int(os.getenv("RISK_AI_DAILY_CALL_LIMIT", "40"))
     AUTH_ENABLED = env_bool("AUTH_ENABLED", True)
     AUTH_AUTO_CREATE_TABLES = env_bool("AUTH_AUTO_CREATE_TABLES", True)
     AUTH_IDLE_TIMEOUT_SECONDS = int(os.getenv("AUTH_IDLE_TIMEOUT_SECONDS", "14400"))

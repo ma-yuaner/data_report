@@ -13,6 +13,7 @@ pip-unpack-*/
 .test-artifacts/
 var/data-workbench/
 var/hr-mail/
+var/risk-verification/
 secrets/
 .ruff_cache/
 .coverage

@@ -4,6 +4,7 @@ from flask import Blueprint
 from .api import adm, adm_exchange, adm_files, adm_operations
 from .api import data_workbench
 from .api import hr_mail
+from .api import risk_verification
 
 from .api import targets, core, resource_governance, telemetry, dashboard, analysis, smart_analysis, smart_placement, monitoring, risk_upload
 
@@ -31,5 +32,6 @@ monitoring.register_routes(api)
 risk_upload.register_routes(api)
 data_workbench.register_routes(api)
 hr_mail.register_routes(api)
+risk_verification.register_routes(api)
 
 __all__ = ["api"]

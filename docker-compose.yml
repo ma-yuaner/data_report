@@ -24,6 +24,15 @@ services:
       COMPREHENSIVE_EXPORT_ROOT: /app/var/comprehensive-exports
       ADM_STORAGE_MODE: mysql
       HR_MAIL_ROOT: /app/var/hr-mail
+      RISK_VERIFICATION_ROOT: /app/var/risk-verification
+      RISK_AI_ENABLED: ${RISK_AI_ENABLED:-false}
+      RISK_AI_URL: ${RISK_AI_URL:-https://api.deepseek.com/chat/completions}
+      RISK_AI_KEY: ${RISK_AI_KEY:-}
+      RISK_AI_MODEL: ${RISK_AI_MODEL:-}
+      RISK_AI_TIMEOUT_SECONDS: ${RISK_AI_TIMEOUT_SECONDS:-60}
+      RISK_AI_MAX_INPUT_CHARS: ${RISK_AI_MAX_INPUT_CHARS:-18000}
+      RISK_AI_MAX_OUTPUT_TOKENS: ${RISK_AI_MAX_OUTPUT_TOKENS:-2000}
+      RISK_AI_DAILY_CALL_LIMIT: ${RISK_AI_DAILY_CALL_LIMIT:-40}
       HR_MAIL_SEND_ENABLED: ${HR_MAIL_SEND_ENABLED:-false}
       HR_MAIL_UPLOAD_BYTES: ${HR_MAIL_UPLOAD_BYTES:-20971520}
       HR_MAIL_METHOD: ${HR_MAIL_METHOD:-}
@@ -127,6 +136,7 @@ services:
       - adm_data:/app/var/adm
       - data_workbench_data:/app/var/data-workbench
       - hr_mail_data:/app/var/hr-mail
+      - risk_verification_data:/app/var/risk-verification
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5160/api/health', timeout=3)"]
@@ -246,6 +256,7 @@ services:
       start_period: 10s
 
 volumes:
+  risk_verification_data:
   hr_mail_data:
   adm_data:
   risk_upload_data:

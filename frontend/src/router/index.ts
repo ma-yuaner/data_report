@@ -46,6 +46,7 @@ const router = createRouter({
         { path: 'risk-analysis/change', name: 'risk-change-profit', component: () => import('@/views/RiskBusinessAnalysisView.vue'), props: { businessType: 'change' }, meta: { title: '改签利润分析', section: '风控分析', menuCode: 'risk.change' } },
         { path: 'risk-analysis/errors', name: 'risk-errors', component: () => import('@/views/RiskErrorAnalysisView.vue'), meta: { title: '差错分析', section: '风控分析', menuCode: 'risk.errors' } },
         { path: 'risk-analysis/orders', name: 'risk-orders', component: () => import('@/views/RiskBusinessAnalysisView.vue'), props: { ordersOnly: true }, meta: { title: '订单明细', section: '风控分析', menuCode: 'risk.orders' } },
+        { path: 'risk-verification', name: 'risk-verification', component: () => import('@/views/RiskVerificationView.vue'), meta: { title: '风控核对', section: '风控分析', requiresAdmin: true } },
         { path: 'risk-analysis/upload', name: 'risk-upload', component: () => import('@/views/RiskUploadView.vue'), meta: { title: '数据上传', section: '风控分析', menuCode: 'risk.upload' } },
         { path: 'smart-analysis', redirect: '/smart-analysis/comprehensive' },
         { path: 'smart-analysis/comprehensive', name: 'smart-comprehensive', component: () => import('@/views/SmartComprehensiveView.vue'), meta: { title: '智能综合分析', section: '智能分析', menuCode: 'smart.comprehensive' } },
