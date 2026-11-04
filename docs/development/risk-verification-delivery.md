@@ -1,5 +1,15 @@
 # 风控核对首版交付与验收
 
+## 最简部署方式
+
+无需另传脚本。部署人在247现有`data_report`仓库根目录执行下面这一条命令：
+
+```bash
+if [ -n "$(git status --porcelain)" ]; then echo '存在本地改动，请先保留并核对，未执行更新或部署。'; else git pull --ff-only origin main && bash scripts/deploy_risk_verification.sh; fi
+```
+
+预期显示5个步骤并最后输出“部署和健康检查完成”，再以管理员访问现有1818端口的`/risk-verification`。仓库/分支不符、拉取、配置、备份、构建或健康检查失败时会停止；保留错误信息，不清库删卷、不反复运行模型。若提示ERP或AI配置未齐，按下方配置段在服务器私密`.env`补齐后重新执行，不把密钥发送聊天。脚本不会自动填写凭据，也不会查询订单或调用模型。
+
 2026-11-04，Asia/Shanghai。任务RISK-VERIFY-20261104；申请人马远尔。范围见[产品契约](../product/risk-verification-v1.md)。本机实现和隔离验证已完成；真实ERP、DeepSeek、浏览器、服务器部署及业务验收未完成，不能混报上线。
 
 ## Launch
@@ -89,3 +99,9 @@ bash scripts/deploy_risk_verification.sh
 ## Cleanup
 
 本地场景已关闭本轮回环服务及线程；合成SQLite/测试/日志仅在忽略目录保留。无生产清理。服务器备份保留受控卷内，不下载到聊天或复制MYE。本轮未改公共DataSource及Java项目。提交、两端推送、通知与部署的实际回执在本文件后续追加。
+
+## 发布与脚本增强记录（2026-11-04）
+
+风控功能提交`8746657`已推送数据中台GitLab、GitHub；MYE通用提示词`1b6e197`已推送其GitHub，均有真实退出0回执。247尚未部署，本机没有已确认远程登录入口。
+
+本次仅增强部署脚本及本说明：中文5步骤/失败停止、Docker Compose预检、前后配置检查、api/web健康检查；只报告配置是否存在、不打印配置值。语法检查通过；本地替身命令测试7场景（正常、工作区有改动、仓库不符、拉取失败、Compose配置失败、备份失败、健康失败）均符合预期，前置失败不进入构建。真实输出：`7 isolated deployment scenarios passed; Bash and embedded Python syntax passed; no real Docker/network/production operations`。测试及日志在忽略目录`.test-artifacts/evidence/risk-workflow-20261104/`的`test_deploy_script.py`、`deploy-tests.json`与`deploy-*.log`。不重复业务53项测试/前端构建，业务源码未改；没有执行服务器脚本或生产操作。
