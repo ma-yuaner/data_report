@@ -198,3 +198,9 @@ docker compose exec -T api python -m data_report_api.services.risk_case_diagnost
 - README检查：48 menu entries;205 HTTP method/path entries，退出0；差异空白检查通过。
 
 验收结论：本地工程通过，未执行生产DDL/同步/调度/部署，真实ERP索引、MySQL兼容、网络与247单日3秒目标未验。浏览器禁用状态未变化，不绕过。服务器需先在确认的sibebid执行完整DDL，再在清洗仓库preview/check-schema/显式日期同步，成功后部署API/web并验收；缺日期不能显示成零。不要只更新应用后继续刷新原ERP请求，也不要把健康UP当取证或业务验收。
+
+### 本轮真实Git交付回执
+
+应用实现提交3105bc8已普通推送origin(GitLab)和github，两端均退出0。ETL原本地提交50329d4首次推送因远程有新提交而non-fast-forward失败；未强推、未在有KPI改动的原工作区pull/rebase。获取远程后在D:/data_center_code/.worktrees/risk-catalog-etl-20261104建立隔离分支，基于ff553c3只cherry-pick两个新增文件为e3a17fb。与原已测试两文件diff为空、隔离工作区干净，因此复用同内容25项测试；普通快进推送ETL origin main成功，退出0，远程ff553c3..e3a17fb。原清洗工作区main及已有KPI/缓存改动保留，后续不得在原脏工作区盲目拉取或清理。
+
+本次未修改生产库、未登录247/216、未执行DDL/ETL/调度/部署，也未发送发布群消息。当前阶段是代码与SQL已交付，服务器数据准备和业务/速度验收待执行；不是“全链路已上线”。
