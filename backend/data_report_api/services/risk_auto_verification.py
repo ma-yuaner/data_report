@@ -49,13 +49,15 @@ def evaluate(evidence):
         for item in records:
             parsed.append(item)
             base["logReferences"].append({"id": str(log["id"]), "at": stamp(log.get("operator_datetime")), **item})
-    if not parsed or any(not row["amountsConsistent"] for row in parsed):
-        return {**base, "missing": ["金额自洽的止损日志"], "summary": "缺止损日志或日志金额不自洽"}
+    if not parsed:
+        return {**base, "missing": ["止损日志"], "summary": "没有可解析的止损日志"}
     from decimal import Decimal
     thresholds = {Decimal(row["stopLoss"]) for row in parsed}
     if len(thresholds) != 1:
         return {**base, "missing": ["唯一一致的日志止损值"], "summary": "订单止损值存在冲突，不能自动选择某一条"}
     base["stopLoss"] = format(next(iter(thresholds)), "f")
+    if any(not row["amountsConsistent"] for row in parsed):
+        return {**base, "missing": ["金额自洽的止损日志"], "summary": "已提取止损值，但日志亏损金额与底价减结算费用按四舍五入保留两位后仍不一致"}
     outcomes = []
     for issue in issues:
         result = {"id": str(issue["id"]), "profit": issue.get("issue_profit"), "commission": issue.get("sale_commission_amount"),

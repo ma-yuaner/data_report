@@ -769,3 +769,10 @@ ETL交付：`391711b`已推GitLab，生产执行脚本路径和四段依赖保�
 247用户真实回执TARGET_HISTORY_CONFLICT/auto_jobs，旧库预览1/8/0，API因严格迁移保护保持停止。用户授权修复，/root主会话实施和验收，无新增代理；不猜测目标记录来源。显式--archive-auto归档原SQLite、完整性/SHA/清单，目标三表只读校验不导入/删除/覆盖；严格导入保护保留。失败固定错误码及数字dbCode，归档成功后才启动api/web。
 
 本地21 passed in1.52s、合成发布五场景及bash语法/diff检查通过；无实库/服务器/模型/生产操作。金额/UI/ETL未变复用原证据，不重跑。下一步247部署人拉取后运行--archive-auto，确认archive_only且targetModified=false，再按钮核查实单；归档与真实业务验收未完成。完整命令/输出/恢复指令见[交付记录](../development/risk-verification-delivery.md#risk-archive-20261104目标已有历史时分离归档切换)，本地evidence位于.test-artifacts/evidence/risk-archive-20261104/。
+
+
+## 止损日志两位展示精度修复（2026-11-04，RISK-LOG-ROUNDING-20261104）
+
+用户批准日志金额按四舍五入保留两位比较；/root独立实现验证，无新子代理。5987.47-5872.87940810与114.59的严格相等校验被修正为ROUND_HALF_UP分精度，原值保留；最终出票利润+佣金边界不舍入。金额真不一致仍证据不足，但保留已取得唯一止损值并明确原因。v3规则使旧v2结果过期且不复用，API同源常量。无DDL/ETL/公共库/迁移改动。
+
+45 passed,72替身弃用警告in10.18s，前端类型/lint通过；初轮误选旧任务夹具失败日志保留，当前金额/工作流定向验证通过。完整证据及247普通部署指令见[交付记录](../development/risk-verification-delivery.md#risk-log-rounding-20261104日志分精度与已提取止损值修复)。未查实单/模型/部署；下一步247正常更新后按钮重核，日志可用不等于该单业务必然通过。

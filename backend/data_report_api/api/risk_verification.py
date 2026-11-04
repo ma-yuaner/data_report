@@ -10,6 +10,7 @@ from ..services.risk_verification_ai import RiskAI
 from ..services.risk_verification_overview import RiskVerificationOverview
 from ..services.risk_auto_verification import RiskAutoVerification
 from ..services.risk_auto_store import StoreUnavailable
+from ..services.risk_commission_rule import RULE_ID
 
 
 def _call(action):
@@ -85,7 +86,7 @@ def register_routes(api):
     def risk_verification_status():
         return _call(lambda owner: {"ai": RiskAI(current_app.config).status(), "access": "admin_owner_only",
                                    "formulaStatus": "partially_confirmed", "source": "ERP_MYSQL",
-                                   "rules": [{"id": "qunar-commission-loss-v2", "label": "佣金、点击费亏损（去哪儿且有销售佣金）",
+                                   "rules": [{"id": RULE_ID, "label": "佣金、点击费亏损（去哪儿且有销售佣金）",
                                               "formula": "调整后利润＝出票利润＋销售佣金；调整后利润≥－日志止损值时核实通过（含等号）",
                                               "status": "自动规则已接入；必要字段缺失或止损值冲突时证据不足"}],
                                    "sourceConfigured": current_app.config.get("RISK_VERIFICATION_ERP_EXPLICIT") is True and all(bool(current_app.config.get(f"ERP_MYSQL_{key}")) for key in ("HOST", "DATABASE", "USER", "PASSWORD"))})

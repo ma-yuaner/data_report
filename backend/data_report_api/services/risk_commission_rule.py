@@ -1,8 +1,8 @@
 """Confirmed arithmetic only; source bindings must be verified before live use."""
-from decimal import Decimal, InvalidOperation, localcontext
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, localcontext
 import re
 
-RULE_ID = "qunar-commission-loss-v2"
+RULE_ID = "qunar-commission-loss-v3"
 
 
 def evaluate_commission_loss(*, is_qunar, single_ticket_profit, sales_commission, stop_loss):
@@ -55,9 +55,10 @@ def parse_stop_loss_log(text):
         with localcontext() as context:
             context.prec = 64
             profit = settlement - base
-            consistent = base - settlement == loss
+            consistent = (base - settlement).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) == loss.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         records.append({"basePrice": format(base, "f"), "settlement": format(settlement, "f"),
                         "reportedLoss": format(loss, "f"), "stopLoss": format(threshold, "f"),
-                        "derivedProfit": format(profit, "f"), "amountsConsistent": consistent})
+                        "derivedProfit": format(profit, "f"), "amountsConsistent": consistent,
+                        "amountComparison": "CNY_ROUND_HALF_UP_2DP"})
     return {"status": "ready" if len(records) == 1 and records[0]["amountsConsistent"] else "ambiguous" if len(records) > 1 else "insufficient",
             "records": records, "notice": "日志推导值不等于已验证的自动出票单票利润；须关联具体日志ID、时间和单票"}

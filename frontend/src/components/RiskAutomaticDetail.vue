@@ -8,7 +8,7 @@
         <a-alert :type="outdated ? 'warning' : result.status === 'supported' ? 'success' : result.status === 'problem' || result.status === 'failed' ? 'error' : 'warning'" show-icon :message="outdated ? '源版本已改变，此结果仅供历史参考' : result.summary" />
         <a-descriptions bordered size="small" :column="2">
           <a-descriptions-item label="平台">{{ result.platform || '证据缺失' }}</a-descriptions-item>
-          <a-descriptions-item label="日志止损值">{{ result.stopLoss ?? '证据缺失' }} 元</a-descriptions-item>
+          <a-descriptions-item label="日志止损值">{{ result.stopLoss != null ? `${result.stopLoss} 元` : '未取得唯一止损值' }}</a-descriptions-item>
           <a-descriptions-item label="核实时间">{{ result.checkedAt }}</a-descriptions-item>
           <a-descriptions-item label="规则版本">{{ result.ruleVersion }}</a-descriptions-item>
           <a-descriptions-item label="核实依据" :span="2">出票利润＋销售佣金 ≥ －日志止损值；去哪儿且有正佣金；金额为CNY。</a-descriptions-item>
