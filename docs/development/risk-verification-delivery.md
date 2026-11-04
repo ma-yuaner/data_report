@@ -204,3 +204,11 @@ docker compose exec -T api python -m data_report_api.services.risk_case_diagnost
 应用实现提交3105bc8已普通推送origin(GitLab)和github，两端均退出0。ETL原本地提交50329d4首次推送因远程有新提交而non-fast-forward失败；未强推、未在有KPI改动的原工作区pull/rebase。获取远程后在D:/data_center_code/.worktrees/risk-catalog-etl-20261104建立隔离分支，基于ff553c3只cherry-pick两个新增文件为e3a17fb。与原已测试两文件diff为空、隔离工作区干净，因此复用同内容25项测试；普通快进推送ETL origin main成功，退出0，远程ff553c3..e3a17fb。原清洗工作区main及已有KPI/缓存改动保留，后续不得在原脏工作区盲目拉取或清理。
 
 本次未修改生产库、未登录247/216、未执行DDL/ETL/调度/部署，也未发送发布群消息。当前阶段是代码与SQL已交付，服务器数据准备和业务/速度验收待执行；不是“全链路已上线”。
+
+### 216运行兼容与后续ETL规范补充（2026-11-04）
+
+用户在216默认python运行时出现future feature annotations is not defined，发生于解析阶段，未连接数据库。主代理对照综合分析清洗源码和说明；其源码也含future annotations，因此不能用源码存在替代确认实际任务解释器。修复风控脚本不需要的延迟注解和date.fromisoformat依赖，兼容旧URL构造入口并沿用综合分析UTF-8可用性保护。未修改公共配置、DDL、API或业务规则。
+
+用户明确要求写入AGENT：独立清洗仓库新增AGENTS.md，中台AGENTS增加入口；后续ETL先参考综合分析结构/参数/配置/日期/日志/失败处理并核实实际环境，不照搬Hive全年覆盖及业务规则，不擅自升级系统Python。此处无独立子代理，由/root执行。
+
+兼容定向验证36 passed in 0.67s，15:52:11+08:00启动、进程2.149秒、退出0；原25项及11项语法/日期/新旧URL协议模拟。最初兼容夹具因本地没有SQLAlchemy而2失败/34通过，已明确改为隔离协议测试并保留失败日志，未安装依赖或用模拟声称真实SQLAlchemy通过。精确命令/输出见.test-artifacts/evidence/risk-catalog-20261104/etl-compat-record.json、etl-compat.log和etl-compat-initial-failure.log。AST的3.6语法模式只证明静态解析，未运行真实旧Python。离线preview退出0；216实际版本、依赖和check-schema仍未验，不要求直接正式同步。不重复未变前端/后端业务检查。
