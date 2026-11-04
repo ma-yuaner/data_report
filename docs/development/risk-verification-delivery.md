@@ -151,3 +151,26 @@ docker compose exec -T api python -m data_report_api.services.risk_case_diagnost
 ```
 
 它只查这一单，输出原因原值、平台代码、出票佣金/汇率/利润候选及止损日志结构化片段，不输出姓名、票号或日志原文，不调用模型、不写库。预期给出摘要；配置缺失或多匹配则退出非0并提示。`issue_profit`不等于已确认的自动出票单票利润，摘要不是业务结论。该入口在合成源中测试，尚未对247真实数据执行；真实结果后续由授权人核对。
+
+## 出票日期总览与多类型下钻交付（2026-11-04）
+
+用户确认出票日期及问题口径后，本轮增加 overview/orders 服务端接口，订单去重、全范围原因汇总、分页下钻；页面沿用综合分析结构，保留单订单流程于抽屉。人工确认后刷新同一日期/类型/状态范围。本人最新人工结论计数，不把AI建议或亏损本身认作问题；未知类型不套用现有规则。仅检测原因及订单更新时间变更，不能保证发现子表/日志的每次更新。
+
+实际派活顺序：`/root/risk_overview_backend` 实现总览服务、Flow最小状态读取及15项本地测试，完成后停止写入；`/root` 复核SQL与状态语义，完成API、页面、集成测试和文档；随后 `/root/risk_final_review` 只读复核，发现嵌入抽屉可跨订单的P2，主代理增加读取/创建/选案例三处订单绑定及两项状态验证。复核代理再次确认P2关闭，无剩余阻断。代理未查库、调用外部模型或派生代理，同时最多一个子代理执行。
+
+证据根：`.test-artifacts/evidence/risk-overview-20261104/`（忽略目录，本地留存）。完整命令：在仓库根使用 `C:/Users/Administrator/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe .test-artifacts/evidence/risk-overview-20261104/checks.py <mode>`，mode分别为 python、ui-state、case-state、http、type、lint、build、components。脚本与各 `<mode>-record.json` 保存底层完整命令、工作目录、时间、耗时和退出码；原始输出在 `<mode>.log`。前端最终绑定修复后重跑受影响的类型、ESLint与构建；后端未再改动，不重复87项回归。
+
+真实输出与判断：
+
+- python：`87 passed in 17.38s`，进程18.678秒、退出0。覆盖出票日期边界、同单多票去重、多类型、超过200案例、分页/状态/本人隔离、权限拒绝及人工确认反馈。合成10单佣金案例覆盖2问题/3符合/1证据不足/1审核中/3未核查，确认更改后2问题变1问题，列表与汇总一致；这是合成验收数据，不是247统计。
+- ui-state：7个总览组件状态场景通过，包括失效响应、失败清空、筛选继承、草稿关闭保护与保存后刷新。
+- case-state：`5 component state scenarios passed: case reset, readiness failure handling, embedded order read/create binding; no browser or network`。
+- http：`passed: true`，2.416秒，本地真实Flask HTTP/认证/CSRF及模拟模型协议，共3次本地替身调用；新增总览/下钻及重复票验证通过。`realERP: false, realDeepSeek: false, productionOperations: false`。
+- lint：退出0、5.050秒；build：`built in 28.76s`，进程30.278秒、退出0，保留既有大于500kB分块警告。
+- components：72页检查通过；README入口刷新：`48 menu entries; 205 HTTP method/path entries`；`git diff --check`退出0。
+
+类型检查最后结果见type-record.json。浏览器受工作设置禁用，未冒充真实点击验收。未连接真实ERP、未外发公司资料、未启用真实AI、未在247重建/重启。本轮不改月度接口等其他已有脏文件，不修改MYE，不新建权限或团队共享口径。
+
+部署人仍在247现有项目目录执行 `git pull --ff-only origin main && bash scripts/deploy_risk_verification.sh`，此次业务代码改变需要完整构建，不能只用verify-only。预期脚本退出0后，管理员进入1818的 `/risk-verification`，选获准的出票日期，验证类型总数/状态下钻一致、同单多票只算一单、人工确认后刷新。失败保存脱敏输出并停止，不清卷或重复请求模型。健康、实际取证、真实AI及业务结论须分别验收，当前业务验收未完成。
+
+最终类型检查：2026-11-04 14:59:12+08:00启动，25.256秒、退出0；最终复核全部通过。本段仅记录本地工程验收，不能替代247业务验收。

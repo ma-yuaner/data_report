@@ -7,6 +7,7 @@ from .common import ok
 from ..services.risk_order_evidence import EvidenceError, RiskOrderEvidenceService
 from ..services.risk_verification_flow import FlowError, RiskVerificationFlow
 from ..services.risk_verification_ai import RiskAI
+from ..services.risk_verification_overview import RiskVerificationOverview
 
 
 def _call(action):
@@ -40,6 +41,18 @@ def _flow():
 
 
 def register_routes(api):
+    @api.get("/v1/risk-verification/overview")
+    def risk_verification_overview():
+        return _call(lambda owner: RiskVerificationOverview(current_app.config).summary(
+            owner, request.args.get("startDate"), request.args.get("endDate")))
+
+    @api.get("/v1/risk-verification/orders")
+    def risk_verification_order_list():
+        return _call(lambda owner: RiskVerificationOverview(current_app.config).orders(
+            owner, request.args.get("startDate"), request.args.get("endDate"),
+            request.args.get("reason"), request.args.get("status", "all"),
+            request.args.get("page", "1"), request.args.get("pageSize", "20")))
+
     @api.get("/v1/risk-verification/status")
     def risk_verification_status():
         return _call(lambda owner: {"ai": RiskAI(current_app.config).status(), "access": "admin_owner_only",

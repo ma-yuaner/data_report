@@ -187,6 +187,40 @@ class RiskVerificationFlow:
         with self._db() as db:
             return self._load(db, "risk_cases", owner, identifier)
 
+    def latest_case_summaries(self, owner):
+        """Light metadata for each owner's latest-created case per ERP order.
+
+        Unlike list_cases this must not silently truncate a statistical result at 200.
+        A bound fails explicitly rather than reporting partial totals as complete.
+        """
+        with self._db() as db:
+            rows = db.execute("""
+                SELECT id,
+                       json_extract(body,'$.evidence.erpOrderId') AS order_id,
+                       json_extract(body,'$.evidence.order.profit_reason_type') AS reason,
+                       json_extract(body,'$.evidence.order.update_time') AS source_updated,
+                       json_extract(body,'$.confirmation.conclusion') AS conclusion,
+                       json_extract(body,'$.activeOperation.id') AS active_operation,
+                       json_array_length(body,'$.reviews') AS review_count
+                FROM risk_cases
+                WHERE owner=? AND rowid IN (
+                    SELECT MAX(rowid) FROM risk_cases WHERE owner=?
+                    GROUP BY json_extract(body,'$.evidence.erpOrderId')
+                ) ORDER BY rowid DESC LIMIT 20001
+            """, (_owner(owner), _owner(owner))).fetchall()
+        if len(rows) > 20000:
+            raise FlowError("当前账号的核查记录超过汇总上限，请先归档后再统计；未返回不完整统计", 413)
+        result = {}
+        for row in rows:
+            if row["order_id"] is None:
+                continue
+            status = {"contradicted": "problem", "supported": "supported", "insufficient": "insufficient"}.get(row["conclusion"])
+            if status is None:
+                status = "reviewing" if row["active_operation"] or row["review_count"] else "unchecked"
+            result[str(row["order_id"])] = {"caseId": row["id"], "reasonCode": row["reason"],
+                                            "sourceUpdatedAt": row["source_updated"], "status": status}
+        return result
+
     def list_knowledge(self, owner):
         with self._db() as db:
             rows = db.execute("SELECT body FROM risk_knowledge WHERE owner=? ORDER BY rowid DESC LIMIT 200", (_owner(owner),)).fetchall()

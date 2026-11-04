@@ -93,3 +93,40 @@ export const riskFlow = {
   knowledge: () => flowGet<RiskKnowledge[]>('knowledge'),
   publish: (item: RiskKnowledge) => flowPost<RiskKnowledge>(`knowledge/${item.id}/publish`, { version: item.version }),
 }
+
+export type VerificationStatus = 'problem' | 'supported' | 'insufficient' | 'reviewing' | 'unchecked'
+export interface VerificationMetrics {
+  total: number
+  problem: number
+  supported: number
+  insufficient: number
+  reviewing: number
+  unchecked: number
+}
+export interface VerificationCategory extends VerificationMetrics {
+  reasonCode: string
+  reasonLabel: string
+  ruleStatus: string
+}
+export interface VerificationOverview {
+  period: { startDate: string; endDate: string }
+  dateBasis: string
+  metrics: VerificationMetrics
+  categories: VerificationCategory[]
+  notes: string[]
+}
+export interface VerificationOrder extends EvidenceRow {
+  id: string
+  verificationStatus: VerificationStatus
+  caseId: string | null
+}
+export interface VerificationOrders {
+  items: VerificationOrder[]
+  total: number
+  page: number
+  pageSize: number
+}
+export const verificationOverview = {
+  summary: (startDate: string, endDate: string) => http.get<ApiEnvelope<VerificationOverview>>('/v1/risk-verification/overview', { params: { startDate, endDate } }).then(response => response.data.data),
+  orders: (startDate: string, endDate: string, reason: string | undefined, status: VerificationStatus | 'all', page: number, pageSize: number) => http.get<ApiEnvelope<VerificationOrders>>('/v1/risk-verification/orders', { params: { startDate, endDate, reason, status, page, pageSize } }).then(response => response.data.data),
+}
