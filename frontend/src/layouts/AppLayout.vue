@@ -16,7 +16,7 @@
         </div>
       </div>
 
-      <div class="sidebar-menu-scroll">
+      <div class="sidebar-menu-scroll" tabindex="0" role="navigation" aria-label="主菜单">
         <a-menu v-model:openKeys="openKeys" theme="dark" mode="inline" :selected-keys="selectedKeys" @click="handleMenuClick">
           <a-menu-item key="/home"><template #icon><HomeOutlined /></template>工作台</a-menu-item>
           <a-sub-menu v-if="canSeeGroup('governance') || canSeeGroup('gds_route')" key="governance">

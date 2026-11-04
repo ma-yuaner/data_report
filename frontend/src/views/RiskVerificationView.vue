@@ -25,11 +25,16 @@
     </div>
     <section class="analysis-panel">
       <div class="panel-heading"><div><h2>按盈亏原因分类核对</h2><p>点击数量，查看对应类型和状态的订单；后续新增类型沿用同一结构。</p></div><span>{{ overview?.categories.length ?? '—' }} 个类型</span></div>
+      <div class="progress-legend" aria-label="核查进度颜色说明"><span v-for="state in progressStates" :key="state.key"><i :style="{ backgroundColor: state.color }" />{{ state.label }}</span><span><i class="progress-pending" />未完成</span></div>
       <a-table :columns="categoryColumns" :data-source="overview?.categories || []" row-key="reasonCode" :loading="loading" :pagination="{ pageSize: 10, showSizeChanger: true }" :scroll="{ x: 1180 }" size="middle" :locale="{ emptyText: overview ? '所选出票期间没有盈亏原因有值的订单' : '请查询统计范围；读取失败不显示为0' }">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'reason'"><strong>{{ record.reasonLabel }}</strong><small class="block-muted">{{ record.reasonCode }}</small></template>
           <a-button v-else-if="isMetricKey(column.key)" type="link" :class="{ 'problem-link': column.key === 'problem' }" @click="drillMetric(record.reasonCode, column.key)">{{ count(metricValue(record, column.key)) }}</a-button>
-          <template v-else-if="column.key === 'progress'"><a-progress :percent="completion(record)" size="small" /><small class="block-muted">已自动核实 {{ record.problem + record.supported + record.insufficient + record.failed }} / {{ record.total }}</small></template>
+          <template v-else-if="column.key === 'progress'">
+            <div class="verification-progress" role="img" :aria-label="progressDescription(record)"><span v-for="segment in progressSegments(record)" :key="segment.key" :style="{ width: `${segment.percent}%`, backgroundColor: segment.color }" /></div>
+            <small class="progress-counts"><span class="progress-supported">通过 {{ record.supported }}</span><span class="progress-problem">有问题 {{ record.problem }}</span></small>
+            <small class="block-muted">已处理 {{ record.problem + record.supported + record.insufficient + record.failed }} / {{ record.total }} · {{ completion(record) }}%</small>
+          </template>
           <span v-else-if="column.key === 'rule'" class="rule-note">{{ record.ruleStatus }}</span>
           <a-button v-else-if="column.key === 'action'" type="link" @click="drill(record.reasonCode, 'all')">查看订单</a-button>
         </template>
@@ -60,7 +65,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import dayjs from 'dayjs'
-import { Alert as AAlert, Button as AButton, Drawer as ADrawer, Modal, Progress as AProgress, Segmented as ASegmented, Select as ASelect, Table as ATable, Tag as ATag } from 'ant-design-vue'
+import { Alert as AAlert, Button as AButton, Drawer as ADrawer, Modal, Segmented as ASegmented, Select as ASelect, Table as ATable, Tag as ATag } from 'ant-design-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import FilterPanel from '@/components/FilterPanel.vue'
 import DateRangeField from '@/components/DateRangeField.vue'
@@ -105,9 +110,15 @@ const metricCards: { key: keyof VerificationMetrics; label: string; note: string
   { key: 'rule_pending', label: '规则未接入', note: '不能套用其他类型规则' },
 ]
 const metricKeys = metricCards.map(item => item.key)
+const progressStates = [
+  { key: 'supported', label: '核实通过', color: '#52c41a' },
+  { key: 'problem', label: '有问题', color: '#ff4d4f' },
+  { key: 'insufficient', label: '证据不足', color: '#faad14' },
+  { key: 'failed', label: '执行失败', color: '#8c8c8c' },
+] as const
 const reasonOptions = computed(() => (overview.value?.categories || []).map(item => ({ value: item.reasonCode, label: item.reasonLabel })))
 const selectedReasonLabel = computed(() => selectedReason.value ? categoryLabel(selectedReason.value) : '全部类型')
-const categoryColumns = [{ title: '盈亏原因分类', key: 'reason', width: 210 }, ...metricCards.map(item => ({ title: item.label, key: item.key, width: 105 })), { title: '核查进度', key: 'progress', width: 180 }, { title: '规则状态', key: 'rule', width: 220 }, { title: '操作', key: 'action', width: 110 }]
+const categoryColumns = [{ title: '盈亏原因分类', key: 'reason', width: 210 }, ...metricCards.map(item => ({ title: item.label, key: item.key, width: 105 })), { title: '核查进度', key: 'progress', width: 220 }, { title: '规则状态', key: 'rule', width: 220 }, { title: '操作', key: 'action', width: 110 }]
 const orderColumns = [{ title: '业务订单号', dataIndex: 'order_no', width: 220 }, { title: 'OTA订单号', dataIndex: 'ota_order_no', width: 200 }, { title: '盈亏原因分类', key: 'reason', width: 200 }, { title: '核查结果', key: 'status', width: 130 }, { title: '操作', key: 'action', width: 110 }]
 const drawerOpen = ref(false)
 const activeOrderId = ref('')
@@ -168,6 +179,8 @@ function isMetricKey(key: unknown): key is keyof VerificationMetrics { return ty
 function metricValue(row: Record<string, any>, key: unknown) { return isMetricKey(key) ? Number(row[key]) : 0 }
 function drillMetric(reason: string, key: unknown) { if (isMetricKey(key)) return drill(reason, key === 'total' ? 'all' : key) }
 function completion(row: Record<string, any>) { return row.total ? Math.round((row.problem + row.supported + row.insufficient + row.failed) / row.total * 100) : 0 }
+function progressSegments(row: Record<string, any>) { return progressStates.filter(state => row[state.key] > 0 && row.total > 0).map(state => ({ ...state, percent: row[state.key] / row.total * 100 })) }
+function progressDescription(row: Record<string, any>) { const processed = progressStates.reduce((sum, state) => sum + Number(row[state.key] || 0), 0); return `${progressStates.map(state => `${state.label} ${row[state.key] || 0} 单`).join('，')}，未完成 ${Math.max(0, row.total - processed)} 单，共 ${row.total} 单` }
 function applyPreset() {
   if (preset.value === 'today') { startDate.value = today; endDate.value = today }
   if (preset.value === 'yesterday') { startDate.value = dayjs(today).subtract(1, 'day').format('YYYY-MM-DD'); endDate.value = startDate.value }
@@ -242,6 +255,15 @@ h2 { margin: 0 0 6px; font-size: 18px; }
 .panel-heading p { margin: 0; }
 .block-muted { display: block; }
 .rule-note { font-size: 13px; }
+.progress-legend, .progress-counts { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 12px; }
+.progress-legend { margin-bottom: 12px; color: #69768a; }
+.progress-legend > span { display: inline-flex; align-items: center; gap: 5px; }
+.progress-legend i { width: 8px; height: 8px; border-radius: 2px; }
+.progress-pending, .verification-progress { background: #edf0f4; }
+.verification-progress { display: flex; height: 10px; border-radius: 5px; overflow: hidden; margin-bottom: 6px; }
+.verification-progress > span { flex-shrink: 0; height: 100%; }
+.progress-supported { color: #237804; }
+.progress-problem { color: #cf1322; }
 .order-filters { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
 .order-filters label { display: grid; gap: 6px; min-width: 240px; }
 .orders-panel { scroll-margin-top: 20px; }
