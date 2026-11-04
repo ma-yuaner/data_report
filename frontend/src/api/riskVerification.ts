@@ -104,6 +104,7 @@ export interface VerificationMetrics {
   unchecked: number
 }
 export interface RiskCatalogFreshness {
+  reasonDictionaryVersion?: string
   source: 'sibebid'
   mode: 'etl_catalog'
   complete: boolean

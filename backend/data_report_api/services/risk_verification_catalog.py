@@ -57,6 +57,20 @@ class RiskVerificationCatalog:
                 "days": rows, "latestAttempt": attempts[0] if attempts else None}
 
     @staticmethod
+    def reason_labels(cursor):
+        cursor.execute("SELECT det_code,det_cname,etl_run_id FROM bi_risk_reason_dict WHERE parent_code=%s AND type_code=%s LIMIT 5001", ("PRODUCT_PROFIT_REASON_TYPE", "_SYSTEM_PRODUCT_TYPE"))
+        rows = _rows(cursor)
+        labels = {}
+        versions = {row["etl_run_id"] for row in rows}
+        for row in rows:
+            if row["det_code"] in labels or not row["det_cname"]:
+                raise EvidenceError("盈亏原因字典存在重复或空名称，请重新同步字典", 409)
+            labels[row["det_code"]] = row["det_cname"]
+        if len(rows) > 5000 or len(versions) > 1:
+            raise EvidenceError("盈亏原因字典批次不完整，请重新同步字典", 409)
+        return labels, next(iter(versions), "")
+
+    @staticmethod
     def _close(cursor, connection):
         if connection is not None:
             try:

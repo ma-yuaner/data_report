@@ -218,3 +218,13 @@ docker compose exec -T api python -m data_report_api.services.risk_case_diagnost
 用户要求按公共库及既有清洗规矩重新审查。主代理核对综合分析、GDS、ADM清洗与公共ConnectConfig/MySQLConnect，发现风控手工URL入口与公共get_connect不一致，且ERP配置密码表达式已有quote_plus，存在编码语义不一致风险；没有数据库认证失败回执，不能冒充实库错误已复现。已改回get_connect/raw_connection，复制params限定超时且保留原配置，抑制公共helper原始异常输出，不修改公共库。补资源逐个清理及安全失败码，避免关闭失败跳过其他资源或最终误报success。独立审查/root/risk_final_review因额度限制未完成，本轮由/root接手，不算独立复核通过。
 
 当前本地回归46 passed in 0.52s，16:07:31+08:00启动，进程1.787秒、退出0；精确命令/目录/源码SHA256在.test-artifacts/evidence/risk-catalog-20261104/public-connector-record.json，日志public-connector.log，复现run_public_review.py。原36项中的旧URL工厂测试随实现变化由公共连接测试替代；运行公共库实际类函数体但engine/配置合成，不代表真实SQLAlchemy驱动、旧Python或216实库连接通过。preview退出0。用户216现场preview也已成功，结构/索引/正式同步未取得回执。DDL/页面未变，复用先前相关证据，不重复前端构建或业务测试。未查库/执行DDL/生产ETL/部署/模型调用；后续先check-schema，再获准日期同步。
+
+### 盈亏原因字典映射交付（2026-11-04）
+
+用户指定system_com_type_det、parent_code=PRODUCT_PROFIT_REASON_TYPE，源码/DDL定位det_code→det_cname，type_code=_SYSTEM_PRODUCT_TYPE。主代理实现新字典表DDL、ETL原子同步和dictionary-only、应用本地映射，移除RLA013中文名硬编码，规则ID仍按代码独立识别。无子代理；主代理复核。公共库/生产配置未改，原订单计数/权限保留。
+
+用户216真实回执：monitoring解释器下check-schema通过，2026-11-01目录published3177条、runId af5b011360ad457fbebef0b472bc292a、success。本轮字典尚未实库执行。新增DDL仅建bi_risk_reason_dict，不重建原表；dictionary-only不读/改订单，更新脚本后的既有五分钟命令自动包含字典同步。
+
+本地最终69 passed in3.71s，16:46:13+08:00启动、进程4.840秒、退出0，覆盖公共库/旧语法/事务/目录，以及字典parent/type隔离、名称变化、未知码不丢单、无效/重复/空字典拒绝、失败回滚及dict-only保留订单。精确命令/时间/SHA在.test-artifacts/evidence/risk-catalog-20261104/dictionary-record.json，日志dictionary.log，入口run_dictionary.py；合成配置/engine，非实库。16:44初轮69通过3.12秒被字典类型门禁补验替代。
+
+真实本地HTTP通过，3.502秒，认证/核查/目录链路无回归，3次本地替身模型调用，无真实模型/ERP。9个Vue setup场景通过，含字典切换期间批次拒绝；类型38.811秒、ESLint5.312秒、构建built in42.28s/进程44.091秒均退出0，保留既有大分块警告。精确记录同目录http/type/lint/build/ui-state-record.json与日志。未增加组件，复用此前登记证据；浏览器禁用未绕过。真实DDL/字典数据/部署/页面验收待执行，不以本地检查冒充。

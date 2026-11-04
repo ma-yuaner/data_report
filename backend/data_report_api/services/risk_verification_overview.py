@@ -86,6 +86,7 @@ class RiskVerificationOverview:
             connection = self.reader._connect()
             cursor = connection.cursor()
             freshness = self.reader.coverage(cursor, first, last)
+            labels, freshness["reasonDictionaryVersion"] = self.reader.reason_labels(cursor)
             cursor.execute(f"SELECT o.profit_reason_type AS reason_code,COUNT(*) AS order_count FROM bi_risk_order_day o WHERE {scope} GROUP BY o.profit_reason_type", tuple(values))
             groups = _rows(cursor)
             categories = {}
@@ -94,7 +95,7 @@ class RiskVerificationOverview:
                 total = int(row["order_count"])
                 known = reason == "RLA013"
                 categories[reason] = {"reasonCode": reason,
-                    "reasonLabel": "佣金、点击费亏损" if known else f"{reason}（名称待映射）",
+                    "reasonLabel": labels.get(reason) or f"{reason}（字典名称缺失）",
                     "ruleStatus": "规则公式已确认，自动出票源绑定待完成" if known else "规则待确认",
                     **_metrics(total), "unchecked": total}
             statuses = self._statuses(cursor, owner, scope, values)
@@ -112,7 +113,7 @@ class RiskVerificationOverview:
             return {"period": {"startDate": first.isoformat(), "endDate": last.isoformat()},
                     "dateBasis": "issue_ticket_time", "metrics": metrics,
                     "categories": sorted(categories.values(), key=lambda row: (-row["total"], row["reasonCode"])),
-                    "notes": NOTES, "dataFreshness": freshness}
+                    "notes": NOTES + ([] if labels else ["盈亏原因字典尚未同步，暂展示原始编码；可仅同步字典，无需重读订单。"]), "dataFreshness": freshness}
         except (EvidenceError, FlowError):
             raise
         except Exception:
@@ -133,6 +134,7 @@ class RiskVerificationOverview:
             connection = self.reader._connect()
             cursor = connection.cursor()
             freshness = self.reader.coverage(cursor, first, last)
+            labels, freshness["reasonDictionaryVersion"] = self.reader.reason_labels(cursor)
             statuses = self._statuses(cursor, owner, scope, values)
             selected = [identifier for identifier, item in statuses.items() if item["status"] == status]
             if status != "all":
@@ -152,7 +154,7 @@ class RiskVerificationOverview:
             rows = _rows(cursor)
             for row in rows:
                 review = statuses.get(str(row["id"]), {})
-                row.update(verificationStatus=review.get("status", "unchecked"), caseId=review.get("caseId"))
+                row.update(verificationStatus=review.get("status", "unchecked"), caseId=review.get("caseId"), profit_reason_name=labels.get(row["profit_reason_type"]))
             return {"items": rows, "total": total, "page": page, "pageSize": page_size,
                     "period": {"startDate": first.isoformat(), "endDate": last.isoformat()}, "dateBasis": "issue_ticket_time", "dataFreshness": freshness}
         except (EvidenceError, FlowError):

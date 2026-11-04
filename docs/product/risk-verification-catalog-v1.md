@@ -58,3 +58,18 @@ git pull --ff-only origin main && bash scripts/deploy_risk_verification.sh
 4. 247验收记录实际订单量、API汇总/首屏/筛选耗时，常用单日目标3秒内；同单多票去重、类型及状态下钻一致、人工保存后更新、缺批次/同步失败/跨批次切换均需通过。ETL耗时与页面耗时分开记录。不通过则保留安全日志停止，不把本地SQLite容量测试当247 MySQL性能。
 
 回退应用保留新目录和原SQLite卷；不删除表或恢复旧库覆盖新记录。旧版实时ERP汇总已知超时，不能把回退视为性能修复。生产调度在实际索引、首日数据与速度验收后另行安排。
+
+## 盈亏原因字典映射增量（2026-11-04）
+
+用户确认system_com_type_det、parent_code=PRODUCT_PROFIT_REASON_TYPE；源DDL及TypeDetMapper核对det_code→det_cname，type_code=_SYSTEM_PRODUCT_TYPE。新增sibebid.bi_risk_reason_dict，DDL在docs/sql/risk-verification-reason-dictionary-v1.sql，不改原三表。此前仅RLA013命名被本节替代：名称均取中台字典，未知码保留并标字典名称缺失，不丢订单；RLA013规则身份仍按代码识别，不依据名称改变核查结论。
+
+ETL正常运行先同步指定parent/type字典，再处理日期订单。空源/重复码/空名称/超5000条拒绝发布，原子替换失败保留旧字典；不按字典状态剔除历史名称。--dictionary-only仅更新字典和任务记录，保留日目录与覆盖，不读订单明细；仍校验原表结构和计划。字典版本纳入页面汇总/列表一致性检查。页面查询只读中台，无ERP字典查询。
+
+执行顺序：先在sibebid执行增量DDL，再更新216清洗代码，用monitoring解释器检查并只同步字典：
+
+```bash
+/opt/module/miniconda3/envs/python3.11/bin/python -B /home/lywz/data-team-repo/etl_scripts/automation/risk_verification_order_day_etl.py --start-date 2026-11-01 --end-date 2026-11-01 --check-schema
+/opt/module/miniconda3/envs/python3.11/bin/python -B /home/lywz/data-team-repo/etl_scripts/automation/risk_verification_order_day_etl.py --start-date 2026-11-01 --end-date 2026-11-01 --dictionary-only
+```
+
+预期先schema_and_plans_checked，再dictionary_synced、dictionaryRows>0、orderRowsRead=false。失败停止，保留安全错误码，不清表或跨类补名称。随后247更新API/web，验收分类/筛选/列表中文名称与源字典一致，3177单数量不因映射改变。五分钟任务无需改cron命令，新脚本每次会同步字典。此前2026-11-01日目录3177条已获用户真实成功回执，无需为了补名称重读订单；新字典实际同步与页面仍待验。

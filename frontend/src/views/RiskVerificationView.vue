@@ -116,7 +116,7 @@ let alive = true
 onBeforeUnmount(() => { alive = false; summaryRequest++; orderRequest++ })
 onMounted(queryOverview)
 function count(value: number) { return value.toLocaleString('zh-CN') }
-function catalogVersion(value?: RiskCatalogFreshness) { return value?.days.map(day => `${day.issue_date}:${day.etl_run_id}`).join('|') || '' }
+function catalogVersion(value?: RiskCatalogFreshness) { return value ? `${value.days.map(day => `${day.issue_date}:${day.etl_run_id}`).join('|')}#${value.reasonDictionaryVersion || ''}` : '' }
 function categoryLabel(code: unknown) { return overview.value?.categories.find(item => item.reasonCode === code)?.reasonLabel || String(code || '未分类') }
 function isMetricKey(key: unknown): key is keyof VerificationMetrics { return typeof key === 'string' && metricKeys.includes(key as keyof VerificationMetrics) }
 function metricValue(row: Record<string, any>, key: unknown) { return isMetricKey(key) ? Number(row[key]) : 0 }
