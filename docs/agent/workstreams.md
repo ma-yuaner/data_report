@@ -2,6 +2,8 @@
 
 ## 参考舱位即时刷新（2026-11-04）
 
+发布回执：功能`a32bc7a`已推GitLab/GitHub main；2026-11-04 15:57:03（Asia/Shanghai）按马远尔向原配置发版群发送一次通知，HTTP200、errcode=0、accepted，0.315秒。任务`cabin-reference-refresh-20261104`，脱敏回执`.test-artifacts/cabin-refresh/receipts`；仅接口接收，不代表247部署/人工已阅。服务器未部署，更新web即可。
+
 用户授权开发发版，申请人沿用马远尔。主会话星桥/明鉴，frontend-design，无子代理。参考舱位增加手动刷新、最近成功读取时间（Asia/Shanghai）及新建窗口内30秒刷新；无航司/关闭/卸载停表，请求中去重，同航司刷新保留展示，失败明确上次结果，换航司/关闭作废旧响应。不改变ERP查询、权限和只读口径。实际编译Vue setup合成异步/时钟验证通过，覆盖刷新、防重、失败恢复、换航司/关闭/卸载响应防串及定时器清理；初次测试因VM的Error跨realm夹具问题失败，修正测试环境后通过，未因此修改产品逻辑。相关ESLint与vue-tsc类型检查均退出0；推送回执见后续记录。浏览器禁用未重试，真实ERP及部署未验；仅需重建web，无DDL/ETL/API变更。
 
 本地证据：`.test-artifacts/cabin-refresh/check.cjs`，隔离模拟接口与时钟，非浏览器或实库证据；测试不进Git。开始时其他风控/Agent文档等已有改动保留，仅提交本任务组件与本段交接，不纳入其他工作流内容。
