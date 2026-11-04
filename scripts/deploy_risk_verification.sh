@@ -21,6 +21,25 @@ if [ "$(git branch --show-current)" != "main" ]; then
 fi
 command -v docker >/dev/null
 command -v curl >/dev/null
+verify_only=false
+case "${1:-}" in
+  '') ;;
+  --verify-only) verify_only=true ;;
+  *) echo "Usage: bash scripts/deploy_risk_verification.sh [--verify-only]" >&2; exit 1 ;;
+esac
+wait_for_url() {
+  local url="$1" attempt
+  shift
+  for attempt in 1 2 3 4 5 6; do
+    if curl --connect-timeout 3 --max-time 10 -fsS "$url" "$@"; then
+      return 0
+    fi
+    if [ "$attempt" -lt 6 ]; then sleep 3; fi
+  done
+  echo "Health check failed after 6 attempts: $url" >&2
+  return 1
+}
+if [ "$verify_only" = false ]; then
 echo "[1/5] 检查Docker Compose与发布配置（不输出密钥）"
 docker compose version >/dev/null
 docker compose config --quiet
@@ -76,10 +95,11 @@ fi
 echo "[4/5] 构建并更新api、web（保留所有数据卷）"
 docker compose up -d --build api web
 docker compose ps api web
+fi
 echo "[5/5] 检查服务健康与配置就绪状态"
-curl --connect-timeout 3 --max-time 10 --retry 5 --retry-delay 3 --retry-connrefused -fsS http://127.0.0.1:5160/api/health
+wait_for_url http://127.0.0.1:5160/api/health
 echo
-curl --connect-timeout 3 --max-time 10 --retry 5 --retry-delay 3 --retry-connrefused -fsS -o /dev/null http://127.0.0.1:1818/risk-verification
+wait_for_url http://127.0.0.1:1818/risk-verification -o /dev/null
 docker compose exec -T api python - <<'PY'
 import os
 erp = all(bool(os.getenv('ERP_MYSQL_' + key, '').strip()) for key in ('HOST', 'DATABASE', 'USER', 'PASSWORD'))
@@ -89,6 +109,10 @@ print('ERP显式配置：' + ('已填写，实际读取仍待验收' if erp else
 print('风控AI：' + ('已启用并已填写，真实调用仍待验收' if enabled and model else '未启用或未填写完整；可以先验收取证与人工确认'))
 print('以上只检查配置是否存在，未查询订单或调用模型；未输出任何配置值。')
 PY
-echo "Released commit: $(git rev-parse HEAD)"
-echo "部署和健康检查完成。管理员访问现有1818端口的 /risk-verification 验收。"
+echo "Checkout commit: $(git rev-parse HEAD)"
+if [ "$verify_only" = true ]; then
+  echo "只验收模式完成：未重建、未重启、未修改数据卷权限或备份。"
+else
+  echo "部署和健康检查完成。管理员访问现有1818端口的 /risk-verification 验收。"
+fi
 echo "健康成功不等于取证、AI或业务验收通过；配置缺项按上方提示补齐。"

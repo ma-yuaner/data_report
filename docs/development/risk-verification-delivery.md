@@ -10,6 +10,14 @@ if ! git diff --quiet || ! git diff --cached --quiet; then echo '已跟踪代码
 
 预期显示5个步骤并最后输出“部署和健康检查完成”，再以管理员访问现有1818端口的`/risk-verification`。仓库/分支不符、拉取、配置、备份、构建或健康检查失败时会停止；保留错误信息，不清库删卷、不反复运行模型。若提示ERP或AI配置未齐，按下方配置段在服务器私密`.env`补齐后重新执行，不把密钥发送聊天。脚本不会自动填写凭据，也不会查询订单或调用模型。
 
+若已完成镜像重建和容器启动，只在第5步健康检查失败，可更新脚本后只验收，不重复构建/重启/权限修复/备份：
+
+```bash
+git pull --ff-only origin main && bash scripts/deploy_risk_verification.sh --verify-only
+```
+
+验收模式输出的Checkout commit只是当前仓库提交，不将它冒充运行镜像版本。
+
 2026-11-04，Asia/Shanghai。任务RISK-VERIFY-20261104；申请人马远尔。范围见[产品契约](../product/risk-verification-v1.md)。本机实现和隔离验证已完成；真实ERP、DeepSeek、浏览器、服务器部署及业务验收未完成，不能混报上线。
 
 ## Launch
@@ -133,6 +141,8 @@ vi .env
 用户最新确认调整后利润≥负止损值才符合（含等号），替代V1的≤比较。规则标识升级为`qunar-commission-loss-v2`；-44.41与-50均符合，-51不符合。最新定向结果`69 passed in 10.11s`，进程11.591秒、退出0；日志在`.test-artifacts/evidence/risk-commission-20261104/pytest.log`，精确命令/时间在`pytest-record.json`。无配置修改/真实数据查询，不重跑未变前端构建。
 
 用户在247执行时，第3步出现`the input device is not a TTY`；修正权限初始化的`docker compose run`为`run -T`以支持heredoc，补部署替身断言。孤立`hr-mail-worker`仅警告，不加`--remove-orphans`。此次脚本失败发生在重建前，旧API容器找不到新诊断模块属预期版本不一致；须完整部署成功后再运行诊断，不在旧镜像重复尝试。真实247复验待用户执行。
+
+后续用户提供247输出（非Agent服务器实测）：提交`2ccfa20`第3步权限初始化成功、无已有风控库无需备份；第4步api/web构建完成，API Healthy、Web已启动但当时health仍starting；第5步因旧curl不支持`--retry-connrefused`退出。不能据此说构建失败，也不能说整个健康验收已通过。修复为Bash限次循环调用基础curl参数，并新增`--verify-only`。本地10个替身部署场景通过，含首次连接失败后恢复、6次失败停止、验收模式不更新代码/构建/改卷权限；Bash及内嵌Python语法通过，未运行真实Docker/网络。此次仅脚本与说明变化，不重跑未变业务69项及前端构建。247仍需执行只验收模式取得最终结果。
 
 新增单订单只读取证摘要入口，在ERP配置核对正确且获准读取该单后，部署人可在项目目录执行（将示例替换为获准订单号）：
 
