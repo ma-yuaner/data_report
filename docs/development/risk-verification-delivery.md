@@ -212,3 +212,9 @@ docker compose exec -T api python -m data_report_api.services.risk_case_diagnost
 用户明确要求写入AGENT：独立清洗仓库新增AGENTS.md，中台AGENTS增加入口；后续ETL先参考综合分析结构/参数/配置/日期/日志/失败处理并核实实际环境，不照搬Hive全年覆盖及业务规则，不擅自升级系统Python。此处无独立子代理，由/root执行。
 
 兼容定向验证36 passed in 0.67s，15:52:11+08:00启动、进程2.149秒、退出0；原25项及11项语法/日期/新旧URL协议模拟。最初兼容夹具因本地没有SQLAlchemy而2失败/34通过，已明确改为隔离协议测试并保留失败日志，未安装依赖或用模拟声称真实SQLAlchemy通过。精确命令/输出见.test-artifacts/evidence/risk-catalog-20261104/etl-compat-record.json、etl-compat.log和etl-compat-initial-failure.log。AST的3.6语法模式只证明静态解析，未运行真实旧Python。离线preview退出0；216实际版本、依赖和check-schema仍未验，不要求直接正式同步。不重复未变前端/后端业务检查。
+
+### 公共连接入口全链路重新审查（2026-11-04）
+
+用户要求按公共库及既有清洗规矩重新审查。主代理核对综合分析、GDS、ADM清洗与公共ConnectConfig/MySQLConnect，发现风控手工URL入口与公共get_connect不一致，且ERP配置密码表达式已有quote_plus，存在编码语义不一致风险；没有数据库认证失败回执，不能冒充实库错误已复现。已改回get_connect/raw_connection，复制params限定超时且保留原配置，抑制公共helper原始异常输出，不修改公共库。补资源逐个清理及安全失败码，避免关闭失败跳过其他资源或最终误报success。独立审查/root/risk_final_review因额度限制未完成，本轮由/root接手，不算独立复核通过。
+
+当前本地回归46 passed in 0.52s，16:07:31+08:00启动，进程1.787秒、退出0；精确命令/目录/源码SHA256在.test-artifacts/evidence/risk-catalog-20261104/public-connector-record.json，日志public-connector.log，复现run_public_review.py。原36项中的旧URL工厂测试随实现变化由公共连接测试替代；运行公共库实际类函数体但engine/配置合成，不代表真实SQLAlchemy驱动、旧Python或216实库连接通过。preview退出0。用户216现场preview也已成功，结构/索引/正式同步未取得回执。DDL/页面未变，复用先前相关证据，不重复前端构建或业务测试。未查库/执行DDL/生产ETL/部署/模型调用；后续先check-schema，再获准日期同步。

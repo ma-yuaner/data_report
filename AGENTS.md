@@ -80,3 +80,8 @@
 ## 清洗脚本参考与运行环境（2026-11-04）
 
 用户明确要求：后续ETL先对照独立清洗仓库的 `etl_scripts/automation/bi_business_profit_dimension_day_etl.py`、`docs/business/air_ticketing/comprehensive-analysis-etl.md` 及该仓库 `AGENTS.md`。复用现有结构、公共配置、日期/参数、preview/check-schema、日志与失败处理方式，按本业务保留必要差异，不照搬Hive数据源、全年覆盖或利润口径。交付执行命令前核对既有任务实际解释器路径、版本、依赖和工作目录，不默认系统python。源码含较新语法不证明216默认解释器兼容；不能要求升级系统环境或只消除首个报错。未实测旧解释器兼容必须明示。
+
+
+## 公共连接库复用补充（2026-11-04）
+
+用户再次要求风控ETL全部审查并遵守清洗仓库规矩：MySQL默认通过erp_config/sibebid_config.get_connect()及raw_connection()，不要从账号密码属性另建URL，保留已有编码/params语义。具体约定和运行验证见独立清洗仓库AGENTS.md及风控ETL说明；只允许复制配置作局部超时，不修改公共对象/工具，不把本地替身验证报告为服务器实库通过。
