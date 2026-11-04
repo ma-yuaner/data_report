@@ -4,15 +4,16 @@ import logging
 
 from .risk_order_evidence import EvidenceError, _rows
 from .risk_verification_catalog import RiskVerificationCatalog
-from .risk_verification_flow import FlowError, RiskVerificationFlow
+from .risk_verification_flow import FlowError
+from .risk_auto_verification import RiskAutoVerification
 
 LOGGER = logging.getLogger(__name__)
-STATES = ("problem", "supported", "insufficient", "reviewing", "unchecked")
+STATES = ("problem", "supported", "insufficient", "reviewing", "unchecked", "failed", "rule_pending")
 FIELDS = "o.order_id AS id,o.order_no,o.ota_order_no,o.ota_code,o.profit_reason_type,o.create_time,o.update_time"
 NOTES = [
     "读取中台ETL目录，不实时扫描ERP；按出票日期限定，跨日或多票均按内部订单ID去重。",
     "数据截止各日最近一次成功同步；刷新页面不会触发同步。详情仍按单读取ERP，目录与实单可能存在时间差。",
-    "有问题仅指当前账号最新人工确认选因或依据不符合规则，不以亏损或AI建议直接计数。",
+    "按当前账号最新自动规则结果统计；通过无须人工确认，人工抽查独立留痕，不覆盖自动结论。",
     "核查结果来自当时证据快照；原因或订单更新时间变化后退回未核查。尚未检测所有子表和日志的后续变化，不代表实时重算。",
     "未核查、核查中和证据不足不等于没有问题；尚无自动核查结论。",
 ]
@@ -65,7 +66,7 @@ class RiskVerificationOverview:
         return sql, values
 
     def _statuses(self, cursor, owner, scope, parameters):
-        latest = RiskVerificationFlow(self.config).latest_case_summaries(owner)
+        latest = RiskAutoVerification(self.config).latest(owner)
         statuses = {}
         identifiers = list(latest)
         for start in range(0, len(identifiers), 1000):
@@ -74,8 +75,8 @@ class RiskVerificationOverview:
             cursor.execute(f"SELECT o.order_id AS id,o.profit_reason_type,o.update_time FROM bi_risk_order_day o WHERE {scope} AND o.order_id IN ({marks})", (*parameters, *chunk))
             for row in _rows(cursor):
                 case = latest[str(row["id"])]
-                if str(case["reasonCode"]) == str(row["profit_reason_type"]) and _stamp(case["sourceUpdatedAt"]) == _stamp(row["update_time"]):
-                    statuses[str(row["id"])] = {"status": case["status"], "caseId": case["caseId"], "reasonCode": row["profit_reason_type"]}
+                if RiskAutoVerification.matches(case, row):
+                    statuses[str(row["id"])] = {"status": case["status"], "caseId": None, "resultId": case["id"], "reasonCode": row["profit_reason_type"]}
         return statuses
 
     def summary(self, owner, start, end):
@@ -96,21 +97,24 @@ class RiskVerificationOverview:
                 known = reason == "RLA013"
                 categories[reason] = {"reasonCode": reason,
                     "reasonLabel": labels.get(reason) or f"{reason}（字典名称缺失）",
-                    "ruleStatus": "规则公式已确认，自动出票源绑定待完成" if known else "规则待确认",
-                    **_metrics(total), "unchecked": total}
+                    "ruleStatus": "自动核实：出票利润加回销售佣金，与日志负止损值比较" if known else "规则未接入，不自动放行",
+                    **_metrics(total), "unchecked": total if known else 0, "rule_pending": 0 if known else total}
             statuses = self._statuses(cursor, owner, scope, values)
             for item in statuses.values():
                 if item["status"] != "unchecked":
-                    if item["reasonCode"] not in categories or categories[item["reasonCode"]]["unchecked"] <= 0:
+                    initial = "unchecked" if item["reasonCode"] == "RLA013" else "rule_pending"
+                    if item["reasonCode"] not in categories or categories[item["reasonCode"]][initial] <= 0:
                         raise EvidenceError("源订单在汇总期间发生变化，请重新查询", 409)
                     category = categories[item["reasonCode"]]
-                    category["unchecked"] -= 1
+                    category[initial] -= 1
                     category[item["status"]] += 1
             metrics = _metrics()
             for item in categories.values():
                 for key in metrics:
                     metrics[key] += item[key]
-            return {"period": {"startDate": first.isoformat(), "endDate": last.isoformat()},
+            samples = RiskAutoVerification(self.config).sampling(owner)
+            sampled = [samples[item["resultId"]] for item in statuses.values() if item["resultId"] in samples]
+            return {"period": {"startDate": first.isoformat(), "endDate": last.isoformat()}, "sampling": {"sampled": len(sampled), "disputed": sampled.count("disputed")},
                     "dateBasis": "issue_ticket_time", "metrics": metrics,
                     "categories": sorted(categories.values(), key=lambda row: (-row["total"], row["reasonCode"])),
                     "notes": NOTES + ([] if labels else ["盈亏原因字典尚未同步，暂展示原始编码；可仅同步字典，无需重读订单。"]), "dataFreshness": freshness}
@@ -139,10 +143,13 @@ class RiskVerificationOverview:
             selected = [identifier for identifier, item in statuses.items() if item["status"] == status]
             if status != "all":
                 if status == "unchecked":
+                    scope += " AND o.profit_reason_type='RLA013'"
                     excluded = [identifier for identifier, item in statuses.items() if item["status"] != "unchecked"]
                     if excluded:
                         scope += " AND o.order_id NOT IN (" + ",".join(["%s"] * len(excluded)) + ")"
                         values.extend(excluded)
+                elif status == "rule_pending":
+                    scope += " AND o.profit_reason_type<>'RLA013'"
                 elif selected:
                     scope += " AND o.order_id IN (" + ",".join(["%s"] * len(selected)) + ")"
                     values.extend(selected)
@@ -154,7 +161,7 @@ class RiskVerificationOverview:
             rows = _rows(cursor)
             for row in rows:
                 review = statuses.get(str(row["id"]), {})
-                row.update(verificationStatus=review.get("status", "unchecked"), caseId=review.get("caseId"), profit_reason_name=labels.get(row["profit_reason_type"]))
+                row.update(verificationStatus=review.get("status", "unchecked" if row["profit_reason_type"] == "RLA013" else "rule_pending"), caseId=review.get("caseId"), profit_reason_name=labels.get(row["profit_reason_type"]))
             return {"items": rows, "total": total, "page": page, "pageSize": page_size,
                     "period": {"startDate": first.isoformat(), "endDate": last.isoformat()}, "dateBasis": "issue_ticket_time", "dataFreshness": freshness}
         except (EvidenceError, FlowError):

@@ -8,6 +8,7 @@ from ..services.risk_order_evidence import EvidenceError, RiskOrderEvidenceServi
 from ..services.risk_verification_flow import FlowError, RiskVerificationFlow
 from ..services.risk_verification_ai import RiskAI
 from ..services.risk_verification_overview import RiskVerificationOverview
+from ..services.risk_auto_verification import RiskAutoVerification
 
 
 def _call(action):
@@ -41,6 +42,28 @@ def _flow():
 
 
 def register_routes(api):
+    @api.post("/v1/risk-verification/automatic/jobs")
+    def risk_automatic_submit():
+        def submit(owner):
+            values = _body()
+            return RiskAutoVerification(dict(current_app.config)).submit(owner, values.get("startDate"), values.get("endDate"), values.get("reason"), values.get("force", False))
+        return _call(submit)
+
+    @api.get("/v1/risk-verification/automatic/job")
+    def risk_automatic_job():
+        return _call(lambda owner: RiskAutoVerification(current_app.config).active(owner))
+
+    @api.get("/v1/risk-verification/automatic/orders/<identifier>")
+    def risk_automatic_result(identifier):
+        return _call(lambda owner: RiskAutoVerification(current_app.config).result(owner, identifier))
+
+    @api.post("/v1/risk-verification/automatic/orders/<identifier>/sample")
+    def risk_automatic_sample(identifier):
+        def sample(owner):
+            values = _body()
+            return RiskAutoVerification(current_app.config).sample(owner, identifier, values.get("resultId"), values.get("outcome"), values.get("reason"))
+        return _call(sample)
+
     @api.get("/v1/risk-verification/overview")
     def risk_verification_overview():
         return _call(lambda owner: RiskVerificationOverview(current_app.config).summary(
@@ -58,8 +81,8 @@ def register_routes(api):
         return _call(lambda owner: {"ai": RiskAI(current_app.config).status(), "access": "admin_owner_only",
                                    "formulaStatus": "partially_confirmed", "source": "ERP_MYSQL",
                                    "rules": [{"id": "qunar-commission-loss-v2", "label": "佣金、点击费亏损（去哪儿且有销售佣金）",
-                                              "formula": "调整后利润＝自动出票单票利润＋销售佣金；调整后利润≥－日志止损值时支持选因（含等号）",
-                                              "status": "公式已确认，自动出票利润来源与单票关联待核实；暂不自动下业务结论"}],
+                                              "formula": "调整后利润＝出票利润＋销售佣金；调整后利润≥－日志止损值时核实通过（含等号）",
+                                              "status": "自动规则已接入；必要字段缺失或止损值冲突时证据不足"}],
                                    "sourceConfigured": current_app.config.get("RISK_VERIFICATION_ERP_EXPLICIT") is True and all(bool(current_app.config.get(f"ERP_MYSQL_{key}")) for key in ("HOST", "DATABASE", "USER", "PASSWORD"))})
 
     @api.get("/v1/risk-verification/candidates")

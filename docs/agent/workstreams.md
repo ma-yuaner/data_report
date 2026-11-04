@@ -744,3 +744,12 @@ ETL交付：`391711b`已推GitLab，生产执行脚本路径和四段依赖保�
 本地：目录初轮与原流程81通过、最终目录16通过、ETL25通过、真实本地HTTP及8组件状态场景通过，类型/lint/构建通过。10万去重订单合成SQLite汇总215.348ms、首屏283.738ms，不冒充247性能。完整证据、指令及局限见[交付记录](../development/risk-verification-delivery.md#risk-catalog-20261104直查超时整改交付)与[目录设计](../product/risk-verification-catalog-v1.md)。原SQLite核查历史保留，页面仅查sibebid，缺同步或范围内源版本冲突拒绝，不回退ERP。
 
 未执行生产DDL/同步/调度/部署/业务验收。下一步部署人先建三表、check-schema及显式日期同步，再更新应用，在247验收单日3秒目标及下钻一致性。清洗脚本在data-team-repo/etl_scripts/automation/risk_verification_order_day_etl.py；SQL在本仓库docs/sql/risk-verification-catalog-v1.sql。其他已有脏文件不纳入。
+
+
+## 自动核实优先与按类型详情（2026-11-04，RISK-AUTO-20261104）
+
+用户明确要求产品提示词后开发自动核实、通过后人工抽查、各类只看相关详情，并确认利润取出票利润。主代理/root实施产品/后端/前端/QA，无新增子代理（已知额度限制，未重复尝试），使用chief-of-staff/frontend-design。提示词与边界见[自动核实契约](../product/risk-auto-verification-v1.md)，通用方法另沉淀MYE，无公司字段/数据复制。
+
+默认统计改取自动结果，旧人工案例保留不冒充自动通过；首版RLA013后台取最小证据并确定性计算，规则未接入/缺证据/失败不通过，按类型精简详情及独立抽查。任务/结果/抽查复用原workflow.sqlite3和备份，无sibebid DDL/ETL/公共库修改。页面查询触发任务，关闭页面已启动任务仍执行；未配置无人访问时的周期自动核实，不能把216五分钟同步当自动核实。
+
+本地28 passed in3.59s，17个真实Vue setup场景、10步真实本地HTTP及后台线程通过，类型/ESLint/构建和73组件登记通过；数据合成、无真实ERP/模型、未浏览器/247部署/业务验收。合成8单在零人工确认下完成8单分状态；不是实单8单通过。源金额边界及权限/并发/源版本/抽查验证见[完整证据](../development/risk-verification-delivery.md#risk-auto-20261104自动规则核实与精简详情)。下一步部署人更新247，选2026-11-01验证自动8单及指定案例；不预先承诺通过数量。

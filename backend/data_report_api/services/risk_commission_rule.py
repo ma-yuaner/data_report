@@ -25,7 +25,7 @@ def evaluate_commission_loss(*, is_qunar, single_ticket_profit, sales_commission
         missing.append("nonnegativeStopLoss")
     result = {"ruleId": RULE_ID, "formula": "singleTicketProfit + salesCommission >= -stopLoss",
               "currency": "CNY", "grain": "single_ticket", "status": "insufficient", "missingEvidence": missing,
-              "notice": "只核对该选因是否符合已确认规则，不判断责任或实际财务损失；自动出票字段及单票关联必须先核实"}
+              "notice": "只核对选因是否符合已确认规则，不判断责任或实际财务损失；按出票明细核算，止损值须有一致日志依据"}
     if missing:
         return result
     if not is_qunar or values["salesCommission"] == 0:

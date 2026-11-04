@@ -94,7 +94,7 @@ export const riskFlow = {
   publish: (item: RiskKnowledge) => flowPost<RiskKnowledge>(`knowledge/${item.id}/publish`, { version: item.version }),
 }
 
-export type VerificationStatus = 'problem' | 'supported' | 'insufficient' | 'reviewing' | 'unchecked'
+export type VerificationStatus = 'problem' | 'supported' | 'insufficient' | 'reviewing' | 'unchecked' | 'failed' | 'rule_pending'
 export interface VerificationMetrics {
   total: number
   problem: number
@@ -102,6 +102,8 @@ export interface VerificationMetrics {
   insufficient: number
   reviewing: number
   unchecked: number
+  failed: number
+  rule_pending: number
 }
 export interface RiskCatalogFreshness {
   reasonDictionaryVersion?: string
@@ -119,12 +121,27 @@ export interface VerificationCategory extends VerificationMetrics {
   ruleStatus: string
 }
 export interface VerificationOverview {
+  sampling?: { sampled: number; disputed: number }
   dataFreshness: RiskCatalogFreshness
   period: { startDate: string; endDate: string }
   dateBasis: string
   metrics: VerificationMetrics
   categories: VerificationCategory[]
   notes: string[]
+}
+export interface AutoRiskJob { id: string | null; status: string; done: number; total: number; remaining: number; startDate?: string; endDate?: string }
+export interface AutoRiskResult {
+  id: string; orderId: string; reasonCode: string; sourceUpdatedAt: string | null; ruleVersion: string; checkedAt: string
+  status: VerificationStatus; summary: string; platform?: string; stopLoss?: string; missing?: string[]; evidenceHash?: string
+  tickets: { id: string; profit: string | null; commission: string | null; adjustedProfit?: string; boundary?: string; status: VerificationStatus; explanation: string }[]
+  logReferences?: { id: string; at: string | null }[]
+  samples?: { id: string; outcome: string; reason: string; at: string }[]
+}
+export const riskAutomatic = {
+  start: (startDate: string, endDate: string, reason?: string, force = false) => flowPost<AutoRiskJob>('automatic/jobs', { startDate, endDate, reason, force }),
+  job: () => flowGet<AutoRiskJob | null>('automatic/job'),
+  result: (orderId: string) => flowGet<AutoRiskResult | null>(`automatic/orders/${orderId}`),
+  sample: (orderId: string, resultId: string, outcome: string, reason: string) => flowPost<unknown>(`automatic/orders/${orderId}/sample`, { resultId, outcome, reason }),
 }
 export interface VerificationOrder extends EvidenceRow {
   id: string

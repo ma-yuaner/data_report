@@ -1,6 +1,6 @@
 <template>
   <div class="page-wrap verification-overview">
-    <PageHeader eyebrow="RISK VERIFICATION" title="风控核对" description="按出票日期查看各类待核查订单，定位问题，再下钻核查具体订单。">
+    <PageHeader eyebrow="RISK VERIFICATION" title="风控核对" description="查询后自动核实已接规则的订单，通过后人工抽查；关闭页面不影响已启动任务。">
       <a-tag color="blue">订单去重 · 含各类盈亏原因</a-tag>
     </PageHeader>
     <FilterPanel stacked :instant="false" :show-reset="false" :loading="loading" :hint="hasPending ? '日期已改变，点击查询后生效' : '按出票时间筛选，结束日期包含当天；同一订单多张票只计1单'">
@@ -13,7 +13,9 @@
     </FilterPanel>
     <a-alert v-if="error" type="error" show-icon :message="error" />
     <a-alert v-if="overview?.dataFreshness" :type="['failed', 'running'].includes(overview.dataFreshness.latestAttempt?.status || '') ? 'warning' : 'info'" show-icon :message="`中台同步数据 · 最早同步 ${overview.dataFreshness.oldestSyncedAt} · 最近同步 ${overview.dataFreshness.newestSyncedAt}`" :description="syncDescription" />
-    <a-alert type="info" show-icon message="有问题指核查后发现选因或依据不符合规则，不是亏损本身" description="以下结果按当前登录人的最新人工核查记录统计。未核查、核查中、证据不足分别列示；尚未接入规则的类型也会展示，不自动判为正常。" />
+    <a-alert type="info" show-icon message="系统自动核实，人工只抽查与处理异常" :description="`通过无须人工确认；证据不足、执行失败、规则未接入分别列示。当前账号已抽查 ${overview?.sampling?.sampled || 0} 单，其中发现问题 ${overview?.sampling?.disputed || 0} 单。`" />
+    <a-alert v-if="autoError" type="error" show-icon :message="autoError" />
+    <div class="auto-actions"><span v-if="autoJob">自动核实 {{ autoJob.startDate || '' }} 至 {{ autoJob.endDate || '' }} · {{ jobLabels[autoJob.status] || autoJob.status }} · {{ autoJob.done }} / {{ autoJob.total }}</span><a-button :loading="autoRunning" :disabled="!applied || loading || autoRunning || (selectedReason !== undefined && selectedReason !== 'RLA013')" @click="startAutomatic(true)">重新核实当前日期的佣金类型</a-button><small>仅已接规则自动执行；单批最多200单，失败不循环重试。</small></div>
     <div v-if="applied" class="applied-scope"><strong>{{ applied.start }} 至 {{ applied.end }}</strong><span>出票日期 · 已生效范围</span></div>
     <div class="metrics-grid" aria-label="核查概况">
       <button v-for="card in metricCards" :key="card.key" type="button" class="metric-card" :class="card.key" :disabled="!overview || loading" @click="drill(undefined, card.key === 'total' ? 'all' : card.key)">
@@ -26,7 +28,7 @@
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'reason'"><strong>{{ record.reasonLabel }}</strong><small class="block-muted">{{ record.reasonCode }}</small></template>
           <a-button v-else-if="isMetricKey(column.key)" type="link" :class="{ 'problem-link': column.key === 'problem' }" @click="drillMetric(record.reasonCode, column.key)">{{ count(metricValue(record, column.key)) }}</a-button>
-          <template v-else-if="column.key === 'progress'"><a-progress :percent="completion(record)" size="small" /><small class="block-muted">人工有结论 {{ record.problem + record.supported + record.insufficient }} / {{ record.total }}</small></template>
+          <template v-else-if="column.key === 'progress'"><a-progress :percent="completion(record)" size="small" /><small class="block-muted">已自动核实 {{ record.problem + record.supported + record.insufficient + record.failed }} / {{ record.total }}</small></template>
           <span v-else-if="column.key === 'rule'" class="rule-note">{{ record.ruleStatus }}</span>
           <a-button v-else-if="column.key === 'action'" type="link" @click="drill(record.reasonCode, 'all')">查看订单</a-button>
         </template>
@@ -39,17 +41,17 @@
         <label>盈亏原因分类<a-select v-model:value="selectedReason" :options="reasonOptions" allow-clear placeholder="全部类型" :disabled="!applied || ordersLoading" @change="filterOrders" /></label>
         <label>核查结果<a-select v-model:value="selectedStatus" :options="statusOptions" :disabled="!applied || ordersLoading" @change="filterOrders" /></label>
       </div>
-      <a-alert v-if="ordersError" type="error" show-icon :message="ordersError" />
+        <a-alert v-if="ordersError" type="error" show-icon :message="ordersError" />
       <a-table :columns="orderColumns" :data-source="orders?.items || []" row-key="id" :loading="ordersLoading" :pagination="{ current: page, pageSize, total: orders?.total || 0, showSizeChanger: true, pageSizeOptions: ['20', '50', '100'], showTotal: (total: number) => `共 ${total} 单` }" :scroll="{ x: 1020, y: 420 }" size="middle" @change="changePage" :locale="{ emptyText: orders ? '当前类型和状态下没有订单' : '点击上方类型或数量查看明细' }">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'reason'">{{ categoryLabel(record.profit_reason_type) }}</template>
           <a-tag v-else-if="column.key === 'status'" :color="statusColors[record.verificationStatus as VerificationStatus]">{{ statusLabels[record.verificationStatus as VerificationStatus] }}</a-tag>
-          <a-button v-else-if="column.key === 'action'" type="link" @click="openOrder(record)">{{ record.caseId ? '继续核查' : '进入核查' }}</a-button>
+          <a-button v-else-if="column.key === 'action'" type="link" @click="openOrder(record)">{{ '查看核实详情' }}</a-button>
         </template>
       </a-table>
     </section>
     <a-drawer :open="drawerOpen" :title="`订单核查 · ${activeOrderNo || activeOrderId}`" :width="'min(1280px, 100vw)'" :destroy-on-close="true" :closable="!panelBusy" :keyboard="!panelBusy" :mask-closable="!panelBusy" @close="closeDrawer">
-      <RiskVerificationCasePanel v-if="drawerOpen" :key="activeOrderId" ref="casePanel" embedded :order-id="activeOrderId" :case-id="activeCaseId" @changed="refreshResults" @busy-change="panelBusy = $event" />
+      <RiskAutomaticDetail v-if="drawerOpen" :key="activeOrderId" ref="casePanel" :order-id="activeOrderId" :reason="activeReason" :source-updated-at="activeUpdatedAt" @changed="refreshResults" @busy-change="panelBusy = $event" />
     </a-drawer>
   </div>
 </template>
@@ -61,8 +63,8 @@ import { Alert as AAlert, Button as AButton, Drawer as ADrawer, Modal, Progress 
 import PageHeader from '@/components/PageHeader.vue'
 import FilterPanel from '@/components/FilterPanel.vue'
 import DateRangeField from '@/components/DateRangeField.vue'
-import RiskVerificationCasePanel from '@/components/RiskVerificationCasePanel.vue'
-import { verificationOverview, type RiskCatalogFreshness, type VerificationCategory, type VerificationMetrics, type VerificationOrder, type VerificationOrders, type VerificationOverview, type VerificationStatus } from '@/api/riskVerification'
+import RiskAutomaticDetail from '@/components/RiskAutomaticDetail.vue'
+import { verificationOverview, riskAutomatic, type AutoRiskJob, type RiskCatalogFreshness, type VerificationCategory, type VerificationMetrics, type VerificationOrder, type VerificationOrders, type VerificationOverview, type VerificationStatus } from '@/api/riskVerification'
 
 const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date())
 const startDate = ref(today)
@@ -88,16 +90,17 @@ const page = ref(1)
 const pageSize = ref(20)
 const ordersPanel = ref<HTMLElement>()
 const hasPending = computed(() => Boolean(applied.value) && (startDate.value !== applied.value?.start || endDate.value !== applied.value?.end))
-const statusLabels: Record<VerificationStatus | 'all', string> = { all: '全部状态', problem: '有问题', supported: '选因符合', insufficient: '证据不足', reviewing: '核查中', unchecked: '未核查' }
-const statusColors: Record<VerificationStatus, string> = { problem: 'red', supported: 'green', insufficient: 'orange', reviewing: 'blue', unchecked: 'default' }
-const statusOptions = Object.entries(statusLabels).map(([value, label]) => ({ value, label }))
+const statusLabels: Record<VerificationStatus | 'all', string> = { all: '全部状态', problem: '有问题', supported: '核实通过', insufficient: '证据不足', reviewing: '核实中', unchecked: '待自动核实', failed: '执行失败', rule_pending: '规则未接入' }
+const statusColors: Record<VerificationStatus, string> = { problem: 'red', supported: 'green', insufficient: 'orange', reviewing: 'blue', unchecked: 'default', failed: 'red', rule_pending: 'default' }
+const statusOptions = Object.entries(statusLabels).filter(([value]) => value !== 'reviewing').map(([value, label]) => ({ value, label }))
 const metricCards: { key: keyof VerificationMetrics; label: string; note: string }[] = [
   { key: 'total', label: '待核查订单', note: '盈亏原因有值 · 订单去重' },
-  { key: 'problem', label: '有问题', note: '人工确认选因或依据不符' },
-  { key: 'supported', label: '选因符合', note: '仅表示已核查选因符合' },
+  { key: 'problem', label: '有问题', note: '系统核算不符合规则' },
+  { key: 'supported', label: '核实通过', note: '系统核实符合，无须人工确认' },
   { key: 'insufficient', label: '证据不足', note: '不能认定符合或有问题' },
-  { key: 'reviewing', label: '核查中', note: '已开始审核，尚未人工确认' },
-  { key: 'unchecked', label: '未核查', note: '未审核或快照变更待重核' },
+  { key: 'failed', label: '执行失败', note: '取证或执行失败，需重试' },
+  { key: 'unchecked', label: '待自动核实', note: '已接规则的新单或版本改变' },
+  { key: 'rule_pending', label: '规则未接入', note: '不能套用其他类型规则' },
 ]
 const metricKeys = metricCards.map(item => item.key)
 const reasonOptions = computed(() => (overview.value?.categories || []).map(item => ({ value: item.reasonCode, label: item.reasonLabel })))
@@ -107,13 +110,44 @@ const orderColumns = [{ title: '业务订单号', dataIndex: 'order_no', width: 
 const drawerOpen = ref(false)
 const activeOrderId = ref('')
 const activeOrderNo = ref('')
-const activeCaseId = ref('')
+const activeReason = ref('')
+const activeUpdatedAt = ref<string | null>(null)
 const panelBusy = ref(false)
-const casePanel = ref<InstanceType<typeof RiskVerificationCasePanel>>()
+const casePanel = ref<InstanceType<typeof RiskAutomaticDetail>>()
 let summaryRequest = 0
 let orderRequest = 0
 let alive = true
-onBeforeUnmount(() => { alive = false; summaryRequest++; orderRequest++ })
+let pollTimer: ReturnType<typeof setTimeout> | undefined
+const autoJob = ref<AutoRiskJob | null>(null)
+const autoError = ref('')
+const autoRunning = ref(false)
+const jobLabels: Record<string, string> = { queued: '排队中', running: '执行中', complete: '已完成', failed: '任务失败，可重试' }
+async function startAutomatic(force = false) {
+  if (!alive || !applied.value || (selectedReason.value && selectedReason.value !== 'RLA013')) return
+  autoError.value = ''; autoRunning.value = true
+  try {
+    const job = await riskAutomatic.start(applied.value.start, applied.value.end, 'RLA013', force)
+    if (!alive) return
+    autoJob.value = job
+    if (job.status === 'queued' || job.status === 'running') schedulePoll()
+    else autoRunning.value = false
+  } catch (failure) { if (alive) { autoRunning.value = false; autoError.value = failure instanceof Error ? failure.message : '自动核实任务启动失败' } }
+}
+function schedulePoll() {
+  if (pollTimer) clearTimeout(pollTimer)
+  pollTimer = setTimeout(async () => {
+    try {
+      const job = await riskAutomatic.job()
+      if (!alive) return
+      autoJob.value = job
+      if (job && (job.status === 'queued' || job.status === 'running')) { schedulePoll(); return }
+      autoRunning.value = false
+      await refreshResults()
+      if (job?.status === 'complete' && job.remaining > 0) void startAutomatic(false)
+    } catch (failure) { if (alive) { autoRunning.value = false; autoError.value = failure instanceof Error ? failure.message : '任务进度读取失败，请刷新' } }
+  }, 2000)
+}
+onBeforeUnmount(() => { alive = false; summaryRequest++; orderRequest++; if (pollTimer) clearTimeout(pollTimer) })
 onMounted(queryOverview)
 function count(value: number) { return value.toLocaleString('zh-CN') }
 function catalogVersion(value?: RiskCatalogFreshness) { return value ? `${value.days.map(day => `${day.issue_date}:${day.etl_run_id}`).join('|')}#${value.reasonDictionaryVersion || ''}` : '' }
@@ -121,7 +155,7 @@ function categoryLabel(code: unknown) { return overview.value?.categories.find(i
 function isMetricKey(key: unknown): key is keyof VerificationMetrics { return typeof key === 'string' && metricKeys.includes(key as keyof VerificationMetrics) }
 function metricValue(row: Record<string, any>, key: unknown) { return isMetricKey(key) ? Number(row[key]) : 0 }
 function drillMetric(reason: string, key: unknown) { if (isMetricKey(key)) return drill(reason, key === 'total' ? 'all' : key) }
-function completion(row: Record<string, any>) { return row.total ? Math.round((row.problem + row.supported + row.insufficient) / row.total * 100) : 0 }
+function completion(row: Record<string, any>) { return row.total ? Math.round((row.problem + row.supported + row.insufficient + row.failed) / row.total * 100) : 0 }
 function applyPreset() {
   if (preset.value === 'today') { startDate.value = today; endDate.value = today }
   if (preset.value === 'yesterday') { startDate.value = dayjs(today).subtract(1, 'day').format('YYYY-MM-DD'); endDate.value = startDate.value }
@@ -136,7 +170,7 @@ async function queryOverview() {
   const first = startDate.value || ''; const last = endDate.value || ''
   try {
     const data = await verificationOverview.summary(first, last)
-    if (alive && request === summaryRequest) { overview.value = data; applied.value = { start: first, end: last }; await loadOrders() }
+    if (alive && request === summaryRequest) { overview.value = data; applied.value = { start: first, end: last }; await loadOrders(); void startAutomatic(false) }
   } catch (failure) { if (alive && request === summaryRequest) error.value = failure instanceof Error ? failure.message : '统计读取失败，请重试' }
   finally { if (alive && request === summaryRequest) loading.value = false }
 }
@@ -163,7 +197,7 @@ async function drill(reason: string | undefined, status: VerificationStatus | 'a
 }
 function filterOrders() { page.value = 1; void loadOrders() }
 function changePage(pagination: { current?: number; pageSize?: number }) { page.value = pagination.current || 1; pageSize.value = pagination.pageSize || 20; void loadOrders() }
-function openOrder(row: Record<string, any>) { activeOrderId.value = String(row.id); activeOrderNo.value = String(row.order_no || row.ota_order_no || ''); activeCaseId.value = row.caseId || ''; panelBusy.value = false; drawerOpen.value = true }
+function openOrder(row: Record<string, any>) { activeOrderId.value = String(row.id); activeOrderNo.value = String(row.order_no || row.ota_order_no || ''); activeReason.value = String(row.profit_reason_type); activeUpdatedAt.value = row.update_time || null; panelBusy.value = false; drawerOpen.value = true }
 function closeDrawer() {
   if (panelBusy.value) return
   if (casePanel.value?.hasUnsavedDrafts) { Modal.confirm({ title: '关闭当前核查？', content: '未保存的确认理由或知识草稿将丢失，已保存记录保留。', okText: '放弃未保存内容并关闭', cancelText: '继续核查', onOk: () => { drawerOpen.value = false } }); return }
@@ -172,17 +206,18 @@ function closeDrawer() {
 async function refreshResults() {
   if (!applied.value) return
   const request = ++summaryRequest; const scope = { ...applied.value }
-  try { const data = await verificationOverview.summary(scope.start, scope.end); if (alive && request === summaryRequest) { overview.value = data; await loadOrders() } }
-  catch (failure) { if (alive && request === summaryRequest) error.value = failure instanceof Error ? failure.message : '确认已保存，但汇总刷新失败，请重新查询' }
+  try { const data = await verificationOverview.summary(scope.start, scope.end); if (alive && request === summaryRequest) { overview.value = data; error.value = ''; await loadOrders(); if (drawerOpen.value && !panelBusy.value && !casePanel.value?.hasUnsavedDrafts) await casePanel.value?.reload() } }
+  catch (failure) { if (alive && request === summaryRequest) { overview.value = undefined; orders.value = undefined; error.value = failure instanceof Error ? failure.message : '记录已保存，但汇总刷新失败，请重新查询' } }
 }
 </script>
 
 <style scoped>
+.auto-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
 .verification-overview { display: grid; gap: 16px; }
 .verification-overview :deep(.filter-panel) { margin-bottom: 0; }
 .applied-scope, .panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .applied-scope span, .panel-heading span, .panel-heading p, .muted, .block-muted { color: #69768a; font-size: 13px; }
-.metrics-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
+.metrics-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 12px; }
 .metric-card { display: grid; gap: 8px; padding: 20px 16px; text-align: left; border: 1px solid #e4e9ef; border-radius: 8px; background: #fff; cursor: pointer; color: #182235; }
 .metric-card strong { font-size: 30px; font-weight: 600; }
 .metric-card small { color: #69768a; }
