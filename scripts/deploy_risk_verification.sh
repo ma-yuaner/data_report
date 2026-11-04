@@ -29,7 +29,7 @@ echo "[2/5] 更新main分支"
 git pull --ff-only origin main
 docker compose config --quiet
 echo "[3/5] 备份已有风控核查记录"
-docker compose run --rm --no-deps --user 0:0 --entrypoint python api - <<'PY'
+docker compose run -T --rm --no-deps --user 0:0 --entrypoint python api - <<'PY'
 import os
 from pathlib import Path
 root = Path('/app/var/risk-verification')

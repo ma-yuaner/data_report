@@ -44,8 +44,8 @@ def register_routes(api):
     def risk_verification_status():
         return _call(lambda owner: {"ai": RiskAI(current_app.config).status(), "access": "admin_owner_only",
                                    "formulaStatus": "partially_confirmed", "source": "ERP_MYSQL",
-                                   "rules": [{"id": "qunar-commission-loss-v1", "label": "佣金、点击费亏损（去哪儿且有销售佣金）",
-                                              "formula": "调整后利润＝自动出票单票利润＋销售佣金；调整后利润≤－日志止损值时支持选因",
+                                   "rules": [{"id": "qunar-commission-loss-v2", "label": "佣金、点击费亏损（去哪儿且有销售佣金）",
+                                              "formula": "调整后利润＝自动出票单票利润＋销售佣金；调整后利润≥－日志止损值时支持选因（含等号）",
                                               "status": "公式已确认，自动出票利润来源与单票关联待核实；暂不自动下业务结论"}],
                                    "sourceConfigured": current_app.config.get("RISK_VERIFICATION_ERP_EXPLICIT") is True and all(bool(current_app.config.get(f"ERP_MYSQL_{key}")) for key in ("HOST", "DATABASE", "USER", "PASSWORD"))})
 

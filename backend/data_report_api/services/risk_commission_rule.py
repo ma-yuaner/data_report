@@ -2,7 +2,7 @@
 from decimal import Decimal, InvalidOperation, localcontext
 import re
 
-RULE_ID = "qunar-commission-loss-v1"
+RULE_ID = "qunar-commission-loss-v2"
 
 
 def evaluate_commission_loss(*, is_qunar, single_ticket_profit, sales_commission, stop_loss):
@@ -23,7 +23,7 @@ def evaluate_commission_loss(*, is_qunar, single_ticket_profit, sales_commission
         missing.append("negativeCommissionSemantics")
     if values.get("stopLoss", Decimal(0)) < 0:
         missing.append("nonnegativeStopLoss")
-    result = {"ruleId": RULE_ID, "formula": "singleTicketProfit + salesCommission <= -stopLoss",
+    result = {"ruleId": RULE_ID, "formula": "singleTicketProfit + salesCommission >= -stopLoss",
               "currency": "CNY", "grain": "single_ticket", "status": "insufficient", "missingEvidence": missing,
               "notice": "只核对该选因是否符合已确认规则，不判断责任或实际财务损失；自动出票字段及单票关联必须先核实"}
     if missing:
@@ -35,10 +35,10 @@ def evaluate_commission_loss(*, is_qunar, single_ticket_profit, sales_commission
         context.prec = 64
         adjusted = values["singleTicketProfit"] + values["salesCommission"]
         boundary = -values["stopLoss"]
-    result.update(status="supported" if adjusted <= boundary else "contradicted",
+    result.update(status="supported" if adjusted >= boundary else "contradicted",
                   inputs={key: format(value, "f") for key, value in values.items()},
                   adjustedProfit=format(adjusted, "f"), boundary=format(boundary, "f"),
-                  calculation=f"{values['singleTicketProfit']} + {values['salesCommission']} = {adjusted}; {adjusted} <= {boundary}: {adjusted <= boundary}")
+                  calculation=f"{values['singleTicketProfit']} + {values['salesCommission']} = {adjusted}; {adjusted} >= {boundary}: {adjusted >= boundary}")
     return result
 
 
