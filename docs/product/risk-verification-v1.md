@@ -42,3 +42,7 @@
 - `/root/risk_flow_backend`：本轮独立实现代理，仅归属新增 `risk_verification_flow.py`、`risk_verification_ai.py` 及本地测试；不修改公共配置、不联网/查库、不读取真实密钥，禁止派生。模型/推理沿用主会话，底层计费元数据未知。
 
 最终证据与发布结果另见 `docs/development/risk-verification-delivery.md`，不能用本方案代替运行验收。
+
+## 2026-11-04后续：佣金、点击费亏损案例
+
+用户已确认[去哪儿佣金选因公式](../business/air_ticketing/risk-commission-click-loss-v1.md)：自动出票单票利润加回销售佣金后，与负止损值按≤比较。该条替代此前“所有核算公式均未知”的笼统描述，但不改变其他公式仍待确认的状态。数值复算已测试，自动出票利润/平台/单票日志关联尚未核实，规则未绑定真实数据自动结论。

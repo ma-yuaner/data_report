@@ -29,8 +29,8 @@ export async function riskCandidates(startDate: string, endDate: string, before?
   if (!data.success) throw new Error(data.message)
   return data.data
 }
-export async function riskEvidence(id: string, sections: string[]) {
-  const { data } = await http.get<ApiEnvelope<RiskEvidence>>(`/v1/risk-verification/orders/${encodeURIComponent(id)}/evidence`, { params: { sections: sections.join(',') } })
+export async function riskEvidence(id: string, sections: string[], identifierType = 'auto') {
+  const { data } = await http.get<ApiEnvelope<RiskEvidence>>(`/v1/risk-verification/orders/${encodeURIComponent(id)}/evidence`, { params: { sections: sections.join(','), identifierType } })
   if (!data.success) throw new Error(data.message)
   return data.data
 }
@@ -58,6 +58,7 @@ export interface RiskCaseSummary {
 export interface RiskStatus {
   ai: { enabled: boolean; configured: boolean; verified: boolean; model: string; notice: string }
   sourceConfigured: boolean
+  rules?: { id: string; label: string; formula: string; status: string }[]
 }
 export interface RiskKnowledge {
   id: string

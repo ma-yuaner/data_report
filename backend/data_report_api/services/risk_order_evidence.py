@@ -15,7 +15,7 @@ RULE_VERSION = "profit-reason-present-v1"
 BLOCKS = {
     "segments": ("航段", "order_info_segment", "id,order_id,journey_sequence,segment_sequence,flight_number,dep_airport,arr_airport,cabin,real_cabin,dep_time,arr_time"),
     "passengers": ("乘客", "order_info_passenger", "id,order_id,passenger_name,age_type"),
-    "issues": ("出票", "order_info_issue", "id,order_id,passenger_id,issue_ticket_no,policy_currency,policy_ticket_price,policy_tax,policy_exchange_rate,sale_currency,sale_exchange_rate,sale_total_amount,sale_total_amount_cny,issue_currency,issue_exchange_rate,issue_total_amount,issue_total_amount_cny,finance_currency,finance_exchange_rate,finance_total_amount,finance_total_amount_cny,issue_cost_amount_cny,issue_profit,issue_ticket_time"),
+    "issues": ("出票", "order_info_issue", "id,order_id,passenger_id,issue_ticket_no,policy_currency,policy_ticket_price,policy_tax,policy_exchange_rate,sale_currency,sale_exchange_rate,sale_commission_amount,sale_total_amount,sale_total_amount_cny,issue_currency,issue_exchange_rate,issue_total_amount,issue_total_amount_cny,finance_currency,finance_exchange_rate,finance_total_amount,finance_total_amount_cny,issue_cost_amount_cny,issue_profit,issue_ticket_time"),
     "changes": ("改签关联单", "order_change", "id,order_id,order_no,create_time"),
     "refunds": ("退票关联单", "order_refund", "id,order_id,order_no,create_time"),
     "flightChanges": ("航变关联单", "order_info_flight_change", "id,order_id,order_no,create_time"),
@@ -24,13 +24,14 @@ BLOCKS = {
     "statusHistory": ("状态历史", "order_info_status_history", "id,order_id,order_status,old_order_status,issue_status,old_issue_status,operator,remark,create_time"),
 }
 DEFERRED = {
+    "autoIssueInfo": "自动出票单票利润的准确来源与单票关联待核实，不以出票利润或智能定位利润替代",
     "issueSegments": "出票与航段关联明细待接入",
     "autoIssueLogs": "自动出票日志按业务对象关联待接入",
     "quotes": "原始精度报价及乘客报价明细待接入",
     "instructions": "当前匹配业务/售后说明待接入，不能以当前规则替代历史快照",
     "differences": "差异信息与旧页面的字段映射待接入",
 }
-ORDER_FIELDS = "id,order_no,ota_order_no,order_status,issue_status,profit_reason_type,profit_remark,create_time,update_time"
+ORDER_FIELDS = "id,order_no,ota_order_no,ota_code,commission_type,commission_order_flag,order_status,issue_status,profit_reason_type,profit_remark,create_time,update_time"
 
 
 class EvidenceError(ValueError):
@@ -120,8 +121,14 @@ class RiskOrderEvidenceService:
         finally:
             self._close(cursor, connection)
 
-    def evidence(self, value, requested=None):
-        identifier = order_id(value)
+    def evidence(self, value, requested=None, identifier_type="auto"):
+        if isinstance(value, bool) or not isinstance(value, (int, str)):
+            raise EvidenceError("请输入有效的ERP内部订单ID或订单号")
+        if not isinstance(identifier_type, str) or identifier_type not in {"auto", "id", "orderNo"}:
+            raise EvidenceError("不支持的订单标识类型")
+        identifier = order_id(value) if identifier_type == "id" or identifier_type == "auto" and str(value).isdigit() else None
+        if identifier is None and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}", str(value)):
+            raise EvidenceError("请输入有效的ERP内部订单ID或订单号")
         selected = list(dict.fromkeys(requested if requested is not None else ("segments", "passengers", "issues")))
         if any(key not in BLOCKS for key in selected):
             raise EvidenceError("不支持的证据类型")
@@ -129,10 +136,17 @@ class RiskOrderEvidenceService:
         try:
             connection = self._connect()
             cursor = connection.cursor()
-            cursor.execute(f"SELECT {ORDER_FIELDS} FROM order_info WHERE id=%s LIMIT 1", (identifier,))
+            if identifier is not None:
+                cursor.execute(f"SELECT {ORDER_FIELDS} FROM order_info WHERE id=%s LIMIT 1", (identifier,))
+            else:
+                cursor.execute(f"SELECT {ORDER_FIELDS} FROM order_info WHERE order_no=%s OR ota_order_no=%s LIMIT 2", (str(value), str(value)))
             rows = _rows(cursor)
             if not rows:
                 raise EvidenceError("ERP订单不存在", 404)
+            if len(rows) > 1:
+                raise EvidenceError("订单号匹配多个内部订单，请使用明确的ERP内部ID", 409)
+            if identifier is None:
+                identifier = order_id(rows[0]["id"])
             if str(rows[0]["id"]) != str(identifier):
                 raise EvidenceError("订单证据身份不匹配", 503)
             blocks = {key: {"label": spec[0], "status": "not_requested", "records": [], "complete": False}

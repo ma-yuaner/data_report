@@ -1,5 +1,6 @@
 """Administrator-only risk evidence and review workflow; ERP is read-only."""
 import logging
+import sqlite3
 from flask import current_app, g, jsonify, request
 
 from .common import ok
@@ -31,14 +32,21 @@ def _body():
 
 
 def _flow():
-    return RiskVerificationFlow(current_app.config)
+    try:
+        return RiskVerificationFlow(current_app.config)
+    except (OSError, sqlite3.OperationalError):
+        logging.getLogger(__name__).exception("Risk verification storage initialization failed")
+        raise FlowError("风控记录存储初始化失败，请检查风控专用数据卷及应用用户写入权限", 503) from None
 
 
 def register_routes(api):
     @api.get("/v1/risk-verification/status")
     def risk_verification_status():
         return _call(lambda owner: {"ai": RiskAI(current_app.config).status(), "access": "admin_owner_only",
-                                   "formulaStatus": "unknown", "source": "ERP_MYSQL",
+                                   "formulaStatus": "partially_confirmed", "source": "ERP_MYSQL",
+                                   "rules": [{"id": "qunar-commission-loss-v1", "label": "佣金、点击费亏损（去哪儿且有销售佣金）",
+                                              "formula": "调整后利润＝自动出票单票利润＋销售佣金；调整后利润≤－日志止损值时支持选因",
+                                              "status": "公式已确认，自动出票利润来源与单票关联待核实；暂不自动下业务结论"}],
                                    "sourceConfigured": current_app.config.get("RISK_VERIFICATION_ERP_EXPLICIT") is True and all(bool(current_app.config.get(f"ERP_MYSQL_{key}")) for key in ("HOST", "DATABASE", "USER", "PASSWORD"))})
 
     @api.get("/v1/risk-verification/candidates")
@@ -50,7 +58,7 @@ def register_routes(api):
     def risk_verification_evidence(value):
         def read(owner):
             sections = request.args.get("sections")
-            return RiskOrderEvidenceService(current_app.config).evidence(value, sections.split(",") if sections else None)
+            return RiskOrderEvidenceService(current_app.config).evidence(value, sections.split(",") if sections else None, request.args.get("identifierType", "auto"))
         return _call(read)
 
     @api.get("/v1/risk-verification/cases")
@@ -64,7 +72,7 @@ def register_routes(api):
             sections = values.get("sections")
             if sections is not None and (not isinstance(sections, list) or not all(isinstance(item, str) for item in sections)):
                 raise EvidenceError("证据类型须为字符串列表")
-            evidence = RiskOrderEvidenceService(current_app.config).evidence(values.get("orderId"), sections)
+            evidence = RiskOrderEvidenceService(current_app.config).evidence(values.get("orderId"), sections, values.get("identifierType", "auto"))
             if not evidence["candidate"]:
                 raise EvidenceError("该订单未命中盈亏原因分类有值规则")
             return _flow().create(owner, evidence)

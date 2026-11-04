@@ -5,6 +5,7 @@
     </PageHeader>
     <a-alert type="info" show-icon message="命中不等于判错，AI意见须人工确认" description="明确规则由程序执行，AI只检索已发布知识并辅助解释。公式未确认时保留证据不足；不写回ERP、不执行交易处理。模型未配置时会明确提示，不返回模拟分析。" />
     <a-alert v-if="serviceStatus" :type="serviceStatus.sourceConfigured ? 'info' : 'warning'" show-icon :message="serviceStatus.sourceConfigured ? 'ERP配置存在，实际读取以查询结果为准' : 'ERP尚未配置，请由部署人核对已有ERP_MYSQL配置'" :description="serviceStatus.ai.enabled && serviceStatus.ai.configured ? `AI已配置：${serviceStatus.ai.model}；配置存在不等于真实调用已验收` : '风控AI未启用或未配置，可先完成取证和人工核对。'" />
+    <a-alert v-for="rule in serviceStatus?.rules || []" :key="rule.id" type="warning" show-icon :message="rule.label" :description="`${rule.formula}。${rule.status}`" />
     <section class="scope-panel">
       <h2>找出待核查订单</h2>
       <p>筛选条件：盈亏原因分类有值（原始编码保留）。按订单创建日期查询，单次最多31天。</p>
@@ -16,7 +17,7 @@
       <a-alert v-if="error" type="error" show-icon :message="error" />
       <a-table v-if="candidates" :data-source="candidates.items" :columns="columns" row-key="id" :pagination="false" :scroll="{ x: 1000, y: 320 }" size="small">
         <template #bodyCell="{ column, record }">
-          <a-button v-if="column.key === 'action'" type="link" :disabled="reading" @click="openOrder(String(record.id))">查看证据</a-button>
+          <a-button v-if="column.key === 'action'" type="link" :disabled="reading" @click="openOrder(String(record.id), 'id')">查看证据</a-button>
         </template>
       </a-table>
       <a-button v-if="candidates?.hasMore" :disabled="loading || criteriaChanged" @click="loadCandidates(candidates?.nextBefore || undefined)">下一批</a-button>
@@ -26,7 +27,8 @@
     <section class="scope-panel">
       <h2>查看指定订单证据</h2>
       <div class="verification-fields">
-        <label>ERP内部订单ID<a-input v-model:value="identifier" :disabled="reading" placeholder="输入内部ID，不是OTA订单号" @press-enter="openOrder(identifier)" /></label>
+        <label>标识类型<a-select v-model:value="identifierMode" :disabled="reading" :options="[{label:'自动：数字视为内部ID',value:'auto'},{label:'ERP内部ID',value:'id'},{label:'业务/OTA订单号（含纯数字）',value:'orderNo'}]" /></label>
+        <label>ERP内部ID或订单号<a-input v-model:value="identifier" :disabled="reading" placeholder="输入内部ID或明确的业务/OTA订单号" @press-enter="openOrder(identifier)" /></label>
         <a-button :loading="reading" @click="openOrder(identifier)">读取订单</a-button>
       </div>
       <p>基础读取航段、乘客和出票；可选择补充关联单索引、操作日志及状态历史。</p>
@@ -116,6 +118,7 @@ const criteriaChanged = computed(() => Boolean(candidates.value) && queriedDates
 const candidates = ref<RiskCandidates>()
 const evidence = ref<RiskEvidence>()
 const identifier = ref('')
+const identifierMode = ref<'auto' | 'id' | 'orderNo'>('auto')
 const loading = ref(false)
 const reading = ref(false)
 const busy = ref(false)
@@ -155,8 +158,14 @@ onBeforeUnmount(() => { alive = false; candidateRequest++; evidenceRequest++ })
 onMounted(refreshFlow)
 async function refreshFlow() {
   try {
-    const [savedCases, savedKnowledge, status] = await Promise.all([riskFlow.list(), riskFlow.knowledge(), riskFlow.status()])
-    if (alive) { cases.value = savedCases; knowledge.value = savedKnowledge; serviceStatus.value = status }
+    const [savedCases, savedKnowledge, status] = await Promise.allSettled([riskFlow.list(), riskFlow.knowledge(), riskFlow.status()])
+    if (alive) {
+      if (status.status === 'fulfilled') serviceStatus.value = status.value
+      if (savedCases.status === 'fulfilled') cases.value = savedCases.value
+      if (savedKnowledge.status === 'fulfilled') knowledge.value = savedKnowledge.value
+      const failed = [savedCases, savedKnowledge, status].find(item => item.status === 'rejected')
+      flowError.value = failed?.status === 'rejected' ? (failed.reason instanceof Error ? failed.reason.message : '部分状态读取失败，请核对配置或存储权限') : ''
+    }
   } catch (failure) { if (alive) flowError.value = failure instanceof Error ? failure.message : '历史记录读取失败' }
 }
 async function flowAction(action: () => Promise<void>) {
@@ -244,16 +253,18 @@ async function loadCandidates(before?: string) {
     if (request === candidateRequest) error.value = failure instanceof Error ? failure.message : '读取失败，请重试'
   } finally { if (request === candidateRequest) loading.value = false }
 }
-async function openOrder(value: string) {
+async function openOrder(value: string, forcedType?: 'auto' | 'id' | 'orderNo') {
   if (reading.value) return
-  if (!/^[1-9][0-9]{0,18}$/.test(value.trim())) { evidenceError.value = '请输入有效的ERP内部订单ID'; return }
+  const mode = forcedType || identifierMode.value
+  if (!(mode === 'id' ? /^[1-9][0-9]{0,18}$/ : /^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/).test(value.trim())) { evidenceError.value = '请输入与所选类型一致的ERP内部ID或订单号'; return }
+  identifierMode.value = mode
   const request = ++evidenceRequest
   identifier.value = value.trim()
   reading.value = true
   evidenceError.value = ''
   evidence.value = undefined
   try {
-    const result = await riskEvidence(identifier.value, [...sections.value])
+    const result = await riskEvidence(identifier.value, [...sections.value], mode)
     if (request === evidenceRequest) evidence.value = result
   } catch (failure) {
     if (request === evidenceRequest) evidenceError.value = failure instanceof Error ? failure.message : '证据读取失败，请重试'

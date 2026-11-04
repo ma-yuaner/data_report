@@ -8,9 +8,12 @@ case "$(git remote get-url origin)" in
   */analytics/data_report.git|*/analytics/data_report) ;;
   *) echo "Unexpected origin; stop and verify this is the data_report checkout." >&2; exit 1 ;;
 esac
-if [ -n "$(git status --porcelain)" ]; then
-  echo "Checkout has local changes. Preserve and review them before deployment; nothing was overwritten." >&2
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  echo "Tracked files have local changes. Preserve and review them before deployment; nothing was overwritten." >&2
   exit 1
+fi
+if [ -n "$(git ls-files --others --exclude-standard)" ]; then
+  echo "Untracked files will be preserved. Git will stop if an update would overwrite them."
 fi
 if [ "$(git branch --show-current)" != "main" ]; then
   echo "Expected main branch; stop and verify the release branch." >&2
@@ -26,6 +29,26 @@ echo "[2/5] 更新main分支"
 git pull --ff-only origin main
 docker compose config --quiet
 echo "[3/5] 备份已有风控核查记录"
+docker compose run --rm --no-deps --user 0:0 --entrypoint python api - <<'PY'
+import os
+from pathlib import Path
+root = Path('/app/var/risk-verification')
+if root.is_symlink() or str(root.resolve()) != '/app/var/risk-verification':
+    raise SystemExit('Unexpected risk storage path; stopped without changing permissions.')
+root.mkdir(parents=True, exist_ok=True)
+os.chown(root, 1000, 1000)
+root.chmod(0o700)
+for name in ('workflow.sqlite3', 'workflow.sqlite3-wal', 'workflow.sqlite3-shm', 'workflow.sqlite3-journal'):
+    target = root / name
+    if target.is_symlink():
+        raise SystemExit('Unexpected symbolic link in risk storage; stopped.')
+    if target.exists():
+        if not target.is_file():
+            raise SystemExit('Unexpected non-file in risk storage; stopped.')
+        os.chown(target, 1000, 1000)
+        target.chmod(0o600)
+print('Risk storage ownership checked for application UID 1000; no database contents changed.')
+PY
 if [ -n "$(docker compose ps -q api)" ]; then
   docker compose exec -T api python - <<'PY'
 import os

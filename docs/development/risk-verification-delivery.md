@@ -5,7 +5,7 @@
 无需另传脚本。部署人在247现有`data_report`仓库根目录执行下面这一条命令：
 
 ```bash
-if [ -n "$(git status --porcelain)" ]; then echo '存在本地改动，请先保留并核对，未执行更新或部署。'; else git pull --ff-only origin main && bash scripts/deploy_risk_verification.sh; fi
+if ! git diff --quiet || ! git diff --cached --quiet; then echo '已跟踪代码有改动，停止部署。'; else git pull --ff-only origin main && bash scripts/deploy_risk_verification.sh; fi
 ```
 
 预期显示5个步骤并最后输出“部署和健康检查完成”，再以管理员访问现有1818端口的`/risk-verification`。仓库/分支不符、拉取、配置、备份、构建或健康检查失败时会停止；保留错误信息，不清库删卷、不反复运行模型。若提示ERP或AI配置未齐，按下方配置段在服务器私密`.env`补齐后重新执行，不把密钥发送聊天。脚本不会自动填写凭据，也不会查询订单或调用模型。
@@ -105,3 +105,33 @@ bash scripts/deploy_risk_verification.sh
 风控功能提交`8746657`已推送数据中台GitLab、GitHub；MYE通用提示词`1b6e197`已推送其GitHub，均有真实退出0回执。247尚未部署，本机没有已确认远程登录入口。
 
 本次仅增强部署脚本及本说明：中文5步骤/失败停止、Docker Compose预检、前后配置检查、api/web健康检查；只报告配置是否存在、不打印配置值。语法检查通过；本地替身命令测试7场景（正常、工作区有改动、仓库不符、拉取失败、Compose配置失败、备份失败、健康失败）均符合预期，前置失败不进入构建。真实输出：`7 isolated deployment scenarios passed; Bash and embedded Python syntax passed; no real Docker/network/production operations`。测试及日志在忽略目录`.test-artifacts/evidence/risk-workflow-20261104/`的`test_deploy_script.py`、`deploy-tests.json`与`deploy-*.log`。不重复业务53项测试/前端构建，业务源码未改；没有执行服务器脚本或生产操作。
+
+## 2026-11-04后续：配置、存储与首条确定性规则
+
+用户报告通用503且尚未配置`.env`。未取得247异常栈，不能认定全部错误均由配置导致。源码另确认镜像漏建专用风控目录，可能使首次卷属主不匹配应用UID1000；已补镜像目录，并在部署脚本中仅修固定`/app/var/risk-verification`及四个已知SQLite文件的属主/权限，拒绝符号链接、不改数据库内容。真实容器修复未执行，本地使用替身验证。
+
+页面初次加载改为独立取得配置/记录/知识状态，记录存储失败不再遮蔽ERP就绪提示；存储初始化错误返回明确的数据卷检查提示。支持业务/OTA订单号参数化解析，匹配多笔拒绝，取证补平台/佣金配置及销售佣金原字段。自动出票真实单票利润仍未定位，不能以出票利润替代。
+
+规则与用户给定案例复算见[业务规则V1](../business/air_ticketing/risk-commission-click-loss-v1.md)。这里只确认公式，不启用不完整来源的实单自动判断。66项组合隔离测试：`66 passed in 12.40s`，进程14.844秒、退出0；配置/存储与订单号回归、规则边界均覆盖。Vue setup状态测试3场景通过；类型检查24.445秒、退出0；ESLint6.270秒、退出0；生产构建结果见本地`build-record.json`。部署替身测试更新为8场景，允许未跟踪文件保留、仍阻止跟踪代码改动，退出0；原7场景记录为历史。没有查询真实订单或发送日志给模型。
+
+服务器现有`.evn`/`env`/探测配置等未跟踪文件不删除、不改名；Git若更新会覆盖未跟踪文件会自行拒绝。不要将这些文件内容粘贴聊天。
+
+配置操作在247现有中台仓库根目录完成，保留现有主库/认证等设置，不用完整模板覆盖：
+
+```bash
+test -f .env || (umask 077; touch .env)
+chmod 600 .env
+vi .env
+```
+
+只补本次实际ERP的`ERP_MYSQL_HOST`、`ERP_MYSQL_PORT`、`ERP_MYSQL_DATABASE`、`ERP_MYSQL_USER`、`ERP_MYSQL_PASSWORD`，由部署人填写真实只读连接，库名不能照猜；先保持`RISK_AI_ENABLED=false`。现有`.env.example`已有字段说明及模型配置模板，但不含可用密钥。保存后按上方最简命令更新及重建，查看页面配置就绪状态，再验收取证。此步骤不自动跑生产订单或模型；未配置不能声称实单闭环通过。
+
+后续输入歧义已修：纯数字内部ID与OTA号必须可明确区分，页面提供标识类型；候选列表强制按内部ID读取。最新组合回归`68 passed in 8.97s`、进程10.209秒、退出0；类型检查41.294秒、构建`built in 52.53s`/进程54.683秒、ESLint4.203秒均退出0。此前66/67项为增补过程中的历史结果。
+
+新增单订单只读取证摘要入口，在ERP配置核对正确且获准读取该单后，部署人可在项目目录执行（将示例替换为获准订单号）：
+
+```bash
+docker compose exec -T api python -m data_report_api.services.risk_case_diagnostic --order-no '替换为获准核查的订单号'
+```
+
+它只查这一单，输出原因原值、平台代码、出票佣金/汇率/利润候选及止损日志结构化片段，不输出姓名、票号或日志原文，不调用模型、不写库。预期给出摘要；配置缺失或多匹配则退出非0并提示。`issue_profit`不等于已确认的自动出票单票利润，摘要不是业务结论。该入口在合成源中测试，尚未对247真实数据执行；真实结果后续由授权人核对。
