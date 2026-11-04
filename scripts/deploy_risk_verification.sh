@@ -23,11 +23,13 @@ command -v docker >/dev/null
 command -v curl >/dev/null
 verify_only=false
 migrate_auto=false
+archive_auto=false
 case "${1:-}" in
   '') ;;
   --verify-only) verify_only=true ;;
   --migrate-auto) migrate_auto=true ;;
-  *) echo "Usage: bash scripts/deploy_risk_verification.sh [--verify-only|--migrate-auto]" >&2; exit 1 ;;
+  --archive-auto) archive_auto=true ;;
+  *) echo "Usage: bash scripts/deploy_risk_verification.sh [--verify-only|--migrate-auto|--archive-auto]" >&2; exit 1 ;;
 esac
 wait_for_url() {
   local url="$1" attempt
@@ -101,6 +103,11 @@ if [ "$migrate_auto" = true ]; then
   docker compose stop api
   docker compose run -T --rm --no-deps --entrypoint python api -m data_report_api.services.risk_auto_migrate --preview
   docker compose run -T --rm --no-deps --entrypoint python api -m data_report_api.services.risk_auto_migrate --apply --source-stopped
+fi
+if [ "$archive_auto" = true ]; then
+  echo "归档旧自动核查历史：保留MySQL现有记录，不导入旧任务；归档及目标表检查成功后才启动。"
+  docker compose stop api
+  docker compose run -T --rm --no-deps --entrypoint python api -m data_report_api.services.risk_auto_migrate --archive-only --source-stopped
 fi
 docker compose up -d api web
 docker compose ps api web

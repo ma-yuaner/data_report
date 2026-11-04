@@ -3,12 +3,15 @@
 Default/--preview reads SQLite counts and never opens a MySQL connection.
 --apply requires --source-stopped: stop all legacy writers before using it and
 keep both legacy and new writers stopped until successful migration/cutover.
+--archive-only preserves legacy history separately and never writes MySQL rows.
 """
 import argparse
 from contextlib import closing
+from datetime import datetime, timezone
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import re
 import sqlite3
@@ -122,23 +125,87 @@ def apply(config, *, source_stopped=False, store=None):
     return {"mode": "apply", "counts": counts, "activeJobsFailed": failed, "backupCreated": True, "backupSha256": digest}
 
 
+def archive(config, *, source_stopped=False, store=None):
+    """Keep legacy history separately; check MySQL readiness using SELECT only."""
+    if not source_stopped:
+        raise ValueError("Stop all legacy writers and acknowledge with --source-stopped")
+    root = Path(config.get("RISK_VERIFICATION_ROOT") or "/app/var/risk-verification")
+    backup = _backup(root)
+    backup.chmod(0o600)
+    with closing(_open_readonly(backup)) as source:
+        source.execute("BEGIN")
+        checks = source.execute("PRAGMA integrity_check").fetchall()
+        if len(checks) != 1 or checks[0][0] != "ok":
+            raise MigrationConflict("Legacy backup integrity check failed")
+        tables = _tables(source)
+        counts = {table: source.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                  if table in tables else 0 for table in COLUMNS}
+    hasher = hashlib.sha256()
+    with backup.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    digest = hasher.hexdigest()
+    target_counts = {}
+    target = store if store is not None else RiskAutoStore(config)
+    with target.db() as db:
+        for table, columns in COLUMNS.items():
+            db.execute(f"SELECT rowid,{','.join(columns)} FROM {table} LIMIT 0").fetchall()
+            target_counts[table] = db.execute(f"SELECT COUNT(*) AS n FROM {table}").fetchone()["n"]
+    report = {"mode": "archive_only", "counts": counts, "targetCounts": target_counts,
+              "targetModified": False, "legacyImported": False, "backupCreated": True,
+              "backupFile": backup.name, "backupSha256": digest}
+    manifest = backup.with_suffix(".json")
+    content = {**report, "schemaVersion": 1, "createdAt": datetime.now(timezone.utc).isoformat()}
+    with manifest.open("x", encoding="utf-8") as output:
+        manifest.chmod(0o600)
+        json.dump(content, output, ensure_ascii=False, sort_keys=True)
+        output.flush()
+        os.fsync(output.fileno())
+    report["manifestFile"] = manifest.name
+    return report
+
+
+def failure_details(error):
+    """Only fixed reason codes and numeric driver codes; no exception text."""
+    conflicts = {
+        "Target order/content is not a prefix of the source snapshot": "TARGET_HISTORY_CONFLICT",
+        "Matching target ID has different field content": "SAME_ID_DIFFERENT_CONTENT",
+        "Legacy backup integrity check failed": "BACKUP_INTEGRITY_FAILED",
+    }
+    code = conflicts.get(str(error), "MIGRATION_CONFLICT") if isinstance(error, MigrationConflict) else "STORAGE_OR_BACKUP_FAILED"
+    if isinstance(error, PermissionError):
+        code = "BACKUP_PERMISSION_DENIED"
+    current, seen = error, set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        args = getattr(current, "args", ())
+        if args and type(args[0]) is int:
+            return {"errorCode": code, "dbCode": args[0]}
+        current = current.__cause__ or current.__context__
+    return {"errorCode": code}
+
+
 def main(argv=None, config=None):
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--preview", action="store_true", help="Default: SQLite safe counts only, no MySQL")
     mode.add_argument("--apply", action="store_true", help="Backup and migrate auto_* to pre-created sibebid tables")
+    mode.add_argument("--archive-only", action="store_true", help="Archive legacy SQLite separately; never write MySQL records")
     parser.add_argument("--source-stopped", action="store_true", help="Confirm all legacy API/automatic-task writers are stopped")
     args = parser.parse_args(argv)
-    if args.apply and not args.source_stopped:
-        parser.error("--apply requires --source-stopped")
+    if (args.apply or args.archive_only) and not args.source_stopped:
+        parser.error("--apply/--archive-only requires --source-stopped")
     if config is None:
         from ..config import Config
         config = {name: getattr(Config, name) for name in dir(Config) if name.isupper()}
     try:
-        report = apply(config, source_stopped=args.source_stopped) if args.apply else preview(config.get("RISK_VERIFICATION_ROOT") or "/app/var/risk-verification")
-    except Exception:
+        if args.archive_only:
+            report = archive(config, source_stopped=args.source_stopped)
+        else:
+            report = apply(config, source_stopped=args.source_stopped) if args.apply else preview(config.get("RISK_VERIFICATION_ROOT") or "/app/var/risk-verification")
+    except Exception as error:
         # Do not leak DB driver errors/SQL parameters, source bodies or credentials.
-        print(json.dumps({"status": "failed", "message": "Migration aborted; preserve backup and investigate locally; no successful target commit reported"}))
+        print(json.dumps({"status": "failed", **failure_details(error), "message": "Migration/archive aborted; preserve backup and investigate locally; no successful cutover reported"}))
         return 1
     print(json.dumps(report, ensure_ascii=False, sort_keys=True))
     return 0

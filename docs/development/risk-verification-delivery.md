@@ -307,3 +307,27 @@ Vue真实setup状态17个场景通过（原9＋自动工作流5＋精简详情3�
 只验健康仍可用 `bash scripts/deploy_risk_verification.sh --verify-only`，它不建表、不迁移、不重建，不可用它替代首次切换。216不需要本轮新增调度。当前阶段为本地定向验收通过，提交推送结果以本轮交付回执为准；247仍未部署、业务未验收。
 
 本轮ETL首次推送被远端新增报表提交拒绝；只在干净隔离工作树fetch/rebase，风控脚本diff为空，普通推送06d1c1f..e5521ed成功。固定快照重新导出，业务源码SHA256不变，复用已通过的对应测试，未强推或处理原脏工作区。应用初次暂存遇瞬时index.lock，确认锁自行消失且暂存为空后一次重试成功，未删除锁。
+
+
+## RISK-ARCHIVE-20261104：目标已有历史时分离归档切换
+
+用户247回执：原SQLite可预览1条任务/8条结果/0条抽查，apply报MigrationConflict；只读对比明确TARGET_HISTORY_CONFLICT/auto_jobs。已证实目标任务ID顺序不满足旧库前缀，未证实记录来源或是否由某次部署创建，不能认定数据损坏或直接删目标记录。用户授权“那你处理”。本轮/root主会话执行chief-of-staff/后端/QA，无新增子代理。
+
+新增明确选择--archive-only及发布--archive-auto：停止写入后对旧workflow.sqlite3在线备份，校验SQLite完整性，流式SHA256、三类历史计数，生成含时间/摘要/数量的归档清单；备份与清单在原卷backups，权限0600。原SQLite及全部人工历史保留，MySQL新三表只执行SELECT检查字段和计数，不导入、不清理、不覆盖、不重排已有记录。归档或目标检查失败不启动API；严格--apply/--migrate-auto原有冲突保护仍保留，不静默降级成归档。错误输出增加固定原因码和数字数据库码，不输出配置或记录原文。
+
+这不是旧8条结果已经导入成功：它们作为独立历史留存，新页面读取MySQL现有结果，需点击更新并核实生成当前证据下的新结论。已有MySQL任务也保持原状；中断任务遵循原10分钟心跳失效机制，不在归档期间修改或自动续跑。
+
+本地证据目录.test-artifacts/evidence/risk-archive-20261104，evidence.md含完整命令与边界。最终21 passed in1.52s，退出0（原14存储/严格迁移+新7归档/安全诊断）；验证冲突目标保留、重复归档、原库/目标逐字节或全表不变、归档hash/清单/人工历史、旧格式不强制导入、停写门禁、缺表/备份/清单失败。合成shell五场景passed=true，原严格切换/失败、verify-only、新归档成功/失败，失败退出17为预期且无up命令。bash -n与范围diff --check退出0。业务规则、UI、ETL未改，复用前轮有效证据不重跑；未连接实库、模型、Docker或247，无生产操作/部署/业务验收。
+
+### 本次247恢复操作（替代上节首次切换第3步）
+
+位置：当前247的data_report目录。确认没有其他旧API实例写入，执行：
+
+```bash
+git pull --ff-only origin main
+bash scripts/deploy_risk_verification.sh --archive-auto
+```
+
+不要再使用--migrate-auto处理本次目标历史冲突。预期输出mode=archive_only、targetModified=false、legacyImported=false、backupCreated=true以及备份SHA和清单文件名，随后api/web启动并完成健康检查。归档文件在既有风控卷的backups目录，保留供历史追溯，不输出订单或凭据。若拉取失败则不继续；若归档/权限/表检查失败脚本保持停止，保留新errorCode/dbCode和原文件，不删表、不清卷、不改记录。
+
+启动后管理员到1818/risk-verification，查询只读；选出票日期后点击更新并核实，验收真实数据/公式/进度/耗时。健康成功仅说明服务启动，不等于订单核对通过；本机证据不等于247实库归档或性能通过。提交及双端推送结果以本轮工具回执为准。

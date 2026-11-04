@@ -762,3 +762,10 @@ ETL交付：`391711b`已推GitLab，生产执行脚本路径和四段依赖保�
 查询/翻页/详情只读，显式“更新并核实”按钮后台同步ERP目录并取同源快照核算；按日目录+结果原子发布，证据哈希/规则未变可复用，变化重算，刷新失败历史过期不算当前通过。自动任务/结果/抽查存sibebid新三表，旧人工SQLite历史保留，显式停写备份迁移；独立ETL来源e5521ed的hook默认不启用，API固定版本复用，无调度/SSH依赖。MYE只补通用提示词v4。
 
 本地31 passed,72替身弃用警告in6.82s；ETL28 passed in0.33s；19个Vue setup场景、类型/lint/构建/73组件检查通过。未变金额规则复用旧证据，旧夹具失败保留不掩盖。完整命令、原始日志、执行者与部署步骤见[交付记录](../development/risk-verification-delivery.md#risk-refresh-20261104按钮更新只读查询与mysql自动结果)。未查实库/模型/浏览器/生产操作。下一步：提交推送后，247部署人先执行risk-auto-mysql-v1.sql核对权限，再用--migrate-auto显式切换并验收查询/按钮/源变化/耗时；不能只verify-only或报健康即业务通过。
+
+
+## 目标历史冲突的分离归档切换（2026-11-04，RISK-ARCHIVE-20261104）
+
+247用户真实回执TARGET_HISTORY_CONFLICT/auto_jobs，旧库预览1/8/0，API因严格迁移保护保持停止。用户授权修复，/root主会话实施和验收，无新增代理；不猜测目标记录来源。显式--archive-auto归档原SQLite、完整性/SHA/清单，目标三表只读校验不导入/删除/覆盖；严格导入保护保留。失败固定错误码及数字dbCode，归档成功后才启动api/web。
+
+本地21 passed in1.52s、合成发布五场景及bash语法/diff检查通过；无实库/服务器/模型/生产操作。金额/UI/ETL未变复用原证据，不重跑。下一步247部署人拉取后运行--archive-auto，确认archive_only且targetModified=false，再按钮核查实单；归档与真实业务验收未完成。完整命令/输出/恢复指令见[交付记录](../development/risk-verification-delivery.md#risk-archive-20261104目标已有历史时分离归档切换)，本地evidence位于.test-artifacts/evidence/risk-archive-20261104/。
