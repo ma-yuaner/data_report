@@ -30,7 +30,7 @@ class PlacementCabinReferenceService:
         connection = cursor = None
         try:
             connection = self.source.connect(); cursor = connection.cursor()
-            cursor.execute(f"""SELECT DISTINCT cabin FROM `sibedb`.`hold_info_flight_list`
+            cursor.execute(f"""SELECT DISTINCT cabin FROM `sibedb`.`hold_info_flight`
                 WHERE status=1 AND airline=%s AND update_time>=DATE_SUB(%s, INTERVAL 1 MONTH)
                 AND update_time<=%s LIMIT {MAX_DISTINCT_VALUES + 1}""", (code, current, current))
             rows = list(cursor.fetchall())
@@ -49,7 +49,7 @@ class PlacementCabinReferenceService:
             raise
         except Exception as error:
             LOGGER.exception('Placement cabin reference lookup failed')
-            raise SmartPlacementUnavailable('参考舱位暂不可用，请核对ERP sibedb.hold_info_flight_list读取权限') from error
+            raise SmartPlacementUnavailable('参考舱位暂不可用，请核对ERP sibedb.hold_info_flight读取权限') from error
         finally:
             if cursor is not None: cursor.close()
             if connection is not None: connection.close()

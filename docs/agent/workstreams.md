@@ -1,5 +1,13 @@
 # 当前工作流与交接
 
+## 参考舱位更正为hold_info_flight（2026-11-04）
+
+用户指出ID2808在hold_info_flight并批准调整发版，申请人沿用马远尔。主会话磐石/明鉴，无子代理；仅后端表名及对应权限错误提示由sibedb.hold_info_flight_list改为sibedb.hold_info_flight，同步业务契约。保持status=1、航司、近自然月/非未来过滤、只读cabin、去重和权限/no-store；不修改公共ERP连接、数据库、前端或其他流程。
+
+真实验证：2026-11-04 16:20（Asia/Shanghai）使用现有ERP配置，READ ONLY事务查询新表MU4392条、有效1条、时间命中1条，最近维护2026-11-04 15:17:27；随后实际更正服务get(MU)返回21个舱位B,C,D,E,G,H,I,J,K,L,M,N,P,Q,R,S,T,V,W,Y,Z，耗时0.294秒。10项定向回归通过（2.12秒），覆盖状态/自然月/未来过滤、参数化、ERP连接、权限、只SELECT cabin、失败及API no-store；隔离夹具已按新表名更正，测试仅本地忽略。未运行无关前端构建或重试禁用浏览器；实库服务已验，服务器HTTP/页面及部署未验。证据入口`.test-artifacts/cabin-refresh/read_mu_corrected.py`与`.test-artifacts/test_cabin_reference.py`。
+
+只需部署更新api，无DDL/ETL/Web改动；提交/两端推送/发版通知以随后回执为准。保留开始时其他风控、Agent文档、SQL等改动；仅将本任务工作流段落暂存，不纳入其他未提交内容。
+
 ## 参考舱位即时刷新（2026-11-04）
 
 发布回执：功能`a32bc7a`已推GitLab/GitHub main；2026-11-04 15:57:03（Asia/Shanghai）按马远尔向原配置发版群发送一次通知，HTTP200、errcode=0、accepted，0.315秒。任务`cabin-reference-refresh-20261104`，脱敏回执`.test-artifacts/cabin-refresh/receipts`；仅接口接收，不代表247部署/人工已阅。服务器未部署，更新web即可。
