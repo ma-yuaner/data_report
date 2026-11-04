@@ -73,3 +73,7 @@ ETL正常运行先同步指定parent/type字典，再处理日期订单。空源
 ```
 
 预期先schema_and_plans_checked，再dictionary_synced、dictionaryRows>0、orderRowsRead=false。失败停止，保留安全错误码，不清表或跨类补名称。随后247更新API/web，验收分类/筛选/列表中文名称与源字典一致，3177单数量不因映射改变。五分钟任务无需改cron命令，新脚本每次会同步字典。此前2026-11-01日目录3177条已获用户真实成功回执，无需为了补名称重读订单；新字典实际同步与页面仍待验。
+
+### 字典筛选当前口径修正
+
+2026-11-04用户仅确认parent_code=PRODUCT_PROFIT_REASON_TYPE，本轮移除从历史DDL注释额外推定的type_code限制。ETL和应用均只按parent_code查询/替换，type_code保留实际值仅供追溯；上述type限定描述被本节替代。空字典和超5000条分别报错，失败保留旧数据，同父级重复编码仍拒绝发布。不变更DDL；216更新脚本重跑dictionary-only成功后，247须更新后端使名称不再被旧type条件过滤。

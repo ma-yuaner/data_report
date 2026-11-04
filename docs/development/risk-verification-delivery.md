@@ -228,3 +228,9 @@ docker compose exec -T api python -m data_report_api.services.risk_case_diagnost
 本地最终69 passed in3.71s，16:46:13+08:00启动、进程4.840秒、退出0，覆盖公共库/旧语法/事务/目录，以及字典parent/type隔离、名称变化、未知码不丢单、无效/重复/空字典拒绝、失败回滚及dict-only保留订单。精确命令/时间/SHA在.test-artifacts/evidence/risk-catalog-20261104/dictionary-record.json，日志dictionary.log，入口run_dictionary.py；合成配置/engine，非实库。16:44初轮69通过3.12秒被字典类型门禁补验替代。
 
 真实本地HTTP通过，3.502秒，认证/核查/目录链路无回归，3次本地替身模型调用，无真实模型/ERP。9个Vue setup场景通过，含字典切换期间批次拒绝；类型38.811秒、ESLint5.312秒、构建built in42.28s/进程44.091秒均退出0，保留既有大分块警告。精确记录同目录http/type/lint/build/ui-state-record.json与日志。未增加组件，复用此前登记证据；浏览器禁用未绕过。真实DDL/字典数据/部署/页面验收待执行，不以本地检查冒充。
+
+### 字典筛选按用户指定parent_code修正（2026-11-04）
+
+216真实回执SOURCE_DICTIONARY_EMPTY_OR_TOO_LARGE，旧错误码不能区分0条与超过5000，暂无真实字典行数。主代理复核发现额外type_code=_SYSTEM_PRODUCT_TYPE只依据DDL注释，不能代替用户确认。ETL源读取、目标替换及应用读取均改为仅parent_code=PRODUCT_PROFIT_REASON_TYPE，type_code保留源值作元信息，不过滤；仍检测同父级重复码。新错误分为SOURCE_DICTIONARY_EMPTY和SOURCE_DICTIONARY_LIMIT_EXCEEDED。无DDL/前端/公共库改动，不重跑3177单订单。
+
+真实本地73 passed in3.35s，17:21:49+08:00、进程4.583秒、退出0；精确命令/源码SHA见.test-artifacts/evidence/risk-catalog-20261104/dictionary-parent-only-record.json，输出dictionary-parent-only.log，入口run_dictionary_parent.py。覆盖实际type不同/空值仍映射、父级隔离与0/超限分码。HTTP回环passed=true、3.032秒/进程5.129秒、退出0，未查真实ERP或调用真实模型。前端/DDL未变复用前轮验证。ETL与247后端都须更新；新的dictionary-only成功回执及名称显示待验，不能把修正额外条件报告为实库根因已证实。

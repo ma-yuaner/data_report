@@ -58,7 +58,7 @@ class RiskVerificationCatalog:
 
     @staticmethod
     def reason_labels(cursor):
-        cursor.execute("SELECT det_code,det_cname,etl_run_id FROM bi_risk_reason_dict WHERE parent_code=%s AND type_code=%s LIMIT 5001", ("PRODUCT_PROFIT_REASON_TYPE", "_SYSTEM_PRODUCT_TYPE"))
+        cursor.execute("SELECT det_code,det_cname,etl_run_id FROM bi_risk_reason_dict WHERE parent_code=%s LIMIT 5001", ("PRODUCT_PROFIT_REASON_TYPE",))
         rows = _rows(cursor)
         labels = {}
         versions = {row["etl_run_id"] for row in rows}
