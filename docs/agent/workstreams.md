@@ -1,5 +1,11 @@
 # 当前工作流与交接
 
+## 参考舱位原值与顺序保留（2026-11-04）
+
+用户明确批准修改发版：参考舱位必须保留原始顺序与内容。主会话磐石/星桥/明鉴，frontend-design，无子代理。接口cabins每项返回一条未经处理的ERP cabin原字符串，不拆分/转大写/去重/排序；前端用换行分隔不同配置，原有竖线、重复舱位、大小写和空格均保留。SQL DISTINCT仅合并相同配置记录，不改变单条cabin内容；空白/NULL仍提示未明确。查询表hold_info_flight、状态/航司/时间/权限和只读机制不变。
+
+实库只读验证：使用现有ERP配置读取MU ID2808原值，并与实际服务get(MU).cabins逐字断言一致，返回单项J|C|D|Q|I|W|P|Y|B|M|E|H|K|L|N|R|S|V|T|G|Z。10项后端定向回归通过（1.19秒），真实编译Vue setup验证原值/多条换行/刷新防串及定时器清理通过，相关ESLint与类型检查通过。证据仅本地忽略`.test-artifacts/cabin-refresh/verify_raw_mu.py`、check.cjs及原后端定向测试。浏览器禁用，未重复尝试；实库服务已验，服务器页面未验。无ERP写入、DDL/ETL或公共配置变化；需API/Web一起更新，服务器未部署。既有其他文档/风控/SQL改动保留，仅暂存本任务工作流段。
+
 ## 参考舱位更正为hold_info_flight（2026-11-04）
 
 交付回执：功能`27c3a71`已推送GitLab/GitHub main（GitHub首次TLS握手失败，重试一次成功）。2026-11-04 16:22:08（Asia/Shanghai）以马远尔向原配置发版群发送一次通知，HTTP200、errcode=0、accepted，0.246秒；任务`cabin-source-table-fix-20261104`，脱敏回执`.test-artifacts/cabin-refresh/table-fix-receipts`。仅接口接收；服务器未部署，部署更新api后再进行页面业务验收。

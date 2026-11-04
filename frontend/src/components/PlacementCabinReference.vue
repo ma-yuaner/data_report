@@ -23,7 +23,7 @@ const error = ref('')
 const lastReadAt = ref('')
 let version = 0
 let refreshTimer: ReturnType<typeof setInterval> | undefined
-const display = computed(() => !props.airline?.trim() ? '选择航司后展示' : lastReadAt.value ? (cabins.value.length ? cabins.value.join('、') : '暂无近期参考舱位') : loading.value ? '正在读取参考舱位…' : error.value ? '暂不可用' : '暂无近期参考舱位')
+const display = computed(() => !props.airline?.trim() ? '选择航司后展示' : lastReadAt.value ? (cabins.value.length ? cabins.value.join('\n') : '暂无近期参考舱位') : loading.value ? '正在读取参考舱位…' : error.value ? '暂不可用' : '暂无近期参考舱位')
 async function load() {
   const airline = props.airline?.trim().toUpperCase()
   if (!props.active || !airline || loading.value) return

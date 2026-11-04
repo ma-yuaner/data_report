@@ -36,15 +36,16 @@ class PlacementCabinReferenceService:
             rows = list(cursor.fetchall())
             if len(rows) > MAX_DISTINCT_VALUES:
                 raise SmartPlacementUnavailable('参考舱位配置较多，暂不展示，请核对ERP配置')
-            cabins = set()
+            cabins = []
             unspecified = False
             for row in rows:
                 raw = row.get('cabin') if isinstance(row, dict) else row[0]
-                values = [value.strip().upper() for value in str(raw or '').split('|') if value.strip()]
-                if not values:
+                if raw is None or not str(raw).strip():
                     unspecified = True
-                cabins.update(values)
-            return {'airline': code, 'cabins': sorted(cabins), 'hasUnspecified': unspecified}
+                    continue
+                # Reference only: preserve the source order, separators, case and repeats.
+                cabins.append(str(raw))
+            return {'airline': code, 'cabins': cabins, 'hasUnspecified': unspecified}
         except SmartPlacementUnavailable:
             raise
         except Exception as error:

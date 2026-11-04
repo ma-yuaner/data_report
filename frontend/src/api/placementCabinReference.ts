@@ -2,6 +2,7 @@ import { http, type ApiEnvelope } from './http'
 
 export interface CabinReference {
   airline: string
+  // Each entry is one unmodified ERP cabin value, including its original separators.
   cabins: string[]
   hasUnspecified: boolean
 }
