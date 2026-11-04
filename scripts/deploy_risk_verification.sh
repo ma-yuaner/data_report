@@ -22,10 +22,12 @@ fi
 command -v docker >/dev/null
 command -v curl >/dev/null
 verify_only=false
+migrate_auto=false
 case "${1:-}" in
   '') ;;
   --verify-only) verify_only=true ;;
-  *) echo "Usage: bash scripts/deploy_risk_verification.sh [--verify-only]" >&2; exit 1 ;;
+  --migrate-auto) migrate_auto=true ;;
+  *) echo "Usage: bash scripts/deploy_risk_verification.sh [--verify-only|--migrate-auto]" >&2; exit 1 ;;
 esac
 wait_for_url() {
   local url="$1" attempt
@@ -93,7 +95,14 @@ else:
 PY
 fi
 echo "[4/5] 构建并更新api、web（保留所有数据卷）"
-docker compose up -d --build api web
+docker compose build api web
+if [ "$migrate_auto" = true ]; then
+  echo "显式迁移自动核查记录：须已执行risk-auto-mysql-v1.sql；停止旧api后迁移，失败保持停止。"
+  docker compose stop api
+  docker compose run -T --rm --no-deps --entrypoint python api -m data_report_api.services.risk_auto_migrate --preview
+  docker compose run -T --rm --no-deps --entrypoint python api -m data_report_api.services.risk_auto_migrate --apply --source-stopped
+fi
+docker compose up -d api web
 docker compose ps api web
 fi
 echo "[5/5] 检查服务健康与配置就绪状态"

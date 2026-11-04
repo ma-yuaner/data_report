@@ -261,3 +261,49 @@ Vue真实setup状态17个场景通过（原9＋自动工作流5＋精简详情3�
 
 
 自动核实最终前端记录：18:11:30+08:00类型40.757秒、ESLint5.935秒、构建built in44.56s/进程47.165秒，全部退出0，既有大分块警告保留。组件登记73通过。部署脚本/后端配置未改，原在线SQLite备份自然覆盖workflow.sqlite3内新增auto_*表。
+
+
+## RISK-REFRESH-20261104：按钮更新、只读查询与MySQL自动结果
+
+来源：用户要求修正发版，并明确“刷新应该是按钮或者核对也是按钮”，防止查询反复启动长任务。本节替代上一版查询自动提交、自动结果SQLite存储及要求先到216同步的交互；金额规则不变。应用基线67fdb42，独立ETL扩展固定来源e5521ed9686bbf453ed0fdee2b326de367f709fc。产品流程见[契约修订](../product/risk-auto-verification-v1.md#2026-11-04修订手动触发与mysql存储)。
+
+### 实现、执行者与复核
+
+主会话/root承担明策/磐石/星桥/明鉴职责，实施API、后台同步核对、前端按钮与发版脚本，使用chief-of-staff及frontend-design方法，保留企业组件。独立子代理实际标识/root/risk_mysql_store，请求gpt-6.1-sol/medium、独立上下文，先实现限定存储/迁移/DDL，再补本地定向测试和只读复核，无派生代理；任一时刻只有该子代理活动。工具不提供可核验底层计费/token，未声称实际训练或成本提升。主会话检查其文件、真实日志及测试输入，确认事务测试调用实际generated publish_day，不仅转发完成声明。
+
+- 查询、翻页、查看详情和GET任务只读中台；挂载仅查询并恢复已有任务的进度轮询。按钮POST显式mode=refresh_verify，缺mode旧前端请求拒绝，不会误触发同步。
+- 按钮只持久化排队，后台从ERP只读快照复用独立ETL同步日目录/字典，并在同一源快照读取必要出票/止损日志。目录与本日核实结果同一目标事务发布，失败共同回滚。按日发布，后日失败不撤销前日成功数据。超过2000已接规则订单明确失败，最多31天，不能截断冒充全量。
+- 每次按钮操作都检查当前必要证据；完整最小证据哈希与规则版本相同才复用计算，子表/日志变化不依赖主单更新时间。新请求及批次变化使旧结果过期，刷新失败历史保留但不计当前通过，也禁止对其提交抽查。未知类型只更新目录，保持规则未接入，不调用模型。
+- 自动任务/结果/抽查改存sibebid三表，无SQLite自动回退、无自动建表。迁移显式停写、在线备份、一事务逐字段/顺序核对，冲突停止且原库保留；旧人工案例/知识历史仍留原SQLite，不声称全部历史已迁出。GET使用局部8秒读写预算，后台刷新20秒单次读取预算；公共DataSource/连接库/生产配置不改。
+- API直接使用固定版本ETL生成快照，来源和SHA256在risk_order_sync_generated.meta.json，生成器scripts/sync_risk_etl_snapshot.py。独立216 CLI默认不传hook，原运行行为不变；本轮不增加定时调度，不要求SSH到216。MYE只补通用“查询与更新分离”v4，无公司字段、规则、源码、数据或凭据。
+
+### 本地真实证据（替身不等于实库）
+
+证据根 `.test-artifacts/evidence/risk-refresh-20261104/`，本地测试和产物按项目约定忽略，不上传Git。
+
+| 对象 | 完整命令入口/原始输出 | 真实结果与判断 |
+|---|---|---|
+| MySQL存储迁移、worker、完整Flask测试客户端、权限/CSRF/owner、按钮只排队、证据hash、失效/回滚/旧POST/过期任务 | manual-refresh-evidence.md最终段含完整PowerShell；test_mysql_store_migrate.py + test_manual_refresh.py；final-contract.log | 31 passed,72 warnings in6.82s，退出0；警告均测试SQLite日期适配弃用。真实服务逻辑/Flask导入，SQL传输为本地合成；不是网络HTTP或真实MySQL锁证明 |
+| 独立ETL新增进度与原子发布hook | etl-hooks-record.json完整命令；etl-hooks.log；test_etl.py | 28 passed in0.33s，进程1.448秒，18:51:02+08:00，退出0；无业务连接 |
+| Vue真实setup状态 | bundled Python .test-artifacts/evidence/risk-refresh-20261104/checks.py ui-state；ui-state-record.json/log | 19场景通过，1.527秒，19:10:50+08:00，退出0；查询/翻页/状态恢复不POST，按钮/失败/重复点击/抽查失效等；无真实浏览器 |
+| 类型、ESLint、组件登记 | 同一checks.py分别type/lint/components；各-record.json/log | 类型30.989秒、lint6.077秒、73组件检查0.266秒，均退出0 |
+| 生产构建 | 同一checks.py build；build-record.json/log | built in38.53s，进程39.773秒，19:12:30+08:00，退出0；保留既有大分块警告 |
+| 发布脚本、Python与生成来源 | D:/Program Files/Git/bin/bash.exe -n scripts/deploy_risk_verification.sh；AST及源码SHA核对 | bash -n退出0；Python语法、固定提交源字节与SHA256、提示词围栏一致。完整校验步骤另见static-review.md；合成shell三场景通过，含迁移失败不启动与verify-only无切换 |
+
+复用未变金额规则的旧有效证据（RISK-AUTO最终28项中金额相关部分），不重复整套运行。最初误用旧人工确认汇总夹具出现2失败/73通过，日志initial-old-contract-failure.log保留；该夹具预期已随自动结果契约失效，本轮以新MySQL工作流用例验证，没有删除业务断言来制造通过。后续迭代及最终输出均留本地。
+
+未执行：真实MySQL DDL解析/生成列唯一约束/行锁与多进程竞态、ERP读取、247数据与性能、真实模型、浏览器点击、生产ETL/配置/调度/部署、业务验收。浏览器禁用与已知损坏venv/Ruff未重复尝试。模拟SQLite仅测试传输/迁移源；应用自动链路实际使用MySQL实现，不能将测试替身当上线存储。
+
+### 247首次切换操作（部署人执行）
+
+位置：247现有data_report仓库目录，不在216清洗目录。
+
+1. 执行 `git pull --ff-only origin main`。预期快进到本次交付提交；本地tracked改动或冲突时停止，保留现场，不reset/清理文件。
+2. 管理员在既有数据库管理工具打开 `docs/sql/risk-auto-mysql-v1.sql`，核对 `USE sibebid` 后执行三表DDL，已存在表须核对SHOW CREATE TABLE而不是仅靠IF NOT EXISTS。确认应用账号有原目录四表和新自动三表必要读写权限及CREATE TEMPORARY TABLES权限；ERP账号保持只读。这里不代替DBA授权，不输出密码、不要求改公共库或.env。
+3. 在相同247仓库执行完整指令 `bash scripts/deploy_risk_verification.sh --migrate-auto`。脚本保留数据卷并备份旧SQLite，先构建新镜像，再停止旧api，用新镜像preview及apply --source-stopped迁移，核对成功计数后才启动api/web。必须确保没有其他旧API实例在写auto_*；若迁移失败，api保持停止，保留备份、错误和原文件，先排查DDL/权限/冲突，不清库、不自行启动旧写入者并行。此标记仅首次切换使用；后续正常部署用 `bash scripts/deploy_risk_verification.sh`。
+4. 管理员访问1818/risk-verification，选已有出票日2026-11-01。先查询，预期只显示当前保存数据，不自动排队；没有同步也应允许点击更新并核实。点击按钮后预期立即显示排队/阶段并可继续查询，后台完成再读新结果。查看已确认案例，按当前真实字段核算，不硬编码通过数量；旧页面缓存如提示缺mode须刷新页面。
+5. 重复点击更新，必要证据未变应显示复用；改动源数据只通过正常业务操作或获准测试环境，不在生产造测试订单。验证源自然变化后按钮重读，失败显示错误且旧结果过期。记录查询响应、POST排队耗时、任务完成耗时和各状态数量；健康UP不等于这几项验收通过。
+
+只验健康仍可用 `bash scripts/deploy_risk_verification.sh --verify-only`，它不建表、不迁移、不重建，不可用它替代首次切换。216不需要本轮新增调度。当前阶段为本地定向验收通过，提交推送结果以本轮交付回执为准；247仍未部署、业务未验收。
+
+本轮ETL首次推送被远端新增报表提交拒绝；只在干净隔离工作树fetch/rebase，风控脚本diff为空，普通推送06d1c1f..e5521ed成功。固定快照重新导出，业务源码SHA256不变，复用已通过的对应测试，未强推或处理原脏工作区。应用初次暂存遇瞬时index.lock，确认锁自行消失且暂存为空后一次重试成功，未删除锁。

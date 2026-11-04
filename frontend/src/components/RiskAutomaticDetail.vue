@@ -48,7 +48,7 @@ const sampleReason = ref('')
 const labels: Record<string, string> = { supported: '核实通过', problem: '有问题', insufficient: '证据不足', failed: '执行失败', rule_pending: '规则未接入' }
 const columns = [{ title: '出票明细ID', dataIndex: 'id', width: 150 }, { title: '出票利润', dataIndex: 'profit', width: 100 }, { title: '销售佣金', dataIndex: 'commission', width: 100 }, { title: '调整后利润', dataIndex: 'adjustedProfit', width: 110 }, { title: '结果', key: 'status', width: 110 }, { title: '计算及原因', dataIndex: 'explanation', width: 300 }]
 const normalize = (value: string | null) => value?.replace(' ', 'T') || null
-const outdated = computed(() => Boolean(result.value && (normalize(result.value.sourceUpdatedAt) !== normalize(props.sourceUpdatedAt) || result.value.reasonCode !== props.reason)))
+const outdated = computed(() => Boolean(result.value && (result.value.isCurrent === false || normalize(result.value.sourceUpdatedAt) !== normalize(props.sourceUpdatedAt) || result.value.reasonCode !== props.reason)))
 const hasUnsavedDrafts = computed(() => Boolean(sampleReason.value.trim()))
 defineExpose({ hasUnsavedDrafts, reload: load })
 watch(busy, value => emit('busy-change', value))

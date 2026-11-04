@@ -8,13 +8,13 @@ from .risk_verification_flow import FlowError
 from .risk_auto_verification import RiskAutoVerification
 
 LOGGER = logging.getLogger(__name__)
-STATES = ("problem", "supported", "insufficient", "reviewing", "unchecked", "failed", "rule_pending")
-FIELDS = "o.order_id AS id,o.order_no,o.ota_order_no,o.ota_code,o.profit_reason_type,o.create_time,o.update_time"
+STATES = ("problem", "supported", "insufficient", "reviewing", "unchecked", "failed", "rule_pending", "outdated")
+FIELDS = "o.order_id AS id,o.order_no,o.ota_order_no,o.ota_code,o.profit_reason_type,o.create_time,o.update_time,o.etl_run_id AS catalog_run_id"
 NOTES = [
     "读取中台ETL目录，不实时扫描ERP；按出票日期限定，跨日或多票均按内部订单ID去重。",
-    "数据截止各日最近一次成功同步；刷新页面不会触发同步。详情仍按单读取ERP，目录与实单可能存在时间差。",
+    "数据截止各日最近一次成功同步；查询、翻页和查看详情不触发ERP读取，只有更新并核实按钮启动后台同步。",
     "按当前账号最新自动规则结果统计；通过无须人工确认，人工抽查独立留痕，不覆盖自动结论。",
-    "核查结果来自当时证据快照；原因或订单更新时间变化后退回未核查。尚未检测所有子表和日志的后续变化，不代表实时重算。",
+    "更新并核实会重新读取出票、佣金与止损日志；证据和规则未变可复用计算。新更新请求或目录批次变化后旧结果失效，查询不自动检测ERP变化。",
     "未核查、核查中和证据不足不等于没有问题；尚无自动核查结论。",
 ]
 
@@ -66,17 +66,20 @@ class RiskVerificationOverview:
         return sql, values
 
     def _statuses(self, cursor, owner, scope, parameters):
-        latest = RiskAutoVerification(self.config).latest(owner)
+        service = RiskAutoVerification(self.config)
+        latest = service.latest_metadata(owner)
+        requests = service.refresh_requests(owner)
         statuses = {}
         identifiers = list(latest)
         for start in range(0, len(identifiers), 1000):
             chunk = identifiers[start:start + 1000]
             marks = ",".join(["%s"] * len(chunk))
-            cursor.execute(f"SELECT o.order_id AS id,o.profit_reason_type,o.update_time FROM bi_risk_order_day o WHERE {scope} AND o.order_id IN ({marks})", (*parameters, *chunk))
+            cursor.execute(f"SELECT o.order_id AS id,o.profit_reason_type,o.update_time,o.etl_run_id,o.issue_date FROM bi_risk_order_day o WHERE {scope} AND o.order_id IN ({marks})", (*parameters, *chunk))
             for row in _rows(cursor):
                 case = latest[str(row["id"])]
-                if RiskAutoVerification.matches(case, row):
-                    statuses[str(row["id"])] = {"status": case["status"], "caseId": None, "resultId": case["id"], "reasonCode": row["profit_reason_type"]}
+                if row["profit_reason_type"] == "RLA013":
+                    current = RiskAutoVerification.current(case, row, requests)
+                    statuses[str(row["id"])] = {"status": case["status"] if current else "outdated", "caseId": None, "resultId": case["id"], "reasonCode": row["profit_reason_type"]}
         return statuses
 
     def summary(self, owner, start, end):
@@ -113,7 +116,7 @@ class RiskVerificationOverview:
                 for key in metrics:
                     metrics[key] += item[key]
             samples = RiskAutoVerification(self.config).sampling(owner)
-            sampled = [samples[item["resultId"]] for item in statuses.values() if item["resultId"] in samples]
+            sampled = [samples[item["resultId"]] for item in statuses.values() if item["status"] != "outdated" and item["resultId"] in samples]
             return {"period": {"startDate": first.isoformat(), "endDate": last.isoformat()}, "sampling": {"sampled": len(sampled), "disputed": sampled.count("disputed")},
                     "dateBasis": "issue_ticket_time", "metrics": metrics,
                     "categories": sorted(categories.values(), key=lambda row: (-row["total"], row["reasonCode"])),

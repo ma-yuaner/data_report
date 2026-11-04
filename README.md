@@ -1,6 +1,6 @@
 # 企业数据中心（data_report）
 
-新增[风控核对首版](docs/development/risk-verification-delivery.md)：按出票日期及盈亏原因查看汇总、下钻订单、取证、AI辅助审核及人工确认。性能整改版[改读sibebid目录与独立ETL](docs/product/risk-verification-catalog-v1.md)，需先执行建表SQL及清洗，不在页面请求内扫描ERP。默认关闭模型；本地隔离验证通过，新DDL/同步、247真实性能及业务验收待完成。 自动核实增量见[产品提示词与契约](docs/product/risk-auto-verification-v1.md)：查询后后台按已接规则核实，按类型精简详情，人工抽查独立留痕；首版佣金规则取用户确认的出票利润。
+新增[风控核对首版](docs/development/risk-verification-delivery.md)：按出票日期及盈亏原因查看汇总、下钻订单、取证、AI辅助审核及人工确认。性能整改版[改读sibebid目录与独立ETL](docs/product/risk-verification-catalog-v1.md)，需先执行建表SQL及清洗，不在页面请求内扫描ERP。默认关闭模型；本地隔离验证通过，新DDL/同步、247真实性能及业务验收待完成。 自动核实增量见[产品提示词与契约](docs/product/risk-auto-verification-v1.md)：查询仅只读已保存结果，点击“更新并核实”后后台同步目录并按已接规则核实，按类型精简详情，人工抽查独立留痕；首版佣金规则取用户确认的出票利润。
 
 ADM独立接管增量：新单多订单分别处理，补正式业务字段、批量分配和ERP历史JSON只读归档，不依赖Java运行。正式表在sibebid，新建与已有表升级DDL二选一，由部署人执行。人工验收、历史原件/外部日志及正式切换未完成；操作见[ADM建表部署与验收](docs/development/adm-independent-acceptance.md)。
 

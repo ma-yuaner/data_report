@@ -1,6 +1,6 @@
 <template>
   <div class="page-wrap verification-overview">
-    <PageHeader eyebrow="RISK VERIFICATION" title="风控核对" description="查询后自动核实已接规则的订单，通过后人工抽查；关闭页面不影响已启动任务。">
+    <PageHeader eyebrow="RISK VERIFICATION" title="风控核对" description="查询只读已保存结果；点击更新并核实后后台同步最新数据并核算，关闭页面不影响已启动任务。">
       <a-tag color="blue">订单去重 · 含各类盈亏原因</a-tag>
     </PageHeader>
     <FilterPanel stacked :instant="false" :show-reset="false" :loading="loading" :hint="hasPending ? '日期已改变，点击查询后生效' : '按出票时间筛选，结束日期包含当天；同一订单多张票只计1单'">
@@ -9,13 +9,14 @@
         <a-segmented v-model:value="preset" :options="presets" :disabled="loading" @change="applyPreset" />
         <DateRangeField v-model:start="startDate" v-model:end="endDate" :disabled="loading" @change="preset = 'custom'" />
       </template>
-      <template #actions><a-button type="primary" :loading="loading" @click="queryOverview">查询</a-button></template>
+      <template #actions><a-button :loading="loading" @click="queryOverview">查询</a-button><a-button type="primary" :loading="autoRunning" :disabled="loading || autoRunning" @click="startAutomatic()">更新并核实</a-button></template>
     </FilterPanel>
     <a-alert v-if="error" type="error" show-icon :message="error" />
     <a-alert v-if="overview?.dataFreshness" :type="['failed', 'running'].includes(overview.dataFreshness.latestAttempt?.status || '') ? 'warning' : 'info'" show-icon :message="`中台同步数据 · 最早同步 ${overview.dataFreshness.oldestSyncedAt} · 最近同步 ${overview.dataFreshness.newestSyncedAt}`" :description="syncDescription" />
     <a-alert type="info" show-icon message="系统自动核实，人工只抽查与处理异常" :description="`通过无须人工确认；证据不足、执行失败、规则未接入分别列示。当前账号已抽查 ${overview?.sampling?.sampled || 0} 单，其中发现问题 ${overview?.sampling?.disputed || 0} 单。`" />
     <a-alert v-if="autoError" type="error" show-icon :message="autoError" />
-    <div class="auto-actions"><span v-if="autoJob">自动核实 {{ autoJob.startDate || '' }} 至 {{ autoJob.endDate || '' }} · {{ jobLabels[autoJob.status] || autoJob.status }} · {{ autoJob.done }} / {{ autoJob.total }}</span><a-button :loading="autoRunning" :disabled="!applied || loading || autoRunning || (selectedReason !== undefined && selectedReason !== 'RLA013')" @click="startAutomatic(true)">重新核实当前日期的佣金类型</a-button><small>仅已接规则自动执行；单批最多200单，失败不循环重试。</small></div>
+    <div class="auto-actions"><span v-if="autoJob">{{ autoJob.startDate || '' }} 至 {{ autoJob.endDate || '' }} · {{ phaseLabels[autoJob.phase || autoJob.status] || jobLabels[autoJob.status] || autoJob.status }} · 核实 {{ autoJob.done }} / {{ autoJob.total }} · 复用 {{ autoJob.reused || 0 }} 次</span><small>查询不启动任务；更新会同步所选日期。范围最多2000个已接规则订单，失败不循环重试。</small></div>
+    <a-alert v-if="autoJob?.message" :type="autoJob.status === 'failed' ? 'error' : 'info'" show-icon :message="autoJob.message" />
     <div v-if="applied" class="applied-scope"><strong>{{ applied.start }} 至 {{ applied.end }}</strong><span>出票日期 · 已生效范围</span></div>
     <div class="metrics-grid" aria-label="核查概况">
       <button v-for="card in metricCards" :key="card.key" type="button" class="metric-card" :class="card.key" :disabled="!overview || loading" @click="drill(undefined, card.key === 'total' ? 'all' : card.key)">
@@ -75,9 +76,9 @@ const applied = ref<{ start: string; end: string }>()
 const overview = ref<VerificationOverview>()
 const syncDescription = computed(() => {
   const state = overview.value?.dataFreshness.latestAttempt?.status
-  if (state === 'failed') return '最近同步失败，当前仍展示各日上次成功数据。查询和刷新不会重新同步，请联系管理员检查清洗批次。'
+  if (state === 'failed') return '最近同步失败，保留各日上次成功数据。查询不会重试；排查后点击更新并核实，旧核实结果可能已过期。'
   if (state === 'running') return '有同步批次尚未完成，当前显示各日已成功发布的数据；若长期未完成，请管理员检查批次。'
-  return '汇总和列表读取中台目录，刷新不会访问ERP或触发清洗。订单详情按需重新取证，可能比目录更新。'
+  return '查询和详情只读已保存数据；点击更新并核实才同步ERP并重新检查必要证据。展示结果以各日成功批次为准，不代表实时数据。'
 })
 const orders = ref<VerificationOrders>()
 const loading = ref(false)
@@ -90,8 +91,8 @@ const page = ref(1)
 const pageSize = ref(20)
 const ordersPanel = ref<HTMLElement>()
 const hasPending = computed(() => Boolean(applied.value) && (startDate.value !== applied.value?.start || endDate.value !== applied.value?.end))
-const statusLabels: Record<VerificationStatus | 'all', string> = { all: '全部状态', problem: '有问题', supported: '核实通过', insufficient: '证据不足', reviewing: '核实中', unchecked: '待自动核实', failed: '执行失败', rule_pending: '规则未接入' }
-const statusColors: Record<VerificationStatus, string> = { problem: 'red', supported: 'green', insufficient: 'orange', reviewing: 'blue', unchecked: 'default', failed: 'red', rule_pending: 'default' }
+const statusLabels: Record<VerificationStatus | 'all', string> = { outdated: '已过期待更新', all: '全部状态', problem: '有问题', supported: '核实通过', insufficient: '证据不足', reviewing: '核实中', unchecked: '待自动核实', failed: '执行失败', rule_pending: '规则未接入' }
+const statusColors: Record<VerificationStatus, string> = { outdated: 'orange', problem: 'red', supported: 'green', insufficient: 'orange', reviewing: 'blue', unchecked: 'default', failed: 'red', rule_pending: 'default' }
 const statusOptions = Object.entries(statusLabels).filter(([value]) => value !== 'reviewing').map(([value, label]) => ({ value, label }))
 const metricCards: { key: keyof VerificationMetrics; label: string; note: string }[] = [
   { key: 'total', label: '待核查订单', note: '盈亏原因有值 · 订单去重' },
@@ -99,7 +100,8 @@ const metricCards: { key: keyof VerificationMetrics; label: string; note: string
   { key: 'supported', label: '核实通过', note: '系统核实符合，无须人工确认' },
   { key: 'insufficient', label: '证据不足', note: '不能认定符合或有问题' },
   { key: 'failed', label: '执行失败', note: '取证或执行失败，需重试' },
-  { key: 'unchecked', label: '待自动核实', note: '已接规则的新单或版本改变' },
+  { key: 'unchecked', label: '待核实', note: '点击更新并核实启动任务' },
+  { key: 'outdated', label: '已过期', note: '旧结果不计为当前通过' },
   { key: 'rule_pending', label: '规则未接入', note: '不能套用其他类型规则' },
 ]
 const metricKeys = metricCards.map(item => item.key)
@@ -122,16 +124,26 @@ const autoJob = ref<AutoRiskJob | null>(null)
 const autoError = ref('')
 const autoRunning = ref(false)
 const jobLabels: Record<string, string> = { queued: '排队中', running: '执行中', complete: '已完成', failed: '任务失败，可重试' }
-async function startAutomatic(force = false) {
-  if (!alive || !applied.value || (selectedReason.value && selectedReason.value !== 'RLA013')) return
+const phaseLabels: Record<string, string> = { queued: '排队中', refreshing: '同步目录', checking_schema: '检查数据源', refreshing_dictionary: '同步原因字典', verifying: '核对订单', complete: '已完成', failed: '更新失败' }
+async function startAutomatic() {
+  if (!alive || autoRunning.value) return
   autoError.value = ''; autoRunning.value = true
   try {
-    const job = await riskAutomatic.start(applied.value.start, applied.value.end, 'RLA013', force)
+    const job = await riskAutomatic.start(startDate.value || '', endDate.value || '', selectedReason.value)
     if (!alive) return
     autoJob.value = job
     if (job.status === 'queued' || job.status === 'running') schedulePoll()
     else autoRunning.value = false
-  } catch (failure) { if (alive) { autoRunning.value = false; autoError.value = failure instanceof Error ? failure.message : '自动核实任务启动失败' } }
+  } catch (failure) { if (alive) { autoRunning.value = false; autoError.value = failure instanceof Error ? failure.message : '更新核实任务启动失败' } }
+}
+async function loadActiveJob() {
+  try {
+    const job = await riskAutomatic.job()
+    if (!alive) return
+    autoJob.value = job
+    autoRunning.value = Boolean(job && (job.status === 'queued' || job.status === 'running'))
+    if (autoRunning.value) schedulePoll()
+  } catch (failure) { if (alive) autoError.value = failure instanceof Error ? failure.message : '任务状态读取失败' }
 }
 function schedulePoll() {
   if (pollTimer) clearTimeout(pollTimer)
@@ -142,13 +154,13 @@ function schedulePoll() {
       autoJob.value = job
       if (job && (job.status === 'queued' || job.status === 'running')) { schedulePoll(); return }
       autoRunning.value = false
-      await refreshResults()
-      if (job?.status === 'complete' && job.remaining > 0) void startAutomatic(false)
+      if (job && job.startDate === startDate.value && job.endDate === endDate.value) await queryOverview()
+      else await refreshResults()
     } catch (failure) { if (alive) { autoRunning.value = false; autoError.value = failure instanceof Error ? failure.message : '任务进度读取失败，请刷新' } }
   }, 2000)
 }
 onBeforeUnmount(() => { alive = false; summaryRequest++; orderRequest++; if (pollTimer) clearTimeout(pollTimer) })
-onMounted(queryOverview)
+onMounted(() => { void queryOverview(); void loadActiveJob() })
 function count(value: number) { return value.toLocaleString('zh-CN') }
 function catalogVersion(value?: RiskCatalogFreshness) { return value ? `${value.days.map(day => `${day.issue_date}:${day.etl_run_id}`).join('|')}#${value.reasonDictionaryVersion || ''}` : '' }
 function categoryLabel(code: unknown) { return overview.value?.categories.find(item => item.reasonCode === code)?.reasonLabel || String(code || '未分类') }
@@ -170,7 +182,7 @@ async function queryOverview() {
   const first = startDate.value || ''; const last = endDate.value || ''
   try {
     const data = await verificationOverview.summary(first, last)
-    if (alive && request === summaryRequest) { overview.value = data; applied.value = { start: first, end: last }; await loadOrders(); void startAutomatic(false) }
+    if (alive && request === summaryRequest) { overview.value = data; applied.value = { start: first, end: last }; await loadOrders() }
   } catch (failure) { if (alive && request === summaryRequest) error.value = failure instanceof Error ? failure.message : '统计读取失败，请重试' }
   finally { if (alive && request === summaryRequest) loading.value = false }
 }
@@ -217,7 +229,7 @@ async function refreshResults() {
 .verification-overview :deep(.filter-panel) { margin-bottom: 0; }
 .applied-scope, .panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .applied-scope span, .panel-heading span, .panel-heading p, .muted, .block-muted { color: #69768a; font-size: 13px; }
-.metrics-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 12px; }
+.metrics-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .metric-card { display: grid; gap: 8px; padding: 20px 16px; text-align: left; border: 1px solid #e4e9ef; border-radius: 8px; background: #fff; cursor: pointer; color: #182235; }
 .metric-card strong { font-size: 30px; font-weight: 600; }
 .metric-card small { color: #69768a; }

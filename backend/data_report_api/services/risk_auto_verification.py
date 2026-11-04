@@ -1,17 +1,17 @@
 """Deterministic, owner-scoped automatic checks and independent human sampling."""
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
 import hashlib
 import json
 import logging
-from pathlib import Path
-import sqlite3
 import time
 import uuid
 
 from .risk_commission_rule import RULE_ID, evaluate_commission_loss, parse_stop_loss_log
 from .risk_order_evidence import RiskOrderEvidenceService, _rows, order_id
 from .risk_verification_flow import FlowError, _owner
+from .risk_auto_store import RiskAutoStore, StoreConflict
+from .risk_verification_refresh import refresh_range
 
 LOG = logging.getLogger(__name__)
 EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="risk-auto")
@@ -91,17 +91,7 @@ def read_evidence(config, identifier):
         cursor = connection.cursor()
         cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
         cursor.execute("START TRANSACTION READ ONLY")
-        cursor.execute("SELECT id,ota_code,profit_reason_type,update_time FROM order_info WHERE id=%s", (order_id(identifier),))
-        orders = _rows(cursor)
-        if len(orders) != 1:
-            raise FlowError("订单不存在，需重新同步目录", 409)
-        cursor.execute("SELECT id,order_id,issue_profit,sale_commission_amount,sale_currency FROM order_info_issue WHERE order_id=%s ORDER BY id LIMIT 201", (order_id(identifier),))
-        issues = _rows(cursor)
-        cursor.execute("SELECT id,order_id,operator_datetime,LEFT(operator_content,20001) AS operator_content FROM order_info_operator_log WHERE order_id=%s AND operator_content LIKE %s ORDER BY id LIMIT 201", (order_id(identifier), "%止损值配置为%"))
-        logs = _rows(cursor)
-        if any(str(row["order_id"]) != str(identifier) for row in issues + logs):
-            raise FlowError("取证订单关联不一致", 409)
-        return {"order": orders[0], "issues": issues[:200], "logs": logs[:200], "complete": len(issues) <= 200 and len(logs) <= 200}
+        return read_evidence_cursor(cursor, identifier)
     finally:
         if connection is not None:
             try:
@@ -110,32 +100,27 @@ def read_evidence(config, identifier):
                 reader._close(cursor, connection)
 
 
+def read_evidence_cursor(cursor, identifier):
+    cursor.execute("SELECT id,ota_code,profit_reason_type,update_time FROM order_info WHERE id=%s", (order_id(identifier),))
+    orders = _rows(cursor)
+    if len(orders) != 1:
+        raise FlowError("订单不存在，需重新同步目录", 409)
+    cursor.execute("SELECT id,order_id,issue_profit,sale_commission_amount,sale_currency FROM order_info_issue WHERE order_id=%s ORDER BY id LIMIT 201", (order_id(identifier),))
+    issues = _rows(cursor)
+    cursor.execute("SELECT id,order_id,operator_datetime,LEFT(operator_content,20001) AS operator_content FROM order_info_operator_log WHERE order_id=%s AND operator_content LIKE %s ORDER BY id LIMIT 201", (order_id(identifier), "%止损值配置为%"))
+    logs = _rows(cursor)
+    if any(str(row["order_id"]) != str(identifier) for row in issues + logs):
+        raise FlowError("取证订单关联不一致", 409)
+    return {"order": orders[0], "issues": issues[:200], "logs": logs[:200], "complete": len(issues) <= 200 and len(logs) <= 200}
+
+
 class RiskAutoVerification:
     def __init__(self, config):
         self.config = config
-        root = Path(config.get("RISK_VERIFICATION_ROOT") or "/app/var/risk-verification").resolve()
-        root.mkdir(parents=True, exist_ok=True)
-        self.path = root / "workflow.sqlite3"
-        with self.db() as db:
-            db.executescript("""
-                CREATE TABLE IF NOT EXISTS auto_jobs(id TEXT PRIMARY KEY,owner TEXT NOT NULL,status TEXT NOT NULL,updated REAL NOT NULL,body TEXT NOT NULL);
-                CREATE UNIQUE INDEX IF NOT EXISTS auto_active_owner ON auto_jobs(owner) WHERE status IN ('queued','running');
-                CREATE TABLE IF NOT EXISTS auto_results(id TEXT PRIMARY KEY,owner TEXT NOT NULL,order_id TEXT NOT NULL,created REAL NOT NULL,body TEXT NOT NULL);
-                CREATE INDEX IF NOT EXISTS auto_result_owner_order ON auto_results(owner,order_id,created);
-                CREATE TABLE IF NOT EXISTS auto_samples(id TEXT PRIMARY KEY,owner TEXT NOT NULL,result_id TEXT NOT NULL,body TEXT NOT NULL);
-            """)
+        self.store = RiskAutoStore(config)
 
     def db(self):
-        from contextlib import closing
-        # sqlite Connection context alone does not close; use an explicit managed context.
-        from contextlib import contextmanager
-        @contextmanager
-        def managed():
-            with closing(sqlite3.connect(str(self.path), timeout=10)) as db:
-                db.row_factory = sqlite3.Row
-                with db:
-                    yield db
-        return managed()
+        return self.store.db()
 
     def latest(self, owner):
         with self.db() as db:
@@ -144,14 +129,63 @@ class RiskAutoVerification:
             raise FlowError("自动结果超过当前汇总上限，需归档；未返回截断统计", 413)
         return {item["orderId"]: item for item in (json.loads(row["body"]) for row in rows)}
 
-    def active(self, owner):
+    def latest_metadata(self, owner):
+        fields = {"reasonCode": "reasonCode", "sourceUpdatedAt": "sourceUpdatedAt", "status": "status", "ruleVersion": "ruleVersion", "catalogRunId": "catalogRunId", "jobId": "jobId", "issueDate": "issueDate", "checkedAtEpoch": "checkedAtEpoch"}
+        projection = ",".join(f"NULLIF(JSON_UNQUOTE(JSON_EXTRACT(body,'$.{key}')),'null') AS {alias}" for key, alias in fields.items())
         with self.db() as db:
-            db.execute("UPDATE auto_jobs SET status='failed' WHERE owner=? AND status IN ('queued','running') AND updated<?", (_owner(owner), time.time() - 600))
-            row = db.execute("SELECT body,status FROM auto_jobs WHERE owner=? ORDER BY rowid DESC LIMIT 1", (_owner(owner),)).fetchone()
+            rows = db.execute(f"SELECT id,order_id,{projection} FROM auto_results WHERE owner=? AND rowid IN (SELECT MAX(rowid) FROM auto_results WHERE owner=? GROUP BY order_id) LIMIT 20001", (_owner(owner), _owner(owner))).fetchall()
+        if len(rows) > 20000:
+            raise FlowError("自动结果超过当前汇总上限，需归档；未返回截断统计", 413)
+        result = {}
+        for row in rows:
+            item = dict(row)
+            item["checkedAtEpoch"] = float(item.get("checkedAtEpoch") or 0)
+            result[str(item["order_id"])] = item
+        return result
+
+    def refresh_requests(self, owner):
+        with self.db() as db:
+            rows = db.execute("SELECT body,status FROM auto_jobs WHERE owner=? ORDER BY rowid DESC LIMIT 20001", (_owner(owner),)).fetchall()
+        if len(rows) > 20000:
+            raise FlowError("更新任务历史超过当前统计上限，需归档；未返回截断状态", 413)
+        by_day = {}
+        for row in rows:
+            body = json.loads(row["body"])
+            if body.get("mode") != "refresh_verify":
+                continue
+            day, last = date.fromisoformat(body["startDate"]), date.fromisoformat(body["endDate"])
+            while day <= last:
+                # Only the newest request for a day can invalidate a result.
+                key = day.isoformat()
+                if key not in by_day or body["createdAtEpoch"] > by_day[key]["createdAtEpoch"]:
+                    by_day[key] = body
+                day += timedelta(days=1)
+        return by_day
+
+    @classmethod
+    def current(cls, result, row, requests):
+        if not cls.matches(result, row):
+            return False
+        day = str(row.get("issue_date") or result.get("issueDate") or "")
+        relevant = ([requests[day]] if day in requests else []) if isinstance(requests, dict) else requests
+        for request in relevant:
+            if (request["id"] != result.get("jobId")
+                    and request.get("startDate", "") <= day <= request.get("endDate", "")
+                    and request.get("createdAtEpoch", 0) >= result.get("checkedAtEpoch", 0)):
+                return False
+        return True
+
+    def active(self, owner, reclaim=False):
+        with self.db() as db:
+            if reclaim:
+                db.execute("UPDATE auto_jobs SET status='failed' WHERE owner=? AND status IN ('queued','running') AND updated<?", (_owner(owner), time.time() - 600))
+            row = db.execute("SELECT body,status,updated FROM auto_jobs WHERE owner=? ORDER BY rowid DESC LIMIT 1", (_owner(owner),)).fetchone()
         if row is None:
             return None
         body = json.loads(row["body"])
-        body["status"] = row["status"]
+        body["status"] = "failed" if row["status"] in {"queued", "running"} and row["updated"] < time.time() - 600 else row["status"]
+        if body["status"] == "failed" and row["status"] != "failed":
+            body.update(phase="failed", message="任务已中断或失去心跳，点击更新并核实可重新启动")
         body.pop("targets", None)
         return body
 
@@ -162,6 +196,16 @@ class RiskAutoVerification:
                 return None
             body = json.loads(row["body"])
             body["samples"] = [json.loads(item["body"]) for item in db.execute("SELECT body FROM auto_samples WHERE owner=? AND result_id=? ORDER BY rowid DESC", (_owner(owner), body["id"]))]
+        from .risk_verification_catalog import RiskVerificationCatalog
+        catalog = RiskVerificationCatalog(self.config)
+        connection = cursor = None
+        try:
+            connection = catalog._connect(); cursor = connection.cursor()
+            cursor.execute("SELECT order_id AS id,profit_reason_type,update_time,etl_run_id,issue_date FROM bi_risk_order_day WHERE order_id=%s ORDER BY issue_date DESC LIMIT 1", (order_id(identifier),))
+            rows = _rows(cursor)
+            body["isCurrent"] = bool(rows and self.current(body, rows[0], self.refresh_requests(owner)))
+        finally:
+            catalog._close(cursor, connection)
         return body
 
     def sampling(self, owner):
@@ -175,16 +219,16 @@ class RiskAutoVerification:
             raise FlowError("抽查结果和说明必填，说明最多2000字")
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
-            current = db.execute("SELECT id,body FROM auto_results WHERE owner=? AND order_id=? ORDER BY rowid DESC LIMIT 1", (_owner(owner), str(order_id(identifier)))).fetchone()
+            current = db.execute("SELECT id,body FROM auto_results WHERE owner=? AND order_id=? ORDER BY rowid DESC LIMIT 1 FOR UPDATE", (_owner(owner), str(order_id(identifier)))).fetchone()
             if current is None or current["id"] != expected_id:
                 raise FlowError("自动结果已改变，请刷新后再抽查", 409)
             catalog = RiskVerificationCatalog(self.config)
             connection = cursor = None
             try:
                 connection = catalog._connect(); cursor = connection.cursor()
-                cursor.execute("SELECT order_id AS id,profit_reason_type,update_time FROM bi_risk_order_day WHERE order_id=%s ORDER BY issue_date DESC LIMIT 1", (order_id(identifier),))
+                cursor.execute("SELECT order_id AS id,profit_reason_type,update_time,etl_run_id,issue_date FROM bi_risk_order_day WHERE order_id=%s ORDER BY issue_date DESC LIMIT 1", (order_id(identifier),))
                 rows = _rows(cursor)
-                if not rows or not self.matches(json.loads(current["body"]), rows[0]):
+                if not rows or not self.current(json.loads(current["body"]), rows[0], self.refresh_requests(owner)):
                     raise FlowError("源版本已改变，需重新核实后再抽查", 409)
             finally:
                 catalog._close(cursor, connection)
@@ -193,49 +237,33 @@ class RiskAutoVerification:
         return body
 
     def submit(self, owner, start, end, reason=None, force=False):
-        from .risk_verification_catalog import RiskVerificationCatalog
-        from .risk_verification_overview import RiskVerificationOverview, _period
-        if reason is not None and (not isinstance(reason, str) or reason != "RLA013"):
-            raise FlowError("当前类型规则未接入，不能自动套用佣金规则")
+        from .risk_verification_overview import _period
+        _period(start, end)
+        if reason is not None and (not isinstance(reason, str) or not reason or len(reason) > 120):
+            raise FlowError("盈亏原因参数无效")
         if type(force) is not bool:
             raise FlowError("重新核实标记须为布尔值")
-        first, last = _period(start, end)
-        active = self.active(owner)
+        active = self.active(owner, reclaim=True)
         if active and active["status"] in {"queued", "running"}:
             return active
-        catalog = RiskVerificationCatalog(self.config)
-        connection = cursor = None
-        try:
-            connection = catalog._connect(); cursor = connection.cursor()
-            catalog.coverage(cursor, first, last)
-            scope, values = RiskVerificationOverview._scope(first, last, "RLA013")
-            # Explicit capacity gate: never label a truncated candidate set complete.
-            cursor.execute(f"SELECT o.order_id AS id,o.profit_reason_type,o.update_time FROM bi_risk_order_day o WHERE {scope} ORDER BY o.order_id LIMIT 2001", tuple(values))
-            rows = _rows(cursor)
-            if len(rows) > 2000:
-                raise FlowError("当前范围超过2000单，请缩小出票日期后自动核实", 413)
-        finally:
-            catalog._close(cursor, connection)
-        latest = self.latest(owner)
-        if force and len(rows) > 200:
-            raise FlowError("单次重新核实最多200单，请缩小日期范围", 413)
-        targets = rows if force else [row for row in rows if not self.matches(latest.get(str(row["id"])), row)]
-        remaining = max(0, len(targets) - 200)
-        targets = targets[:200]
-        if not targets:
-            return {"id": None, "status": "complete", "done": 0, "total": 0, "remaining": 0}
-        body = {"id": uuid.uuid4().hex, "status": "queued", "done": 0, "total": len(targets), "remaining": remaining, "startDate": start, "endDate": end, "createdAt": now(), "targets": targets}
+        body = {"id": uuid.uuid4().hex, "status": "queued", "phase": "queued", "done": 0, "total": 0,
+                "remaining": 0, "startDate": start, "endDate": end, "reason": reason, "force": force,
+                "createdAt": now(), "createdAtEpoch": time.time(), "mode": "refresh_verify", "refreshedRows": 0, "reused": 0}
         try:
             with self.db() as db:
                 db.execute("INSERT INTO auto_jobs VALUES(?,?,?,?,?)", (body["id"], _owner(owner), "queued", time.time(), json.dumps(body, ensure_ascii=False)))
-        except sqlite3.IntegrityError:
+        except StoreConflict:
             return self.active(owner)
         EXECUTOR.submit(self.work, _owner(owner), body["id"])
-        return {key: value for key, value in body.items() if key != "targets"}
+        return body
 
     @staticmethod
     def matches(result, row):
-        return bool(result and result["reasonCode"] == row["profit_reason_type"] and stamp(result["sourceUpdatedAt"]) == stamp(row["update_time"]) and result["ruleVersion"] == RULE_ID)
+        return bool(result and result["reasonCode"] == row["profit_reason_type"]
+                    and stamp(result["sourceUpdatedAt"]) == stamp(row["update_time"])
+                    and result["ruleVersion"] == RULE_ID
+                    and result.get("catalogRunId") is not None
+                    and result["catalogRunId"] == row.get("etl_run_id"))
 
     def work(self, owner, job_id):
         with self.db() as db:
@@ -243,35 +271,78 @@ class RiskAutoVerification:
             if row is None:
                 return
             body = json.loads(row["body"])
-            if db.execute("UPDATE auto_jobs SET status='running',updated=? WHERE id=? AND status='queued'", (time.time(), job_id)).rowcount != 1:
+            if db.execute("UPDATE auto_jobs SET status='running',updated=? WHERE id=? AND status='queued' AND updated>=?", (time.time(), job_id, time.time() - 600)).rowcount != 1:
                 return
-        try:
-            for target in body["targets"]:
-                result = {"id": uuid.uuid4().hex, "orderId": str(target["id"]), "reasonCode": target["profit_reason_type"], "sourceUpdatedAt": target["update_time"], "checkedAt": now(), "ruleVersion": RULE_ID, "jobId": job_id}
-                try:
-                    evidence = read_evidence(self.config, target["id"])
-                    if evidence["order"]["profit_reason_type"] != target["profit_reason_type"] or stamp(evidence["order"].get("update_time")) != stamp(target["update_time"]):
-                        computed = {"status": "insufficient", "summary": "ERP源版本已改变，请先同步目录再重新核实", "tickets": [], "missing": ["同版本目录"]}
-                    else:
-                        computed = evaluate(evidence)
-                    result.update(computed)
-                    result["evidenceHash"] = hashlib.sha256(json.dumps(evidence, ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
-                except FlowError as error:
-                    result.update(status="insufficient", summary=str(error), tickets=[], missing=["有效的同单证据"])
-                except Exception:
-                    LOG.exception("Automatic risk evidence/check failed")
-                    result.update(status="failed", summary="自动取证或核算失败，请重试或联系管理员查看服务日志", tickets=[], missing=[])
-                with self.db() as db:
-                    # A reclaimed/failed job must not publish late results.
-                    active = db.execute("SELECT status FROM auto_jobs WHERE id=? AND owner=?", (job_id, owner)).fetchone()
-                    if active is None or active["status"] != "running":
-                        return
-                    db.execute("INSERT INTO auto_results VALUES(?,?,?,?,?)", (result["id"], owner, result["orderId"], time.time(), json.dumps(result, ensure_ascii=False)))
+        latest = {}
+        seen = set()
+
+        def progress(event):
+            body.update({key: value for key, value in event.items() if key in {"phase", "day", "sourceRows", "publishedRows"}})
+            with self.db() as db:
+                if db.execute("UPDATE auto_jobs SET updated=?,body=? WHERE id=? AND owner=? AND status='running' AND updated>=?", (time.time(), json.dumps(body, ensure_ascii=False), job_id, owner, time.time() - 600)).rowcount != 1:
+                    raise FlowError("任务已失效，未继续发布结果", 409)
+
+        def prepare(source_cursor, target_cursor, day, run_id):
+            if body.get("reason") not in {None, "RLA013"}:
+                return None
+            # Read the ETL staging rows, then use the SAME ERP repeatable-read snapshot.
+            target_cursor.execute("SELECT order_id AS id,profit_reason_type,update_time FROM risk_order_day_stage WHERE profit_reason_type=%s ORDER BY order_id LIMIT 2001", ("RLA013",))
+            targets = _rows(target_cursor)
+            if len(seen | {str(row["id"]) for row in targets}) > 2000:
+                raise FlowError("当前范围超过2000单，请缩小日期范围后更新核实", 413)
+            new_ids = {str(row["id"]) for row in targets} - seen
+            seen.update(str(row["id"]) for row in targets)
+            body["total"] += len(new_ids)
+            progress({"phase": "verifying", "day": day.isoformat()})
+            results = []
+            for target in targets:
+                result = {"id": uuid.uuid4().hex, "orderId": str(target["id"]), "reasonCode": target["profit_reason_type"],
+                          "sourceUpdatedAt": stamp(target["update_time"]), "catalogRunId": run_id,
+                          "checkedAt": now(), "checkedAtEpoch": time.time(), "issueDate": day.isoformat(), "ruleVersion": RULE_ID, "jobId": job_id}
+                evidence = read_evidence_cursor(source_cursor, target["id"])
+                if evidence["order"]["profit_reason_type"] != target["profit_reason_type"] or stamp(evidence["order"].get("update_time")) != stamp(target["update_time"]):
+                    raise FlowError("同一源快照数据不一致，本日未发布，请重新更新核实", 409)
+                digest = hashlib.sha256(json.dumps(evidence, ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
+                previous = latest.get(str(target["id"]))
+                if (not body.get("force") and previous and previous.get("evidenceHash") == digest
+                        and previous.get("ruleVersion") == RULE_ID
+                        and previous.get("status") in {"supported", "problem"}):
+                    computed = {key: value for key, value in previous.items() if key in {"status", "summary", "tickets", "platform", "stopLoss", "logReferences", "missing"}}
+                    result["reusedFrom"] = previous["id"]
+                    body["reused"] += 1
+                else:
+                    computed = evaluate(evidence)
+                result.update(computed)
+                result["evidenceHash"] = digest
+                results.append(result)
+                latest[result["orderId"]] = result
+                if result["orderId"] in new_ids:
                     body["done"] += 1
-                    db.execute("UPDATE auto_jobs SET updated=?,body=? WHERE id=?", (time.time(), json.dumps(body, ensure_ascii=False), job_id))
+                progress({"phase": "verifying"})
+
+            def publish(cursor):
+                # Publication shares the directory transaction: rollback includes results.
+                cursor.execute("SELECT status,updated FROM bi_risk_auto_jobs WHERE id=%s AND owner=%s FOR UPDATE", (job_id, owner))
+                states = _rows(cursor)
+                if len(states) != 1 or states[0]["status"] != "running" or states[0]["updated"] < time.time() - 600:
+                    raise FlowError("任务已失效，本日未发布", 409)
+                for result in results:
+                    cursor.execute("INSERT INTO bi_risk_auto_results (id,owner,order_id,created,body) VALUES (%s,%s,%s,%s,%s)",
+                                   (result["id"], owner, result["orderId"], time.time(), json.dumps(result, ensure_ascii=False)))
+            return publish
+
+        try:
+            latest = self.latest(owner)
+            progress({"phase": "refreshing"})
+            refreshed = refresh_range(self.config, body["startDate"], body["endDate"], progress, prepare)
+            body.update(status="complete", phase="complete", refreshedRows=refreshed["rows"], syncRunId=refreshed["runId"])
+            body["message"] = "目录与核实结果已更新" if body["total"] else "目录已更新；所选范围没有已接规则的订单"
             with self.db() as db:
-                db.execute("UPDATE auto_jobs SET status='complete',updated=? WHERE id=? AND status='running'", (time.time(), job_id))
-        except Exception:
-            LOG.exception("Automatic risk job failed")
+                db.execute("UPDATE auto_jobs SET status='complete',updated=?,body=? WHERE id=? AND owner=? AND status='running'", (time.time(), json.dumps(body, ensure_ascii=False), job_id, owner))
+        except Exception as error:
+            LOG.exception("Manual risk refresh/verification failed")
+            from .risk_order_sync_generated import ETLError
+            message = str(error) if isinstance(error, (FlowError, ETLError)) else "更新核实失败，请检查数据源、目录写入权限与服务日志；旧记录已保留"
+            body.update(status="failed", phase="failed", message=message)
             with self.db() as db:
-                db.execute("UPDATE auto_jobs SET status='failed',updated=? WHERE id=?", (time.time(), job_id))
+                db.execute("UPDATE auto_jobs SET status='failed',updated=?,body=? WHERE id=? AND owner=?", (time.time(), json.dumps(body, ensure_ascii=False), job_id, owner))

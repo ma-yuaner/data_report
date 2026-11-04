@@ -40,7 +40,7 @@ class RiskVerificationCatalog:
         expected = [(first + timedelta(days=index)).isoformat() for index in range((last - first).days + 1)]
         missing = [day for day in expected if day not in seen]
         if missing:
-            raise EvidenceError("风控目录未同步出票日期：" + ",".join(missing) + "；请先执行独立清洗脚本，未同步不代表零订单", 409)
+            raise EvidenceError("风控目录未同步出票日期：" + ",".join(missing) + "；请点击更新并核实，未同步不代表零订单", 409)
         cursor.execute("""SELECT order_id FROM bi_risk_order_day
             WHERE issue_date >= %s AND issue_date <= %s GROUP BY order_id
             HAVING COUNT(DISTINCT CAST(profit_reason_type AS BINARY)) > 1

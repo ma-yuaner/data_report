@@ -9,6 +9,7 @@ from ..services.risk_verification_flow import FlowError, RiskVerificationFlow
 from ..services.risk_verification_ai import RiskAI
 from ..services.risk_verification_overview import RiskVerificationOverview
 from ..services.risk_auto_verification import RiskAutoVerification
+from ..services.risk_auto_store import StoreUnavailable
 
 
 def _call(action):
@@ -21,6 +22,8 @@ def _call(action):
         return response
     except (EvidenceError, FlowError) as error:
         return jsonify(success=False, message=str(error), data=None), error.status
+    except StoreUnavailable as error:
+        return jsonify(success=False, message=str(error), data=None), 503
     except Exception:
         logging.getLogger(__name__).exception("Risk verification request failed")
         return jsonify(success=False, message="风控核对暂不可用，请联系管理员核对服务日志", data=None), 503
@@ -46,6 +49,8 @@ def register_routes(api):
     def risk_automatic_submit():
         def submit(owner):
             values = _body()
+            if values.get("mode") != "refresh_verify":
+                raise EvidenceError("请更新页面后使用‘更新并核实’按钮；查询不会启动任务")
             return RiskAutoVerification(dict(current_app.config)).submit(owner, values.get("startDate"), values.get("endDate"), values.get("reason"), values.get("force", False))
         return _call(submit)
 
