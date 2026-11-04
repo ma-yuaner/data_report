@@ -709,3 +709,12 @@ ETL交付：`391711b`已推GitLab，生产执行脚本路径和四段依赖保�
 - 本轮事实与参数边界复核、31个相对链接、2个锚点、代码围栏配对、5份文档的变更范围、README静态清单（36个菜单项/114个接口条目）及`git diff --check`均通过。不运行应用测试/ETL/DDL，不查询或等待CI。
 
 实际角色：明策（主会话，评估、需求与清单固化）、明鉴（主会话，合成场景及文档核对）；绘景、星桥、磐石未启用，独立子代理未启动。文档按项目约定提交推送，两端结果以本轮Git回执为准。
+
+
+## 风控目录与独立ETL性能整改（2026-11-04，RISK-CATALOG-20261104）
+
+用户提供e28822e在247单日overview的504/MySQL2013超时日志，请求132479.4ms，原版性能验收失败；随后批准sibebid建表SQL、ETL独立清洗仓库及查询改造。/root集成应用，/root/risk_catalog_etl实现ETL/DDL/说明，结束后/root/risk_final_review只读复核；跨日版本P2已修并复核关闭，任一时刻一子代理，无派生/查库/外部模型调用。
+
+本地：目录初轮与原流程81通过、最终目录16通过、ETL25通过、真实本地HTTP及8组件状态场景通过，类型/lint/构建通过。10万去重订单合成SQLite汇总215.348ms、首屏283.738ms，不冒充247性能。完整证据、指令及局限见[交付记录](../development/risk-verification-delivery.md#risk-catalog-20261104直查超时整改交付)与[目录设计](../product/risk-verification-catalog-v1.md)。原SQLite核查历史保留，页面仅查sibebid，缺同步或范围内源版本冲突拒绝，不回退ERP。
+
+未执行生产DDL/同步/调度/部署/业务验收。下一步部署人先建三表、check-schema及显式日期同步，再更新应用，在247验收单日3秒目标及下钻一致性。清洗脚本在data-team-repo/etl_scripts/automation/risk_verification_order_day_etl.py；SQL在本仓库docs/sql/risk-verification-catalog-v1.sql。其他已有脏文件不纳入。

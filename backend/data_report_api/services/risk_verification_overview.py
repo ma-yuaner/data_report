@@ -2,14 +2,16 @@
 from datetime import date, timedelta
 import logging
 
-from .risk_order_evidence import EvidenceError, RiskOrderEvidenceService, _rows
+from .risk_order_evidence import EvidenceError, _rows
+from .risk_verification_catalog import RiskVerificationCatalog
 from .risk_verification_flow import FlowError, RiskVerificationFlow
 
 LOGGER = logging.getLogger(__name__)
 STATES = ("problem", "supported", "insufficient", "reviewing", "unchecked")
-FIELDS = "o.id,o.order_no,o.ota_order_no,o.ota_code,o.profit_reason_type,o.create_time,o.update_time"
+FIELDS = "o.order_id AS id,o.order_no,o.ota_order_no,o.ota_code,o.profit_reason_type,o.create_time,o.update_time"
 NOTES = [
-    "按出票日期限定订单，期间内有出票记录的订单按内部订单ID去重；多张票不重复计订单数。",
+    "读取中台ETL目录，不实时扫描ERP；按出票日期限定，跨日或多票均按内部订单ID去重。",
+    "数据截止各日最近一次成功同步；刷新页面不会触发同步。详情仍按单读取ERP，目录与实单可能存在时间差。",
     "有问题仅指当前账号最新人工确认选因或依据不符合规则，不以亏损或AI建议直接计数。",
     "核查结果来自当时证据快照；原因或订单更新时间变化后退回未核查。尚未检测所有子表和日志的后续变化，不代表实时重算。",
     "未核查、核查中和证据不足不等于没有问题；尚无自动核查结论。",
@@ -46,14 +48,15 @@ def _metrics(total=0):
 class RiskVerificationOverview:
     def __init__(self, config, source=None):
         self.config = config
-        self.reader = RiskOrderEvidenceService(config, source)
+        self.reader = RiskVerificationCatalog(config, source)
 
     @staticmethod
     def _scope(first, last, reason=None):
-        sql = """o.profit_reason_type IS NOT NULL AND TRIM(o.profit_reason_type) <> ''
-                 AND EXISTS (SELECT 1 FROM order_info_issue i WHERE i.order_id=o.id
-                             AND i.issue_ticket_time >= %s AND i.issue_ticket_time < %s)"""
-        values = [first.isoformat(), (last + timedelta(days=1)).isoformat()]
+        sql = """o.issue_date >= %s AND o.issue_date <= %s
+                 AND NOT EXISTS (SELECT 1 FROM bi_risk_order_day newer
+                     WHERE newer.order_id=o.order_id AND newer.issue_date>o.issue_date
+                       AND newer.issue_date<=%s)"""
+        values = [first.isoformat(), last.isoformat(), last.isoformat()]
         if reason is not None:
             if not isinstance(reason, str) or not reason or len(reason) > 120:
                 raise EvidenceError("盈亏原因分类参数无效")
@@ -65,10 +68,10 @@ class RiskVerificationOverview:
         latest = RiskVerificationFlow(self.config).latest_case_summaries(owner)
         statuses = {}
         identifiers = list(latest)
-        for start in range(0, len(identifiers), 300):
-            chunk = identifiers[start:start + 300]
+        for start in range(0, len(identifiers), 1000):
+            chunk = identifiers[start:start + 1000]
             marks = ",".join(["%s"] * len(chunk))
-            cursor.execute(f"SELECT o.id,o.profit_reason_type,o.update_time FROM order_info o WHERE {scope} AND o.id IN ({marks})", (*parameters, *chunk))
+            cursor.execute(f"SELECT o.order_id AS id,o.profit_reason_type,o.update_time FROM bi_risk_order_day o WHERE {scope} AND o.order_id IN ({marks})", (*parameters, *chunk))
             for row in _rows(cursor):
                 case = latest[str(row["id"])]
                 if str(case["reasonCode"]) == str(row["profit_reason_type"]) and _stamp(case["sourceUpdatedAt"]) == _stamp(row["update_time"]):
@@ -82,7 +85,8 @@ class RiskVerificationOverview:
         try:
             connection = self.reader._connect()
             cursor = connection.cursor()
-            cursor.execute(f"SELECT o.profit_reason_type AS reason_code,COUNT(*) AS order_count FROM order_info o WHERE {scope} GROUP BY o.profit_reason_type", tuple(values))
+            freshness = self.reader.coverage(cursor, first, last)
+            cursor.execute(f"SELECT o.profit_reason_type AS reason_code,COUNT(*) AS order_count FROM bi_risk_order_day o WHERE {scope} GROUP BY o.profit_reason_type", tuple(values))
             groups = _rows(cursor)
             categories = {}
             for row in groups:
@@ -108,12 +112,12 @@ class RiskVerificationOverview:
             return {"period": {"startDate": first.isoformat(), "endDate": last.isoformat()},
                     "dateBasis": "issue_ticket_time", "metrics": metrics,
                     "categories": sorted(categories.values(), key=lambda row: (-row["total"], row["reasonCode"])),
-                    "notes": NOTES}
+                    "notes": NOTES, "dataFreshness": freshness}
         except (EvidenceError, FlowError):
             raise
         except Exception:
             LOGGER.exception("Risk verification overview failed")
-            raise EvidenceError("风控核对汇总失败，请检查ERP字段、读取权限及核查存储", 503) from None
+            raise EvidenceError("风控核对汇总失败，请检查sibebid目录表、同步批次及核查存储", 503) from None
         finally:
             self.reader._close(cursor, connection)
 
@@ -128,32 +132,33 @@ class RiskVerificationOverview:
         try:
             connection = self.reader._connect()
             cursor = connection.cursor()
+            freshness = self.reader.coverage(cursor, first, last)
             statuses = self._statuses(cursor, owner, scope, values)
             selected = [identifier for identifier, item in statuses.items() if item["status"] == status]
             if status != "all":
                 if status == "unchecked":
                     excluded = [identifier for identifier, item in statuses.items() if item["status"] != "unchecked"]
                     if excluded:
-                        scope += " AND o.id NOT IN (" + ",".join(["%s"] * len(excluded)) + ")"
+                        scope += " AND o.order_id NOT IN (" + ",".join(["%s"] * len(excluded)) + ")"
                         values.extend(excluded)
                 elif selected:
-                    scope += " AND o.id IN (" + ",".join(["%s"] * len(selected)) + ")"
+                    scope += " AND o.order_id IN (" + ",".join(["%s"] * len(selected)) + ")"
                     values.extend(selected)
                 else:
                     scope += " AND 1=0"
-            cursor.execute(f"SELECT COUNT(*) AS order_count FROM order_info o WHERE {scope}", tuple(values))
+            cursor.execute(f"SELECT COUNT(*) AS order_count FROM bi_risk_order_day o WHERE {scope}", tuple(values))
             total = int(_rows(cursor)[0]["order_count"])
-            cursor.execute(f"SELECT {FIELDS} FROM order_info o WHERE {scope} ORDER BY o.id DESC LIMIT %s OFFSET %s", (*values, page_size, (page - 1) * page_size))
+            cursor.execute(f"SELECT {FIELDS} FROM bi_risk_order_day o WHERE {scope} ORDER BY o.order_id DESC LIMIT %s OFFSET %s", (*values, page_size, (page - 1) * page_size))
             rows = _rows(cursor)
             for row in rows:
                 review = statuses.get(str(row["id"]), {})
                 row.update(verificationStatus=review.get("status", "unchecked"), caseId=review.get("caseId"))
             return {"items": rows, "total": total, "page": page, "pageSize": page_size,
-                    "period": {"startDate": first.isoformat(), "endDate": last.isoformat()}, "dateBasis": "issue_ticket_time"}
+                    "period": {"startDate": first.isoformat(), "endDate": last.isoformat()}, "dateBasis": "issue_ticket_time", "dataFreshness": freshness}
         except (EvidenceError, FlowError):
             raise
         except Exception:
             LOGGER.exception("Risk verification order drilldown failed")
-            raise EvidenceError("风控核对订单读取失败，请检查ERP字段、读取权限及核查存储", 503) from None
+            raise EvidenceError("风控核对订单读取失败，请检查sibebid目录表、同步批次及核查存储", 503) from None
         finally:
             self.reader._close(cursor, connection)

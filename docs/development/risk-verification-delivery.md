@@ -174,3 +174,27 @@ docker compose exec -T api python -m data_report_api.services.risk_case_diagnost
 部署人仍在247现有项目目录执行 `git pull --ff-only origin main && bash scripts/deploy_risk_verification.sh`，此次业务代码改变需要完整构建，不能只用verify-only。预期脚本退出0后，管理员进入1818的 `/risk-verification`，选获准的出票日期，验证类型总数/状态下钻一致、同单多票只算一单、人工确认后刷新。失败保存脱敏输出并停止，不清卷或重复请求模型。健康、实际取证、真实AI及业务结论须分别验收，当前业务验收未完成。
 
 最终类型检查：2026-11-04 14:59:12+08:00启动，25.256秒、退出0；最终复核全部通过。本段仅记录本地工程验收，不能替代247业务验收。
+
+## RISK-CATALOG-20261104：直查超时整改交付
+
+对象基线为e28822e。用户提供247日志：单日overview于15:11:03收到Nginx upstream timeout/504；15:11:12后端MySQL2013 timed out；最终请求132479.4ms、认证102.9ms、状态503。确认原版性能验收失败，未取得具体SQL计划，不宣称唯一是缺索引。用户随后明确批准建表SQL放sibebid、ETL放独立清洗仓库。
+
+实现：新RiskVerificationCatalog仅连接中台MYSQL_DATABASE=sibebid，覆盖、分类及分页只读查询，不回退ERP；原ERP详情取证保留。独立ETL按日期分批读取、临时表去重、逐日事务切换和覆盖记录、命名锁、源日期索引/EXPLAIN及目标结构/类型门禁，失败保留旧数据。三张表只提供DDL，不自动建表；当前核查状态仍SQLite个人隔离，不双写迁移。首版按日重跑，不冒充修改时间水位增量、CDC或页级续跑。完整契约及操作顺序见docs/product/risk-verification-catalog-v1.md及ETL仓库docs/business/air_ticketing/risk-verification-etl.md。
+
+实际执行者：/root负责应用API/目录读取、UI、集成及验收；/root/risk_catalog_etl独立实现上述ETL、DDL及ETL说明和本地测试，完成后停止写入；随后/root/risk_final_review只读审查，发现跨日不同源版本被日期排序覆盖的P2。主代理增加同事务版本冲突拒绝及4项回归，复核确认P2关闭。任一时刻仅一个活动子代理，未派生、查库或联网。技能为chief-of-staff与frontend-design。其他已有脏文件保留，公共DataSource/配置和MYE未改。
+
+本地证据目录：.test-artifacts/evidence/risk-catalog-20261104/。精确命令及工作目录、时间、耗时、退出码保存在各*-record.json，原始输出为同名.log；checks.py保存复现入口。使用bundled Python，复用项目依赖，不启动已知损坏venv/Ruff入口。
+
+完整复现命令：仓库根运行 C:/Users/Administrator/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe .test-artifacts/evidence/risk-catalog-20261104/checks.py <mode>，mode为python、catalog、http、ui-state、type、lint、build；ETL独立测试完整pytest命令在etl-tests-record.json；容量脚本同目录benchmark.py。均为本地合成数据，不连接真实ERP、MySQL或DeepSeek。
+
+真实输出：
+
+- 初轮目录12项加69项既有流程组合：81 passed in 5.72s，进程6.412秒、退出0。随后目录冲突修复仅重跑直接受影响16项：16 passed in 2.28s，15:34:10+08:00启动、进程3.185秒、退出0；69项未变流程复用该初轮证据，不重复运行。首次夹具将列表SELECT误计为状态批读导致1 failed/11 passed，已细化查询匹配；首次失败见本会话真实工具输出，catalog.log为最终通过结果。
+- ETL：25 passed in 0.12s，15:29:44+08:00、进程0.609秒、退出0；模拟源/目标连接覆盖重复票分页、事务失败旧日、空日、锁、日期/索引/类型门禁。离线preview退出0，AST语法通过。没有运行真实MySQL语法或事务。
+- 最终真实本地HTTP：passed=true，15:34:12至15:34:15+08:00，2.658秒；Flask认证/CSRF、目录统计/列表、取证、人工确认及知识流程通过，3次本地替身模型协议调用。realERP=false、realDeepSeek=false、productionOperations=false。
+- Vue setup：7项原总览状态场景及新增同步批次不一致拒绝，共8场景通过；最终15:32:45+08:00启动、1.287秒、退出0。非浏览器点击。
+- 最终类型检查18.210秒、ESLint3.429秒均退出0；构建built in 21.02s，进程22.418秒、退出0，保留既有大分块警告。页面补运行中/失败同步提示后进行类型、lint及状态补验；后端随后变化不重复前端构建。未新增Ant组件，复用72页组件登记证据。
+- 最终本地容量：101000日行、100000去重订单、1000案例匹配，汇总215.348ms、首屏283.738ms，passed=true。冲突门禁变化使原120.096/148.837ms基准失效，因此补验；benchmark.json为新结果。只证明合成SQLite容量/SQL逻辑，不证明247 MySQL延迟。
+- README检查：48 menu entries;205 HTTP method/path entries，退出0；差异空白检查通过。
+
+验收结论：本地工程通过，未执行生产DDL/同步/调度/部署，真实ERP索引、MySQL兼容、网络与247单日3秒目标未验。浏览器禁用状态未变化，不绕过。服务器需先在确认的sibebid执行完整DDL，再在清洗仓库preview/check-schema/显式日期同步，成功后部署API/web并验收；缺日期不能显示成零。不要只更新应用后继续刷新原ERP请求，也不要把健康UP当取证或业务验收。

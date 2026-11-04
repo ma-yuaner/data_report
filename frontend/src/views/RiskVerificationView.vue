@@ -12,6 +12,7 @@
       <template #actions><a-button type="primary" :loading="loading" @click="queryOverview">查询</a-button></template>
     </FilterPanel>
     <a-alert v-if="error" type="error" show-icon :message="error" />
+    <a-alert v-if="overview?.dataFreshness" :type="['failed', 'running'].includes(overview.dataFreshness.latestAttempt?.status || '') ? 'warning' : 'info'" show-icon :message="`中台同步数据 · 最早同步 ${overview.dataFreshness.oldestSyncedAt} · 最近同步 ${overview.dataFreshness.newestSyncedAt}`" :description="syncDescription" />
     <a-alert type="info" show-icon message="有问题指核查后发现选因或依据不符合规则，不是亏损本身" description="以下结果按当前登录人的最新人工核查记录统计。未核查、核查中、证据不足分别列示；尚未接入规则的类型也会展示，不自动判为正常。" />
     <div v-if="applied" class="applied-scope"><strong>{{ applied.start }} 至 {{ applied.end }}</strong><span>出票日期 · 已生效范围</span></div>
     <div class="metrics-grid" aria-label="核查概况">
@@ -61,7 +62,7 @@ import PageHeader from '@/components/PageHeader.vue'
 import FilterPanel from '@/components/FilterPanel.vue'
 import DateRangeField from '@/components/DateRangeField.vue'
 import RiskVerificationCasePanel from '@/components/RiskVerificationCasePanel.vue'
-import { verificationOverview, type VerificationCategory, type VerificationMetrics, type VerificationOrder, type VerificationOrders, type VerificationOverview, type VerificationStatus } from '@/api/riskVerification'
+import { verificationOverview, type RiskCatalogFreshness, type VerificationCategory, type VerificationMetrics, type VerificationOrder, type VerificationOrders, type VerificationOverview, type VerificationStatus } from '@/api/riskVerification'
 
 const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date())
 const startDate = ref(today)
@@ -70,6 +71,12 @@ const preset = ref('today')
 const presets = [{ label: '今日', value: 'today' }, { label: '昨日', value: 'yesterday' }, { label: '本月', value: 'month' }, { label: '自定义', value: 'custom' }]
 const applied = ref<{ start: string; end: string }>()
 const overview = ref<VerificationOverview>()
+const syncDescription = computed(() => {
+  const state = overview.value?.dataFreshness.latestAttempt?.status
+  if (state === 'failed') return '最近同步失败，当前仍展示各日上次成功数据。查询和刷新不会重新同步，请联系管理员检查清洗批次。'
+  if (state === 'running') return '有同步批次尚未完成，当前显示各日已成功发布的数据；若长期未完成，请管理员检查批次。'
+  return '汇总和列表读取中台目录，刷新不会访问ERP或触发清洗。订单详情按需重新取证，可能比目录更新。'
+})
 const orders = ref<VerificationOrders>()
 const loading = ref(false)
 const ordersLoading = ref(false)
@@ -109,6 +116,7 @@ let alive = true
 onBeforeUnmount(() => { alive = false; summaryRequest++; orderRequest++ })
 onMounted(queryOverview)
 function count(value: number) { return value.toLocaleString('zh-CN') }
+function catalogVersion(value?: RiskCatalogFreshness) { return value?.days.map(day => `${day.issue_date}:${day.etl_run_id}`).join('|') || '' }
 function categoryLabel(code: unknown) { return overview.value?.categories.find(item => item.reasonCode === code)?.reasonLabel || String(code || '未分类') }
 function isMetricKey(key: unknown): key is keyof VerificationMetrics { return typeof key === 'string' && metricKeys.includes(key as keyof VerificationMetrics) }
 function metricValue(row: Record<string, any>, key: unknown) { return isMetricKey(key) ? Number(row[key]) : 0 }
@@ -140,7 +148,10 @@ async function loadOrders() {
   ordersLoading.value = true; ordersError.value = ''; orders.value = undefined
   try {
     const result = await verificationOverview.orders(scope.start, scope.end, reason, status, currentPage, size)
-    if (alive && request === orderRequest) orders.value = result
+    if (alive && request === orderRequest) {
+      if (catalogVersion(result.dataFreshness) !== catalogVersion(overview.value?.dataFreshness)) throw new Error('同步批次已改变，请重新查询统计范围后再查看订单')
+      orders.value = result
+    }
   } catch (failure) { if (alive && request === orderRequest) ordersError.value = failure instanceof Error ? failure.message : '订单读取失败，请重试' }
   finally { if (alive && request === orderRequest) ordersLoading.value = false }
 }

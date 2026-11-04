@@ -54,3 +54,7 @@
 ## 2026-11-04后续：佣金、点击费亏损案例
 
 用户已确认[去哪儿佣金选因公式V2](../business/air_ticketing/risk-commission-click-loss-v1.md)：自动出票单票利润加回销售佣金后，与负止损值按≥比较，包含等号。用户最新纠正替代此前≤口径，规则版本升级为V2，不改变其他公式仍待确认的状态。自动出票利润/平台/单票日志关联尚未核实，规则未绑定真实数据自动结论。
+
+## 2026-11-04性能整改：中台目录与独立ETL
+
+用户反馈247单日汇总132秒超时后，批准新增sibebid查询表及独立清洗脚本。本节替代此前请求内直接汇总ERP的实现。最新设计、表字段、同步及发布步骤见 [中台目录与ETL V1](risk-verification-catalog-v1.md)；SQL在docs/sql/risk-verification-catalog-v1.sql，清洗脚本在独立data-team-repo/etl_scripts/automation/risk_verification_order_day_etl.py。当前人工状态仍按账号保留SQLite，不迁移/双写。缺批次、跨日源版本冲突明确拒绝统计，不回退ERP。生产DDL、同步及247速度须部署人另行执行验收。

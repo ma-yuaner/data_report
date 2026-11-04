@@ -103,12 +103,22 @@ export interface VerificationMetrics {
   reviewing: number
   unchecked: number
 }
+export interface RiskCatalogFreshness {
+  source: 'sibebid'
+  mode: 'etl_catalog'
+  complete: boolean
+  oldestSyncedAt: string
+  newestSyncedAt: string
+  days: { issue_date: string; etl_run_id: string; row_count: number; synced_at: string }[]
+  latestAttempt: { status: string; started_at: string; finished_at: string | null; error_code: string | null } | null
+}
 export interface VerificationCategory extends VerificationMetrics {
   reasonCode: string
   reasonLabel: string
   ruleStatus: string
 }
 export interface VerificationOverview {
+  dataFreshness: RiskCatalogFreshness
   period: { startDate: string; endDate: string }
   dateBasis: string
   metrics: VerificationMetrics
@@ -121,6 +131,7 @@ export interface VerificationOrder extends EvidenceRow {
   caseId: string | null
 }
 export interface VerificationOrders {
+  dataFreshness: RiskCatalogFreshness
   items: VerificationOrder[]
   total: number
   page: number
