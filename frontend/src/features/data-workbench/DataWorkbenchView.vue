@@ -676,13 +676,13 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section v-if="moduleState !== 'ready'" class="workbench">
+  <section v-if="moduleState !== 'ready'" class="page-wrap workbench">
     <header class="workbench-header"><div><h1>数据加工工作台</h1><p>归档功能</p></div></header>
     <p v-if="moduleState === 'loading'" role="status">正在确认模块状态…</p>
     <a-alert v-else-if="moduleState === 'archived'" type="info" show-icon message="已归档，旧数据与流程已保留" description="当前不再提供通用加工操作。需要恢复时，由部署人启用旧模块与对应worker；不会删除历史数据。" />
     <template v-else><a-alert :message="error || '模块状态读取失败'" type="error" show-icon /><a-button @click="refreshCatalog">重试</a-button></template>
   </section>
-  <section v-else ref="root" class="workbench" :class="{ compact: viewport < 1050 }">
+  <section v-else ref="root" class="page-wrap workbench" :class="{ compact: viewport < 1050 }">
     <header class="workbench-header">
       <div>
         <h1>数据加工工作台</h1>
@@ -1109,7 +1109,8 @@ onBeforeUnmount(() => {
   justify-content: space-between;
 }
 .workbench h1 {
-  font-size: 23px;
+  font-size: 24px;
+  line-height: 1.4;
   margin: 0 0 6px;
 }
 .workbench h2 {
@@ -1339,7 +1340,7 @@ onBeforeUnmount(() => {
   display: block;
   font-weight: 400;
   color: #64748b;
-  font-size: 10px;
+  font-size: 12px;
   margin-top: 4px;
 }
 .table-scroll td span {
@@ -1391,7 +1392,7 @@ onBeforeUnmount(() => {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   margin: 10px 0;
-  font-size: 11px;
+  font-size: 12px;
 }
 .steps-title {
   justify-content: space-between;
@@ -1479,7 +1480,7 @@ onBeforeUnmount(() => {
   border-collapse: collapse;
   width: 100%;
   min-width: 460px;
-  font-size: 11px;
+  font-size: 12px;
 }
 .report-table td,
 .report-table th {

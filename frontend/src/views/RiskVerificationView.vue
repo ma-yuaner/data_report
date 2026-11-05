@@ -22,10 +22,18 @@
     </a-drawer>
     <a-alert v-if="catalogNotice" type="info" show-icon message="所选出票日期尚未同步" :description="`${catalogNotice}。请先运行所选日期的独立风控清洗任务，再查询最新清洗结果；缺少批次不表示零订单。`" />
     <a-alert v-if="overview?.dataFreshness" :type="['failed', 'running'].includes(overview.dataFreshness.latestAttempt?.status || '') ? 'warning' : 'info'" show-icon :message="`中台同步数据 · 最早同步 ${formatDateTimeDisplay(overview.dataFreshness.oldestSyncedAt)} · 最近同步 ${formatDateTimeDisplay(overview.dataFreshness.newestSyncedAt)}`" :description="syncDescription" />
-    <a-alert type="info" show-icon message="系统自动核实，人工只抽查与处理异常" :description="`通过无须人工确认；证据不足、执行失败、规则未接入分别列示。${overview?.sampling ? `当前账号已抽查 ${overview.sampling.sampled} 单，其中发现问题 ${overview.sampling.disputed} 单。` : '当前抽查统计尚未读取，不能按0单解释。'}`" />
+    <div class="sampling-note"><strong>系统自动核实，人工只抽查与处理异常</strong><span>通过无须人工确认；证据不足、执行失败、规则未接入分别列示。</span><span>{{ overview?.sampling ? `当前账号已抽查 ${overview.sampling.sampled} 单，其中发现问题 ${overview.sampling.disputed} 单。` : '当前抽查统计尚未读取，不能按0单解释。' }}</span></div>
     <a-alert v-if="coverageMissingDays.length" type="warning" show-icon message="部分日期尚未完成清洗，其他已成功日期仍可查询" :description="`缺失日期：${coverageMissingDays.join('、')}。请等待回补或追补任务；未覆盖不表示零订单。`" />
     <div class="auto-actions"><small>直接读取每日成功清洗结果；页面每分钟刷新已生效范围（打开详情或存在操作时暂停），不触发ERP取证。</small></div>
-    <a-alert v-for="report in overview?.dataFreshness.preparation?.reports || []" :key="report.day" type="info" show-icon :message="`${report.day}清洗报告 · ${report.orders}单 · ${report.seconds}秒`" :description="Object.keys(report.insufficientCauses || {}).length ? `证据不足原因：${Object.entries(report.insufficientCauses).map(([code, count]) => `${causeLabels[code] || code} ${count}单`).join('；')}` : '该日没有证据不足；核实通过与问题分别列示。'" />
+    <details v-if="overview?.dataFreshness.preparation?.reports.length" class="preparation-reports">
+      <summary>每日清洗报告（{{ overview.dataFreshness.preparation.reports.length }}天）<span :class="{ 'report-warning': overview.dataFreshness.preparation.reports.some(report => Object.keys(report.insufficientCauses || {}).length) }">{{ overview.dataFreshness.preparation.reports.some(report => Object.keys(report.insufficientCauses || {}).length) ? '含证据不足原因，展开查看' : '展开查看批次耗时与证据不足原因' }}</span></summary>
+      <div class="preparation-report-list">
+        <div v-for="report in overview.dataFreshness.preparation.reports" :key="report.day" class="preparation-report">
+          <strong>{{ report.day }}清洗报告 · {{ report.orders }}单 · {{ report.seconds }}秒</strong>
+          <span>{{ Object.keys(report.insufficientCauses || {}).length ? `证据不足原因：${Object.entries(report.insufficientCauses).map(([code, count]) => `${causeLabels[code] || code} ${count}单`).join('；')}` : '该日没有证据不足；核实通过与问题分别列示。' }}</span>
+        </div>
+      </div>
+    </details>
     <div v-if="applied" class="applied-scope"><strong>{{ applied.start }} 至 {{ applied.end }}</strong><span>出票日期 · 已生效范围</span></div>
     <div class="metrics-grid" aria-label="核查概况">
       <button v-for="card in metricCards" :key="card.key" type="button" class="metric-card" :class="card.key" :disabled="!overview || loading" @click="drill(undefined, card.key === 'total' ? 'all' : card.key)">
@@ -35,7 +43,7 @@
     <section class="analysis-panel">
       <div class="panel-heading"><div><h2>按盈亏原因分类核对</h2><p>点击数量，查看对应类型和状态的订单；后续新增类型沿用同一结构。</p></div><span>{{ overview?.categories.length ?? '—' }} 个类型</span></div>
       <div class="progress-legend" aria-label="核查进度颜色说明"><span v-for="state in progressStates" :key="state.key"><i :style="{ backgroundColor: state.color }" />{{ state.label }}</span><span><i class="progress-pending" />未完成</span></div>
-      <a-table :columns="categoryColumns" :data-source="overview?.categories || []" row-key="reasonCode" :loading="loading" :pagination="{ pageSize: 10, showSizeChanger: true }" :scroll="{ x: 1180 }" size="middle" :locale="{ emptyText: overview ? '所选出票期间没有盈亏原因有值的订单' : '请查询统计范围；读取失败不显示为0' }">
+      <a-table :columns="categoryColumns" :data-source="overview?.categories || []" row-key="reasonCode" :loading="loading" :pagination="{ pageSize: 10, showSizeChanger: true }" :scroll="{ x: 1180, y: 'min(60vh, 560px)' }" size="middle" :locale="{ emptyText: overview ? '所选出票期间没有盈亏原因有值的订单' : '请查询统计范围；读取失败不显示为0' }">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'reason'"><strong>{{ record.reasonLabel }}</strong><small class="block-muted">{{ record.reasonCode }}</small></template>
           <a-button v-else-if="isMetricKey(column.key)" type="link" :class="{ 'problem-link': column.key === 'problem' }" @click="drillMetric(record.reasonCode, column.key)">{{ count(metricValue(record, column.key)) }}</a-button>
@@ -239,13 +247,27 @@ async function refreshResults() {
 <style scoped>
 .auto-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
 .verification-overview { display: grid; gap: 16px; }
+.verification-overview > * { min-width: 0; }
+.verification-overview :deep(.page-header) { margin-bottom: 0; }
 .verification-overview :deep(.filter-panel) { margin-bottom: 0; }
+.sampling-note { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; color: #526176; font-size: 13px; line-height: 1.7; }
+.sampling-note strong { color: #334155; font-weight: 500; }
+.preparation-reports { border: 1px solid #e4e9ef; border-radius: 8px; background: #fff; font-size: 13px; }
+.preparation-reports summary { padding: 12px 16px; cursor: pointer; color: #334155; line-height: 1.6; }
+.preparation-reports summary span { margin-left: 12px; color: #69768a; font-size: 12px; }
+.preparation-reports summary .report-warning { color: #ad6800; }
+.preparation-reports summary:focus-visible { outline: 2px solid #1677ff; outline-offset: 2px; }
+.preparation-report-list { max-height: 280px; overflow-y: auto; padding: 0 16px 8px; }
+.preparation-report { display: grid; gap: 4px; padding: 12px 0; border-top: 1px solid #edf0f4; overflow-wrap: anywhere; }
+.preparation-report strong { font-weight: 500; }
+.preparation-report span { color: #69768a; }
+.auto-actions small { color: #69768a; font-size: 12px; line-height: 1.6; }
 .applied-scope, .panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .applied-scope span, .panel-heading span, .panel-heading p, .muted, .block-muted { color: #69768a; font-size: 13px; }
 .metrics-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-.metric-card { display: grid; gap: 8px; padding: 20px 16px; text-align: left; border: 1px solid #e4e9ef; border-radius: 8px; background: #fff; cursor: pointer; color: #182235; }
-.metric-card strong { font-size: 30px; font-weight: 600; }
-.metric-card small { color: #69768a; }
+.metric-card { min-width: 0; display: grid; gap: 6px; padding: 16px; text-align: left; border: 1px solid #e4e9ef; border-radius: 8px; background: #fff; cursor: pointer; color: #182235; font: inherit; }
+.metric-card strong { font-size: 28px; line-height: 1.3; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.metric-card small { color: #69768a; font-size: 12px; line-height: 1.6; }
 .metric-card.problem strong, .problem-link { color: #cf1322; }
 .metric-card:focus-visible { outline: 2px solid #1677ff; outline-offset: 2px; }
 .metric-card:disabled { cursor: default; }

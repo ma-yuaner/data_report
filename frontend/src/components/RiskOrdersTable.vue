@@ -79,10 +79,10 @@ const columns = [
 
 <style scoped>
 .order-id { display: grid; gap: 3px; }
-.order-id strong { color: #334155; font-size: 11px; }
-.order-id small { color: #8793a5; font-size: 9px; }
+.order-id strong { color: #334155; font-size: 12px; }
+.order-id small { color: #8793a5; font-size: 12px; }
 .negative { color: #c44752 !important; }
 .pagination-row { padding-top: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.pagination-row > span { color: #8995a7; font-size: 11px; }
+.pagination-row > span { color: #69768a; font-size: 12px; }
 @media (max-width: 600px) { .pagination-row { align-items: stretch; flex-direction: column; } }
 </style>

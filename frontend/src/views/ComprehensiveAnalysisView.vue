@@ -217,10 +217,10 @@ const trendRows = computed(() => {
 const trendOption = computed<EChartsCoreOption>(() => ({
   color: businesses.map(business => business.color),
   tooltip: { trigger: 'axis', valueFormatter: (value: number) => money(Math.round(value * 100)) + ' 元' },
-  legend: { top: 0, left: 0, itemWidth: 12, itemHeight: 8, textStyle: { color: '#758297', fontSize: 11 } },
+  legend: { top: 0, left: 0, itemWidth: 12, itemHeight: 8, textStyle: { color: '#758297', fontSize: 12 } },
   grid: { left: 56, right: 14, top: 48, bottom: 30 },
-  xAxis: { type: 'category', data: trendRows.value.map(row => row.period), axisLine: { lineStyle: { color: '#dce3ed' } }, axisTick: { show: false }, axisLabel: { color: '#8a96a7', fontSize: 10 } },
-  yAxis: { type: 'value', name: '利润 / 元', nameTextStyle: { color: '#8a96a7', fontSize: 10 }, splitLine: { lineStyle: { color: '#edf1f6' } }, axisLabel: { formatter: (value: number) => Number((value / 10000).toFixed(1)) + '万', color: '#8a96a7', fontSize: 10 } },
+  xAxis: { type: 'category', data: trendRows.value.map(row => row.period), axisLine: { lineStyle: { color: '#dce3ed' } }, axisTick: { show: false }, axisLabel: { color: '#69768a', fontSize: 12 } },
+  yAxis: { type: 'value', name: '利润 / 元', nameTextStyle: { color: '#69768a', fontSize: 12 }, splitLine: { lineStyle: { color: '#edf1f6' } }, axisLabel: { formatter: (value: number) => Number((value / 10000).toFixed(1)) + '万', color: '#69768a', fontSize: 12 } },
   series: [
     ...businesses.map(business => ({ name: business.label, type: 'bar' as const, barMaxWidth: 18, data: trendRows.value.map(row => row.metrics[business.key].profitCents / 100) })),
     { name: '合计', type: 'line', itemStyle: { color: '#263d63' }, lineStyle: { width: 2 }, symbolSize: 5, data: trendRows.value.map(row => sumProfit(row.metrics) / 100) },
@@ -229,7 +229,7 @@ const trendOption = computed<EChartsCoreOption>(() => ({
 const compositionOption = computed<EChartsCoreOption>(() => ({
   tooltip: { trigger: 'axis', valueFormatter: (value: number) => money(Math.round(value * 100)) + ' 元' },
   grid: { left: 42, right: 55, top: 28, bottom: 32 },
-  xAxis: { type: 'value', splitLine: { lineStyle: { color: '#edf1f6' } }, axisLabel: { color: '#8a96a7', fontSize: 10, formatter: (value: number) => Number((value / 10000).toFixed(1)) + '万' } },
+  xAxis: { type: 'value', splitLine: { lineStyle: { color: '#edf1f6' } }, axisLabel: { color: '#69768a', fontSize: 12, formatter: (value: number) => Number((value / 10000).toFixed(1)) + '万' } },
   yAxis: { type: 'category', inverse: true, data: businesses.map(business => business.label), axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: '#536176', fontSize: 12 } },
   series: [{ type: 'bar', barMaxWidth: 17, data: businesses.map(business => ({ value: metrics.value[business.key].profitCents / 100, itemStyle: { color: business.color, borderRadius: 3 } })) }],
 }))
@@ -268,14 +268,14 @@ const detailColumns = [
 .scope-panel { padding: 18px 20px; margin-bottom: 14px; border: 1px solid #e4e9f0; border-radius: 12px; background: #fff; }
 .section-heading, .scope-actions, .comparison-toolbar, .comparison-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .section-heading h2 { margin: 0; color: #26344b; font-size: 14px; font-weight: 600; }
-.section-heading > span, .scope-actions > span, .comparison-toolbar > span { color: #8995a7; font-size: 11px; }
+.section-heading > span, .scope-actions > span, .comparison-toolbar > span { color: #69768a; font-size: 12px; }
 .period-fields { margin: 16px 0; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
 .date-fields { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: #6c7a91; font-size: 12px; }
 .date-fields :deep(.ant-picker) { width: 142px; }
 .dimension-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
 .dimension-fields label { display: grid; gap: 7px; min-width: 0; }
 .dimension-fields label > span { display: flex; justify-content: space-between; color: #64728a; font-size: 12px; }
-.dimension-fields small { color: #a4aebe; font-size: 10px; }
+.dimension-fields small { color: #a4aebe; font-size: 12px; }
 .dimension-fields :deep(.ant-select) { width: 100%; }
 .scope-actions { margin-top: 16px; padding-top: 14px; border-top: 1px solid #edf0f5; }
 .scope-actions > div { display: flex; gap: 9px; }
@@ -283,24 +283,24 @@ const detailColumns = [
 .applied-scope, .scope-tags { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .applied-scope { justify-content: space-between; margin: 15px 1px; }
 .applied-scope > div:first-child { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: #526079; }
-.scope-label { color: #8a96a8; }
+.scope-label { color: #69768a; }
 .scope-tags :deep(.ant-tag) { margin-inline-end: 0; }
 .summary-grid { display: grid; grid-template-columns: 1.2fr repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
 .summary-total { min-width: 0; padding: 20px; border-radius: 12px; color: #fff; background: linear-gradient(135deg, #183359, #2b67bf); box-shadow: 0 8px 22px #25599a14; }
 .summary-total > span { display: flex; justify-content: space-between; gap: 5px; color: #d2e2fb; font-size: 12px; }
-.summary-total > span small { padding: 1px 5px; border-radius: 4px; background: #ffffff15; font-size: 9px; }
+.summary-total > span small { padding: 1px 5px; border-radius: 4px; background: #ffffff15; font-size: 12px; }
 .summary-total strong { display: block; margin: 20px 0 11px; font-size: clamp(20px, 1.8vw, 29px); font-weight: 650; letter-spacing: -.035em; white-space: nowrap; }
-.summary-total em, .business-card em { margin-left: 5px; font-size: 11px; font-style: normal; font-weight: 400; }
-.summary-total p { margin: 0 0 6px; color: #cbddf6; font-size: 10px; }
-.summary-total > small { color: #adcaee; font-size: 9px; }
+.summary-total em, .business-card em { margin-left: 5px; font-size: 12px; font-style: normal; font-weight: 400; }
+.summary-total p { margin: 0 0 6px; color: #cbddf6; font-size: 12px; }
+.summary-total > small { color: #adcaee; font-size: 12px; }
 .business-card { min-width: 0; padding: 18px 16px 10px; border: 1px solid #e4e9f0; border-top: 3px solid var(--business-color); border-radius: 12px; background: #fff; }
 .business-heading { display: flex; justify-content: space-between; align-items: center; color: #56657d; font-size: 12px; }
 .business-heading i { width: 7px; height: 7px; border-radius: 50%; }
 .business-card > strong { display: block; margin: 19px 0 17px; color: #26354c; font-size: clamp(18px, 1.55vw, 24px); font-weight: 650; letter-spacing: -.04em; white-space: nowrap; }
 .business-count { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding-top: 11px; border-top: 1px solid #edf0f5; }
-.business-count span { color: #919bac; font-size: 10px; }
+.business-count span { color: #919bac; font-size: 12px; }
 .business-count b { color: #5a6a83; font-size: 12px; font-weight: 600; }
-.business-preview-link { width: 100%; margin-top: 9px; padding: 4px 0; display: flex; align-items: center; justify-content: space-between; border: 0; background: none; color: #8a99ae; font: inherit; font-size: 10px; cursor: pointer; }
+.business-preview-link { width: 100%; margin-top: 9px; padding: 4px 0; display: flex; align-items: center; justify-content: space-between; border: 0; background: none; color: #8a99ae; font: inherit; font-size: 12px; cursor: pointer; }
 .business-preview-link:hover { color: #3178f6; }
 .business-preview-link:disabled { color: #b9c1cd; cursor: not-allowed; }
 .charts-grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr); gap: 16px; margin-bottom: 16px; }
@@ -309,28 +309,28 @@ const detailColumns = [
 .analysis-panel :deep(.ant-card-body) { padding: 16px 20px; }
 .panel-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .panel-title > span { font-size: 14px; color: #2e3c52; }
-.panel-title > small { color: #9aa5b4; font-size: 10px; font-weight: 400; }
+.panel-title > small { color: #69768a; font-size: 12px; font-weight: 400; }
 .trend-panel :deep(.base-chart) { height: 292px; min-height: 292px; }
 .composition-panel :deep(.base-chart) { height: 253px; min-height: 253px; }
-.composition-note { margin: 8px 0 0; color: #97a2b3; font-size: 10px; line-height: 1.7; }
+.composition-note { margin: 8px 0 0; color: #97a2b3; font-size: 12px; line-height: 1.7; }
 .charts-grid :deep(.ant-empty) { min-height: 230px; display: flex; flex-direction: column; justify-content: center; }
 .comparison-toolbar { margin-bottom: 17px; flex-wrap: wrap; }
 .dimension-name { color: #41516b; font-size: 12px; font-weight: 600; }
-.dimension-table :deep(.ant-table-thead > tr > th) { color: #7b8799; font-size: 11px; font-weight: 500; background: #f8fafc; }
+.dimension-table :deep(.ant-table-thead > tr > th) { color: #7b8799; font-size: 12px; font-weight: 500; background: #f8fafc; }
 .dimension-table :deep(.ant-table-cell) { padding: 15px 12px; }
 .metric-cell { display: grid; gap: 6px; }
 .metric-cell strong { color: #42536d; font-size: 12px; font-weight: 600; white-space: nowrap; }
-.metric-cell > span { color: #9ca7b7; font-size: 10px; }
-.metric-cell strong > small, .row-total > small { margin-left: 4px; color: #a2acba; font-size: 9px; font-weight: 400; }
+.metric-cell > span { color: #9ca7b7; font-size: 12px; }
+.metric-cell strong > small, .row-total > small { margin-left: 4px; color: #a2acba; font-size: 12px; font-weight: 400; }
 .row-total { color: #274d89; font-size: 12px; white-space: nowrap; }
 .row-actions { display: flex; align-items: center; }
-.row-actions :deep(.ant-btn) { padding-inline: 4px; font-size: 11px; }
-.comparison-footer { flex-wrap: wrap; color: #8b98aa; font-size: 11px; }
+.row-actions :deep(.ant-btn) { padding-inline: 4px; font-size: 12px; }
+.comparison-footer { flex-wrap: wrap; color: #69768a; font-size: 12px; }
 .comparison-footer strong { color: #4d627f; font-size: 12px; }
 .handoff-note { display: flex; align-items: flex-start; gap: 10px; padding: 15px 2px; color: #98a4b5; }
 .handoff-note > :deep(.anticon) { margin-top: 2px; color: #7e99bb; }
-.handoff-note strong { color: #72839b; font-size: 11px; font-weight: 500; }
-.handoff-note p { margin: 5px 0 0; font-size: 11px; line-height: 1.7; }
+.handoff-note strong { color: #72839b; font-size: 12px; font-weight: 500; }
+.handoff-note p { margin: 5px 0 0; font-size: 12px; line-height: 1.7; }
 .negative { color: #c34b5b !important; }
 .drawer-scope { margin: 20px 0; color: #586b86; font-size: 12px; }
 .drawer-scope p { margin: 8px 0; color: #8b98ab; line-height: 1.7; }

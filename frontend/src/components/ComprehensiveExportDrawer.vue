@@ -67,6 +67,6 @@ function download(id: string) { window.location.assign(comprehensiveExportDownlo
 .task-card header { margin-bottom: 12px; }
 .task-card header div { min-width: 0; display: grid; gap: 3px; }
 .task-card header strong { color: #334155; }
-.task-card header span, .task-meta { color: #8793a4; font-size: 11px; }
+.task-card header span, .task-meta { color: #69768a; font-size: 12px; }
 .task-card footer { justify-content: flex-end; margin-top: 12px; }
 </style>

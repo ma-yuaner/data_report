@@ -1,10 +1,14 @@
 <template>
-  <a-layout class="app-shell">
+  <a-layout class="app-shell" @keydown.esc="closeMobileMenu">
     <div class="route-progress" :class="{ 'is-active': appStore.navigating }" />
+    <button v-if="mobileMenuOpen" type="button" class="sidebar-mobile-mask" aria-label="关闭主菜单遮罩" @click="closeMobileMenu" @wheel.prevent @touchmove.prevent />
     <a-layout-sider
       v-model:collapsed="appStore.collapsed"
       :trigger="null"
       collapsible
+      breakpoint="lg"
+      :collapsed-width="64"
+      @breakpoint="sidebarBroken = $event"
       class="app-sidebar"
       :width="224"
     >
@@ -16,6 +20,7 @@
         </div>
       </div>
 
+      <a-button v-if="mobileMenuOpen" ref="mobileClose" type="text" class="sidebar-mobile-close" aria-label="收起主菜单" @click="closeMobileMenu"><MenuFoldOutlined /></a-button>
       <div class="sidebar-menu-scroll" tabindex="0" role="navigation" aria-label="主菜单">
         <a-menu v-model:openKeys="openKeys" theme="dark" mode="inline" :selected-keys="selectedKeys" @click="handleMenuClick">
           <a-menu-item key="/home"><template #icon><HomeOutlined /></template>工作台</a-menu-item>
@@ -122,10 +127,10 @@
       </div>
     </a-layout-sider>
 
-    <a-layout class="app-main">
+    <a-layout class="app-main" :inert="mobileMenuOpen || undefined">
       <a-layout-header class="app-header">
         <div class="header-left">
-          <a-button type="text" class="header-icon" :aria-label="appStore.collapsed ? '展开菜单' : '收起菜单'" @click="appStore.toggleCollapsed">
+          <a-button ref="menuToggle" type="text" class="header-icon" :aria-label="appStore.collapsed ? '展开菜单' : '收起菜单'" :aria-expanded="!appStore.collapsed" @click="appStore.toggleCollapsed">
             <MenuUnfoldOutlined v-if="appStore.collapsed" />
             <MenuFoldOutlined v-else />
           </a-button>
@@ -165,7 +170,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   BarChartOutlined, ControlOutlined, CustomerServiceOutlined, DashboardOutlined, DatabaseOutlined, DeploymentUnitOutlined, HomeOutlined, LineChartOutlined,
@@ -179,6 +184,16 @@ import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
 import ComprehensiveExportDrawer from '@/components/ComprehensiveExportDrawer.vue'
 
 const appStore = useAppStore()
+const sidebarBroken = ref(false)
+const mobileMenuOpen = computed(() => sidebarBroken.value && !appStore.collapsed)
+const menuToggle = ref<{ $el: HTMLButtonElement }>()
+const mobileClose = ref<{ $el: HTMLButtonElement }>()
+function closeMobileMenu() { if (sidebarBroken.value) appStore.collapsed = true }
+watch(mobileMenuOpen, async (open, wasOpen) => {
+  await nextTick()
+  if (open) mobileClose.value?.$el.focus()
+  else if (wasOpen) menuToggle.value?.$el.focus()
+})
 const authStore = useAuthStore()
 const exportStore = useComprehensiveExportStore()
 const route = useRoute()
@@ -211,7 +226,7 @@ watch(() => route.path, path => {
 }, { immediate: true })
 
 const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
-  if (typeof key === 'string' && key.startsWith('/')) router.push(key)
+  if (typeof key === 'string' && key.startsWith('/')) { closeMobileMenu(); void router.push(key) }
 }
 
 const handleUserMenu: MenuProps['onClick'] = async ({ key }) => {
