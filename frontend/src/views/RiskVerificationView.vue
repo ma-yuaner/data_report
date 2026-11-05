@@ -1,6 +1,6 @@
 <template>
   <div class="page-wrap verification-overview">
-    <PageHeader eyebrow="RISK VERIFICATION" title="风控核对" description="查询只读已保存结果；点击更新并核实后后台同步最新数据并核算，关闭页面不影响已启动任务。">
+    <PageHeader eyebrow="RISK VERIFICATION" title="风控核对" description="手工更新：查询读取已保存结果；点击更新并核实后读取所选日期的最新数据并重算，关闭页面不影响已启动任务。">
       <a-space wrap><a-tag color="blue">订单去重 · 含各类盈亏原因</a-tag><a-button :loading="configLoading" @click="configOpen = true; loadConfigs()">读取通用配置候选</a-button></a-space>
     </PageHeader>
     <FilterPanel stacked :instant="false" :show-reset="false" :loading="loading" :hint="hasPending ? '日期已改变，点击查询后生效' : '按出票时间筛选，结束日期包含当天；同一订单多张票只计1单'">

@@ -6,6 +6,7 @@ from .risk_order_evidence import EvidenceError, _rows
 from .risk_verification_catalog import RiskVerificationCatalog
 from .risk_verification_flow import FlowError
 from .risk_auto_verification import RiskAutoVerification
+from .risk_child_loss import SUPPORTED_REASONS
 
 LOGGER = logging.getLogger(__name__)
 STATES = ("problem", "supported", "insufficient", "reviewing", "unchecked", "failed", "rule_pending", "outdated")
@@ -14,7 +15,7 @@ NOTES = [
     "读取中台ETL目录，不实时扫描ERP；按出票日期限定，跨日或多票均按内部订单ID去重。",
     "数据截止各日最近一次成功同步；查询、翻页和查看详情不触发ERP读取，只有更新并核实按钮启动后台同步。",
     "按当前账号最新自动规则结果统计；通过无须人工确认，人工抽查独立留痕，不覆盖自动结论。",
-    "更新并核实会重新读取出票、佣金与止损日志；证据和规则未变可复用计算。新更新请求或目录批次变化后旧结果失效，查询不自动检测ERP变化。",
+    "更新并核实会重新读取出票、适用配置及必要关联证据；儿童/婴儿规则不加佣金，不从订单止损日志回退取值。证据和规则未变可复用计算。新更新请求或目录批次变化后旧结果失效，查询不自动检测ERP变化。",
     "未核查、核查中和证据不足不等于没有问题；尚无自动核查结论。",
 ]
 
@@ -77,7 +78,7 @@ class RiskVerificationOverview:
             cursor.execute(f"SELECT o.order_id AS id,o.profit_reason_type,o.update_time,o.etl_run_id,o.issue_date FROM bi_risk_order_day o WHERE {scope} AND o.order_id IN ({marks})", (*parameters, *chunk))
             for row in _rows(cursor):
                 case = latest[str(row["id"])]
-                if row["profit_reason_type"] == "RLA013":
+                if row["profit_reason_type"] in SUPPORTED_REASONS:
                     current = RiskAutoVerification.current(case, row, requests)
                     statuses[str(row["id"])] = {"status": case["status"] if current else "outdated", "caseId": None, "resultId": case["id"], "reasonCode": row["profit_reason_type"]}
         return statuses
@@ -97,15 +98,15 @@ class RiskVerificationOverview:
             for row in groups:
                 reason = str(row["reason_code"])
                 total = int(row["order_count"])
-                known = reason == "RLA013"
+                known = reason in SUPPORTED_REASONS
                 categories[reason] = {"reasonCode": reason,
                     "reasonLabel": labels.get(reason) or f"{reason}（字典名称缺失）",
-                    "ruleStatus": "自动核实：出票利润加回销售佣金，与日志负止损值比较" if known else "规则未接入，不自动放行",
+                    "ruleStatus": ("儿童/婴儿前提＋综合平均单票出票利润对照当前单止损配置（不加佣金）" if reason=="RLA040" else "去哪儿出票利润加回销售佣金，对照出票时配置止损值") if known else "规则未接入，不自动放行",
                     **_metrics(total), "unchecked": total if known else 0, "rule_pending": 0 if known else total}
             statuses = self._statuses(cursor, owner, scope, values)
             for item in statuses.values():
                 if item["status"] != "unchecked":
-                    initial = "unchecked" if item["reasonCode"] == "RLA013" else "rule_pending"
+                    initial = "unchecked" if item["reasonCode"] in SUPPORTED_REASONS else "rule_pending"
                     if item["reasonCode"] not in categories or categories[item["reasonCode"]][initial] <= 0:
                         raise EvidenceError("源订单在汇总期间发生变化，请重新查询", 409)
                     category = categories[item["reasonCode"]]
@@ -146,13 +147,13 @@ class RiskVerificationOverview:
             selected = [identifier for identifier, item in statuses.items() if item["status"] == status]
             if status != "all":
                 if status == "unchecked":
-                    scope += " AND o.profit_reason_type='RLA013'"
+                    scope += " AND o.profit_reason_type IN ('RLA013','RLA040')"
                     excluded = [identifier for identifier, item in statuses.items() if item["status"] != "unchecked"]
                     if excluded:
                         scope += " AND o.order_id NOT IN (" + ",".join(["%s"] * len(excluded)) + ")"
                         values.extend(excluded)
                 elif status == "rule_pending":
-                    scope += " AND o.profit_reason_type<>'RLA013'"
+                    scope += " AND o.profit_reason_type NOT IN ('RLA013','RLA040')"
                 elif selected:
                     scope += " AND o.order_id IN (" + ",".join(["%s"] * len(selected)) + ")"
                     values.extend(selected)
@@ -164,7 +165,7 @@ class RiskVerificationOverview:
             rows = _rows(cursor)
             for row in rows:
                 review = statuses.get(str(row["id"]), {})
-                row.update(verificationStatus=review.get("status", "unchecked" if row["profit_reason_type"] == "RLA013" else "rule_pending"), caseId=review.get("caseId"), profit_reason_name=labels.get(row["profit_reason_type"]))
+                row.update(verificationStatus=review.get("status", "unchecked" if row["profit_reason_type"] in SUPPORTED_REASONS else "rule_pending"), caseId=review.get("caseId"), profit_reason_name=labels.get(row["profit_reason_type"]))
             return {"items": rows, "total": total, "page": page, "pageSize": page_size,
                     "period": {"startDate": first.isoformat(), "endDate": last.isoformat()}, "dateBasis": "issue_ticket_time", "dataFreshness": freshness}
         except (EvidenceError, FlowError):

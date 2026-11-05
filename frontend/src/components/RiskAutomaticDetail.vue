@@ -3,16 +3,24 @@
     <div class="auto-detail">
       <a-alert v-if="error" type="error" show-icon :message="error" />
       <RiskProblemTags ref="tagPanel" :order-id="orderId" @busy-change="tagBusy = $event" />
-      <a-alert v-if="reason !== 'RLA013'" type="info" show-icon message="该类型规则尚未接入" description="后续为此类型补充专属证据和规则，不套用佣金亏损公式。" />
+      <a-alert v-if="!supportedReason" type="info" show-icon message="该类型规则尚未接入" description="后续为此类型补充专属证据和规则，不套用佣金亏损公式。" />
       <a-alert v-else-if="!result" type="info" show-icon message="尚未形成自动结果" description="系统正在核实或等待当前批次完成。关闭详情后可查看进度。" />
-      <template v-if="result && reason === 'RLA013'">
+      <template v-if="result && supportedReason">
         <a-alert :type="outdated ? 'warning' : result.status === 'supported' ? 'success' : result.status === 'problem' || result.status === 'failed' ? 'error' : 'warning'" show-icon :message="outdated ? '源版本已改变，此结果仅供历史参考' : result.summary" />
         <a-descriptions bordered size="small" :column="2">
           <a-descriptions-item label="平台">{{ result.platform || '证据缺失' }}</a-descriptions-item>
           <a-descriptions-item label="止损值来源">{{ usesConfiguration ? '出票时通用配置（逐票见下表）' : '历史日志结果，需更新并核实' }}</a-descriptions-item>
           <a-descriptions-item label="核实时间">{{ formatDateTimeDisplay(result.checkedAt) }}</a-descriptions-item>
           <a-descriptions-item label="规则版本">{{ result.ruleVersion }}</a-descriptions-item>
-          <a-descriptions-item label="核实依据" :span="2">非去哪儿平台优先判为选因有问题；去哪儿且有正佣金时，出票利润＋销售佣金 ≥ －单票止损值；金额为CNY。超过4段按4段配置＋超出段数×25元。</a-descriptions-item>
+          <a-descriptions-item v-if="!isChild" label="核实依据" :span="2">非去哪儿平台优先判为选因有问题；去哪儿且有正佣金时，出票利润＋销售佣金 ≥ －单票止损值；金额为CNY。超过4段按4段配置＋超出段数×25元。</a-descriptions-item>
+          <a-descriptions-item v-if="isChild" label="核实依据" :span="2">必须有儿童或婴儿；携程同OTA订单与关联单汇总出票利润÷总票数，不加佣金；平均利润须满足当前单逐票止损阈值；平均值展示四位小数，判定不按展示值舍入。</a-descriptions-item>
+          <template v-if="isChild && result.aggregate">
+            <a-descriptions-item label="核算范围">{{ result.aggregate.orderCount }} 单 · {{ result.aggregate.ticketCount }} 票</a-descriptions-item>
+            <a-descriptions-item label="儿童／婴儿票数">{{ result.aggregate.childTickets ?? '未核实' }} ／ {{ result.aggregate.infantTickets ?? '未核实' }}</a-descriptions-item>
+            <a-descriptions-item label="总出票利润">{{ result.aggregate.totalProfit ?? '证据不足' }} 元</a-descriptions-item>
+            <a-descriptions-item label="平均单票利润">{{ result.aggregate.averageProfitDisplay ?? result.aggregate.averageProfit ?? '证据不足' }} 元</a-descriptions-item>
+            <a-descriptions-item label="范围内订单" :span="2">{{ result.aggregate.scope.map(item => `${item.orderId}（${item.ticketCount}票）`).join('、') }}</a-descriptions-item>
+          </template>
         </a-descriptions>
         <a-table :data-source="result.tickets" :columns="columns" row-key="id" :pagination="false" :scroll="{ x: 1220 }" size="small">
           <template #bodyCell="{ column, record }">
@@ -31,7 +39,7 @@
           </template>
         </a-table>
         <a-alert v-if="result.missing?.length" type="warning" show-icon :message="`待补证据：${result.missing.join('；')}`" />
-        <p class="muted">{{ usesConfiguration ? '来源：出票明细的利润、销售佣金和单票航段关联；止损值取出票时的通用配置。保留配置版本、快照哈希及必要的配置变更引用，不从订单止损日志取值。' : '此为旧版日志核实结果，仅供历史参考；请在列表点击更新并核实，使用通用配置重新计算。' }}</p>
+        <p class="muted">{{ isChild ? '来源：范围内各独立订单出票利润（CNY）与票数、乘机人年龄类型；不加佣金，不去重独立出票。阈值沿用当前单出票时配置。' : usesConfiguration ? '来源：出票明细的利润、销售佣金和单票航段关联；止损值取出票时的通用配置。保留配置版本、快照哈希及必要的配置变更引用，不从订单止损日志取值。' : '此为旧版日志核实结果，仅供历史参考；请在列表点击更新并核实，使用通用配置重新计算。' }}</p>
         <section v-if="!outdated">
           <h3>人工抽查（可选）</h3>
           <a-radio-group v-model:value="sampleOutcome"><a-radio value="confirmed">确认无误</a-radio><a-radio value="disputed">发现问题</a-radio></a-radio-group>
@@ -63,7 +71,9 @@ const saved = ref('')
 const sampleOutcome = ref('confirmed')
 const sampleReason = ref('')
 const labels: Record<string, string> = { supported: '核实通过', problem: '有问题', insufficient: '证据不足', failed: '执行失败', rule_pending: '规则未接入' }
-const columns = [{ title: '出票明细ID', dataIndex: 'id', width: 150 }, { title: '出票利润', dataIndex: 'profit', width: 100 }, { title: '销售佣金', dataIndex: 'commission', width: 100 }, { title: '调整后利润', dataIndex: 'adjustedProfit', width: 110 }, { title: '票段数', dataIndex: 'segmentCount', width: 80 }, { title: '单票止损值', key: 'threshold', width: 110 }, { title: '出票时配置', key: 'configuration', width: 300 }, { title: '结果', key: 'status', width: 110 }, { title: '计算及原因', dataIndex: 'explanation', width: 300 }]
+const supportedReason = computed(() => ['RLA013', 'RLA040'].includes(props.reason))
+const isChild = computed(() => props.reason === 'RLA040')
+const columns = computed(() => [{ title: '出票明细ID', dataIndex: 'id', width: 150 }, { title: '出票利润', dataIndex: 'profit', width: 100 }, { title: '销售佣金', dataIndex: 'commission', width: 100 }, { title: isChild.value ? '平均单票利润' : '调整后利润', dataIndex: 'adjustedProfit', width: 110 }, { title: '票段数', dataIndex: 'segmentCount', width: 80 }, { title: '单票止损值', key: 'threshold', width: 110 }, { title: '出票时配置', key: 'configuration', width: 300 }, { title: '结果', key: 'status', width: 110 }, { title: '计算及原因', dataIndex: 'explanation', width: 300 }])
 const usesConfiguration = computed(() => result.value?.ruleVersion?.startsWith('qunar-commission-loss-config-v'))
 const normalize = (value: string | null) => value?.replace(' ', 'T') || null
 const outdated = computed(() => Boolean(result.value && (result.value.isCurrent === false || normalize(result.value.sourceUpdatedAt) !== normalize(props.sourceUpdatedAt) || result.value.reasonCode !== props.reason)))

@@ -135,6 +135,7 @@ export interface AutoRiskResult {
   id: string; orderId: string; reasonCode: string; sourceUpdatedAt: string | null; ruleVersion: string; checkedAt: string
   status: VerificationStatus; summary: string; platform?: string; stopLoss?: string; missing?: string[]; evidenceHash?: string
   isCurrent?: boolean; catalogRunId?: string; reusedFrom?: string
+  aggregate?: { orderCount: number; ticketCount: number; childTickets?: number; infantTickets?: number; totalProfit?: string; averageProfit?: string; averageProfitDisplay?: string; currency?: string; commissionIncluded: boolean; scope: { orderId: string; updatedAt?: string; ticketCount: number }[] }
   tickets: { id: string; profit: string | null; commission: string | null; adjustedProfit?: string; boundary?: string; status: VerificationStatus; explanation: string; segmentCount?: number | null; stopLoss?: string | null; configuration?: { status: string; issueWay?: string; issueWayLabel?: string; diagnostics?: { ruleId: string; stage: string; reason: string; fields: string[] }[]; ruleId?: string; configurationVersion?: number; asOf?: string; jsonPath?: string; baseAmount?: string; extraSegments?: number; extraPerSegment?: string; configurationHash?: string; historyReferences?: string[] } }[]
   logReferences?: { id: string; at: string | null }[]
   samples?: { id: string; outcome: string; reason: string; at: string }[]

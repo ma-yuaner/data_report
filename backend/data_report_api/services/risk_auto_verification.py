@@ -8,6 +8,7 @@ import time
 import uuid
 
 from .risk_commission_rule import RULE_ID, evaluate_commission_loss
+from .risk_child_loss import CHILD_REASON, SUPPORTED_REASONS, ORDER_FIELDS, read_child_evidence, evaluate_child
 from .risk_historical_threshold import HistoricalThresholds
 from .risk_order_evidence import RiskOrderEvidenceService, _rows, order_id
 from .risk_verification_flow import FlowError, _owner
@@ -31,6 +32,7 @@ def now():
 def evaluate(evidence):
     """Only selected source fields, never raw logs or passenger information in results."""
     order = evidence["order"]
+    if order.get("profit_reason_type")==CHILD_REASON:return evaluate_child(evidence,RULE_ID)
     base = {"ruleVersion": RULE_ID, "status": "insufficient", "summary": "证据不足", "tickets": [],
             "platform": order.get("ota_code"), "stopLoss": None, "logReferences": [], "missing": []}
     if order.get("profit_reason_type") != "RLA013":
@@ -96,14 +98,16 @@ def read_evidence(config, identifier):
                 reader._close(cursor, connection)
 
 
-def read_evidence_cursor(cursor, identifier, configuration_cache=None):
-    cursor.execute("SELECT id,ota_code,ota_site_code,product_type,manual_flag,issue_way,dep_city,arr_city,profit_reason_type,update_time FROM order_info WHERE id=%s", (order_id(identifier),))
+def read_evidence_cursor(cursor, identifier, configuration_cache=None, _basic=False):
+    cursor.execute("SELECT "+ORDER_FIELDS+" FROM order_info WHERE id=%s", (order_id(identifier),))
     orders = _rows(cursor)
     if len(orders) != 1:
         raise FlowError("订单不存在，需重新同步目录", 409)
-    if orders[0].get("profit_reason_type") == "RLA013" and orders[0].get("ota_code") != "QUNAR":
+    if not _basic and orders[0].get("profit_reason_type")==CHILD_REASON:
+        return read_child_evidence(cursor,orders[0],configuration_cache if configuration_cache is not None else {},read_evidence_cursor)
+    if not _basic and orders[0].get("profit_reason_type") == "RLA013" and orders[0].get("ota_code") != "QUNAR":
         return {"order": orders[0], "issues": [], "logs": [], "complete": True}
-    if orders[0].get('profit_reason_type') != 'RLA013':
+    if not _basic and orders[0].get('profit_reason_type') not in SUPPORTED_REASONS:
         return {'order': orders[0], 'issues': [], 'logs': [], 'complete': True}
     cursor.execute("""SELECT id,order_id,issue_profit,sale_commission_amount,sale_currency,issue_ticket_time,
       supplier_code,marketing_airline,issue_gds_channel,issue_office_no,issue_ticketing_office_no
@@ -297,10 +301,11 @@ class RiskAutoVerification:
                     raise FlowError("任务已失效，未继续发布结果", 409)
 
         def prepare(source_cursor, target_cursor, day, run_id):
-            if body.get("reason") not in {None, "RLA013"}:
+            if body.get("reason") not in {None, *SUPPORTED_REASONS}:
                 return None
             # Read the ETL staging rows, then use the SAME ERP repeatable-read snapshot.
-            target_cursor.execute("SELECT order_id AS id,profit_reason_type,update_time FROM risk_order_day_stage WHERE profit_reason_type=%s ORDER BY order_id LIMIT 2001", ("RLA013",))
+            reasons=(body['reason'],) if body.get('reason') else SUPPORTED_REASONS
+            target_cursor.execute("SELECT order_id AS id,profit_reason_type,update_time FROM risk_order_day_stage WHERE profit_reason_type IN ("+','.join(['%s']*len(reasons))+") ORDER BY order_id LIMIT 2001", reasons)
             targets = _rows(target_cursor)
             if len(seen | {str(row["id"]) for row in targets}) > 2000:
                 raise FlowError("当前范围超过2000单，请缩小日期范围后更新核实", 413)
