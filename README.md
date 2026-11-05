@@ -32,7 +32,7 @@ ADM责任流转V2：已增加协调人、接收确认式转交、责任分段、
 
 <!-- BEGIN:CURRENT_MENU -->
 <details>
-<summary>完整菜单：45个页面入口、3个禁用预留项</summary>
+<summary>完整菜单：46个页面入口、3个禁用预留项</summary>
 
 ```text
 工作台  [/home]
@@ -52,6 +52,7 @@ ADM责任流转V2：已增加协调人、接收确认式转交、责任分段、
   增值分析  [/analysis/ancillary]
 风控分析
   风控总览  [/risk-analysis]
+  风控核对  [/risk-verification]
   出票利润分析  [/risk-analysis/issue]
   退票利润分析  [/risk-analysis/refund]
   改签利润分析  [/risk-analysis/change]

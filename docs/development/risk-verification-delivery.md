@@ -1,5 +1,15 @@
 # 风控核对首版交付与验收
 
+## 主菜单入口（2026-11-05）
+
+用户反馈目前已跑通，要求增加正式菜单。左侧“风控分析 → 风控核对”链接到既有`/risk-verification`，仅管理员显示；直接进入时展开风控分析并选中本项。路由及后端仍按现有管理员权限校验，不新增普通账号权限，不改核实流程、数据或API。此前标题区入口保留。用户反馈“跑通”不替代本次菜单真实点击验收，浏览器操作仍受限。
+
+本次仅前端菜单变更，main更新后部署人按现有方式重建web；无需运行完整风控迁移脚本、更新API、执行DDL或重新清洗数据。提交/推送、本地验证及服务器部署分别记录，以本次交付回执为准。
+
+本地验证（独立worktree，Node v24.18.0）：frontend内`node node_modules/vue-tsc/bin/vue-tsc.js -b --pretty false`、`node node_modules/eslint/bin/eslint.js src/layouts/AppLayout.vue --max-warnings=0`均退出0；根目录bundled Python执行`scripts/check_readme.py --write`与`--check`，输出`README inventories verified: 49 menu entries; 209 HTTP method/path entries`；`git diff --check`通过。README脚本首次从frontend目录调用路径错误，改从仓库根执行后通过。
+
+`.test-artifacts/risk-menu-20261105/check.cjs`运行实际编译AppLayout的SSR及导航watcher，管理员可见、普通风控账号/无权限账号不可见、新旧路由展开/选中及菜单点击目标均通过；Ant控件和store为隔离替身，路由及后端管理员检查原样保留，不冒充真实浏览器或服务端鉴权实测。未重试已登记的本机构建临时文件权限故障，未操作247、修改权限或发群通知。
+
 ## 最简部署方式
 
 无需另传脚本。部署人在247现有`data_report`仓库根目录执行下面这一条命令：
