@@ -333,6 +333,16 @@ HR邮件附件导出任务的`1 / 1`表示任务生成并下载一个文件，�
 
 本轮只做本地静态与合成月报验证，不连接真实SMTP、不发送邮件、不改生产数据；部署和真实文件/邮箱客户端显示仍需247受控验收。提交、推送回执以本轮实际结果为准。
 
+## HR导出任务入口权限修复（2026-11-05）
+
+用户授权修复并发版，申请人确认马远尔；主会话使用chief-of-staff、星桥前端及明鉴验证职责，未启动子代理。独立工作树从两端一致的main `85d976f`建立，不改原工作区其他未提交文件。页头`exportMenuCodes`补入`hr.mail`，HR单菜单账号随之挂载任务抽屉并启动原轮询；未新增业务权限或修改后端本人范围校验。
+
+本地证据位于独立工作树`.test-artifacts/hr-export-entry-20261105/`，测试脚本/日志均忽略不提交。`checks.py`实际运行源码提取与Vue reactive/computed/watch回归：修前HR入口隐藏可复现，修后HR入口/抽屉/轮询、撤权停轮询、未登录及无关菜单拒绝、管理员/原综合权限及8类业务菜单保持通过，退出0/1.215秒。`node frontend/node_modules/vue-tsc/bin/vue-tsc.js -b frontend/tsconfig.json --pretty false`退出0/48.929秒；frontend目录`node scripts/check-ant-components.mjs`登记75组件，退出0/0.275秒；`node node_modules/eslint/bin/eslint.js src/layouts/AppLayout.vue --max-warnings=0`退出0/6.100秒。原始日志及完整命令见checks.json。
+
+bundled Python进程追加原仓库site-packages并导入本工作树真实`_require_kind`，确认HR文件获准、无HR菜单拒绝、HR单权限无法导出综合分析，退出0；未连接数据库。范围`git diff --check`退出0。只修改入口权限，不重复已登记esbuild临时文件删除失败的构建；浏览器仍禁用，真实页面及247部署/业务验收未执行。本次代码提交、双端main推送和一次群通知以实际工具回执为准，通知不代表服务器已更新。
+
+部署交接：247现有data_report目录`git pull --ff-only origin main`后，按原部署配置重建web（基础compose为`docker compose up -d --build --no-deps web`）；不执行HR建表、迁移或重启邮件worker。刷新页面后，以仅有HR菜单账号核对页头导出任务及本人附件下载；未授权账号仍不能访问HR文件。
+
 ## HR邮件附件统一导出与权限/预览说明（2026-10-27，代码完成待部署验收）
 
 用户要求HR部门附件及图表下载统一进入页头“导出任务”，并追问账号授权、预览完整性和旧邮件样式。星桥/磐石主会话复用现有统一导出任务，不另建队列：HR页面点击附件或图表后创建`hr_mail_file`任务，任务卡展示服务器核定文件名，首次下载后只清理导出任务临时副本；HR批次私有原件继续保留供发送和审计。创建、后台复制及下载三阶段均重验账号有效、`hr.mail`菜单、批次本人/管理员范围及文件hash，撤权或停用后不能继续取得任务文件。原私有文件接口保留给页面受控图表展示和兼容，不再由HR下载按钮直接触发。

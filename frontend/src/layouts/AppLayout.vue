@@ -190,7 +190,7 @@ const headerTag = computed(() => route.path === '/home' ? '数据工作台' : ro
 const canSeeMenu = (code: string) => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.menuCodes?.includes(code))
 const canSeeGroup = (code: string) => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.menuCodes?.some(item => item === code || item.startsWith(`${code}.`)))
 const canViewMonitorActions = computed(() => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.permissions?.includes('monitor.action.view')))
-const exportMenuCodes = new Set(['adm.center', 'gds_route.diagnosis', 'governance.gds', 'governance.ota', 'smart.overview', 'smart.dimensions', 'smart.details', 'smart.placement.missed'])
+const exportMenuCodes = new Set(['hr.mail', 'adm.center', 'gds_route.diagnosis', 'governance.gds', 'governance.ota', 'smart.overview', 'smart.dimensions', 'smart.details', 'smart.placement.missed'])
 const canExport = computed(() => Boolean(authStore.user?.isAdmin)
   || Boolean(authStore.user?.permissions?.includes('analysis.comprehensive.export'))
   || Boolean(authStore.user?.menuCodes?.some(code => exportMenuCodes.has(code))))
