@@ -134,6 +134,25 @@ if [ "$archive_auto" = true ]; then
   docker compose stop api
   docker compose run -T --rm --no-deps --entrypoint python api -m data_report_api.services.risk_auto_migrate --archive-only --source-stopped
 fi
+echo "检查V11清洗批次就绪（只读；不建表、不切换旧服务）"
+docker compose run -T --rm --no-deps --entrypoint python api - <<'RISK_PREPARED_CHECK'
+import json
+from pathlib import Path
+from data_report_api.config import Config
+from data_report_api.services.risk_auto_store import RiskAutoStore
+from data_report_api.services.risk_commission_rule import RULE_ID
+import data_report_api.services.risk_commission_rule as rules
+try:
+    values={key:getattr(Config,key) for key in dir(Config) if key.isupper()}
+    digest=json.loads(Path(rules.__file__).with_name('risk_engine_bundle.meta.json').read_text(encoding='utf-8'))['sha256']
+    with RiskAutoStore(values).db() as db:
+        db.execute('SELECT issue_date,order_id FROM bi_risk_prepared_order LIMIT 0')
+        row=db.execute('SELECT COUNT(*) AS n FROM bi_risk_prepared_day p JOIN bi_risk_sync_day d ON d.issue_date=p.issue_date AND d.etl_run_id=p.etl_run_id WHERE p.rule_version=? AND p.engine_hash=?',(RULE_ID,digest)).fetchone()
+        if not row or int(row['n'])<1:raise ValueError('not ready')
+except Exception:
+    raise SystemExit('PREPARED_BATCH_NOT_READY: 请先执行V11两表DDL并运行新独立清洗；旧服务未切换，不要清库。') from None
+print('PREPARED_BATCH_READY')
+RISK_PREPARED_CHECK
 docker compose up -d api web
 docker compose ps api web
 fi

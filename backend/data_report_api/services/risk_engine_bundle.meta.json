@@ -1,0 +1,16 @@
+{
+  "files": {
+    "__init__.py": "01b3cfad27f9866c0e3220f76b8462258c576912dd1db51e622fb54911dd37e3",
+    "engine.py": "b745ed233759ea9ba86879b01b266bfdfc1833fb6b8f6c7bb4bba1e0867e2228",
+    "risk_child_loss.py": "9c0b8e1bfbbaa865ab347fafb9c90770a884915d8509f2356e6b719c6b12a978",
+    "risk_commission_rule.py": "7c006fe410886d6e0170444a1c54cabaa2172da749bc24f4c60aa5db74a5b6f6",
+    "risk_evidence_batch.py": "8807cf3ea5d830a6f1929f7259cb0716cb3afa810c87b9de3f4c1bb561c4cba0",
+    "risk_historical_threshold.py": "2b355f36d5c38ca476a7f99a3c56ea40d6249bd8a4988edac0c766bef4af46b6",
+    "risk_loss_threshold_config.py": "a40c4339b6c12e62459235de98cccbe0a7b8684c44db31555952d0d2077a767d",
+    "risk_order_evidence.py": "32661d38a79f4fd80ec5bd7b00f051bade479e3c9f702c5762d6bdcab6d3a467",
+    "risk_threshold_facts.py": "54d371a1711220c0052bb3578f4dcfdd38a085797e831383ba868cdeaa19f760",
+    "risk_verification_flow.py": "33e04bd8f7722a98dbee651b4bfda9b27e7bd73d46bb89f1f05b195f9964f3a3"
+  },
+  "ruleVersion": "qunar-commission-loss-config-v11",
+  "sha256": "919006ba83964d5bf24b847e9986d6c4225c00f8bc131621f03f1f3b56503a7f"
+}

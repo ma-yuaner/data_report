@@ -1,6 +1,6 @@
 <template>
   <div class="page-wrap verification-overview">
-    <PageHeader eyebrow="RISK VERIFICATION" title="风控核对" description="手工更新：查询读取已保存结果；点击更新并核实后读取所选日期的最新数据并重算，关闭页面不影响已启动任务。">
+    <PageHeader eyebrow="RISK VERIFICATION" title="风控核对" description="独立清洗批量准备证据与核实结果；页面查询读取已保存结果，点击加载清洗结果后更新当前账号视图，不再逐单查询ERP。">
       <a-space wrap><a-tag color="blue">订单去重 · 含各类盈亏原因</a-tag><a-button :loading="configLoading" @click="configOpen = true; loadConfigs()">读取通用配置候选</a-button></a-space>
     </PageHeader>
     <FilterPanel stacked :instant="false" :show-reset="false" :loading="loading" :hint="hasPending ? '日期已改变，点击查询后生效' : '按出票时间筛选，结束日期包含当天；同一订单多张票只计1单'">
@@ -9,7 +9,7 @@
         <a-segmented v-model:value="preset" :options="presets" :disabled="loading" @change="applyPreset" />
         <DateRangeField v-model:start="startDate" v-model:end="endDate" :disabled="loading" @change="preset = 'custom'" />
       </template>
-      <template #actions><a-button :loading="loading" @click="queryOverview">查询</a-button><a-button type="primary" :loading="autoRunning" :disabled="loading || autoRunning" @click="startAutomatic()">更新并核实</a-button></template>
+      <template #actions><a-button :loading="loading" @click="queryOverview">查询</a-button><a-button type="primary" :loading="autoRunning" :disabled="loading || autoRunning" @click="startAutomatic()">加载清洗结果</a-button></template>
     </FilterPanel>
     <a-alert v-if="error" type="error" show-icon :message="error" />
     <a-drawer v-model:open="configOpen" title="出票通用配置取证（候选）" :width="'min(1000px, 100vw)'">
@@ -20,11 +20,12 @@
         <template #expandedRowRender="{ record }"><p>配置说明：{{ record.rule_notes || '未配置' }}</p><pre class="config-content">{{ record.ext_json || '未配置' }}</pre><a-alert v-if="record.contentTruncated" type="warning" message="配置内容已截断，不能据此确定阈值" /></template>
       </a-table>
     </a-drawer>
-    <a-alert v-if="catalogNotice" type="info" show-icon message="所选出票日期尚未同步" :description="`${catalogNotice}。默认今日只是查询范围，不会自动同步；点击上方‘更新并核实’同步并核实所选日期。`" />
+    <a-alert v-if="catalogNotice" type="info" show-icon message="所选出票日期尚未同步" :description="`${catalogNotice}。请先运行所选日期的独立风控清洗任务，再加载清洗结果；缺少批次不表示零订单。`" />
     <a-alert v-if="overview?.dataFreshness" :type="['failed', 'running'].includes(overview.dataFreshness.latestAttempt?.status || '') ? 'warning' : 'info'" show-icon :message="`中台同步数据 · 最早同步 ${formatDateTimeDisplay(overview.dataFreshness.oldestSyncedAt)} · 最近同步 ${formatDateTimeDisplay(overview.dataFreshness.newestSyncedAt)}`" :description="syncDescription" />
     <a-alert type="info" show-icon message="系统自动核实，人工只抽查与处理异常" :description="`通过无须人工确认；证据不足、执行失败、规则未接入分别列示。${overview?.sampling ? `当前账号已抽查 ${overview.sampling.sampled} 单，其中发现问题 ${overview.sampling.disputed} 单。` : '当前抽查统计尚未读取，不能按0单解释。'}`" />
     <a-alert v-if="autoError" type="error" show-icon :message="autoError" />
-    <div class="auto-actions"><span v-if="autoJob">{{ autoJob.startDate || '' }} 至 {{ autoJob.endDate || '' }} · {{ phaseLabels[autoJob.phase || autoJob.status] || jobLabels[autoJob.status] || autoJob.status }} · 核实 {{ autoJob.done }} / {{ autoJob.total }} · 复用 {{ autoJob.reused || 0 }} 次</span><small>查询不启动任务；更新会同步所选日期。范围最多2000个已接规则订单，失败不循环重试。</small></div>
+    <div class="auto-actions"><span v-if="autoJob">{{ autoJob.startDate || '' }} 至 {{ autoJob.endDate || '' }} · {{ phaseLabels[autoJob.phase || autoJob.status] || jobLabels[autoJob.status] || autoJob.status }} · 核实 {{ autoJob.done }} / {{ autoJob.total }} · 已加载 {{ autoJob.reused || 0 }} 单</span><small>查询不触发清洗；按钮只加载成功批次。单次最多2000单，失败保留旧结果，不回退ERP。</small></div>
+    <a-alert v-for="report in (autoJob?.preparationReports || []).filter(item => item.day >= (applied?.start || startDate) && item.day <= (applied?.end || endDate))" :key="report.day" type="info" show-icon :message="`${report.day}清洗报告 · ${report.orders}单 · ${report.seconds}秒`" :description="Object.keys(report.insufficientCauses || {}).length ? `证据不足原因：${Object.entries(report.insufficientCauses).map(([code, count]) => `${causeLabels[code] || code} ${count}单`).join('；')}` : '该批次没有证据不足；是否存在问题以核实结果分类为准。'" />
     <a-alert v-if="autoJob?.message" :type="autoJob.status === 'failed' ? 'error' : 'info'" show-icon :message="autoJob.message" />
     <div v-if="applied" class="applied-scope"><strong>{{ applied.start }} 至 {{ applied.end }}</strong><span>出票日期 · 已生效范围</span></div>
     <div class="metrics-grid" aria-label="核查概况">
@@ -106,9 +107,9 @@ const applied = ref<{ start: string; end: string }>()
 const overview = ref<VerificationOverview>()
 const syncDescription = computed(() => {
   const state = overview.value?.dataFreshness.latestAttempt?.status
-  if (state === 'failed') return '最近同步失败，保留各日上次成功数据。查询不会重试；排查后点击更新并核实，旧核实结果可能已过期。'
+  if (state === 'failed') return '最近同步失败，保留各日上次成功数据。查询不会重试；排查并重新运行独立清洗，旧核实结果可能已过期。'
   if (state === 'running') return '有同步批次尚未完成，当前显示各日已成功发布的数据；若长期未完成，请管理员检查批次。'
-  return '查询和详情只读已保存数据；点击更新并核实才同步ERP并重新检查必要证据。展示结果以各日成功批次为准，不代表实时数据。'
+  return '查询和详情读取中台已保存数据；独立清洗完成后加载新结果。展示以各日完整成功批次为准，不代表实时数据。'
 })
 const orders = ref<VerificationOrders>()
 const loading = ref(false)
@@ -131,7 +132,7 @@ const metricCards: { key: keyof VerificationMetrics; label: string; note: string
   { key: 'supported', label: '核实通过', note: '系统核实符合，无须人工确认' },
   { key: 'insufficient', label: '证据不足', note: '不能认定符合或有问题' },
   { key: 'failed', label: '执行失败', note: '取证或执行失败，需重试' },
-  { key: 'unchecked', label: '待核实', note: '点击更新并核实启动任务' },
+  { key: 'unchecked', label: '待核实', note: '清洗完成后加载核实结果' },
   { key: 'outdated', label: '已过期', note: '旧结果不计为当前通过' },
   { key: 'rule_pending', label: '规则未接入', note: '不能套用其他类型规则' },
 ]
@@ -161,7 +162,8 @@ const autoJob = ref<AutoRiskJob | null>(null)
 const autoError = ref('')
 const autoRunning = ref(false)
 const jobLabels: Record<string, string> = { queued: '排队中', running: '执行中', complete: '任务执行结束，请查看各项核实结果', failed: '任务失败，可重试' }
-const phaseLabels: Record<string, string> = { queued: '排队中', refreshing: '同步目录', checking_schema: '检查数据源', refreshing_dictionary: '同步原因字典', verifying: '核对订单', complete: '任务执行结束，请查看各项核实结果', failed: '更新失败' }
+const causeLabels: Record<string, string> = { HISTORY_RECONSTRUCTION: '历史配置无法还原', HISTORY_STATUS_BASELINE_MISSING: '历史状态缺修改前值', PARSER_REVIEW_REQUIRED: '解析能力待自查', HISTORY_LEDGER_INCOMPLETE: '历史记录不完整', SCOPE_INCOMPLETE: '关联范围不完整', PASSENGER_EVIDENCE: '乘机人证据不足', MONEY_EVIDENCE: '金额证据不足', THRESHOLD_EVIDENCE: '止损证据不足', UNCLASSIFIED_EVIDENCE: '待分析原因' }
+const phaseLabels: Record<string, string> = { queued: '排队中', loading_prepared: '加载清洗结果', refreshing: '同步目录', checking_schema: '检查数据源', refreshing_dictionary: '同步原因字典', verifying: '核对订单', complete: '任务执行结束，请查看各项核实结果', failed: '更新失败' }
 async function startAutomatic() {
   if (!alive || autoRunning.value) return
   autoError.value = ''; autoRunning.value = true

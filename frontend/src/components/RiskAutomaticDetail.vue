@@ -10,7 +10,7 @@
         <a-descriptions bordered size="small" :column="2">
           <a-descriptions-item label="平台">{{ result.platform || '证据缺失' }}</a-descriptions-item>
           <a-descriptions-item label="止损值来源">{{ usesConfiguration ? '出票时通用配置（逐票见下表）' : '历史日志结果，需更新并核实' }}</a-descriptions-item>
-          <a-descriptions-item label="核实时间">{{ formatDateTimeDisplay(result.checkedAt) }}</a-descriptions-item>
+          <a-descriptions-item :label="result.sourceMode === 'prepared_etl' ? '清洗核实时间' : '核实时间'">{{ formatDateTimeDisplay(result.checkedAt) }}</a-descriptions-item>
           <a-descriptions-item label="规则版本">{{ result.ruleVersion }}</a-descriptions-item>
           <a-descriptions-item v-if="!isChild" label="核实依据" :span="2">非去哪儿平台优先判为选因有问题；去哪儿且有正佣金时，出票利润＋销售佣金 ≥ －单票止损值；金额为CNY。超过4段按4段配置＋超出段数×25元。</a-descriptions-item>
           <a-descriptions-item v-if="isChild" label="核实依据" :span="2">必须有儿童或婴儿；携程同OTA订单与关联单汇总出票利润÷总票数，不加佣金；平均利润须满足当前单逐票止损阈值；平均值展示四位小数，判定不按展示值舍入。</a-descriptions-item>
@@ -39,7 +39,7 @@
           </template>
         </a-table>
         <a-alert v-if="result.missing?.length" type="warning" show-icon :message="`待补证据：${result.missing.join('；')}`" />
-        <p class="muted">{{ isChild ? '来源：范围内各独立订单出票利润（CNY）与票数、乘机人年龄类型；不加佣金，不去重独立出票。阈值沿用当前单出票时配置。' : usesConfiguration ? '来源：出票明细的利润、销售佣金和单票航段关联；止损值取出票时的通用配置。保留配置版本、快照哈希及必要的配置变更引用，不从订单止损日志取值。' : '此为旧版日志核实结果，仅供历史参考；请在列表点击更新并核实，使用通用配置重新计算。' }}</p>
+        <p class="muted">{{ isChild ? '来源：范围内各独立订单出票利润（CNY）与票数、乘机人年龄类型；不加佣金，不去重独立出票。阈值沿用当前单出票时配置。' : usesConfiguration ? '来源：出票明细的利润、销售佣金和单票航段关联；止损值取出票时的通用配置。保留配置版本、快照哈希及必要的配置变更引用，不从订单止损日志取值。' : '此为旧版日志核实结果，仅供历史参考；请在列表点击加载清洗结果，使用通用配置重新计算。' }}</p>
         <section v-if="!outdated">
           <h3>人工抽查（可选）</h3>
           <a-radio-group v-model:value="sampleOutcome"><a-radio value="confirmed">确认无误</a-radio><a-radio value="disputed">发现问题</a-radio></a-radio-group>

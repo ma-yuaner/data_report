@@ -1,5 +1,6 @@
 """Fail-closed historical configuration matching, no order stop-loss log fallback."""
 from copy import deepcopy
+from bisect import bisect_right
 from datetime import datetime
 from decimal import Decimal
 import hashlib
@@ -75,69 +76,75 @@ def restore(rule,logs,at):
 
 
 
-def historical_exclusion(rule, logs, at, facts):
-    """Prove irrelevance from a complete legacy edit ledger; never supply a threshold."""
-    created,updated=instant(rule.get('create_time')),instant(rule.get('update_time'))
-    version=rule.get('version')
-    if at is None or created is None or updated is None or created>at or updated<=at:
-        return None
-    if type(version) is not int or version<1 or len(logs)!=version+1:
-        return None
+
+LEGACY_FIELDS={'OTA平台':'ota_code','OTA站点':'ota_site_code','产品类型':'product_type','航司':'airline',
+ '除外航司':'airline_except','出票供应商':'issue_supplier_code','出票GDS':'issue_gds','出票PCC':'issue_pcc',
+ '出发地':'origin','除外出发地':'origin_except','目的地':'destination','除外目的地':'destination_except',
+ '舱位':'cabin','除外舱位':'cabin_except','舱等':'cabin_grade','除外舱等':'cabin_grade_except','航班号':'flight_number'}
+
+
+def restore_legacy(rule,logs,at):
+    """Validate the entire legacy ledger, then replay its explicit before/after values."""
+    created,updated=instant(rule.get('create_time')),instant(rule.get('update_time'));version=rule.get('version')
+    if at is None or created is None or updated is None or created>at or updated<=at:return None,'历史还原时点不适用'
+    if type(version) is not int or version<1 or len(logs)!=version+1:return None,'历史创建/修改记录数量与配置版本不一致'
     dates=[instant(row.get('operator_datetime')) for row in logs]
-    if any(date is None for date in dates) or len(set(dates))!=len(dates):return None
-    if min(dates)!=created or max(dates)!=updated:return None
-    if len({str(row.get('id')) for row in logs})!=len(logs):return None
-    if any(str(row.get('business_obj_id'))!=str(rule['id']) or row.get('version')!=0 for row in logs):return None
+    if any(t is None for t in dates) or len(set(dates))!=len(dates) or min(dates)!=created or max(dates)!=updated:return None,'历史时间链缺失或冲突'
+    if len({str(row.get('id')) for row in logs})!=len(logs):return None,'历史日志重复'
+    if any(str(row.get('business_obj_id'))!=str(rule['id']) or row.get('version')!=0 for row in logs):return None,'历史对象或版本格式不一致'
     ordered=sorted(logs,key=lambda row:instant(row['operator_datetime']))
-    if str(ordered[0].get('operator_content') or '').strip()!='新增规则。':return None
-    state=deepcopy(rule);refs=[]
+    if str(ordered[0].get('operator_content') or '').strip()!='新增规则。':return None,'历史缺少创建基线'
+    state=deepcopy(rule);as_of=None;refs=[]
     for row in reversed(ordered[1:]):
+        when=instant(row['operator_datetime'])
+        if when<=at and as_of is None:as_of=deepcopy(state)
         raw=html.unescape(str(row.get('operator_content') or ''))
-        if len(raw)>20000:return None
+        if len(raw)>20000:return None,'历史内容超过完整性上限'
         content=re.sub(r'<(?:br\s*/?|/?b)>','',raw,flags=re.I)
-        # Source updateStatusByIds logs these exact scope-preserving actions.
-        status_action=re.fullmatch(r'修改规则状态为：(挂起|启用)。',content)
-        if status_action:
-            expected={'挂起':'2','启用':'1'}[status_action.group(1)]
-            if state.get('status') is not None and str(state['status'])!=expected:return None
-            state['status']=None  # Previous status is unknown; never used to select a threshold.
-            if instant(row['operator_datetime'])>at:
-                refs.append(str(row['id']));as_of=deepcopy(state)
-            continue
-        blocks=re.findall(r'【([^【】]*)】',content)
-        if not blocks or blocks[0]!='修改出票规则信息':return None
-        if re.sub(r'【[^【】]*】','',content).strip():return None
-        if len(blocks)<2:return None
-        for block in reversed(blocks[1:]):
-            change=re.fullmatch(r"(.+?)\s+由\s*'(.*)'\s*修改为\s*'(.*)'",block,re.S)
-            if not change:return None
-            label,before,after=change.groups()
-            if label in ('规则名称','备注'):continue
-            if label=='扩展字段':
-                try:
-                    if canonical(state.get('ext_json'))!=canonical(after):return None
-                    old,new=json.loads(before),json.loads(after)
-                    if not isinstance(old,dict) or not isinstance(new,dict):return None
-                except (ValueError,TypeError,AttributeError):return None
-                state['ext_json']=before
-            elif label in ('OTA平台','航司'):
-                key={'OTA平台':'ota_code','航司':'airline'}[label]
-                if tokens(state.get(key))!=tokens(after):return None
-                state[key]=before
-            else:return None
-        if instant(row['operator_datetime'])>at:
-            refs.append(str(row['id']))
+        action=re.fullmatch(r'修改规则状态为：(挂起|启用)。',content)
+        if action:
+            expected={'挂起':'2','启用':'1'}[action.group(1)]
+            if state.get('status') is not None and str(state['status'])!=expected:return None,'历史状态与当前值冲突'
+            state['status']=None
         else:
-            # Earlier changes were checked against their newer state, but the as-of scope is already saved.
-            continue
-        # Save scope after rolling this edit back past the issue instant.
-        as_of=deepcopy(state)
-    if not refs:return None
-    # Only these fields have a proven historical chain in this restricted decoder.
+            blocks=re.findall(r'【([^【】]*)】',content)
+            if len(blocks)<2 or blocks[0]!='修改出票规则信息' or re.sub(r'【[^【】]*】','',content).strip():return None,'历史动作格式未支持'
+            for block in reversed(blocks[1:]):
+                change=re.fullmatch(r"(.+?)\s+由\s*'(.*)'\s*修改为\s*'(.*)'",block,re.S)
+                if not change:return None,'历史字段差异不可解析'
+                label,before,after=change.groups()
+                if label in ('规则名称','备注'):continue
+                if label=='扩展字段':
+                    try:
+                        if canonical(state.get('ext_json'))!=canonical(after):return None,'历史扩展JSON新旧链不连续'
+                        if not isinstance(json.loads(before),dict):return None,'历史扩展JSON无效'
+                    except (ValueError,TypeError):return None,'历史扩展JSON无效'
+                    state['ext_json']=before
+                elif label in LEGACY_FIELDS:
+                    key=LEGACY_FIELDS[label]
+                    if tokens(state.get(key))!=tokens(after):return None,'历史字段新旧值不连续：'+key
+                    state[key]=before
+                elif label in ('生效时间','失效时间'):
+                    key='start_time' if label=='生效时间' else 'end_time'
+                    current=instant(state.get(key));old=instant(before);new=instant(after)
+                    if current is None or old is None or new is None or current.date()!=new.date():return None,'历史有效期新旧值不连续'
+                    if label=='生效时间' and (current.hour,current.minute,current.second)!=(0,0,0):return None,'历史生效时间边界异常'
+                    if label=='失效时间' and (current.hour,current.minute,current.second)!=(23,59,59):return None,'历史失效时间边界异常'
+                    state[key]=old.replace(hour=current.hour,minute=current.minute,second=current.second,microsecond=current.microsecond)
+                else:return None,'历史字段未支持：'+label
+        if when>at:refs.append(str(row['id']))
+    if as_of is None:as_of=deepcopy(state)
+    as_of.update(version=version-len(refs),update_time=max(t for t in dates if t<=at),historyReferences=refs,historyProof='complete_legacy_edit_ledger')
+    return as_of,''
+
+
+def historical_exclusion(rule,logs,at,facts):
+    """Compatibility entry: exclusion uses the same validated decoder as restoration."""
+    state,error=restore_legacy(rule,logs,at)
+    if state is None:return None
     for key in ('ota_code','airline'):
-        wanted=as_of.get(key);actual=facts.get(key)
-        if tokens(wanted) and tokens(actual) and not tokens(wanted)&tokens(actual):
-            return {'ruleId':str(rule['id']),'field':key,'historyReferences':refs,
+        if tokens(state.get(key)) and tokens(facts.get(key)) and not tokens(state[key])&tokens(facts[key]):
+            return {'ruleId':str(rule['id']),'field':key,'historyReferences':state['historyReferences'],
                     'basis':'complete_legacy_edit_ledger_scope_exclusion'}
     return None
 
@@ -205,6 +212,19 @@ class HistoricalThresholds:
         if len(logs)>20000:self.problem='配置变更超过历史取证上限，不能假定历史完整';return
         for row in logs:self.logs.setdefault(str(row['business_obj_id']),[]).append(row)
 
+    def _restore_cached(self,rule,at):
+        # State depends on the historical change interval, not each ticket's distinct timestamp.
+        if not hasattr(self,'_restore_cache'):self._restore_cache={};self._boundaries={}
+        key=str(rule['id'])
+        if key not in self._boundaries:
+            self._boundaries[key]=sorted({t for t in [instant(rule.get('create_time')),instant(rule.get('update_time')),*[instant(row.get('operator_datetime')) for row in self.logs.get(key,[])]] if t is not None})
+        cache_key=(key,bisect_right(self._boundaries[key],at))
+        if cache_key not in self._restore_cache:
+            state,error=restore(rule,self.logs.get(key,[]),at);legacy=None;legacy_error=''
+            if state is None:legacy,legacy_error=restore_legacy(rule,self.logs.get(key,[]),at)
+            self._restore_cache[cache_key]=(state,error,legacy,legacy_error)
+        return self._restore_cache[cache_key]
+
     def resolve(self,issue,order):
         if self.problem:return {'status':'insufficient','reason':self.problem}
         at=instant(issue.get('issue_ticket_time'))
@@ -219,15 +239,20 @@ class HistoricalThresholds:
             unknown.append(reason)
             diagnostics.append({'ruleId':str(rule['id']),'stage':stage,'reason':reason,'fields':fields or []})
         for rule in self.rules:
-            state,error=restore(rule,self.logs.get(str(rule['id']),[]),at)
+            state,error,legacy,legacy_error=self._restore_cached(rule,at)
             if state is False:continue
             if state is None:
-                proof=historical_exclusion(rule,self.logs.get(str(rule['id']),[]),at,facts)
-                if proof is not None:
-                    scope_exclusions.append(proof)
+                if legacy is not None:
+                    proof=next(({'ruleId':str(rule['id']),'field':key,'historyReferences':legacy['historyReferences'],'basis':legacy['historyProof']} for key in ('ota_code','airline') if tokens(legacy.get(key)) and tokens(facts.get(key)) and not tokens(legacy[key])&tokens(facts[key])),None)
+                    if proof:
+                        scope_exclusions.append(proof);continue
+                    if legacy.get('status') is not None:state=legacy
+                    else:
+                        error='历史配置状态无法还原'
+                        legacy_error='历史状态动作没有修改前值，不能证明出票时启用状态'
+                if state is None:
+                    unresolved(rule,'history',error+'；'+legacy_error)
                     continue
-                unresolved(rule,'history',error)
-                continue
             if state.get('rule_type')!=LOSS_RULE_TYPE:continue
             start,end=instant(state.get('start_time')),instant(state.get('end_time'))
             if start and end and not start<=at<=end:continue
@@ -260,4 +285,4 @@ class HistoricalThresholds:
         digest=hashlib.sha256(json.dumps(snapshot,sort_keys=True,default=str,ensure_ascii=False).encode()).hexdigest()
         return {**amount,'ruleId':str(state['id']),'configurationVersion':state.get('version'),'asOf':str(issue['issue_ticket_time']),
                 'configurationHash':digest,'configurationSnapshot':snapshot,'historyReferences':state.get('historyReferences',[]),
-                'source':'base_issue_match_rule.ext_json','basis':'issue_time_configuration','excludedHistoricalCandidates':scope_exclusions}
+                'source':'base_issue_match_rule.ext_json','basis':'issue_time_configuration','historyProof':state.get('historyProof','versioned_log_chain'),'excludedHistoricalCandidates':scope_exclusions}

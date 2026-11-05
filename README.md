@@ -1,5 +1,7 @@
 # 企业数据中心（data_report）
 
+风控V11：[独立批量清洗与证据不足自查](docs/development/risk-prepared-v11.md)。页面加载清洗成功结果，不再在线逐单取证；上线前需两张新表及独立ETL首批成功，不能只更新API。代码完成不等于DDL/清洗/部署已执行。
+
 风控V10：[综合无亏损－儿童/婴儿](docs/product/risk-child-loss-v10.md)已接入手工更新核实；携程关联拆单汇总出票利润÷票数，不加佣金，必须有儿童或婴儿，沿用当前单止损配置。未部署、未业务验收，无新增DDL或调度。
 
 风控2026-11-05增量：[佣金亏损配置止损与管理员共享标签](docs/development/risk-loss-types-release-20261105.md)。V5按出票时通用配置逐票核实，超过4段按4段配置＋超出段数×25元；历史配置无法可靠还原时证据不足。共享类型/标签两张新表由247部署人显式执行`bash scripts/deploy_risk_verification.sh --problem-tags`，不改ERP，代码发布不等于服务器已上线。

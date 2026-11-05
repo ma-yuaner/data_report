@@ -116,14 +116,15 @@ def register_routes(api):
     @api.get("/v1/risk-verification/status")
     def risk_verification_status():
         return _call(lambda owner: {"ai": RiskAI(current_app.config).status(), "access": "admin_owner_only",
-                                   "formulaStatus": "partially_confirmed", "source": "ERP_MYSQL",
+                                   "formulaStatus": "partially_confirmed", "source": "sibebid_prepared",
                                    "rules": [{"id": RULE_ID, "label": "佣金、点击费亏损（去哪儿且有销售佣金）",
                                               "formula": "非去哪儿优先判有问题；去哪儿正佣金单票：出票利润＋销售佣金≥－出票时配置止损值（含等号）；超过4段按4段配置＋超出段数×25元",
                                               "status": "自动规则已接入；历史配置、段数或必要字段不能可靠还原时证据不足"},
                                              {"id": RULE_ID+":RLA040", "label": "综合无亏损－儿童/婴儿",
                                               "formula": "必须有儿童或婴儿；携程OTA及关联拆单出票利润合计÷总票数≥－当前单出票时配置止损值，不加佣金",
                                               "status": "自动规则已接入；全成人直接有问题，关联范围/利润/阈值不完整时证据不足"}],
-                                   "sourceConfigured": current_app.config.get("RISK_VERIFICATION_ERP_EXPLICIT") is True and all(bool(current_app.config.get(f"ERP_MYSQL_{key}")) for key in ("HOST", "DATABASE", "USER", "PASSWORD"))})
+                                   "sourceConfigured": all(bool(current_app.config.get(f"MYSQL_{key}")) for key in ("HOST", "DATABASE", "USER", "PASSWORD")),
+                                   "erpEvidenceConfigured": current_app.config.get("RISK_VERIFICATION_ERP_EXPLICIT") is True and all(bool(current_app.config.get(f"ERP_MYSQL_{key}")) for key in ("HOST", "DATABASE", "USER", "PASSWORD"))})
 
     @api.get("/v1/risk-verification/candidates")
     def risk_verification_candidates():

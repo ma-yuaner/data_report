@@ -90,8 +90,9 @@ def evaluate_child(evidence,version):
             if config.get('status')=='ready' and threshold is not None and threshold>=0:
                 # Cross-multiply to avoid rounding a repeating average across the boundary.
                 passed=total>=-threshold*Decimal(count)
+                verdict='满足' if passed else '不满足'
                 result.update(status='supported' if passed else 'problem',adjustedProfit=format(average,'.4f'),
-                              boundary=format(-threshold,'f'),explanation=f'总出票利润{total}元 / {count}票；平均利润与－{threshold}元比较：{'满足' if passed else '不满足'}（不加佣金，边界按总利润≥－阈值×票数精确比较）')
+                              boundary=format(-threshold,'f'),explanation=f'总出票利润{total}元 / {count}票；平均利润与－{threshold}元比较：{verdict}（不加佣金，边界按总利润≥－阈值×票数精确比较）')
             statuses.append(result['status']);base['tickets'].append(result)
     values={r['stopLoss'] for r in base['tickets']}
     if len(values)==1:base['stopLoss']=next(iter(values))

@@ -13,7 +13,6 @@ from .risk_historical_threshold import HistoricalThresholds
 from .risk_order_evidence import RiskOrderEvidenceService, _rows, order_id
 from .risk_verification_flow import FlowError, _owner
 from .risk_auto_store import RiskAutoStore, StoreConflict
-from .risk_verification_refresh import refresh_range
 
 LOG = logging.getLogger(__name__)
 EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="risk-auto")
@@ -291,78 +290,15 @@ class RiskAutoVerification:
             body = json.loads(row["body"])
             if db.execute("UPDATE auto_jobs SET status='running',updated=? WHERE id=? AND status='queued' AND updated>=?", (time.time(), job_id, time.time() - 600)).rowcount != 1:
                 return
-        latest = {}
-        seen = set()
-
-        def progress(event):
-            body.update({key: value for key, value in event.items() if key in {"phase", "day", "sourceRows", "publishedRows"}})
-            with self.db() as db:
-                if db.execute("UPDATE auto_jobs SET updated=?,body=? WHERE id=? AND owner=? AND status='running' AND updated>=?", (time.time(), json.dumps(body, ensure_ascii=False), job_id, owner, time.time() - 600)).rowcount != 1:
-                    raise FlowError("任务已失效，未继续发布结果", 409)
-
-        def prepare(source_cursor, target_cursor, day, run_id):
-            if body.get("reason") not in {None, *SUPPORTED_REASONS}:
-                return None
-            # Read the ETL staging rows, then use the SAME ERP repeatable-read snapshot.
-            reasons=(body['reason'],) if body.get('reason') else SUPPORTED_REASONS
-            target_cursor.execute("SELECT order_id AS id,profit_reason_type,update_time FROM risk_order_day_stage WHERE profit_reason_type IN ("+','.join(['%s']*len(reasons))+") ORDER BY order_id LIMIT 2001", reasons)
-            targets = _rows(target_cursor)
-            if len(seen | {str(row["id"]) for row in targets}) > 2000:
-                raise FlowError("当前范围超过2000单，请缩小日期范围后更新核实", 413)
-            new_ids = {str(row["id"]) for row in targets} - seen
-            seen.update(str(row["id"]) for row in targets)
-            body["total"] += len(new_ids)
-            progress({"phase": "verifying", "day": day.isoformat()})
-            results = []
-            configuration_cache = {}
-            for target in targets:
-                result = {"id": uuid.uuid4().hex, "orderId": str(target["id"]), "reasonCode": target["profit_reason_type"],
-                          "sourceUpdatedAt": stamp(target["update_time"]), "catalogRunId": run_id,
-                          "checkedAt": now(), "checkedAtEpoch": time.time(), "issueDate": day.isoformat(), "ruleVersion": RULE_ID, "jobId": job_id}
-                evidence = read_evidence_cursor(source_cursor, target["id"], configuration_cache)
-                if evidence["order"]["profit_reason_type"] != target["profit_reason_type"] or stamp(evidence["order"].get("update_time")) != stamp(target["update_time"]):
-                    raise FlowError("同一源快照数据不一致，本日未发布，请重新更新核实", 409)
-                digest = hashlib.sha256(json.dumps(evidence, ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
-                previous = latest.get(str(target["id"]))
-                if (not body.get("force") and previous and previous.get("evidenceHash") == digest
-                        and previous.get("ruleVersion") == RULE_ID
-                        and previous.get("status") in {"supported", "problem"}):
-                    computed = {key: value for key, value in previous.items() if key in {"status", "summary", "tickets", "platform", "stopLoss", "logReferences", "missing"}}
-                    result["reusedFrom"] = previous["id"]
-                    body["reused"] += 1
-                else:
-                    computed = evaluate(evidence)
-                result.update(computed)
-                result["evidenceHash"] = digest
-                results.append(result)
-                latest[result["orderId"]] = result
-                if result["orderId"] in new_ids:
-                    body["done"] += 1
-                progress({"phase": "verifying"})
-
-            def publish(cursor):
-                # Publication shares the directory transaction: rollback includes results.
-                cursor.execute("SELECT status,updated FROM bi_risk_auto_jobs WHERE id=%s AND owner=%s FOR UPDATE", (job_id, owner))
-                states = _rows(cursor)
-                if len(states) != 1 or states[0]["status"] != "running" or states[0]["updated"] < time.time() - 600:
-                    raise FlowError("任务已失效，本日未发布", 409)
-                for result in results:
-                    cursor.execute("INSERT INTO bi_risk_auto_results (id,owner,order_id,created,body) VALUES (%s,%s,%s,%s,%s)",
-                                   (result["id"], owner, result["orderId"], time.time(), json.dumps(result, ensure_ascii=False)))
-            return publish
-
+        from .risk_prepared import consume
         try:
-            latest = self.latest(owner)
-            progress({"phase": "refreshing"})
-            refreshed = refresh_range(self.config, body["startDate"], body["endDate"], progress, prepare)
-            body.update(status="complete", phase="complete", refreshedRows=refreshed["rows"], syncRunId=refreshed["runId"])
-            body["message"] = "目录与核实结果已更新" if body["total"] else "目录已更新；所选范围没有已接规则的订单"
+            body.update(phase='loading_prepared')
             with self.db() as db:
-                db.execute("UPDATE auto_jobs SET status='complete',updated=?,body=? WHERE id=? AND owner=? AND status='running'", (time.time(), json.dumps(body, ensure_ascii=False), job_id, owner))
+                db.execute("UPDATE auto_jobs SET updated=?,body=? WHERE id=? AND owner=? AND status='running'",(time.time(),json.dumps(body,ensure_ascii=False),job_id,owner))
+            consume(self,owner,body,None)
         except Exception as error:
-            LOG.exception("Manual risk refresh/verification failed")
-            from .risk_order_sync_generated import ETLError
-            message = str(error) if isinstance(error, (FlowError, ETLError)) else "更新核实失败，请检查数据源、目录写入权限与服务日志；旧记录已保留"
-            body.update(status="failed", phase="failed", message=message)
+            LOG.exception('Prepared risk loading failed')
+            message=str(error) if isinstance(error,FlowError) else '风控清洗结果未就绪，请检查新表、清洗批次及版本；不会回退ERP逐单核实'
+            body.update(status='failed',phase='failed',message=message)
             with self.db() as db:
-                db.execute("UPDATE auto_jobs SET status='failed',updated=?,body=? WHERE id=? AND owner=?", (time.time(), json.dumps(body, ensure_ascii=False), job_id, owner))
+                db.execute("UPDATE auto_jobs SET status='failed',updated=?,body=? WHERE id=? AND owner=? AND status='running'",(time.time(),json.dumps(body,ensure_ascii=False),job_id,owner))
