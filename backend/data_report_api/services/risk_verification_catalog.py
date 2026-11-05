@@ -33,26 +33,27 @@ class RiskVerificationCatalog:
             raise
 
     @staticmethod
-    def coverage(cursor, first, last):
+    def coverage(cursor, first, last, require_complete=True):
         cursor.execute("SELECT issue_date,etl_run_id,row_count,synced_at FROM bi_risk_sync_day WHERE issue_date >= %s AND issue_date <= %s ORDER BY issue_date", (first.isoformat(), last.isoformat()))
         rows = _rows(cursor)
         seen = {str(row["issue_date"]): row for row in rows}
         expected = [(first + timedelta(days=index)).isoformat() for index in range((last - first).days + 1)]
         missing = [day for day in expected if day not in seen]
-        if missing:
+        if missing and (require_complete or not rows):
             raise EvidenceError("风控目录未同步出票日期：" + ",".join(missing) + "；请先运行独立风控清洗任务，未同步不代表零订单", 409, "RISK_CATALOG_NOT_SYNCED")
-        cursor.execute("""SELECT order_id FROM bi_risk_order_day
+        if require_complete:
+            cursor.execute("""SELECT order_id FROM bi_risk_order_day
             WHERE issue_date >= %s AND issue_date <= %s GROUP BY order_id
             HAVING COUNT(DISTINCT CAST(profit_reason_type AS BINARY)) > 1
                 OR COUNT(DISTINCT update_time) > 1
                 OR (COUNT(update_time)>0 AND COUNT(update_time)<COUNT(*)) LIMIT 1""",
                        (first.isoformat(), last.isoformat()))
-        if cursor.fetchall():
-            raise EvidenceError("所选出票日期存在同一订单的不同源版本，请重跑完整日期范围后再核查；不能沿用旧版本结论", 409)
+            if cursor.fetchall():
+                raise EvidenceError("所选出票日期存在同一订单的不同源版本，请重跑完整日期范围后再核查；不能沿用旧版本结论", 409)
         cursor.execute("SELECT status,started_at,finished_at,error_code FROM bi_risk_sync_run WHERE start_date <= %s AND end_date >= %s ORDER BY started_at DESC,etl_run_id DESC LIMIT 1", (last.isoformat(), first.isoformat()))
         attempts = _rows(cursor)
         times = [str(row["synced_at"]) for row in rows]
-        return {"source": "sibebid", "mode": "etl_catalog", "complete": True,
+        return {"source": "sibebid", "mode": "etl_catalog", "complete": not missing,"missingDays":missing,
                 "oldestSyncedAt": min(times), "newestSyncedAt": max(times),
                 "days": rows, "latestAttempt": attempts[0] if attempts else None}
 

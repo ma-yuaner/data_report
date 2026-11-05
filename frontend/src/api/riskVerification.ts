@@ -107,6 +107,8 @@ export interface VerificationMetrics {
   outdated: number
 }
 export interface RiskCatalogFreshness {
+  missingDays?: string[]
+  preparation?: { readyDays: string[]; missingDays: string[]; mode: string; ruleVersion: string; reports: { day: string; orders: number; seconds: number; statuses: Record<string, number>; insufficientCauses: Record<string, number> }[] }
   reasonDictionaryVersion?: string
   source: 'sibebid'
   mode: 'etl_catalog'
@@ -143,8 +145,8 @@ export interface AutoRiskResult {
 export const riskAutomatic = {
   start: (startDate: string, endDate: string, reason?: string) => flowPost<AutoRiskJob>('automatic/jobs', { startDate, endDate, reason, mode: 'refresh_verify' }),
   job: () => flowGet<AutoRiskJob | null>('automatic/job'),
-  result: (orderId: string) => flowGet<AutoRiskResult | null>(`automatic/orders/${orderId}`),
-  sample: (orderId: string, resultId: string, outcome: string, reason: string) => flowPost<unknown>(`automatic/orders/${orderId}/sample`, { resultId, outcome, reason }),
+  result: (orderId: string, issueDate?: string) => flowGet<AutoRiskResult | null>(`automatic/orders/${orderId}${issueDate ? `?issueDate=${encodeURIComponent(issueDate)}` : ''}`),
+  sample: (orderId: string, resultId: string, outcome: string, reason: string, issueDate?: string) => flowPost<unknown>(`automatic/orders/${orderId}/sample`, { resultId, outcome, reason, issueDate }),
 }
 export interface RiskProblemType { id: string; name: string; created_by: string; created_at: string }
 export interface RiskProblemTag { id: string; order_id: string; type_id: string; type_name: string; reason: string; created_by: string; created_at: string }

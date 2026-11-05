@@ -1,6 +1,6 @@
 <template>
   <div class="page-wrap verification-overview">
-    <PageHeader eyebrow="RISK VERIFICATION" title="风控核对" description="独立清洗批量准备证据与核实结果；页面查询读取已保存结果，点击加载清洗结果后更新当前账号视图，不再逐单查询ERP。">
+    <PageHeader eyebrow="RISK VERIFICATION" title="风控核对" description="独立清洗批量准备证据与核实结果；页面查询读取已保存结果，查询直接读取各日已成功发布结果；个人抽查独立留存，不再依赖整段日期加载到账号。">
       <a-space wrap><a-tag color="blue">订单去重 · 含各类盈亏原因</a-tag><a-button :loading="configLoading" @click="configOpen = true; loadConfigs()">读取通用配置候选</a-button></a-space>
     </PageHeader>
     <FilterPanel stacked :instant="false" :show-reset="false" :loading="loading" :hint="hasPending ? '日期已改变，点击查询后生效' : '按出票时间筛选，结束日期包含当天；同一订单多张票只计1单'">
@@ -9,7 +9,7 @@
         <a-segmented v-model:value="preset" :options="presets" :disabled="loading" @change="applyPreset" />
         <DateRangeField v-model:start="startDate" v-model:end="endDate" :disabled="loading" @change="preset = 'custom'" />
       </template>
-      <template #actions><a-button :loading="loading" @click="queryOverview">查询</a-button><a-button type="primary" :loading="autoRunning" :disabled="!canCheck || loading || autoRunning" @click="startAutomatic()">加载清洗结果</a-button></template>
+      <template #actions><a-button type="primary" :loading="loading" @click="queryOverview">查询最新清洗结果</a-button></template>
     </FilterPanel>
     <a-alert v-if="error" type="error" show-icon :message="error" />
     <a-drawer v-model:open="configOpen" title="出票通用配置取证（候选）" :width="'min(1000px, 100vw)'">
@@ -20,13 +20,12 @@
         <template #expandedRowRender="{ record }"><p>配置说明：{{ record.rule_notes || '未配置' }}</p><pre class="config-content">{{ record.ext_json || '未配置' }}</pre><a-alert v-if="record.contentTruncated" type="warning" message="配置内容已截断，不能据此确定阈值" /></template>
       </a-table>
     </a-drawer>
-    <a-alert v-if="catalogNotice" type="info" show-icon message="所选出票日期尚未同步" :description="`${catalogNotice}。请先运行所选日期的独立风控清洗任务，再加载清洗结果；缺少批次不表示零订单。`" />
+    <a-alert v-if="catalogNotice" type="info" show-icon message="所选出票日期尚未同步" :description="`${catalogNotice}。请先运行所选日期的独立风控清洗任务，再查询最新清洗结果；缺少批次不表示零订单。`" />
     <a-alert v-if="overview?.dataFreshness" :type="['failed', 'running'].includes(overview.dataFreshness.latestAttempt?.status || '') ? 'warning' : 'info'" show-icon :message="`中台同步数据 · 最早同步 ${formatDateTimeDisplay(overview.dataFreshness.oldestSyncedAt)} · 最近同步 ${formatDateTimeDisplay(overview.dataFreshness.newestSyncedAt)}`" :description="syncDescription" />
     <a-alert type="info" show-icon message="系统自动核实，人工只抽查与处理异常" :description="`通过无须人工确认；证据不足、执行失败、规则未接入分别列示。${overview?.sampling ? `当前账号已抽查 ${overview.sampling.sampled} 单，其中发现问题 ${overview.sampling.disputed} 单。` : '当前抽查统计尚未读取，不能按0单解释。'}`" />
-    <a-alert v-if="autoError" type="error" show-icon :message="autoError" />
-    <div class="auto-actions"><span v-if="autoJob">{{ autoJob.startDate || '' }} 至 {{ autoJob.endDate || '' }} · {{ phaseLabels[autoJob.phase || autoJob.status] || jobLabels[autoJob.status] || autoJob.status }} · 核实 {{ autoJob.done }} / {{ autoJob.total }} · 已加载 {{ autoJob.reused || 0 }} 单</span><small>查询不触发清洗；按钮只加载成功批次。单次最多2000单，失败保留旧结果，不回退ERP。</small></div>
-    <a-alert v-for="report in (autoJob?.preparationReports || []).filter(item => item.day >= (applied?.start || startDate) && item.day <= (applied?.end || endDate))" :key="report.day" type="info" show-icon :message="`${report.day}清洗报告 · ${report.orders}单 · ${report.seconds}秒`" :description="Object.keys(report.insufficientCauses || {}).length ? `证据不足原因：${Object.entries(report.insufficientCauses).map(([code, count]) => `${causeLabels[code] || code} ${count}单`).join('；')}` : '该批次没有证据不足；是否存在问题以核实结果分类为准。'" />
-    <a-alert v-if="autoJob?.message" :type="autoJob.status === 'failed' ? 'error' : 'info'" show-icon :message="autoJob.message" />
+    <a-alert v-if="coverageMissingDays.length" type="warning" show-icon message="部分日期尚未完成清洗，其他已成功日期仍可查询" :description="`缺失日期：${coverageMissingDays.join('、')}。请等待回补或追补任务；未覆盖不表示零订单。`" />
+    <div class="auto-actions"><small>直接读取每日成功清洗结果；页面每分钟刷新已生效范围（打开详情或存在操作时暂停），不触发ERP取证。</small></div>
+    <a-alert v-for="report in overview?.dataFreshness.preparation?.reports || []" :key="report.day" type="info" show-icon :message="`${report.day}清洗报告 · ${report.orders}单 · ${report.seconds}秒`" :description="Object.keys(report.insufficientCauses || {}).length ? `证据不足原因：${Object.entries(report.insufficientCauses).map(([code, count]) => `${causeLabels[code] || code} ${count}单`).join('；')}` : '该日没有证据不足；核实通过与问题分别列示。'" />
     <div v-if="applied" class="applied-scope"><strong>{{ applied.start }} 至 {{ applied.end }}</strong><span>出票日期 · 已生效范围</span></div>
     <div class="metrics-grid" aria-label="核查概况">
       <button v-for="card in metricCards" :key="card.key" type="button" class="metric-card" :class="card.key" :disabled="!overview || loading" @click="drill(undefined, card.key === 'total' ? 'all' : card.key)">
@@ -68,14 +67,12 @@
       </a-table>
     </section>
     <a-drawer :open="drawerOpen" :title="`订单核查 · ${activeOrderNo || activeOrderId}`" :width="'min(1280px, 100vw)'" :destroy-on-close="true" :closable="!panelBusy" :keyboard="!panelBusy" :mask-closable="!panelBusy" @close="closeDrawer">
-      <RiskAutomaticDetail v-if="drawerOpen" :key="activeOrderId" ref="casePanel" :order-id="activeOrderId" :reason="activeReason" :source-updated-at="activeUpdatedAt" @changed="refreshResults" @busy-change="panelBusy = $event" />
+      <RiskAutomaticDetail v-if="drawerOpen" :key="activeOrderId" ref="casePanel" :order-id="activeOrderId" :reason="activeReason" :source-updated-at="activeUpdatedAt" :issue-date="activeIssueDate" @changed="refreshResults" @busy-change="panelBusy = $event" />
     </a-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
-import { useRiskPermissions } from '@/composables/useRiskPermissions'
-const { canCheck } = useRiskPermissions()
 import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
 
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
@@ -87,7 +84,7 @@ import DateRangeField from '@/components/DateRangeField.vue'
 import RiskAutomaticDetail from '@/components/RiskAutomaticDetail.vue'
 import { ApiError } from '@/api/http'
 import { riskProblems } from '@/api/riskVerification'
-import { verificationOverview, riskAutomatic, type AutoRiskJob, type RiskCatalogFreshness, type VerificationCategory, type VerificationMetrics, type VerificationOrder, type VerificationOrders, type VerificationOverview, type VerificationStatus } from '@/api/riskVerification'
+import { verificationOverview, type RiskCatalogFreshness, type VerificationCategory, type VerificationMetrics, type VerificationOrder, type VerificationOrders, type VerificationOverview, type VerificationStatus } from '@/api/riskVerification'
 
 const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date())
 const configOpen = ref(false), configLoading = ref(false), configError = ref(''), configNotice = ref('')
@@ -154,54 +151,22 @@ const activeOrderId = ref('')
 const activeOrderNo = ref('')
 const activeReason = ref('')
 const activeUpdatedAt = ref<string | null>(null)
+const activeIssueDate = ref<string>()
 const panelBusy = ref(false)
 const casePanel = ref<InstanceType<typeof RiskAutomaticDetail>>()
 let summaryRequest = 0
 let orderRequest = 0
 let alive = true
-let pollTimer: ReturnType<typeof setTimeout> | undefined
-const autoJob = ref<AutoRiskJob | null>(null)
-const autoError = ref('')
-const autoRunning = ref(false)
-const jobLabels: Record<string, string> = { queued: '排队中', running: '执行中', complete: '任务执行结束，请查看各项核实结果', failed: '任务失败，可重试' }
+let refreshTimer: ReturnType<typeof setInterval> | undefined
 const causeLabels: Record<string, string> = { HISTORY_RECONSTRUCTION: '历史配置无法还原', HISTORY_STATUS_BASELINE_MISSING: '历史状态缺修改前值', PARSER_REVIEW_REQUIRED: '解析能力待自查', HISTORY_LEDGER_INCOMPLETE: '历史记录不完整', SCOPE_INCOMPLETE: '关联范围不完整', PASSENGER_EVIDENCE: '乘机人证据不足', MONEY_EVIDENCE: '金额证据不足', THRESHOLD_EVIDENCE: '止损证据不足', UNCLASSIFIED_EVIDENCE: '待分析原因' }
-const phaseLabels: Record<string, string> = { queued: '排队中', loading_prepared: '加载清洗结果', refreshing: '同步目录', checking_schema: '检查数据源', refreshing_dictionary: '同步原因字典', verifying: '核对订单', complete: '任务执行结束，请查看各项核实结果', failed: '更新失败' }
-async function startAutomatic() {
-  if (!alive || autoRunning.value) return
-  autoError.value = ''; autoRunning.value = true
-  try {
-    const job = await riskAutomatic.start(startDate.value || '', endDate.value || '', selectedReason.value)
-    if (!alive) return
-    autoJob.value = job
-    if (job.status === 'queued' || job.status === 'running') schedulePoll()
-    else autoRunning.value = false
-  } catch (failure) { if (alive) { autoRunning.value = false; autoError.value = failure instanceof Error ? failure.message : '更新核实任务启动失败' } }
-}
-async function loadActiveJob() {
-  try {
-    const job = await riskAutomatic.job()
-    if (!alive) return
-    autoJob.value = job
-    autoRunning.value = Boolean(job && (job.status === 'queued' || job.status === 'running'))
-    if (autoRunning.value) schedulePoll()
-  } catch (failure) { if (alive) autoError.value = failure instanceof Error ? failure.message : '任务状态读取失败' }
-}
-function schedulePoll() {
-  if (pollTimer) clearTimeout(pollTimer)
-  pollTimer = setTimeout(async () => {
-    try {
-      const job = await riskAutomatic.job()
-      if (!alive) return
-      autoJob.value = job
-      if (job && (job.status === 'queued' || job.status === 'running')) { schedulePoll(); return }
-      autoRunning.value = false
-      if (job && job.startDate === startDate.value && job.endDate === endDate.value) await queryOverview()
-      else await refreshResults()
-    } catch (failure) { if (alive) { autoRunning.value = false; autoError.value = failure instanceof Error ? failure.message : '任务进度读取失败，请刷新' } }
-  }, 2000)
-}
-onBeforeUnmount(() => { alive = false; summaryRequest++; orderRequest++; if (pollTimer) clearTimeout(pollTimer) })
-onMounted(() => { void queryOverview(); void loadActiveJob() })
+const coverageMissingDays = computed(() => [...new Set([...(overview.value?.dataFreshness.missingDays || []), ...(overview.value?.dataFreshness.preparation?.missingDays || [])])].sort())
+onBeforeUnmount(() => { alive = false; summaryRequest++; orderRequest++; if (refreshTimer) clearInterval(refreshTimer) })
+onMounted(() => {
+  void queryOverview()
+  refreshTimer = setInterval(() => {
+    if (alive && applied.value && !loading.value && !ordersLoading.value && !drawerOpen.value && document.visibilityState === 'visible') void refreshResults()
+  }, 60000)
+})
 function count(value: number) { return value.toLocaleString('zh-CN') }
 function catalogVersion(value?: RiskCatalogFreshness) { return value ? `${value.days.map(day => `${day.issue_date}:${day.etl_run_id}`).join('|')}#${value.reasonDictionaryVersion || ''}` : '' }
 function categoryLabel(code: unknown) { return overview.value?.categories.find(item => item.reasonCode === code)?.reasonLabel || String(code || '未分类') }
@@ -257,7 +222,7 @@ async function drill(reason: string | undefined, status: VerificationStatus | 'a
 }
 function filterOrders() { page.value = 1; void loadOrders() }
 function changePage(pagination: { current?: number; pageSize?: number }) { page.value = pagination.current || 1; pageSize.value = pagination.pageSize || 20; void loadOrders() }
-function openOrder(row: Record<string, any>) { activeOrderId.value = String(row.id); activeOrderNo.value = String(row.order_no || row.ota_order_no || ''); activeReason.value = String(row.profit_reason_type); activeUpdatedAt.value = row.update_time || null; panelBusy.value = false; drawerOpen.value = true }
+function openOrder(row: Record<string, any>) { activeOrderId.value = String(row.id); activeOrderNo.value = String(row.order_no || row.ota_order_no || ''); activeReason.value = String(row.profit_reason_type); activeUpdatedAt.value = row.update_time || null; activeIssueDate.value = String(row.issue_date || '').slice(0, 10) || undefined; panelBusy.value = false; drawerOpen.value = true }
 function closeDrawer() {
   if (panelBusy.value) return
   if (casePanel.value?.hasUnsavedDrafts) { Modal.confirm({ title: '关闭当前核查？', content: '未保存的确认理由或知识草稿将丢失，已保存记录保留。', okText: '放弃未保存内容并关闭', cancelText: '继续核查', onOk: () => { drawerOpen.value = false } }); return }

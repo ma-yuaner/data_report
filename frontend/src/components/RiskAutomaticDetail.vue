@@ -40,7 +40,7 @@
           </template>
         </a-table>
         <a-alert v-if="result.missing?.length" type="warning" show-icon :message="`待补证据：${result.missing.join('；')}`" />
-        <p class="muted">{{ isBet ? '来源：order_info_issue.issue_profit（CNY）与出票时通用配置单票止损值；逐票比较，不加佣金或预期收益。' : isChild ? '来源：范围内各独立订单出票利润（CNY）与票数、乘机人年龄类型；不加佣金，不去重独立出票。阈值沿用当前单出票时配置。' : usesConfiguration ? '来源：出票明细的利润、销售佣金和单票航段关联；止损值取出票时的通用配置。保留配置版本、快照哈希及必要的配置变更引用，不从订单止损日志取值。' : '此为旧版日志核实结果，仅供历史参考；请在列表点击加载清洗结果，使用通用配置重新计算。' }}</p>
+        <p class="muted">{{ isBet ? '来源：order_info_issue.issue_profit（CNY）与出票时通用配置单票止损值；逐票比较，不加佣金或预期收益。' : isChild ? '来源：范围内各独立订单出票利润（CNY）与票数、乘机人年龄类型；不加佣金，不去重独立出票。阈值沿用当前单出票时配置。' : usesConfiguration ? '来源：出票明细的利润、销售佣金和单票航段关联；止损值取出票时的通用配置。保留配置版本、快照哈希及必要的配置变更引用，不从订单止损日志取值。' : '此为旧版日志核实结果，仅供历史参考；请先完成所选日期清洗，再在列表查询最新结果。' }}</p>
         <section v-if="!outdated && canReview">
           <h3>人工抽查（可选）</h3>
           <a-radio-group v-model:value="sampleOutcome"><a-radio value="confirmed">确认无误</a-radio><a-radio value="disputed">发现问题</a-radio></a-radio-group>
@@ -66,7 +66,7 @@ import { Alert as AAlert, Button as AButton, Descriptions as ADescriptions, Desc
 import { riskAutomatic, type AutoRiskResult } from '@/api/riskVerification'
 import RiskProblemTags from '@/components/RiskProblemTags.vue'
 const ATextarea = AInput.TextArea
-const props = defineProps<{ orderId: string; reason: string; sourceUpdatedAt: string | null }>()
+const props = defineProps<{ orderId: string; reason: string; sourceUpdatedAt: string | null; issueDate?: string }>()
 const emit = defineEmits<{ changed: []; 'busy-change': [boolean] }>()
 const result = ref<AutoRiskResult | null>(null)
 const busy = ref(false)
@@ -90,7 +90,7 @@ watch([busy, tagBusy], ([own, tags]) => emit('busy-change', own || tags))
 onMounted(load)
 async function load() {
   busy.value = true; error.value = ''; result.value = null
-  try { result.value = await riskAutomatic.result(props.orderId) }
+  try { result.value = await riskAutomatic.result(props.orderId, props.issueDate) }
   catch (failure) { error.value = failure instanceof Error ? failure.message : '核实结果读取失败' }
   finally { busy.value = false }
 }
@@ -98,8 +98,8 @@ async function saveSample() {
   if (busy.value || !result.value || outdated.value) return
   busy.value = true; error.value = ''
   try {
-    await riskAutomatic.sample(props.orderId, result.value.id, sampleOutcome.value, sampleReason.value)
-    sampleReason.value = ''; saved.value = '已保存'; emit('changed'); result.value = await riskAutomatic.result(props.orderId)
+    await riskAutomatic.sample(props.orderId, result.value.id, sampleOutcome.value, sampleReason.value, props.issueDate)
+    sampleReason.value = ''; saved.value = '已保存'; emit('changed'); result.value = await riskAutomatic.result(props.orderId, props.issueDate)
   } catch (failure) { error.value = failure instanceof Error ? failure.message : '抽查保存失败' }
   finally { busy.value = false }
 }

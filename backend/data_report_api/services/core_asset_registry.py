@@ -50,6 +50,6 @@ RISK_METRICS.append({
     'grain':'出票明细ID（单票）','timeField':'issue_ticket_time时有效配置','unit':'元/CNY',
     'deduplication':'关联段须同单、存在且唯一，正常非空运段不计航空段数；重复或无效关联拒绝计算',
     'nullHandling':'段数/阈值缺失、历史断档或匹配不明为证据不足，真实0保留',
-    'updateTime':'独立ETL成功批次，配置快照和哈希留痕；页面加载到当前账号',
+    'updateTime':'独立ETL成功批次，配置快照和哈希留痕；页面按出票日读取最新成功事实，个人抽查按账号隔离',
     'permission':'风控核对菜单及对应功能权限；自动结果按当前账号隔离','stage':'规则核实，非财务利润','status':'current'
 })

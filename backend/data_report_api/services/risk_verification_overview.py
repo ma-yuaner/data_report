@@ -10,12 +10,12 @@ from .risk_child_loss import BET_REASONS, SUPPORTED_REASONS
 
 LOGGER = logging.getLogger(__name__)
 STATES = ("problem", "supported", "insufficient", "reviewing", "unchecked", "failed", "rule_pending", "outdated")
-FIELDS = "o.order_id AS id,o.order_no,o.ota_order_no,o.ota_code,o.profit_reason_type,o.create_time,o.update_time,o.etl_run_id AS catalog_run_id"
+FIELDS = "o.order_id AS id,o.order_no,o.ota_order_no,o.ota_code,o.profit_reason_type,o.create_time,o.update_time,o.etl_run_id AS catalog_run_id,o.issue_date"
 NOTES = [
     "读取中台ETL目录，不实时扫描ERP；按出票日期限定，跨日或多票均按内部订单ID去重。",
     "数据截止各日最近一次成功同步；查询、翻页和查看详情不触发ERP读取，只有独立清洗任务读取ERP，页面按钮加载已发布结果。",
-    "按当前账号最新自动规则结果统计；通过无须人工确认，人工抽查独立留痕，不覆盖自动结论。",
-    "独立清洗批量读取出票、适用配置及关联证据；页面不重查ERP。儿童/婴儿规则不加佣金，未知仍阻断。新更新请求或目录批次变化后旧结果失效，查询不自动检测ERP变化。",
+    "按每日成功发布的当前核实事实统计，不依赖账号加载任务；通过无须人工确认，个人抽查独立留痕。",
+    "清洗读取出票及适用证据，页面不查ERP；相同证据重复清洗保留抽查关联，规则或证据改变后旧结论只作历史参考。",
     "未核查、核查中和证据不足不等于没有问题；尚无自动核查结论。",
 ]
 
@@ -67,21 +67,8 @@ class RiskVerificationOverview:
         return sql, values
 
     def _statuses(self, cursor, owner, scope, parameters):
-        service = RiskAutoVerification(self.config)
-        latest = service.latest_metadata(owner)
-        requests = service.refresh_requests(owner)
-        statuses = {}
-        identifiers = list(latest)
-        for start in range(0, len(identifiers), 1000):
-            chunk = identifiers[start:start + 1000]
-            marks = ",".join(["%s"] * len(chunk))
-            cursor.execute(f"SELECT o.order_id AS id,o.profit_reason_type,o.update_time,o.etl_run_id,o.issue_date FROM bi_risk_order_day o WHERE {scope} AND o.order_id IN ({marks})", (*parameters, *chunk))
-            for row in _rows(cursor):
-                case = latest[str(row["id"])]
-                if row["profit_reason_type"] in SUPPORTED_REASONS:
-                    current = RiskAutoVerification.current(case, row, requests)
-                    statuses[str(row["id"])] = {"status": case["status"] if current else "outdated", "caseId": None, "resultId": case["id"], "reasonCode": row["profit_reason_type"]}
-        return statuses
+        from .risk_prepared_facts import statuses
+        return statuses(cursor,scope,parameters)
 
     def summary(self, owner, start, end):
         first, last = _period(start, end)
@@ -90,7 +77,9 @@ class RiskVerificationOverview:
         try:
             connection = self.reader._connect()
             cursor = connection.cursor()
-            freshness = self.reader.coverage(cursor, first, last)
+            freshness = self.reader.coverage(cursor, first, last, require_complete=False)
+            from .risk_prepared_facts import coverage
+            freshness['preparation']=coverage(cursor,first,last)
             labels, freshness["reasonDictionaryVersion"] = self.reader.reason_labels(cursor)
             cursor.execute(f"SELECT o.profit_reason_type AS reason_code,COUNT(*) AS order_count FROM bi_risk_order_day o WHERE {scope} GROUP BY o.profit_reason_type", tuple(values))
             groups = _rows(cursor)
@@ -141,7 +130,9 @@ class RiskVerificationOverview:
         try:
             connection = self.reader._connect()
             cursor = connection.cursor()
-            freshness = self.reader.coverage(cursor, first, last)
+            freshness = self.reader.coverage(cursor, first, last, require_complete=False)
+            from .risk_prepared_facts import coverage
+            freshness['preparation']=coverage(cursor,first,last)
             labels, freshness["reasonDictionaryVersion"] = self.reader.reason_labels(cursor)
             statuses = self._statuses(cursor, owner, scope, values)
             selected = [identifier for identifier, item in statuses.items() if item["status"] == status]

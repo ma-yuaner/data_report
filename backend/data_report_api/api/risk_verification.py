@@ -109,13 +109,13 @@ def register_routes(api):
 
     @api.get("/v1/risk-verification/automatic/orders/<identifier>")
     def risk_automatic_result(identifier):
-        return _call(lambda owner: RiskAutoVerification(current_app.config).result(owner, identifier))
+        return _call(lambda owner: RiskAutoVerification(current_app.config).result(owner, identifier,request.args.get('issueDate')))
 
     @api.post("/v1/risk-verification/automatic/orders/<identifier>/sample")
     def risk_automatic_sample(identifier):
         def sample(owner):
             values = _body()
-            return RiskAutoVerification(current_app.config).sample(owner, identifier, values.get("resultId"), values.get("outcome"), values.get("reason"))
+            return RiskAutoVerification(current_app.config).sample(owner, identifier, values.get("resultId"), values.get("outcome"), values.get("reason"),values.get('issueDate'))
         return _call(sample)
 
     @api.get("/v1/risk-verification/overview")

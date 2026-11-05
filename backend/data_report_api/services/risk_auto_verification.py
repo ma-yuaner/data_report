@@ -210,7 +210,24 @@ class RiskAutoVerification:
         body.pop("targets", None)
         return body
 
-    def result(self, owner, identifier):
+    def result(self, owner, identifier, issue_date=None):
+        from .risk_prepared_facts import one
+        from .risk_verification_catalog import RiskVerificationCatalog
+        catalog=RiskVerificationCatalog(self.config);connection=cursor=None
+        try:
+            connection=catalog._connect();cursor=connection.cursor()
+            def fetch(sql,args):cursor.execute(sql,args);return _rows(cursor)
+            body=one(fetch,identifier,issue_date)
+        finally:catalog._close(cursor,connection)
+        if body:
+            with self.db() as db:
+                body['samples']=[json.loads(r['body']) for r in db.execute('SELECT body FROM auto_samples WHERE owner=? AND result_id=? ORDER BY rowid DESC',(_owner(owner),body['id']))]
+            return body
+        body=self._legacy_result(owner,identifier)
+        if body:body['isCurrent']=False
+        return body
+
+    def _legacy_result(self, owner, identifier):
         with self.db() as db:
             row = db.execute("SELECT body FROM auto_results WHERE owner=? AND order_id=? ORDER BY rowid DESC LIMIT 1", (_owner(owner), str(order_id(identifier)))).fetchone()
             if not row:
@@ -234,7 +251,20 @@ class RiskAutoVerification:
             rows = db.execute("SELECT result_id,body FROM auto_samples WHERE owner=? AND rowid IN (SELECT MAX(rowid) FROM auto_samples WHERE owner=? GROUP BY result_id)", (_owner(owner), _owner(owner))).fetchall()
         return {row["result_id"]: json.loads(row["body"])["outcome"] for row in rows}
 
-    def sample(self, owner, identifier, expected_id, outcome, reason):
+    def sample(self, owner, identifier, expected_id, outcome, reason, issue_date=None):
+        from .risk_prepared_facts import one
+        if outcome not in ('confirmed','disputed') or not isinstance(reason,str) or not reason.strip() or len(reason)>2000:
+            raise FlowError('抽查结果和说明必填，说明最多2000字')
+        with self.db() as db:
+            current=one(lambda sql,args:db.execute(sql,args).fetchall(),identifier,issue_date,lock=True)
+            if not current or current['id']!=expected_id:raise FlowError('清洗结果已改变，请刷新后再抽查',409)
+            body={'id':uuid.uuid4().hex,'resultId':expected_id,'outcome':outcome,'reason':reason.strip(),
+                  'at':now(),'operator':_owner(owner),'issueDate':current['issueDate'],
+                  'catalogRunId':current['catalogRunId'],'evidenceHash':current['evidenceHash']}
+            db.execute('INSERT INTO auto_samples VALUES(?,?,?,?)',(body['id'],_owner(owner),expected_id,json.dumps(body,ensure_ascii=False)))
+        return body
+
+    def _legacy_sample(self, owner, identifier, expected_id, outcome, reason):
         from .risk_verification_catalog import RiskVerificationCatalog
         if not isinstance(outcome, str) or outcome not in {"confirmed", "disputed"} or not isinstance(reason, str) or not reason.strip() or len(reason) > 2000:
             raise FlowError("抽查结果和说明必填，说明最多2000字")
@@ -269,7 +299,7 @@ class RiskAutoVerification:
             return active
         body = {"id": uuid.uuid4().hex, "status": "queued", "phase": "queued", "done": 0, "total": 0,
                 "remaining": 0, "startDate": start, "endDate": end, "reason": reason, "force": force,
-                "createdAt": now(), "createdAtEpoch": time.time(), "mode": "refresh_verify", "refreshedRows": 0, "reused": 0}
+                "createdAt": now(), "createdAtEpoch": time.time(), "mode": "load_prepared", "refreshedRows": 0, "reused": 0}
         try:
             with self.db() as db:
                 db.execute("INSERT INTO auto_jobs VALUES(?,?,?,?,?)", (body["id"], _owner(owner), "queued", time.time(), json.dumps(body, ensure_ascii=False)))
