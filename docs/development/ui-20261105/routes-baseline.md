@@ -1,0 +1,71 @@
+# 全路由基线与验收入口
+
+基线 `4ed3145e51d89992afcb47a66965c0f29869bf91`。自动提取；动态路由函数需人工复核。
+全部页面截图、桌面/移动布局、真实操作目前受浏览器禁用限制，未验。
+
+| 路径 | 原始声明（包含组件、权限和别名） | 状态 |
+|---|---|---|
+| `/login` | `{ path: '/login', name: 'login', component: () => import('@/views/LoginView.vue'), meta: { title: '登录', public: true } },` | 静态已归档 / 动态未验 |
+| `/change-password` | `{ path: '/change-password', name: 'change-password', component: () => import('@/views/ChangePasswordView.vue'), meta: { title: '修改密码' } },` | 静态已归档 / 动态未验 |
+| `home` | `{ path: 'home', name: 'home', component: () => import('@/views/HomeView.vue'), meta: { title: '工作台', section: '企业数据中心' } },` | 静态已归档 / 动态未验 |
+| `adm` | `{ path: 'adm', redirect: '/adm/workbench' },` | 静态已归档 / 动态未验 |
+| `adm/workbench` | `{ path: 'adm/workbench', name: 'adm-workbench', component: () => import('@/features/adm/AdmCenterView.vue'), meta: { title: 'ADM 工作台', section: 'ADM 管理', menuCode: 'adm.center', admView: 'workbench' } },` | 静态已归档 / 动态未验 |
+| `adm/cases` | `{ path: 'adm/cases', name: 'adm-cases', component: () => import('@/features/adm/AdmCenterView.vue'), meta: { title: 'ADM 台账', section: 'ADM 管理', menuCode: 'adm.center', admView: 'cases' } },` | 静态已归档 / 动态未验 |
+| `adm/cases/:caseId` | `{ path: 'adm/cases/:caseId', name: 'adm-case-detail', component: () => import('@/features/adm/AdmDetailView.vue'), meta: { title: 'ADM 详情', section: 'ADM 管理', menuCode: 'adm.center' } },` | 静态已归档 / 动态未验 |
+| `resource-governance` | `{ path: 'resource-governance', redirect: '/resource-governance/gds' },` | 静态已归档 / 动态未验 |
+| `resource-governance/gds` | `{ path: 'resource-governance/gds', name: 'gds-resource-governance', component: () => import('@/views/ResourceGovernanceView.vue'), meta: { title: 'GDS资源治理', section: '资源治理', menuCode: 'governance.gds', governanceLayer: 'gds' } },` | 静态已归档 / 动态未验 |
+| `resource-governance/ota` | `{ path: 'resource-governance/ota', name: 'ota-channel-quality', component: () => import('@/views/ResourceGovernanceView.vue'), meta: { title: 'OTA渠道质量', section: '资源治理', menuCode: 'governance.ota', governanceLayer: 'ota' } },` | 静态已归档 / 动态未验 |
+| `resource-governance/route-diagnosis` | `{ path: 'resource-governance/route-diagnosis', name: 'gds-route-diagnosis', component: () => import('@/views/GdsRouteGovernanceView.vue'), meta: { title: '航线配置诊断', section: '资源治理', menuCode: 'gds_route.diagnosis', gdsRoutePage: 'routes' } },` | 静态已归档 / 动态未验 |
+| `resource-governance/whitelist` | `{ path: 'resource-governance/whitelist', name: 'gds-route-whitelist', component: () => import('@/views/GdsRouteGovernanceView.vue'), meta: { title: '白名单管理', section: '资源治理', menuCode: 'gds_route.whitelist', gdsRoutePage: 'whitelist' } },` | 静态已归档 / 动态未验 |
+| `resource-governance/execution` | `{ path: 'resource-governance/execution', name: 'gds-route-execution', component: () => import('@/views/GdsRouteGovernanceView.vue'), meta: { title: '治理执行', section: '资源治理', menuCode: 'gds_route.execution', gdsRoutePage: 'execution' } },` | 静态已归档 / 动态未验 |
+| `resource-governance/review` | `{ path: 'resource-governance/review', name: 'gds-route-review', component: () => import('@/views/GdsRouteGovernanceView.vue'), meta: { title: '治理复盘', section: '资源治理', menuCode: 'gds_route.review', gdsRoutePage: 'review' } },` | 静态已归档 / 动态未验 |
+| `gds-route-governance` | `{ path: 'gds-route-governance', redirect: '/resource-governance/gds' },` | 静态已归档 / 动态未验 |
+| `gds-route-governance/overview` | `{ path: 'gds-route-governance/overview', redirect: '/resource-governance/gds' },` | 静态已归档 / 动态未验 |
+| `gds-route-governance/routes` | `{ path: 'gds-route-governance/routes', redirect: '/resource-governance/route-diagnosis' },` | 静态已归档 / 动态未验 |
+| `gds-route-governance/configurations` | `{ path: 'gds-route-governance/configurations', redirect: '/resource-governance/route-diagnosis?view=configuration' },` | 静态已归档 / 动态未验 |
+| `gds-route-governance/quality` | `{ path: 'gds-route-governance/quality', redirect: '/resource-governance/gds' },` | 静态已归档 / 动态未验 |
+| `gds-route-governance/whitelist` | `{ path: 'gds-route-governance/whitelist', redirect: '/resource-governance/whitelist' },` | 静态已归档 / 动态未验 |
+| `gds-route-governance/events` | `{ path: 'gds-route-governance/events', redirect: '/resource-governance/execution' },` | 静态已归档 / 动态未验 |
+| `gds-route-governance/actions` | `{ path: 'gds-route-governance/actions', redirect: '/resource-governance/execution?tab=actions' },` | 静态已归档 / 动态未验 |
+| `gds-route-governance/review` | `{ path: 'gds-route-governance/review', redirect: '/resource-governance/review' },` | 静态已归档 / 动态未验 |
+| `overview` | `{ path: 'overview', name: 'overview', component: () => import('@/views/OverviewView.vue'), meta: { title: '经营总览', section: '经营总览', menuCode: 'overview' } },` | 静态已归档 / 动态未验 |
+| `analysis/comprehensive` | `{ path: 'analysis/comprehensive', name: 'comprehensive-analysis', component: () => import('@/views/ComprehensiveAnalysisLiveView.vue'), meta: { title: '综合分析', section: '业务分析', menuCode: 'analysis.comprehensive' } },` | 静态已归档 / 动态未验 |
+| `analysis/issue` | `{ path: 'analysis/issue', alias: '/analysis/profit', name: 'issue-profit', component: () => import('@/views/ProfitView.vue'), meta: { title: '出票分析', section: '业务分析', menuCode: 'analysis.issue' } },` | 静态已归档 / 动态未验 |
+| `analysis/refund` | `{ path: 'analysis/refund', name: 'refund-profit', component: () => import('@/views/BusinessProfitView.vue'), props: { businessType: 'refund' }, meta: { title: '退票分析', section: '业务分析', menuCode: 'analysis.refund' } },` | 静态已归档 / 动态未验 |
+| `analysis/change` | `{ path: 'analysis/change', name: 'change-profit', component: () => import('@/views/BusinessProfitView.vue'), props: { businessType: 'change' }, meta: { title: '改签分析', section: '业务分析', menuCode: 'analysis.change' } },` | 静态已归档 / 动态未验 |
+| `analysis/ancillary` | `{ path: 'analysis/ancillary', name: 'ancillary-profit', component: () => import('@/views/BusinessProfitView.vue'), props: { businessType: 'ancillary' }, meta: { title: '增值分析', section: '业务分析', menuCode: 'analysis.ancillary' } },` | 静态已归档 / 动态未验 |
+| `risk-analysis` | `{ path: 'risk-analysis', name: 'risk-analysis', component: () => import('@/views/RiskMonthlyAnalysisView.vue'), meta: { title: '风控总览', section: '风控分析', menuCode: 'risk.overview' } },` | 静态已归档 / 动态未验 |
+| `risk-analysis/issue` | `{ path: 'risk-analysis/issue', name: 'risk-issue-profit', component: () => import('@/views/RiskBusinessAnalysisView.vue'), props: { businessType: 'issue' }, meta: { title: '出票利润分析', section: '风控分析', menuCode: 'risk.issue' } },` | 静态已归档 / 动态未验 |
+| `risk-analysis/refund` | `{ path: 'risk-analysis/refund', name: 'risk-refund-profit', component: () => import('@/views/RiskBusinessAnalysisView.vue'), props: { businessType: 'refund' }, meta: { title: '退票利润分析', section: '风控分析', menuCode: 'risk.refund' } },` | 静态已归档 / 动态未验 |
+| `risk-analysis/change` | `{ path: 'risk-analysis/change', name: 'risk-change-profit', component: () => import('@/views/RiskBusinessAnalysisView.vue'), props: { businessType: 'change' }, meta: { title: '改签利润分析', section: '风控分析', menuCode: 'risk.change' } },` | 静态已归档 / 动态未验 |
+| `risk-analysis/errors` | `{ path: 'risk-analysis/errors', name: 'risk-errors', component: () => import('@/views/RiskErrorAnalysisView.vue'), meta: { title: '差错分析', section: '风控分析', menuCode: 'risk.errors' } },` | 静态已归档 / 动态未验 |
+| `risk-analysis/orders` | `{ path: 'risk-analysis/orders', name: 'risk-orders', component: () => import('@/views/RiskBusinessAnalysisView.vue'), props: { ordersOnly: true }, meta: { title: '订单明细', section: '风控分析', menuCode: 'risk.orders' } },` | 静态已归档 / 动态未验 |
+| `risk-verification` | `{ path: 'risk-verification', name: 'risk-verification', component: () => import('@/views/RiskVerificationView.vue'), meta: { title: '风控核对', section: '风控分析', requiresAdmin: true } },` | 静态已归档 / 动态未验 |
+| `risk-analysis/upload` | `{ path: 'risk-analysis/upload', name: 'risk-upload', component: () => import('@/views/RiskUploadView.vue'), meta: { title: '数据上传', section: '风控分析', menuCode: 'risk.upload' } },` | 静态已归档 / 动态未验 |
+| `smart-analysis` | `{ path: 'smart-analysis', redirect: '/smart-analysis/comprehensive' },` | 静态已归档 / 动态未验 |
+| `smart-analysis/comprehensive` | `{ path: 'smart-analysis/comprehensive', name: 'smart-comprehensive', component: () => import('@/views/SmartComprehensiveView.vue'), meta: { title: '智能综合分析', section: '智能分析', menuCode: 'smart.comprehensive' } },` | 静态已归档 / 动态未验 |
+| `smart-analysis/overview` | `{ path: 'smart-analysis/overview', name: 'smart-overview', component: () => import('@/views/SmartOverviewView.vue'), meta: { title: '智能总览', section: '智能分析', menuCode: 'smart.overview' } },` | 静态已归档 / 动态未验 |
+| `smart-analysis/dimensions` | `{ path: 'smart-analysis/dimensions', name: 'smart-dimensions', component: () => import('@/views/SmartDimensionView.vue'), meta: { title: '维度分析', section: '智能分析', menuCode: 'smart.dimensions' } },` | 静态已归档 / 动态未验 |
+| `smart-analysis/details` | `{ path: 'smart-analysis/details', name: 'smart-details', component: () => import('@/views/SmartDetailView.vue'), meta: { title: '出票明细', section: '智能分析', menuCode: 'smart.details' } },` | 静态已归档 / 动态未验 |
+| `smart-analysis/placement/policies` | `{ path: 'smart-analysis/placement/policies', name: 'smart-placement-policies', component: () => import('@/views/SmartPlacementPolicyView.vue'), meta: { title: '投放政策', section: '智能分析', menuCode: 'smart.placement.policies' } },` | 静态已归档 / 动态未验 |
+| `smart-analysis/placement/orders` | `{ path: 'smart-analysis/placement/orders', name: 'smart-placement-orders', component: () => import('@/views/SmartPlacementOrdersView.vue'), meta: { title: '收单情况', section: '智能分析', menuCode: 'smart.placement.orders' } },` | 静态已归档 / 动态未验 |
+| `smart-analysis/placement/missed-orders` | `{ path: 'smart-analysis/placement/missed-orders', name: 'smart-placement-missed-orders', component: () => import('@/views/SmartMissedOrdersView.vue'), meta: { title: '漏处理订单', section: '智能分析', menuCode: 'smart.placement.missed' } },` | 静态已归档 / 动态未验 |
+| `business-configuration` | `{ path: 'business-configuration', redirect: '/business-configuration/targets' },` | 静态已归档 / 动态未验 |
+| `business-configuration/targets` | `{ path: 'business-configuration/targets', name: 'target-management', component: () => import('@/views/TargetManagementView.vue'), meta: { title: '目标配置', section: '业务配置', menuCode: 'business_config.targets' } },` | 静态已归档 / 动态未验 |
+| `business-configuration/target-progress` | `{ path: 'business-configuration/target-progress', name: 'target-progress', component: () => import('@/views/TargetProgressView.vue'), meta: { title: '目标进度', section: '业务配置', menuCode: 'business_config.target_progress' } },` | 静态已归档 / 动态未验 |
+| `monitoring` | `{ path: 'monitoring', redirect: to => {` | 静态已归档 / 动态未验 |
+| `monitoring/overview` | `{ path: 'monitoring/overview', name: 'monitoring-overview', component: () => import('@/views/MonitoringCenterView.vue'), meta: { title: '监控总览', section: '监控中心', menuCode: 'monitor.center', monitoringPage: 'overview' } },` | 静态已归档 / 动态未验 |
+| `monitoring/tasks` | `{ path: 'monitoring/tasks', name: 'monitoring-tasks', component: () => import('@/views/MonitoringCenterView.vue'), meta: { title: '监控任务', section: '监控中心', menuCode: 'monitor.center', monitoringPage: 'tasks' } },` | 静态已归档 / 动态未验 |
+| `monitoring/alerts` | `{ path: 'monitoring/alerts', name: 'monitoring-alerts', component: () => import('@/views/MonitoringCenterView.vue'), meta: { title: '预警中心', section: '监控中心', menuCode: 'monitor.center', monitoringPage: 'alerts' } },` | 静态已归档 / 动态未验 |
+| `monitoring/actions` | `{ path: 'monitoring/actions', name: 'monitoring-actions', component: () => import('@/views/MonitoringCenterView.vue'), meta: { title: '技术工单', section: '监控中心', menuCode: 'monitor.center', permission: 'monitor.action.view', monitoringPage: 'actions' } },` | 静态已归档 / 动态未验 |
+| `monitoring/templates` | `{ path: 'monitoring/templates', name: 'monitoring-templates', component: () => import('@/views/MonitoringCenterView.vue'), meta: { title: '规则模板', section: '监控中心', menuCode: 'monitor.center', monitoringPage: 'templates' } },` | 静态已归档 / 动态未验 |
+| `monitoring/runs` | `{ path: 'monitoring/runs', name: 'monitoring-runs', component: () => import('@/views/MonitoringCenterView.vue'), meta: { title: '监控运行', section: '监控中心', menuCode: 'monitor.center', monitoringPage: 'runs' } },` | 静态已归档 / 动态未验 |
+| `monitoring/notifications` | `{ path: 'monitoring/notifications', name: 'monitoring-notifications', component: () => import('@/views/MonitoringCenterView.vue'), meta: { title: '通知管理', section: '监控中心', menuCode: 'monitor.center', monitoringPage: 'notifications' } },` | 静态已归档 / 动态未验 |
+| `monitoring/diagnostics` | `{ path: 'monitoring/diagnostics', name: 'monitoring-diagnostics', component: () => import('@/views/MonitoringCenterView.vue'), meta: { title: '问题诊断', section: '监控中心', menuCode: 'monitor.center', monitoringPage: 'diagnostics' } },` | 静态已归档 / 动态未验 |
+| `problems` | `{ path: 'problems', name: 'problems', component: () => import('@/views/ProblemsView.vue'), meta: { title: '问题中心', section: '问题中心', menuCode: 'problems' } },` | 静态已归档 / 动态未验 |
+| `data-assets` | `{ path: 'data-assets', name: 'assets', component: () => import('@/views/AssetsView.vue'), meta: { title: '数据资产', section: '数据资产', menuCode: 'data_assets' } },` | 静态已归档 / 动态未验 |
+| `data-workbench` | `{ path: 'data-workbench', name: 'data-workbench', component: () => import('@/features/data-workbench/DataWorkbenchView.vue'), meta: { title: '数据加工工作台', section: '归档功能', menuCode: 'data_workbench' } },` | 静态已归档 / 动态未验 |
+| `hr-mail` | `{ path: 'hr-mail', name: 'hr-mail', component: () => import('@/features/hr-mail/HrMailView.vue'), meta: { title: 'HR报表邮件', section: 'HR报表邮件', menuCode: 'hr.mail' } },` | 静态已归档 / 动态未验 |
+| `admin/behavior` | `{ path: 'admin/behavior', name: 'admin-behavior', component: () => import('@/views/UserBehaviorMonitorView.vue'), meta: { title: '用户行为监控', section: '系统管理', requiresAdmin: true } },` | 静态已归档 / 动态未验 |
+| `admin/users` | `{ path: 'admin/users', name: 'admin-users', component: () => import('@/views/AdminUsersView.vue'), meta: { title: '账号管理', section: '系统管理', requiresAdmin: true } },` | 静态已归档 / 动态未验 |
+| `/:pathMatch(.*)*` | `{ path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('@/views/NotFoundView.vue'), meta: { title: '页面不存在' } },` | 静态已归档 / 动态未验 |

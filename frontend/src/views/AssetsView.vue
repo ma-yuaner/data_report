@@ -1,5 +1,5 @@
 <template>
-  <div class="page-wrap assets-page">
+  <div class="page-wrap assets-page" :aria-busy="loading">
     <PageHeader eyebrow="DATA ASSETS" title="数据资产" description="明确目前有哪些业务表、能提供哪些指标，以及数据更新到什么时间">
       <a-button :loading="loading" @click="loadData"><ReloadOutlined />刷新状态</a-button>
     </PageHeader>
@@ -11,12 +11,12 @@
       metric-state="当前有效口径"
     />
 
-    <a-alert v-if="error" type="error" show-icon :message="error" class="section-gap" />
+    <a-alert v-if="error" type="error" show-icon :message="error" :description="data ? '当前保留上次读取的结果，请刷新状态后核对。' : undefined" class="section-gap" role="alert" />
 
-    <div class="asset-summary">
-      <div><DatabaseOutlined /><span><strong>{{ data?.assets.length ?? 0 }}</strong>核心业务表</span></div>
-      <div><BookOutlined /><span><strong>{{ data?.metrics.length ?? 0 }}</strong>已登记指标</span></div>
-      <div><FundProjectionScreenOutlined /><span><strong>{{ data?.analysisTaskCount ?? 0 }}</strong>历史分析任务</span></div>
+    <div class="asset-summary" aria-label="数据资产摘要">
+      <div><DatabaseOutlined /><span><strong>{{ data?.assets.length ?? '—' }}</strong>核心业务表</span></div>
+      <div><BookOutlined /><span><strong>{{ data?.metrics.length ?? '—' }}</strong>已登记指标</span></div>
+      <div><FundProjectionScreenOutlined /><span><strong>{{ data?.analysisTaskCount ?? '—' }}</strong>历史分析任务</span></div>
       <div><CheckCircleOutlined /><span><strong>{{ readyCount }}</strong>数据源可用</span></div>
     </div>
 
@@ -24,7 +24,7 @@
       <a-tabs v-model:active-key="activeTab" class="business-tabs">
         <a-tab-pane key="tables" tab="业务数据表">
           <a-card class="panel-card" :bordered="false">
-            <a-table :columns="assetColumns" :data-source="data?.assets ?? []" :pagination="false" row-key="key" :scroll="{ x: 1180 }">
+            <a-table :columns="assetColumns" :data-source="data?.assets ?? []" :pagination="false" row-key="key" :scroll="{ x: 1325, y: 'min(60vh, 560px)' }">
               <template #bodyCell="{ column, record }">
                 <template v-if="column.key === 'object'">
                   <div class="asset-object"><strong>{{ record.domain }}</strong><code>{{ record.database }}.{{ record.table }}</code></div>
@@ -48,7 +48,7 @@
 
         <a-tab-pane key="metrics" tab="指标口径">
           <a-card class="panel-card" :bordered="false">
-            <a-table :columns="metricColumns" :data-source="data?.metrics ?? []" :pagination="false" row-key="name" :scroll="{ x: 850 }">
+            <a-table :columns="metricColumns" :data-source="data?.metrics ?? []" :pagination="false" row-key="name" :scroll="{ x: 920, y: 'min(60vh, 560px)' }">
               <template #bodyCell="{ column, record }">
                 <template v-if="column.key === 'name'"><strong>{{ record.name }}</strong></template>
                 <template v-else-if="column.key === 'formula'"><code class="metric-formula">{{ record.formula }}</code></template>
@@ -61,7 +61,7 @@
         <a-tab-pane key="analyses" tab="分析资产">
           <a-card class="panel-card" :bordered="false">
             <a-alert type="info" show-icon message="已将历史脚本、SQL和自动报送去重归并为能力域；任务数量不等同于独立指标数量。" class="section-gap" />
-            <a-table :columns="analysisColumns" :data-source="data?.analyses ?? []" :pagination="false" row-key="domain" :scroll="{ x: 900 }">
+            <a-table :columns="analysisColumns" :data-source="data?.analyses ?? []" :pagination="false" row-key="domain" :scroll="{ x: 910, y: 'min(60vh, 560px)' }">
               <template #bodyCell="{ column, record }">
                 <template v-if="column.key === 'domain'"><strong>{{ record.domain }}</strong></template>
                 <template v-else-if="column.key === 'maturity'"><a-tag :color="maturityColor(record.maturity)">{{ record.maturity }}</a-tag></template>
@@ -72,7 +72,7 @@
 
         <a-tab-pane key="freshness" tab="更新状态">
           <a-card class="panel-card" :bordered="false">
-            <a-table :columns="freshnessColumns" :data-source="data?.assets ?? []" :pagination="false" row-key="key">
+            <a-table :columns="freshnessColumns" :data-source="data?.assets ?? []" :pagination="false" row-key="key" :scroll="{ x: 900, y: 'min(60vh, 560px)' }">
               <template #bodyCell="{ column, record }">
                 <template v-if="column.key === 'table'"><code>{{ record.table }}</code></template>
                 <template v-else-if="column.key === 'latest'">{{ formatTime(record.latestDataTime) }}</template>
@@ -98,7 +98,7 @@ const activeTab = ref('tables')
 const data = ref<AssetCatalogData>()
 const loading = ref(false)
 const error = ref('')
-const readyCount = computed(() => data.value?.assets.filter(item => item.state === 'ready').length ?? 0)
+const readyCount = computed(() => data.value?.assets.filter(item => item.state === 'ready').length ?? '—')
 
 const assetColumns = [
   { title: '业务与数据表', key: 'object', width: 260 },
@@ -140,6 +140,7 @@ const formatTime = (value: string | null) => value ? value.slice(0, 19) : '待�
 const maturityColor = (value: string) => value.includes('已接入') ? 'success' : value.includes('可接入') || value.includes('成熟') ? 'processing' : value.includes('部分') ? 'cyan' : value.includes('专项') || value.includes('基础') ? 'default' : 'warning'
 
 const loadData = async () => {
+  if (loading.value) return
   loading.value = true
   error.value = ''
   try { data.value = await getAssetCatalog() }
@@ -149,3 +150,30 @@ const loadData = async () => {
 
 onMounted(loadData)
 </script>
+
+<style scoped>
+.assets-page { min-width: 0; }
+.asset-summary { gap: 16px; margin-block: 16px; }
+.asset-summary > div { padding: 16px; border-radius: 8px; font-size: 24px; }
+.asset-summary span { gap: 4px; color: #526176; font-size: 13px; }
+.asset-summary strong { font-size: 26px; line-height: 1.25; font-variant-numeric: tabular-nums; }
+.assets-page :deep(.panel-card) { border-radius: 8px; box-shadow: none; }
+.assets-page :deep(.ant-card-body) { padding: 16px; }
+.assets-page :deep(.ant-table-cell) { vertical-align: top; overflow-wrap: anywhere; }
+.assets-page :deep(.asset-object code),
+.assets-page :deep(.metric-formula) { font-size: 12px; line-height: 1.7; white-space: normal; overflow-wrap: anywhere; }
+.assets-page :deep(.ant-table-thead > tr > th) { color: #334155; background: #f5f7fa; }
+.assets-page :deep(.ant-tabs-tab:focus-visible),
+.assets-page :deep(button:focus-visible) { outline: 2px solid #3178f6; outline-offset: 3px; }
+@media (max-width: 760px) {
+  .asset-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .asset-summary > div { min-height: 88px; padding: 12px; gap: 8px; }
+  .asset-summary strong { font-size: 22px; }
+  .assets-page :deep(.page-header) { align-items: stretch; flex-direction: column; gap: 12px; }
+  .assets-page :deep(.page-header-extra) { justify-content: flex-end; }
+  .assets-page :deep(.ant-card-body) { padding: 8px; }
+}
+@media (max-width: 360px) {
+  .asset-summary { grid-template-columns: 1fr; }
+}
+</style>

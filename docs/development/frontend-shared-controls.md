@@ -10,6 +10,8 @@
 
 ## 已有组件如何复用
 
+认证页面共用`AuthFrame.vue`：`eyebrow/title/description`沿用页面原文案，`busy`提供忙碌语义，`compact`适配改密页宽度，icon/status/footer为展示插槽。页面负责原表单、API、校验、权限与跳转，组件不读取或保存凭据。登录和改密已接入；源码/隔离验证及浏览器未验边界见[认证UI迭代](ui-20261105/login.md)。不向普通业务页套用认证布局。
+
 原型评审外壳另见 `frontend/prototypes/shared/README.md`：ReviewToolbar、PrdPanel、PanelDivider 及公共结构样式已由 ADM DEMO 接入。只用于隔离原型，不把模拟权限、批准或存储接入正式系统。需求先确认，后续优先复用现有组件并局部修改。
 
 | 组件 | 职责 | 已接入 |
