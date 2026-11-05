@@ -18,7 +18,7 @@
       <a-alert v-if="overviewError" type="error" :message="overviewError" show-icon />
       <template v-if="overview">
         <p class="adm-muted">
-          {{ overview.businessDate }} · 生成时间 {{ overview.generatedAt }} ·
+          {{ overview.businessDate }} · 生成时间 {{ formatDateTimeDisplay(overview.generatedAt) }} ·
           {{ appliedScopeLabel }}；汇总为全部获授权任务，不是当前页。
         </p>
         <div class="adm-metrics">
@@ -46,7 +46,7 @@
               >{{ label(task.status) }}<a-tag v-if="task.paused">挂起，风险仍保留</a-tag></template
             >
             <template v-else-if="column.key === 'due'"
-              ><span>{{ task.dueAt || '未设置期限' }}</span
+              ><span>{{ formatDateTimeDisplay(task.dueAt || '未设置期限') }}</span
               ><a-tag v-if="task.overdue" color="red">已超期</a-tag></template
             >
           </template>
@@ -91,10 +91,10 @@
             line.workflow?.financeOwnerName || line.workflow?.financeOwnerId || '待指定（沿用获权财务角色）'
           }}</a-descriptions-item>
           <a-descriptions-item v-for="field in deadlineFields" :key="field.key" :label="field.label">{{
-            line.workflow?.[field.key] || '未设置'
+            displayDateTimeField(line.workflow?.[field.key] || '未设置', field.key)
           }}</a-descriptions-item>
           <a-descriptions-item label="等待对象">{{ line.workflow?.waitingFor || '未登记等待' }}</a-descriptions-item>
-          <a-descriptions-item label="下次跟进">{{ line.workflow?.nextFollowUpAt || '未设置' }}</a-descriptions-item>
+          <a-descriptions-item label="下次跟进">{{ formatDateTimeDisplay(line.workflow?.nextFollowUpAt || '未设置') }}</a-descriptions-item>
           <a-descriptions-item label="等待原因" :span="3"
             ><span class="adm-prose">{{ line.workflow?.waitingReason || '—' }}</span></a-descriptions-item
           >
@@ -112,7 +112,7 @@
         />
         <div v-if="line.handover" class="adm-record">
           <strong>最近交接 · {{ handoverLabels[line.handover.status] || line.handover.status }}</strong>
-          <p>{{ line.handover.fromName || '未分配' }} → {{ line.handover.toName }} · {{ line.handover.requestedAt }}</p>
+          <p>{{ line.handover.fromName || '未分配' }} → {{ line.handover.toName }} · {{ formatDateTimeDisplay(line.handover.requestedAt) }}</p>
           <p class="adm-prose">原因：{{ line.handover.reason }}<br />已做 / 待做 / 风险：{{ line.handover.summary }}</p>
           <p v-if="line.handover.responseReason" class="adm-prose">回应：{{ line.handover.responseReason }}</p>
         </div>
@@ -131,7 +131,7 @@
           <summary>交接历史</summary>
           <div v-for="handover in line.handoverHistory" :key="handover.id" class="adm-record">
             <strong>{{ handoverLabels[handover.status] || handover.status }}</strong>
-            <p>{{ handover.fromName || '未分配' }} → {{ handover.toName }} · {{ handover.requestedAt }}</p>
+            <p>{{ handover.fromName || '未分配' }} → {{ handover.toName }} · {{ formatDateTimeDisplay(handover.requestedAt) }}</p>
             <p class="adm-prose">
               {{ handover.reason }}<br />{{ handover.summary }}<br />{{ handover.responseReason }}
             </p>
@@ -214,6 +214,8 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTimeDisplay, displayDateTimeField } from '@/utils/dateTimeDisplay'
+
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { useAuthStore } from '@/stores/auth'
@@ -352,9 +354,9 @@ const handlePeople = computed(() =>
 )
 const segmentColumns = [
   { title: '承办人', dataIndex: 'ownerName', width: 130 },
-  { title: '分配时间', dataIndex: 'assignedAt', width: 190 },
-  { title: '接单时间', dataIndex: 'acceptedAt', width: 190 },
-  { title: '结束时间', dataIndex: 'endedAt', width: 190 },
+  { title: '分配时间', dataIndex: 'assignedAt', width: 190, customRender: ({ text }: { text: unknown }) => formatDateTimeDisplay(text) },
+  { title: '接单时间', dataIndex: 'acceptedAt', width: 190, customRender: ({ text }: { text: unknown }) => formatDateTimeDisplay(text) },
+  { title: '结束时间', dataIndex: 'endedAt', width: 190, customRender: ({ text }: { text: unknown }) => formatDateTimeDisplay(text) },
   { title: '轮次', dataIndex: 'round', width: 70 },
   { title: '原因', dataIndex: 'reason', width: 240 },
 ]

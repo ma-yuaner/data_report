@@ -141,7 +141,7 @@
         <div class="batch-meta">
           <span>批次 {{ activeBatch.id }}</span
           ><span>{{ activeBatch.reportType === 'week' ? '周报' : '月报' }} · {{ activeBatch.period }}</span>
-          <span>创建：{{ activeBatch.createdAt }}</span
+          <span>创建：{{ formatDateTimeDisplay(activeBatch.createdAt) }}</span
           ><span>操作人：{{ activeBatch.operator }}</span
           ><a-tag color="blue">{{ batchLabels[activeBatch.status] }}</a-tag>
         </div>
@@ -329,6 +329,8 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
+
 import { computed } from 'vue'
 import type { TableProps } from 'ant-design-vue'
 import PageHeader from '@/components/PageHeader.vue'
@@ -407,7 +409,7 @@ const historyColumns = [
   { title: '批次', dataIndex: 'id', width: 190 },
   { title: '类型', key: 'type', width: 70 },
   { title: '周期', dataIndex: 'period', width: 180 },
-  { title: '创建时间', dataIndex: 'createdAt', width: 175 },
+  { title: '创建时间', dataIndex: 'createdAt', width: 175, customRender: ({ text }: { text: unknown }) => formatDateTimeDisplay(text) },
   { title: '操作人', dataIndex: 'operator', width: 110 },
   { title: '状态', key: 'status', width: 110 },
   { title: '总封数', dataIndex: 'total', width: 75 },

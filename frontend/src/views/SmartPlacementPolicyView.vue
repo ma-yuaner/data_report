@@ -444,6 +444,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTimeDisplay, displayDateTimeField } from '@/utils/dateTimeDisplay'
 import { computed, onMounted, ref } from 'vue'
 import {
   DatePicker as ADatePicker,
@@ -647,7 +648,7 @@ function policyChangeLog(raw: unknown) {
     const log = JSON.parse(String(raw || '{}'))
     const labels: Record<string, string> = { includeCabins: '包含舱位', excludeCabins: '排除舱位', effectiveStartAt: '政策生效时间', effectiveEndAt: '政策失效时间', longTermFlag: '长期有效' }
     const selected = new Set((log.fields || []).flatMap((field: string) => field === 'effectivePeriod' ? ['effectiveStartAt', 'effectiveEndAt', 'longTermFlag'] : [field]))
-    return [`外部政策：${log.externalPolicyId || '—'}`, `登记时间：${log.recordedAt || '—'}；线下实际修改：${log.appliedAt || '未确认'}；监控生效：${log.monitorEffectiveAt || '未变更'}`, ...Object.entries(labels).filter(([key]) => selected.has(key)).map(([key, label]) => `${label}：${valueOrDash(log.before?.[key])} → ${valueOrDash(log.after?.[key])}`)].join('\n')
+    return [`外部政策：${log.externalPolicyId || '—'}`, `登记时间：${formatDateTimeDisplay(log.recordedAt || '—')}；线下实际修改：${formatDateTimeDisplay(log.appliedAt || '未确认')}；监控生效：${formatDateTimeDisplay(log.monitorEffectiveAt || '未变更')}`, ...Object.entries(labels).filter(([key]) => selected.has(key)).map(([key, label]) => `${label}：${valueOrDash(displayDateTimeField(log.before?.[key], key))} → ${valueOrDash(displayDateTimeField(log.after?.[key], key))}`)].join('\n')
   } catch { return '变更记录无法解析，请联系管理员核对' }
 }
 const effectReviewLabel = (value: unknown) => effectReviewOptions.find(item => item.value === value)?.label || valueOrDash(value)

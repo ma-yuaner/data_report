@@ -36,7 +36,7 @@
       <a-checkbox-group v-model:value="sections" :options="sectionOptions" :disabled="reading" />
       <a-alert v-if="evidenceError" type="error" show-icon :message="evidenceError" />
       <template v-if="evidence">
-        <p>{{ evidence.notice }} · 取证时间：{{ evidence.fetchedAt }}</p>
+        <p>{{ evidence.notice }} · 取证时间：{{ formatDateTimeDisplay(evidence.fetchedAt) }}</p>
         <a-tag :color="evidence.candidate ? 'orange' : 'default'">{{ evidence.candidate ? '命中待核查条件' : '未命中当前条件' }}</a-tag>
         <p class="muted">分块顺序读取，不承诺同一数据库快照；关联单仅索引。状态编码原样展示，缺失字段不补0。</p>
         <a-descriptions title="订单基本信息" bordered size="small" :column="2">
@@ -84,7 +84,7 @@
           <a-button :disabled="busy || !currentCase.confirmation" @click="analyzeCase">基于确认结果分析</a-button>
         </div>
         <a-alert v-if="currentCase.confirmation" type="info" show-icon :message="`已保存人工结论：${confirmationLabel}`" :description="String((currentCase.confirmation as any).reason || '')" />
-        <section v-if="currentCase.analyses.length"><h3>最近分析</h3><p>{{ (currentCase.analyses.at(-1) as any)?.result?.summary }}</p></section>
+        <section v-if="currentCase.analyses.length"><h3>最近分析</h3><p>{{ formatDateTimeDisplay((currentCase.analyses.at(-1) as any)?.result?.summary) }}</p></section>
         <details><summary>技术取证与历史记录（按需展开）</summary><pre>{{ JSON.stringify(currentCase, null, 2) }}</pre></details>
         <h3>沉淀可复用知识</h3>
         <p class="muted">只填写通用核查方法与适用范围，不粘贴原始订单、姓名、票号或日志；草稿不会参与检索。</p>
@@ -113,6 +113,8 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTimeDisplay, isDateTimeField } from '@/utils/dateTimeDisplay'
+
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Alert as AAlert, Button as AButton, CheckboxGroup as ACheckboxGroup, Input as AInput, Textarea as ATextarea, Table as ATable, Tag as ATag, Select as ASelect, Popconfirm as APopconfirm, Descriptions as ADescriptions, DescriptionsItem as ADescriptionsItem } from 'ant-design-vue'
@@ -146,14 +148,14 @@ const aiPreview = ref<unknown>()
 const conclusion = ref('insufficient')
 const confirmationReason = ref('')
 const knowledgeDraft = ref({ title: '', content: '', scope: '', source: '' })
-const caseOptions = computed(() => cases.value.filter(item => !props.embedded || item.erpOrderId === props.orderId).map(item => ({ value: item.id, label: `${item.erpOrderId} · ${caseState[item.state] || item.state} · ${item.createdAt}` })))
+const caseOptions = computed(() => cases.value.filter(item => !props.embedded || item.erpOrderId === props.orderId).map(item => ({ value: item.id, label: `${item.erpOrderId} · ${caseState[item.state] || item.state} · ${formatDateTimeDisplay(item.createdAt)}` })))
 const caseState: Record<string, string> = { evidence_ready: '待审核', reviewed: '待人工确认', confirmed: '已人工确认', analyzed: '已分析' }
 const conclusionOptions = [{ label: '证据不足，待补充', value: 'insufficient' }, { label: '证据支持原分类', value: 'supported' }, { label: '证据与原分类矛盾', value: 'contradicted' }]
 const hasUnsavedDrafts = computed(() => Boolean(confirmationReason.value.trim() || Object.values(knowledgeDraft.value).some(value => value.trim())))
 const latestReview = computed<any>(() => (currentCase.value?.reviews.at(-1) as any)?.result || {})
 const confirmationLabel = computed(() => ({ supported: '选因符合', contradicted: '有问题：选因或依据不符合', insufficient: '证据不足' }[(currentCase.value?.confirmation as any)?.conclusion as string] || '待核对'))
 const fieldNames: Record<string, string> = { id: '记录ID', order_id: '订单ID', passenger_id: '乘客ID', sale_commission_amount: '销售佣金', issue_profit: '出票利润（非已核实自动出票利润）', issue_currency: '出票币种', issue_exchange_rate: '出票汇率', issue_total_amount: '出票原币金额', issue_total_amount_cny: '出票人民币金额', operator_content: '日志内容', operator_datetime: '日志时间', operator_name: '操作人', manual_flag: '手工标记', issue_ticket_no: '票号', sale_currency: '销售币种', sale_exchange_rate: '销售汇率' }
-function evidenceColumns(rows: Record<string, unknown>[]) { return [...new Set(rows.flatMap(row => Object.keys(row)))].map(key => ({ title: fieldNames[key] || key, dataIndex: key, width: key === 'operator_content' ? 560 : 160 })) }
+function evidenceColumns(rows: Record<string, unknown>[]) { return [...new Set(rows.flatMap(row => Object.keys(row)))].map(key => ({ title: fieldNames[key] || key, dataIndex: key, width: key === 'operator_content' ? 560 : 160, customRender: isDateTimeField(key) ? ({ text }: { text: unknown }) => formatDateTimeDisplay(text) : undefined })) }
 watch(busy, value => emit('busy-change', value))
 defineExpose({ hasUnsavedDrafts })
 const error = ref('')
@@ -169,7 +171,7 @@ const statusLabel = { ready: '已读取', empty: '已读无记录', failed: '读
 const columns = [
   { title: '内部订单ID', dataIndex: 'id', width: 170 }, { title: '业务订单号', dataIndex: 'order_no', width: 180 },
   { title: 'OTA订单号', dataIndex: 'ota_order_no', width: 180 }, { title: '盈亏原因分类（原始值）', dataIndex: 'profit_reason_type', width: 190 },
-  { title: '创建时间', dataIndex: 'create_time', width: 180 }, { title: '操作', key: 'action', width: 100 },
+  { title: '创建时间', dataIndex: 'create_time', width: 180, customRender: ({ text }: { text: unknown }) => formatDateTimeDisplay(text) }, { title: '操作', key: 'action', width: 100 },
 ]
 let candidateRequest = 0
 let evidenceRequest = 0

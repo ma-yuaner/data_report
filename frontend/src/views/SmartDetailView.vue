@@ -42,7 +42,7 @@
           <template v-else-if="column.valueType === 'money'"><span :class="{ negative: Number(record[column.key]) < 0 }">{{ money(record[column.key]) }}</span></template>
           <template v-else-if="column.valueType === 'boolean'">{{ yesNo(record[column.key]) }}</template>
           <template v-else-if="column.key === 'smartConfirm'"><a-tag v-if="record.smartConfirm" color="blue">{{ record.smartConfirm }}</a-tag><span v-else>未使用</span></template>
-          <template v-else>{{ record[column.key] ?? '—' }}</template>
+          <template v-else>{{ displayDateTimeField(record[column.key] ?? '—', column.key) }}</template>
         </template>
       </a-table>
       <div class="detail-pagination">
@@ -71,7 +71,7 @@
           <div class="ticket-heading"><div><strong>出票ID {{ ticket.record.issueId }}</strong><span>订单ID {{ ticket.record.orderId ?? '—' }}</span></div><a-switch v-model:checked="showEmptyFields" size="small" /><span>显示空字段</span></div>
           <div class="ticket-core">
             <div><span>航司 / 平台</span><b>{{ ticket.record.airline ?? '—' }} / {{ ticket.record.platform ?? '—' }}</b></div>
-            <div><span>出票时间</span><b>{{ ticket.record.issueTicketTime ?? '—' }}</b></div>
+            <div><span>出票时间</span><b>{{ formatDateTimeDisplay(ticket.record.issueTicketTime ?? '—') }}</b></div>
             <div><span>最终使用智能</span><b>{{ ticket.record.smartConfirm || '未使用' }}</b></div>
             <div><span>预估利润</span><b>{{ money(ticket.record.issueProfit) }} 元</b></div>
           </div>
@@ -90,6 +90,8 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTimeDisplay, displayDateTimeField } from '@/utils/dateTimeDisplay'
+
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Drawer as ADrawer, Empty as AEmpty, message, Modal, Pagination as APagination } from 'ant-design-vue'
@@ -195,7 +197,7 @@ function loadSavedFields() {
   } catch { /* use defaults */ }
   return [...DEFAULT_FIELDS]
 }
-function formatDetail(value: unknown, valueType: SmartDetailValueType) { if (value == null || value === '') return '—'; if (valueType === 'boolean') return yesNo(value); if (valueType === 'money') return money(value); return String(value) }
+function formatDetail(value: unknown, valueType: SmartDetailValueType) { if (value == null || value === '') return '—'; if (valueType === 'boolean') return yesNo(value); if (valueType === 'money') return money(value); if (valueType === 'datetime' || valueType === 'date') return formatDateTimeDisplay(value); return String(value) }
 async function load() {
   loading.value = true
   try { data.value = await smartAnalysisApi.details({ ...pageState.applied }, { smartType: pageState.smartType, stage: stage.value, fields: selectedFields.value, page: page.value, pageSize: pageSize.value }) }

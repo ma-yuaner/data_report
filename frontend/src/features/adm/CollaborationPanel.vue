@@ -36,7 +36,7 @@
               <p v-for="(review, index) in task.reviews || []" :key="index" class="adm-prose">
                 复核：{{ review.approved ? '通过' : '退回' }} · {{ review.reason || '—' }} ·
                 {{ review.reviewedByName || review.reviewedBy || review.byName || review.by || '—' }} ·
-                {{ review.reviewedAt || review.at || '—' }}
+                {{ formatDateTimeDisplay(review.reviewedAt || review.at || '—') }}
               </p>
             </details></template
           >
@@ -46,7 +46,7 @@
             }}</template
           >
           <template v-if="column.key === 'status'">{{ taskStatusLabels[task.status] || task.status }}</template>
-          <template v-if="column.key === 'due'">{{ task.dueAt || '未设期限，不视为按时' }}</template>
+          <template v-if="column.key === 'due'">{{ formatDateTimeDisplay(task.dueAt || '未设期限，不视为按时') }}</template>
           <template v-if="column.key === 'actions'"
             ><a-space wrap
               ><a-button
@@ -78,7 +78,7 @@
             }}</a-descriptions-item>
             <a-descriptions-item label="提案人 / 时间"
               >{{ line.responsibility.proposedByName || line.responsibility.proposedBy }} ·
-              {{ line.responsibility.proposedAt }}</a-descriptions-item
+              {{ formatDateTimeDisplay(line.responsibility.proposedAt) }}</a-descriptions-item
             >
             <a-descriptions-item label="认定依据" :span="2"
               ><span class="adm-prose">{{ line.responsibility.reason }}</span></a-descriptions-item
@@ -88,7 +88,7 @@
             }}</a-descriptions-item>
             <a-descriptions-item v-if="line.responsibility.reviewedAt" label="复核人 / 时间" :span="2"
               >{{ line.responsibility.reviewedByName || line.responsibility.reviewedBy }} ·
-              {{ line.responsibility.reviewedAt }}</a-descriptions-item
+              {{ formatDateTimeDisplay(line.responsibility.reviewedAt) }}</a-descriptions-item
             >
             <a-descriptions-item v-if="line.responsibility.reviewReason" label="复核依据" :span="2"
               ><span class="adm-prose">{{ line.responsibility.reviewReason }}</span></a-descriptions-item
@@ -108,7 +108,7 @@
           <article v-for="item in line.responsibilityHistory" :key="item.id" class="history-item">
             <p>
               {{ responsibilityStatusLabels[item.status] || item.status }} ·
-              {{ item.responsibleName || item.subject || '未确定' }} · {{ item.proposedAt }}
+              {{ item.responsibleName || item.subject || '未确定' }} · {{ formatDateTimeDisplay(item.proposedAt) }}
             </p>
             <p class="adm-prose">提案依据：{{ item.reason }}</p>
             <p class="adm-prose">复核依据：{{ item.reviewReason || '尚无' }}</p>
@@ -268,6 +268,8 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
+
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { useAuthStore } from '@/stores/auth'

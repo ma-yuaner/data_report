@@ -109,7 +109,7 @@
           <a-descriptions-item :label="detailRow.scene === 'policy' ? '目标航段合计' : '目标航段'">{{ formatNumber(detailRow.target) }}</a-descriptions-item>
           <a-descriptions-item v-for="code in detailRow.scene === 'policy' ? policyGdsCodes : []" :key="code" :label="`${code} 目标航段`">{{ formatNumber(detailRow.gdsBreakdown?.[code]?.target ?? 0) }}</a-descriptions-item>
           <a-descriptions-item label="配置状态"><a-tag :color="statusColor(detailRow.status)">{{ statusLabel(detailRow.status) }}</a-tag></a-descriptions-item>
-          <a-descriptions-item v-if="detailRow.deletedAt" label="删除信息">{{ detailRow.deletedAt }} · {{ detailRow.deletedByName || '未知操作人' }}<span v-if="detailRow.deleteReason"> · {{ detailRow.deleteReason }}</span></a-descriptions-item>
+          <a-descriptions-item v-if="detailRow.deletedAt" label="删除信息">{{ formatDateTimeDisplay(detailRow.deletedAt) }} · {{ detailRow.deletedByName || '未知操作人' }}<span v-if="detailRow.deleteReason"> · {{ detailRow.deleteReason }}</span></a-descriptions-item>
           <a-descriptions-item label="统计口径">{{ detailRow.metric }}（{{ detailRow.metricCode }} / {{ detailRow.metricVersion }}）</a-descriptions-item>
           <a-descriptions-item label="配置说明">{{ detailRow.remark || '未填写' }}</a-descriptions-item>
         </a-descriptions>
@@ -124,6 +124,8 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
+
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Modal, message } from 'ant-design-vue'
 import { ApartmentOutlined, BranchesOutlined, CopyOutlined, DatabaseOutlined, DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined, ReloadOutlined, TeamOutlined, UndoOutlined } from '@ant-design/icons-vue'

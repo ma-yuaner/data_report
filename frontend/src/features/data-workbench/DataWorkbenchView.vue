@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
+
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { useAuthStore } from '../../stores/auth'
@@ -22,7 +24,7 @@ const cleanupOptions = computed(() => {
   if (cleanupKind.value === 'recipe') return catalog.value.recipes.map((r) => ({ id: r.id, name: r.name }))
   return catalog.value.jobs
     .filter((j) => !['queued', 'running', 'cancel_requested'].includes(j.status))
-    .map((j) => ({ id: j.id, name: `${statuses[j.status]} · ${j.createdAt} · ${j.id}` }))
+    .map((j) => ({ id: j.id, name: `${statuses[j.status]} · ${formatDateTimeDisplay(j.createdAt)} · ${j.id}` }))
 })
 const cleanupSelected = computed(() => cleanupOptions.value.filter((item) => cleanupIds.value.includes(item.id)))
 watch(cleanupKind, () => {
@@ -744,7 +746,7 @@ onBeforeUnmount(() => {
         <h2>最近任务</h2>
         <button v-for="job in catalog.jobs.slice(0, 10)" :key="job.id" class="dataset-item" @click="showJob(job)">
           <strong>{{ statuses[job.status] }} · {{ job.kind === 'run' ? '全量' : '预览' }}</strong
-          ><small>{{ job.createdAt }}</small></button
+          ><small>{{ formatDateTimeDisplay(job.createdAt) }}</small></button
         ><a-button size="small" @click="refreshCatalog">刷新列表</a-button>
       </aside>
       <div

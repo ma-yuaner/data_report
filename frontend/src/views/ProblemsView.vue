@@ -63,7 +63,7 @@
               <template v-else-if="column.key === 'id'"><div class="problem-id"><strong>{{ record.orderNo || '—' }}</strong><code>{{ record.eventId || '—' }}</code></div></template>
               <template v-else-if="column.key === 'ticket'">{{ record.ticketNo || '—' }}</template>
               <template v-else-if="column.key === 'profit'"><strong class="loss-value">-{{ money(Math.abs(record.profit)) }}</strong></template>
-              <template v-else-if="column.key === 'time'">{{ record.occurredAt.slice(0, 19) || '—' }}</template>
+              <template v-else-if="column.key === 'time'">{{ formatDateTimeDisplay(record.occurredAt.slice(0, 19) || '—') }}</template>
             </template>
           </a-table>
           <div class="problem-note"><InfoCircleOutlined />{{ data.notes.join(' ') }}</div>
@@ -74,6 +74,8 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
+
 import { computed, onMounted, ref } from 'vue'
 import { InfoCircleOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons-vue'
 import { getProfitProblems, type ProfitProblemData, type ProfitProblemItem } from '@/api/dashboard'

@@ -21,7 +21,7 @@
       </a-table>
     </a-drawer>
     <a-alert v-if="catalogNotice" type="info" show-icon message="所选出票日期尚未同步" :description="`${catalogNotice}。默认今日只是查询范围，不会自动同步；点击上方‘更新并核实’同步并核实所选日期。`" />
-    <a-alert v-if="overview?.dataFreshness" :type="['failed', 'running'].includes(overview.dataFreshness.latestAttempt?.status || '') ? 'warning' : 'info'" show-icon :message="`中台同步数据 · 最早同步 ${overview.dataFreshness.oldestSyncedAt} · 最近同步 ${overview.dataFreshness.newestSyncedAt}`" :description="syncDescription" />
+    <a-alert v-if="overview?.dataFreshness" :type="['failed', 'running'].includes(overview.dataFreshness.latestAttempt?.status || '') ? 'warning' : 'info'" show-icon :message="`中台同步数据 · 最早同步 ${formatDateTimeDisplay(overview.dataFreshness.oldestSyncedAt)} · 最近同步 ${formatDateTimeDisplay(overview.dataFreshness.newestSyncedAt)}`" :description="syncDescription" />
     <a-alert type="info" show-icon message="系统自动核实，人工只抽查与处理异常" :description="`通过无须人工确认；证据不足、执行失败、规则未接入分别列示。${overview?.sampling ? `当前账号已抽查 ${overview.sampling.sampled} 单，其中发现问题 ${overview.sampling.disputed} 单。` : '当前抽查统计尚未读取，不能按0单解释。'}`" />
     <a-alert v-if="autoError" type="error" show-icon :message="autoError" />
     <div class="auto-actions"><span v-if="autoJob">{{ autoJob.startDate || '' }} 至 {{ autoJob.endDate || '' }} · {{ phaseLabels[autoJob.phase || autoJob.status] || jobLabels[autoJob.status] || autoJob.status }} · 核实 {{ autoJob.done }} / {{ autoJob.total }} · 复用 {{ autoJob.reused || 0 }} 次</span><small>查询不启动任务；更新会同步所选日期。范围最多2000个已接规则订单，失败不循环重试。</small></div>
@@ -73,6 +73,8 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
+
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import dayjs from 'dayjs'
 import { Alert as AAlert, Button as AButton, Drawer as ADrawer, Modal, Segmented as ASegmented, Select as ASelect, Table as ATable, Tag as ATag } from 'ant-design-vue'
@@ -88,7 +90,7 @@ const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).fo
 const configOpen = ref(false), configLoading = ref(false), configError = ref(''), configNotice = ref('')
 const configPlatform = ref('QUNAR'), configGroup = ref('出票盈亏配置')
 const configItems = ref<Record<string, unknown>[]>([])
-const configColumns = [{ title: '规则ID', dataIndex: 'id' }, { title: '规则名称', dataIndex: 'rule_name' }, { title: '平台', dataIndex: 'ota_code' }, { title: '站点', dataIndex: 'ota_site_code' }, ...[1, 2, 3, 4].map(segments => ({ title: `${segments}段阈值`, dataIndex: ['segmentThresholds', 'values', String(segments)], customRender: ({ text }: { text: unknown }) => text ?? '未识别/不适用' })), { title: '生效开始', dataIndex: 'start_time' }, { title: '生效结束', dataIndex: 'end_time' }, { title: '配置更新时间', dataIndex: 'update_time' }]
+const configColumns = [{ title: '规则ID', dataIndex: 'id' }, { title: '规则名称', dataIndex: 'rule_name' }, { title: '平台', dataIndex: 'ota_code' }, { title: '站点', dataIndex: 'ota_site_code' }, ...[1, 2, 3, 4].map(segments => ({ title: `${segments}段阈值`, dataIndex: ['segmentThresholds', 'values', String(segments)], customRender: ({ text }: { text: unknown }) => text ?? '未识别/不适用' })), { title: '生效开始', dataIndex: 'start_time', customRender: ({ text }: { text: unknown }) => formatDateTimeDisplay(text) }, { title: '生效结束', dataIndex: 'end_time', customRender: ({ text }: { text: unknown }) => formatDateTimeDisplay(text) }, { title: '配置更新时间', dataIndex: 'update_time', customRender: ({ text }: { text: unknown }) => formatDateTimeDisplay(text) }]
 async function loadConfigs() {
   if (configLoading.value) return
   configLoading.value = true; configError.value = ''; configItems.value = []

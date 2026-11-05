@@ -157,6 +157,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTimeDisplay, isDateTimeField } from '@/utils/dateTimeDisplay'
 import { computed, onMounted, ref } from 'vue'
 import { Drawer as ADrawer, Empty as AEmpty, Modal, message } from 'ant-design-vue'
 import { ArrowLeftOutlined, ArrowRightOutlined, DownloadOutlined, InfoCircleOutlined, SearchOutlined, UndoOutlined } from '@ant-design/icons-vue'
@@ -466,6 +467,7 @@ function formatDetailValue(record: ComprehensiveDetailRow, key: string, valueTyp
   if (value == null || value === '') return '—'
   if (valueType === 'money') return `${money(value)} 元`
   if (valueType === 'count') return count(Number(value))
+  if (isDateTimeField(key)) return formatDateTimeDisplay(value)
   return String(value)
 }
 type DailyRow = { date: string; businessKey: BusinessKey; label: string }

@@ -8,11 +8,13 @@
     <div class="type-create"><a-input v-model:value="newName" :maxlength="60" :disabled="working" aria-label="新增问题类型名称" placeholder="新增问题类型名称" /><a-button :loading="working" :disabled="!newName.trim()" @click="createType"><PlusOutlined />新增类型</a-button></div>
     <label><span>备注原因</span><a-textarea v-model:value="reason" :rows="3" :maxlength="2000" :disabled="working" placeholder="填写问题依据或具体差异，保存后对管理员共享" /></label>
     <a-space><a-button type="primary" :loading="working" :disabled="!selected.length || !reason.trim()" @click="save">保存问题标签</a-button><a-button :disabled="working" @click="load">刷新共享记录</a-button></a-space>
-    <div v-for="tag in tags" :key="tag.id" class="saved-tag"><a-tag color="red">{{ tag.type_name }}</a-tag><span>{{ tag.reason }}</span><small>登记人ID {{ tag.created_by }} · {{ tag.created_at }}</small></div>
+    <div v-for="tag in tags" :key="tag.id" class="saved-tag"><a-tag color="red">{{ tag.type_name }}</a-tag><span>{{ tag.reason }}</span><small>登记人ID {{ tag.created_by }} · {{ formatDateTimeDisplay(tag.created_at) }}</small></div>
     <p v-if="loaded && !tags.length">暂无已保存的问题标签。</p>
   </section>
 </template>
 <script setup lang="ts">
+import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
+
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { riskProblems, type RiskProblemTag, type RiskProblemType } from '@/api/riskVerification'

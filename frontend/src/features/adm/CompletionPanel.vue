@@ -28,7 +28,7 @@
                     <p class="adm-prose">{{ item.body }}</p>
                   </details></template
                 >
-                <template v-if="column.key === 'read'">{{ item.readAt ? `已读 ${item.readAt}` : '未读' }}</template>
+                <template v-if="column.key === 'read'">{{ formatDateTimeDisplay(item.readAt ? `已读 ${item.readAt}` : '未读') }}</template>
                 <template v-if="column.key === 'actions'"
                   ><a-space
                     ><router-link v-if="item.caseId" :to="inboxLink(item)">查看任务</router-link
@@ -90,7 +90,7 @@
                   {{ selectedReport.published ? '已发布' : '未发布' }}
                 </h3>
                 <p class="adm-muted">
-                  截点 {{ selectedReport.generatedAt }} · 规则 {{ selectedReport.ruleVersion }} · 范围
+                  截点 {{ formatDateTimeDisplay(selectedReport.generatedAt) }} · 规则 {{ selectedReport.ruleVersion }} · 范围
                   {{ scopeLabel }}；风险快照不是全天工作量。
                 </p>
                 <details open>
@@ -171,7 +171,7 @@
                   settings.endpointAvailable ? '可选择已有端点' : '不可用，不输入Webhook'
                 }}</a-descriptions-item>
                 <a-descriptions-item label="自动日报">{{
-                  settings.snapshotsEnabled ? `北京时间 ${settings.snapshotAt}` : '关闭'
+                  formatDateTimeDisplay(settings.snapshotsEnabled ? `北京时间 ${settings.snapshotAt}` : '关闭')
                 }}</a-descriptions-item>
                 <a-descriptions-item label="分项试榜">{{
                   settings.rankingEnabled ? `已启用，最小样本 ${settings.minimumSamples}` : '关闭'
@@ -306,6 +306,8 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
+
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { useAuthStore } from '@/stores/auth'
@@ -384,13 +386,13 @@ const qualityItems = computed(() =>
 const personKey = (person: Fields) => `${person.ownerId || 'unmapped'}:${person.role}:${person.businessType}`
 const inboxColumns = [
   { title: '消息（展开全文）', key: 'body', width: 340 },
-  { title: '创建时间', dataIndex: 'createdAt', width: 190 },
+  { title: '创建时间', dataIndex: 'createdAt', width: 190, customRender: ({ text }: { text: unknown }) => formatDateTimeDisplay(text) },
   { title: '阅读', key: 'read', width: 210 },
   { title: '操作', key: 'actions', width: 180 },
 ]
 const reportColumns = [
-  { title: '业务日期', dataIndex: 'businessDate', width: 120 },
-  { title: '捕获时间', dataIndex: 'generatedAt', width: 190 },
+  { title: '业务日期', dataIndex: 'businessDate', width: 120, customRender: ({ text }: { text: unknown }) => formatDateTimeDisplay(text) },
+  { title: '捕获时间', dataIndex: 'generatedAt', width: 190, customRender: ({ text }: { text: unknown }) => formatDateTimeDisplay(text) },
   { title: '修订', dataIndex: 'revision', width: 70 },
   { title: '状态', key: 'published', width: 130 },
   { title: '规则版本', dataIndex: 'ruleVersion', width: 160 },
@@ -416,8 +418,8 @@ const deliveryColumns = [
   { title: '接收账号', dataIndex: 'recipientId', width: 160 },
   { title: '状态', key: 'status', width: 220 },
   { title: '尝试数', dataIndex: 'attempts', width: 80 },
-  { title: '创建时间', dataIndex: 'createdAt', width: 190 },
-  { title: '下次尝试', dataIndex: 'nextAttemptAt', width: 190 },
+  { title: '创建时间', dataIndex: 'createdAt', width: 190, customRender: ({ text }: { text: unknown }) => formatDateTimeDisplay(text) },
+  { title: '下次尝试', dataIndex: 'nextAttemptAt', width: 190, customRender: ({ text }: { text: unknown }) => formatDateTimeDisplay(text) },
   { title: '诊断码', dataIndex: 'errorCode', width: 160 },
 ]
 const minuteFields = [

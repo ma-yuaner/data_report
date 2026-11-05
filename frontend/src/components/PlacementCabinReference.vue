@@ -3,7 +3,7 @@
     <a-textarea :value="display" disabled :auto-size="{ minRows: 1, maxRows: 3 }" aria-label="航司近期参考舱位（只读）" />
     <div class="reference-actions">
       <a-button type="link" size="small" :loading="loading" :disabled="!active || !airline?.trim() || loading" @click="load">{{ error ? '重试' : '刷新' }}</a-button>
-      <span v-if="lastReadAt">最近读取：{{ lastReadAt }}</span>
+      <span v-if="lastReadAt">最近读取：{{ formatDateTimeDisplay(lastReadAt) }}</span>
     </div>
     <p v-if="error" class="reference-message reference-error" role="status">{{ error }}{{ lastReadAt ? '；当前展示为上次读取结果。' : '' }}</p>
     <p v-else-if="hasUnspecified" class="reference-message">部分来源记录未明确配置具体舱位。</p>
@@ -11,6 +11,8 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
+
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import PlacementField from '@/components/PlacementField.vue'
 import { fetchCabinReference } from '@/api/placementCabinReference'

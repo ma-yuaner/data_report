@@ -70,7 +70,7 @@
           <a-descriptions-item label="下发日期">{{ record.issuedDate || '—' }}</a-descriptions-item
           ><a-descriptions-item label="明细进度"
             >{{ record.completedCount ?? 0 }} / {{ record.lineCount ?? record.lines?.length ?? 0 }}</a-descriptions-item
-          ><a-descriptions-item label="最近更新">{{ record.updatedAt || '—' }}</a-descriptions-item>
+          ><a-descriptions-item label="最近更新">{{ formatDateTimeDisplay(record.updatedAt || '—') }}</a-descriptions-item>
           <a-descriptions-item label="问题描述" :span="3"
             ><span class="adm-prose">{{ record.description || '尚未填写' }}</span></a-descriptions-item
           ><a-descriptions-item v-if="!record.partial" label="主单备注" :span="3"
@@ -229,7 +229,7 @@
                     <a-tag>{{ recoveryStatuses.find((s) => s.value === item.status)?.label || item.status }}</a-tag>
                     <p>{{ item.code }} → {{ item.resultCode || '待恢复' }}</p>
                     <p>{{ item.reason || '—' }}</p>
-                    <p class="adm-muted">{{ item.system }} / {{ item.pcc }} · {{ item.updatedAt || item.createdAt }}</p>
+                    <p class="adm-muted">{{ item.system }} / {{ item.pcc }} · {{ formatDateTimeDisplay(item.updatedAt || item.createdAt) }}</p>
                     <a-button v-if="lineAllowed(selectedLine, 'recovery')" size="small" @click="editRecovery(item)"
                       >更新此恢复任务</a-button
                     >
@@ -245,7 +245,7 @@
                     ><a-tag>{{ appealStatuses.find((s) => s.value === item.status)?.label || item.status }}</a-tag>
                     <p>{{ item.reason }}</p>
                     <p class="adm-money">减免金额：{{ item.waivedAmount ?? '—' }} {{ item.currency }}</p>
-                    <p class="adm-muted">第 {{ item.round }} 轮 · {{ item.at }}</p>
+                    <p class="adm-muted">第 {{ item.round }} 轮 · {{ formatDateTimeDisplay(item.at) }}</p>
                   </div>
                 </section>
                 <section>
@@ -329,7 +329,7 @@
               <li v-for="(event, i) in timeline" :key="event.id || i">
                 <strong>{{ event.label || actionLabels[event.action] || event.action || event.type }}</strong
                 ><span class="adm-muted">
-                  {{ event.createdAt || event.at }} · {{ event.actorName || event.userName || event.actorId }}</span
+                  {{ formatDateTimeDisplay(event.createdAt || event.at) }} · {{ event.actorName || event.userName || event.actorId }}</span
                 >
                 <p class="adm-prose">{{ event.description || event.reason || event.message || '' }}</p>
                 <details v-if="event.before || event.after || event.details || event.detail">
@@ -478,6 +478,8 @@
   </div>
 </template>
 <script setup lang="ts">
+import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
+
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'

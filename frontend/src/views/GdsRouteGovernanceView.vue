@@ -130,7 +130,7 @@
           </a-table>
           <a-empty v-if="!routeLoading && !routeError && routeAnalysis && !routeAnalysis.queryReady" description="请选择分析范围后点击“查询 / 刷新”" />
           <a-empty v-else-if="!routeLoading && !routeError && routeAnalysis?.queryReady && !(routeAnalysis.rows.length)" description="所选完整业务日和筛选条件没有航线汇总数据" />
-          <div v-if="routeAnalysis" class="data-footnote">数据源：{{ routeAnalysis.source }} · {{ routeAnalysis.table }} · 最近源数据 {{ routeAnalysis.summary.sourceUpdatedAt || '—' }}</div>
+          <div v-if="routeAnalysis" class="data-footnote">数据源：{{ routeAnalysis.source }} · {{ routeAnalysis.table }} · 最近源数据 {{ formatDateTimeDisplay(routeAnalysis.summary.sourceUpdatedAt || '—') }}</div>
         </a-card>
         </template>
       </template>
@@ -204,7 +204,7 @@
           <a-table-column title="异常 / 对象" :width="260"><template #default="{ record }"><strong>{{ record.eventType }}</strong><div class="cell-sub">{{ record.targetType }} · {{ record.target }}</div></template></a-table-column>
           <a-table-column title="实际 / 阈值" :width="180"><template #default="{ record }"><strong class="danger">{{ record.actualValue }}</strong><div class="cell-sub">要求 {{ record.threshold }}</div></template></a-table-column>
           <a-table-column title="命中证据" data-index="evidence" :width="330" />
-          <a-table-column title="责任人 / 截止" :width="180"><template #default="{ record }">{{ record.owner }}<div class="cell-sub">{{ record.dueAt }}</div></template></a-table-column>
+          <a-table-column title="责任人 / 截止" :width="180"><template #default="{ record }">{{ record.owner }}<div class="cell-sub">{{ formatDateTimeDisplay(record.dueAt) }}</div></template></a-table-column>
           <a-table-column title="白名单版本" data-index="whitelistVersion" :width="160" />
           <a-table-column title="状态" :width="110"><template #default="{ record }"><a-tag :color="eventStatusColor(record.status)">{{ eventStatusText(record.status) }}</a-tag></template></a-table-column>
           <a-table-column title="操作" fixed="right" :width="250"><template #default="{ record }"><a-space>
@@ -225,7 +225,7 @@
           <a-table-column title="任务编号" fixed="left" data-index="actionNo" :width="180" />
           <a-table-column title="治理对象" :width="250"><template #default="{ record }"><strong>{{ record.target }}</strong><div class="cell-sub">{{ record.targetType }} · 来源 {{ record.eventId }}</div></template></a-table-column>
           <a-table-column title="动作" :width="140"><template #default="{ record }">{{ actionTypeText(record.actionType) }}<div class="cell-sub">第 {{ record.occurrenceNo }} 次</div></template></a-table-column>
-          <a-table-column title="控制窗口" :width="210"><template #default="{ record }">{{ record.durationMinutes ? `${record.durationMinutes} 分钟` : '长期关闭' }}<div class="cell-sub">{{ record.plannedEndAt }}</div></template></a-table-column>
+          <a-table-column title="控制窗口" :width="210"><template #default="{ record }">{{ record.durationMinutes ? `${record.durationMinutes} 分钟` : '长期关闭' }}<div class="cell-sub">{{ formatDateTimeDisplay(record.plannedEndAt) }}</div></template></a-table-column>
           <a-table-column title="技术负责人" data-index="technicalOwner" :width="140" />
           <a-table-column title="回执" :width="150"><template #default="{ record }">{{ record.receiptNo || '—' }}</template></a-table-column>
           <a-table-column title="状态" :width="120"><template #default="{ record }"><a-tag :color="actionStatusColor(record.status)">{{ actionStatusText(record.status) }}</a-tag></template></a-table-column>
@@ -272,7 +272,7 @@
           <a-descriptions-item label="生单失败量">{{ formatInteger(selectedLiveRoute.orderFailure) }}</a-descriptions-item><a-descriptions-item label="验价超时率">{{ formatRate(selectedLiveRoute.verifyTimeoutRate) }}</a-descriptions-item>
           <a-descriptions-item label="生单超时率">{{ formatRate(selectedLiveRoute.orderTimeoutRate) }}</a-descriptions-item><a-descriptions-item label="验价变价率">{{ formatRate(selectedLiveRoute.verifyPriceChangeRate) }}</a-descriptions-item>
           <a-descriptions-item label="直飞方案数">{{ formatInteger(selectedLiveRoute.directFlightCount) }}</a-descriptions-item><a-descriptions-item label="中转方案数">{{ formatInteger(selectedLiveRoute.connectingFlightCount) }}</a-descriptions-item>
-          <a-descriptions-item label="最近源数据" :span="2">{{ selectedLiveRoute.sourceUpdatedAt || '—' }}</a-descriptions-item>
+          <a-descriptions-item label="最近源数据" :span="2">{{ formatDateTimeDisplay(selectedLiveRoute.sourceUpdatedAt || '—') }}</a-descriptions-item>
         </a-descriptions>
         <div class="drawer-section-title"><strong>资源通道结构</strong><span>按查询请求量计算</span></div>
         <div class="channel-grid">
@@ -300,6 +300,8 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
+
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'

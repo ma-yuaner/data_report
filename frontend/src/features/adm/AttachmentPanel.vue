@@ -72,6 +72,8 @@
   </section>
 </template>
 <script setup lang="ts">
+import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
+
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import {
   admApi,
@@ -139,7 +141,7 @@ const columns = [
   { title: '文件名', dataIndex: 'name', width: 240 },
   { title: '类别', key: 'category', width: 110 },
   { title: '归属', key: 'lineId', width: 190 },
-  { title: '上传时间', dataIndex: 'createdAt', width: 180 },
+  { title: '上传时间', dataIndex: 'createdAt', width: 180, customRender: ({ text }: { text: unknown }) => formatDateTimeDisplay(text) },
   { title: '操作', key: 'actions', width: 150 },
 ]
 const selectFile = (event: Event) => {

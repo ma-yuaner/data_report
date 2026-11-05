@@ -93,6 +93,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
 import { computed, onMounted, ref } from 'vue'
 import { BookOutlined, CheckCircleOutlined, DatabaseOutlined, FundProjectionScreenOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { getAssetCatalog, type AssetCatalogData, type DataAssetItem } from '@/api/dashboard'
@@ -143,7 +144,7 @@ const stateMeta = (state: DataAssetItem['state']) => ({
   empty: { label: '暂无数据', color: 'warning' }, warning: { label: '时间异常', color: 'warning' },
   error: { label: '检查失败', color: 'error' },
 }[state])
-const formatTime = (value: string | null) => value ? value.slice(0, 19) : '待实际连接确认'
+const formatTime = (value: string | null) => value ? formatDateTimeDisplay(value.slice(0, 19)) : '待实际连接确认'
 const maturityColor = (value: string) => value.includes('已接入') ? 'success' : value.includes('可接入') || value.includes('成熟') ? 'processing' : value.includes('部分') ? 'cyan' : value.includes('专项') || value.includes('基础') ? 'default' : 'warning'
 
 const loadData = async () => {

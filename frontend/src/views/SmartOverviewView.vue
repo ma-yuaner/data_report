@@ -59,6 +59,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Empty as AEmpty, message, Modal } from 'ant-design-vue'
@@ -120,7 +121,7 @@ const dailyReadout = computed(() => trendReadout(trendData.value?.dailyTrend ?? 
 const monthlyReadout = computed(() => trendReadout(trendData.value?.monthlyTrend ?? []))
 function chartNote(granularity: 'day' | 'month') {
   const unit = granularity === 'day' ? '当日' : '当月'
-  const freshness = trendData.value?.updatedAt ? `，${unit}数据按MySQL调度更新，当前数据时间 ${trendData.value.updatedAt}` : ''
+  const freshness = trendData.value?.updatedAt ? `，${unit}数据按MySQL调度更新，当前数据时间 ${formatDateTimeDisplay(trendData.value.updatedAt)}` : ''
   return `浅色宽柱为总出票数，深色窄柱为其中使用${typeLabel.value}的票数，共用数量轴、不相加${freshness}。`
 }
 

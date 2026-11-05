@@ -46,7 +46,7 @@
           <template v-else-if="column.key === 'scope'"><span>{{ record.sheetName }}</span><small v-if="record.loadDate" class="block-note">dt={{ record.loadDate }}</small></template>
           <template v-else-if="column.key === 'status'"><a-tag :color="statusMeta(record.status).color">{{ statusMeta(record.status).label }}</a-tag></template>
           <template v-else-if="column.key === 'rows'">{{ record.rowsWritten == null ? '—' : count(record.rowsWritten) + ' 行' }}</template>
-          <template v-else-if="column.key === 'time'"><span>{{ record.finishedAt || record.startedAt || record.queuedAt }}</span></template>
+          <template v-else-if="column.key === 'time'"><span>{{ formatDateTimeDisplay(record.finishedAt || record.startedAt || record.queuedAt) }}</span></template>
           <template v-else-if="column.key === 'action'"><a-button type="link" size="small" @click="selectedJob = record">查看日志</a-button></template>
         </template>
       </a-table>
@@ -67,6 +67,8 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
+
 import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { CloudUploadOutlined, FileExcelOutlined, ReloadOutlined } from '@ant-design/icons-vue'

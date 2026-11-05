@@ -12,7 +12,7 @@
       type="info"
       show-icon
       :message="`${data?.source || 'MySQL · sibebid'} · ${data?.table || (isGds ? 'bi_gds_resource_metric_day' : 'bi_ota_gds_request_day')}`"
-      :description="`OTA与GDS独立计算，不跨层相加。${data?.summary.sourceUpdatedAt ? ' 数据更新：' + data.summary.sourceUpdatedAt : ''}`"
+      :description="`OTA与GDS独立计算，不跨层相加。${data?.summary.sourceUpdatedAt ? ' 数据更新：' + formatDateTimeDisplay(data.summary.sourceUpdatedAt) : ''}`"
     />
 
     <section class="scope-panel">
@@ -270,10 +270,10 @@
             <span>验价缓存命中率</span><strong>{{ percent(data?.summary.verifyCacheRate) }}</strong>
           </article>
           <article>
-            <span>平均查询耗时</span><strong>{{ milliseconds(data?.summary.avgSearchExecuteTime) }}</strong>
+            <span>平均查询耗时</span><strong>{{ formatDateTimeDisplay(milliseconds(data?.summary.avgSearchExecuteTime)) }}</strong>
           </article>
           <article>
-            <span>平均验价耗时</span><strong>{{ milliseconds(data?.summary.avgVerifyExecuteTime) }}</strong>
+            <span>平均验价耗时</span><strong>{{ formatDateTimeDisplay(milliseconds(data?.summary.avgVerifyExecuteTime)) }}</strong>
           </article>
           <article>
             <span>验价变价率</span><strong>{{ percent(data?.summary.verifyPriceChangeRate) }}</strong>
@@ -759,6 +759,8 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
+
 import dateLocale from 'ant-design-vue/es/date-picker/locale/zh_CN'
 import { BranchesOutlined, DownloadOutlined, InfoCircleOutlined } from '@ant-design/icons-vue'
 import BaseChart from '@/components/BaseChart.vue'

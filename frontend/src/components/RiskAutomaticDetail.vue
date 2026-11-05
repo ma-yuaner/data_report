@@ -10,7 +10,7 @@
         <a-descriptions bordered size="small" :column="2">
           <a-descriptions-item label="平台">{{ result.platform || '证据缺失' }}</a-descriptions-item>
           <a-descriptions-item label="止损值来源">{{ usesConfiguration ? '出票时通用配置（逐票见下表）' : '历史日志结果，需更新并核实' }}</a-descriptions-item>
-          <a-descriptions-item label="核实时间">{{ result.checkedAt }}</a-descriptions-item>
+          <a-descriptions-item label="核实时间">{{ formatDateTimeDisplay(result.checkedAt) }}</a-descriptions-item>
           <a-descriptions-item label="规则版本">{{ result.ruleVersion }}</a-descriptions-item>
           <a-descriptions-item label="核实依据" :span="2">非去哪儿平台优先判为选因有问题；去哪儿且有正佣金时，出票利润＋销售佣金 ≥ －单票止损值；金额为CNY。超过4段按4段配置＋超出段数×25元。</a-descriptions-item>
         </a-descriptions>
@@ -19,7 +19,7 @@
             <a-tag v-if="column.key === 'status'" :color="record.status === 'supported' ? 'green' : record.status === 'problem' ? 'red' : 'orange'">{{ labels[record.status] || record.status }}</a-tag>
             <template v-else-if="column.key === 'threshold'">{{ record.stopLoss != null ? `${record.stopLoss} 元` : '证据不足' }}</template>
             <template v-else-if="column.key === 'configuration'">
-              <template v-if="record.configuration?.ruleId">规则 {{ record.configuration.ruleId }} · v{{ record.configuration.configurationVersion }}<br />出票时点：{{ record.configuration.asOf }}<br />{{ record.configuration.jsonPath }}：{{ record.configuration.baseAmount }} 元；超出 {{ record.configuration.extraSegments }} 段×{{ record.configuration.extraPerSegment }} 元</template>
+              <template v-if="record.configuration?.ruleId">规则 {{ record.configuration.ruleId }} · v{{ record.configuration.configurationVersion }}<br />出票时点：{{ formatDateTimeDisplay(record.configuration.asOf) }}<br />{{ record.configuration.jsonPath }}：{{ record.configuration.baseAmount }} 元；超出 {{ record.configuration.extraSegments }} 段×{{ record.configuration.extraPerSegment }} 元</template>
               <template v-else>未可靠匹配</template>
             </template>
           </template>
@@ -32,13 +32,15 @@
           <a-textarea v-model:value="sampleReason" :rows="3" :maxlength="2000" placeholder="抽查说明，例如证据与原单一致，或发现的具体差异" />
           <a-button type="primary" :loading="busy" :disabled="!sampleReason.trim()" @click="saveSample">保存抽查</a-button>
           <p>抽查独立留痕，不覆盖自动计算结果。{{ saved }}</p>
-          <p v-for="item in result.samples || []" :key="item.id">{{ item.at }} · {{ item.outcome === 'confirmed' ? '确认无误' : '发现问题' }} · {{ item.reason }}</p>
+          <p v-for="item in result.samples || []" :key="item.id">{{ formatDateTimeDisplay(item.at) }} · {{ item.outcome === 'confirmed' ? '确认无误' : '发现问题' }} · {{ item.reason }}</p>
         </section>
       </template>
     </div>
   </a-spin>
 </template>
 <script setup lang="ts">
+import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
+
 import { computed, onMounted, ref, watch } from 'vue'
 import { Alert as AAlert, Button as AButton, Descriptions as ADescriptions, DescriptionsItem as ADescriptionsItem, Input as AInput, Radio as ARadio, RadioGroup as ARadioGroup, Spin as ASpin, Table as ATable, Tag as ATag } from 'ant-design-vue'
 import { riskAutomatic, type AutoRiskResult } from '@/api/riskVerification'

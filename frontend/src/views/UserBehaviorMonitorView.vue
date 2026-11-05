@@ -61,6 +61,8 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
+
 import { computed, onMounted, ref } from 'vue'
 import { DatePicker as ADatePicker, Empty as AEmpty } from 'ant-design-vue'
 import dateLocale from 'ant-design-vue/es/date-picker/locale/zh_CN'
@@ -119,7 +121,7 @@ const pageColumns = [
 ]
 const userColumns = [{ title: '用户', key: 'user', width: 150 }, { title: '访问次数', dataIndex: 'visits', width: 90 }, { title: '覆盖页面', dataIndex: 'pageCount', width: 90 }, { title: '活跃时长', key: 'active', width: 110 }, { title: '主要页面', key: 'primary', width: 180 }]
 const pathColumns = [{ title: '访问路径', key: 'path' }, { title: '次数', dataIndex: 'visits', width: 80 }]
-const eventColumns = [{ title: '时间（北京时间）', dataIndex: 'occurredAt', width: 165 }, { title: '用户', dataIndex: 'displayName', width: 110 }, { title: '页面', dataIndex: 'pageCode', width: 150 }, { title: '事件', key: 'event', width: 105 }, { title: '操作对象', dataIndex: 'elementName', width: 180 }, { title: '结果', key: 'status', width: 85 }, { title: '耗时', key: 'duration', width: 90 }]
+const eventColumns = [{ title: '时间（北京时间）', dataIndex: 'occurredAt', width: 165, customRender: ({ text }: { text: unknown }) => formatDateTimeDisplay(text) }, { title: '用户', dataIndex: 'displayName', width: 110 }, { title: '页面', dataIndex: 'pageCode', width: 150 }, { title: '事件', key: 'event', width: 105 }, { title: '操作对象', dataIndex: 'elementName', width: 180 }, { title: '结果', key: 'status', width: 85 }, { title: '耗时', key: 'duration', width: 90 }]
 const eventLabels: Record<string, string> = { element_click: '点击', filter_apply: '应用筛选', period_change: '时间切换', dimension_change: '维度切换', sort_change: '排序切换', tab_change: 'Tab切换', query_success: '查询成功', query_failed: '查询失败', empty_result: '无数据', drilldown_open: '打开下钻', detail_open: '打开明细', export: '导出', frontend_error: '前端错误' }
 const statusLabels: Record<string, string> = { success: '成功', failed: '失败', cancelled: '取消', empty: '无数据', unknown: '记录' }
 const eventLabel = (value: string) => eventLabels[value] || value

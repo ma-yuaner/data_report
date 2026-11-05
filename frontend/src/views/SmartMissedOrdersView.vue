@@ -51,11 +51,11 @@
           <template v-else-if="column.key === 'saleDiffPrice'"><span class="amount">{{ money(record.saleDiffPrice) }}</span></template>
           <template v-else-if="column.key === 'remark'"><button class="remark-link" type="button" @click="openDetail(record)">{{ record.remark || '无备注' }}</button></template>
           <template v-else-if="column.key === 'policyOperatorGroupName'">{{ record.policyOperatorGroupName || '未填写' }}</template>
-          <template v-else>{{ record[column.key] ?? '—' }}</template>
+          <template v-else>{{ displayDateTimeField(record[column.key] ?? '—', column.key) }}</template>
         </template>
       </a-table>
       <div class="pagination-row">
-        <span>数据行最近更新时间：{{ data?.summary.latestRowUpdatedAt || '暂无' }}；不代表调度成功时间</span>
+        <span>数据行最近更新时间：{{ formatDateTimeDisplay(data?.summary.latestRowUpdatedAt || '暂无') }}；不代表调度成功时间</span>
         <a-pagination :current="data?.page || 1" :page-size="data?.pageSize || 30" :total="data?.total || 0" show-size-changer :page-size-options="['30', '50', '100']" :show-total="paginationTotal" @change="changePage" />
       </div>
     </section>
@@ -64,14 +64,14 @@
         <a-alert v-if="detailError" type="error" show-icon :message="detailError" />
         <template v-if="detail">
           <div class="detail-actions"><strong>{{ detail.row.otaOrderNo }}</strong><a-button v-if="canSee('smart.details')" @click="openTicket">查看出票明细</a-button><a-button v-if="canSee('smart.placement.orders')" @click="openReceipts">查看收单情况</a-button></div>
-          <dl class="detail-grid"><div v-for="field in detailFields" :key="field.key"><dt>{{ field.label }}</dt><dd>{{ field.key === 'saleDiffPrice' ? money(detail.row.saleDiffPrice) : detail.row[field.key] ?? '—' }}</dd></div></dl>
+          <dl class="detail-grid"><div v-for="field in detailFields" :key="field.key"><dt>{{ field.label }}</dt><dd>{{ field.key === 'saleDiffPrice' ? money(detail.row.saleDiffPrice) : displayDateTimeField(detail.row[field.key] ?? '—', field.key) }}</dd></div></dl>
           <section class="detail-section"><h3>完整备注</h3><p class="full-remark">{{ detail.row.remark || '无备注' }}</p></section>
           <section class="detail-section"><h3>同订单历史记录</h3><p class="muted">按平台和订单号精确查询，未自动合并或删除。</p>
-            <div v-for="row in detail.history" :key="row.id" class="history-row"><span>记录 {{ row.id }} · 原业务日期 {{ row.businessDate }}</span><span>{{ row.cabin || '—' }} → {{ row.hprCabin || '—' }} · 比价差 {{ money(row.saleDiffPrice) }}</span><span>源更新时间 {{ row.updateTime }}</span></div>
+            <div v-for="row in detail.history" :key="row.id" class="history-row"><span>记录 {{ row.id }} · 原业务日期 {{ row.businessDate }}</span><span>{{ row.cabin || '—' }} → {{ row.hprCabin || '—' }} · 比价差 {{ money(row.saleDiffPrice) }}</span><span>源更新时间 {{ formatDateTimeDisplay(row.updateTime) }}</span></div>
             <p v-if="detail.historyTruncated" class="muted">仅展示最近20条，请按此订单号查询完整列表。</p>
           </section>
           <section class="detail-section"><h3>实际投放关联</h3><p class="muted">{{ detail.matches?.message || '未读取关联信息' }}</p>
-            <article v-for="match in detail.matches?.rows || []" :key="match.id" class="history-row"><span>{{ match.taskNo }} · {{ match.opportunityName }}</span><span>政策 {{ match.externalPolicyId }} · 命中 {{ match.matchedAt }}</span><a-button v-if="canSee('smart.placement.policies')" size="small" @click="openPolicy(match.taskId)">查看投放任务</a-button></article>
+            <article v-for="match in detail.matches?.rows || []" :key="match.id" class="history-row"><span>{{ match.taskNo }} · {{ match.opportunityName }}</span><span>政策 {{ match.externalPolicyId }} · 命中 {{ formatDateTimeDisplay(match.matchedAt) }}</span><a-button v-if="canSee('smart.placement.policies')" size="small" @click="openPolicy(match.taskId)">查看投放任务</a-button></article>
             <p v-if="detail.matches?.truncated" class="muted">仅显示最近100条关联，请进入收单情况查看。</p>
           </section>
         </template>
@@ -81,6 +81,8 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTimeDisplay, displayDateTimeField } from '@/utils/dateTimeDisplay'
+
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'

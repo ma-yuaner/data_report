@@ -32,6 +32,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
 import { computed, ref, watch } from 'vue'
 import { Alert as AAlert, Button as AButton, Checkbox as ACheckbox, Input as AInput, Radio as ARadio, RadioGroup as ARadioGroup, Textarea as ATextarea, message } from 'ant-design-vue'
 import FormDialog from './FormDialog.vue'
@@ -58,7 +59,7 @@ const chosenFields = computed(() => [
 ])
 watch(open, value => { if (value) { form.value = blank(); previewRows.value = []; previewInput.value = undefined; error.value = ''; uncertain.value = false } })
 function formatValue(values: PlacedPolicyChangeRow['before'], key: string) {
-  if (key === 'effectivePeriod') return `${values.effectiveStartAt || '—'} 至 ${Number(values.longTermFlag) ? '长期有效' : values.effectiveEndAt || '—'}`
+  if (key === 'effectivePeriod') return `${formatDateTimeDisplay(values.effectiveStartAt || '—')} 至 ${Number(values.longTermFlag) ? '长期有效' : formatDateTimeDisplay(values.effectiveEndAt || '—')}`
   return String(values[key] || (key === 'includeCabins' ? '不限' : '无'))
 }
 function backToForm() { previewRows.value = []; previewInput.value = undefined; error.value = '' }
