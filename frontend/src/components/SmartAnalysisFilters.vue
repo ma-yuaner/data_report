@@ -91,13 +91,13 @@ onMounted(() => { for (const field of ['airline', 'platform'] as (keyof SmartFil
 .smart-filter-heading, .smart-filter-actions { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .smart-filter-heading > div:first-child { display: grid; gap: 3px; }
 .smart-filter-heading strong { color: #344258; font-size: 14px; }
-.smart-filter-heading span { color: #8390a2; font-size: 11px; }
+.smart-filter-heading span { color: #8390a2; font-size: 12px; }
 .smart-quick-ranges, .smart-filter-actions > div { display: flex; gap: 8px; }
 .smart-date-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 16px; }
-.smart-date-grid label, .smart-filter-grid label { display: grid; gap: 6px; color: #66748a; font-size: 11px; }
+.smart-date-grid label, .smart-filter-grid label { display: grid; gap: 6px; color: #66748a; font-size: 12px; }
 .smart-date-grid label > div { display: flex; align-items: center; gap: 7px; }
 .smart-date-grid :deep(.ant-picker) { min-width: 0; width: 100%; }
-.smart-date-grid i { color: #8b97a8; font-style: normal; }
+.smart-date-grid i { color: #69768a; font-style: normal; }
 .smart-filter-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
 .smart-filter-grid :deep(.ant-select) { width: 100%; }
 .smart-filter-actions { margin-top: 16px; padding-top: 14px; border-top: 1px solid #edf0f4; }

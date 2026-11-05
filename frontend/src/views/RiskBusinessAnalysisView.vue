@@ -330,7 +330,7 @@ onMounted(() => { void load({ ...draft.value }) })
 .scope-panel { padding: 18px 20px; margin-bottom: 14px; border: 1px solid #e4e9f0; border-radius: 12px; background: #fff; }
 .section-heading, .scope-actions, .panel-title, .applied-scope { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .section-heading h2 { margin: 0; color: #26344b; font-size: 14px; }
-.section-heading span, .scope-actions > span, .panel-title small { color: #8995a7; font-size: 11px; }
+.section-heading span, .scope-actions > span, .panel-title small { color: #69768a; font-size: 12px; }
 .period-fields { margin: 16px 0; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
 .date-fields { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: #6c7a91; font-size: 12px; }
 .date-fields :deep(.ant-picker) { width: 142px; }
@@ -338,29 +338,29 @@ onMounted(() => { void load({ ...draft.value }) })
 .period-filter-grid { margin-bottom: 16px; }
 .filter-grid label { display: grid; gap: 6px; color: #64728a; font-size: 12px; }
 .filter-grid label span { display: flex; justify-content: space-between; gap: 5px; }
-.filter-grid label small { color: #b28744; font-size: 9px; }
+.filter-grid label small { color: #b28744; font-size: 12px; }
 .dimension-filter-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 2px 0 10px; padding-top: 14px; border-top: 1px solid #edf0f5; }
 .dimension-filter-title strong { color: #475569; font-size: 12px; }
-.dimension-filter-title span { color: #8995a7; font-size: 10px; }
+.dimension-filter-title span { color: #69768a; font-size: 12px; }
 .scope-actions { margin-top: 16px; padding-top: 14px; border-top: 1px solid #edf0f5; }
 .scope-actions > div { display: flex; gap: 8px; }
 .applied-scope { margin: 15px 2px; flex-wrap: wrap; color: #526079; font-size: 12px; }
 .applied-scope > div { display: flex; gap: 6px; flex-wrap: wrap; }
 .risk-kpi-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
 .risk-kpi { min-width: 0; padding: 17px; border: 1px solid #e5eaf1; border-radius: 11px; background: #fff; box-shadow: 0 5px 18px rgba(28,45,72,.035); }
-.risk-kpi > span, .risk-kpi > small { display: block; color: #7b8799; font-size: 10px; }
+.risk-kpi > span, .risk-kpi > small { display: block; color: #7b8799; font-size: 12px; }
 .risk-kpi > strong { display: block; margin: 11px 0 8px; color: #213048; font-size: clamp(18px, 1.7vw, 25px); white-space: nowrap; }
-.risk-kpi > strong em { font-size: 10px; font-style: normal; font-weight: 400; }
+.risk-kpi > strong em { font-size: 12px; font-style: normal; font-weight: 400; }
 .risk-kpi-loss { border-top: 3px solid #d95763; }
 .risk-kpi-loss strong, .negative { color: #c44752 !important; }
 .analysis-grid { display: grid; grid-template-columns: 1.15fr .85fr; gap: 14px; }
 .analysis-panel { min-width: 0; margin-bottom: 14px; border: 1px solid #e4e9f0; border-radius: 12px; }
 .analysis-panel :deep(.ant-card-head) { min-height: 54px; color: #2e3c52; font-size: 14px; }
 .analysis-panel :deep(.base-chart) { min-height: 310px; height: 310px; }
-.dimension-panel :deep(.ant-table-cell), .orders-panel :deep(.ant-table-cell), .orders-drawer :deep(.ant-table-cell) { padding: 12px 10px; font-size: 11px; }
+.dimension-panel :deep(.ant-table-cell), .orders-panel :deep(.ant-table-cell), .orders-drawer :deep(.ant-table-cell) { padding: 12px 10px; font-size: 12px; }
 .orders-drawer-scope { margin: 14px 0; padding: 12px 14px; border: 1px solid #e5eaf1; border-radius: 10px; background: #f7f9fc; color: #526079; font-size: 12px; }
-.orders-drawer-scope p { margin: 4px 0 0; color: #7d89a0; font-size: 11px; }
-.notes { display: flex; gap: 10px; padding: 10px 2px; color: #8293a9; font-size: 11px; line-height: 1.7; }
+.orders-drawer-scope p { margin: 4px 0 0; color: #7d89a0; font-size: 12px; }
+.notes { display: flex; gap: 10px; padding: 10px 2px; color: #8293a9; font-size: 12px; line-height: 1.7; }
 .notes p { margin: 5px 0; }
 .drawer-warning { margin-top: 16px; }
 @media (max-width: 1250px) { .risk-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } .filter-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }

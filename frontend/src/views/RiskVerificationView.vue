@@ -24,7 +24,7 @@
     <section class="analysis-panel">
       <div class="panel-heading"><div><h2>按盈亏原因分类核对</h2><p>点击数量，查看对应类型和状态的订单；后续新增类型沿用同一结构。</p></div><span>{{ overview?.categories.length ?? '—' }} 个类型</span></div>
       <div class="progress-legend" aria-label="核查进度颜色说明"><span v-for="state in progressStates" :key="state.key"><i :style="{ backgroundColor: state.color }" />{{ state.label }}</span><span><i class="progress-pending" />未完成</span></div>
-      <a-table :columns="categoryColumns" :data-source="overview?.categories || []" row-key="reasonCode" :loading="loading" :pagination="{ pageSize: 10, showSizeChanger: true }" :scroll="{ x: 1180 }" size="middle" :locale="{ emptyText: overview ? '所选出票期间没有盈亏原因有值的订单' : '请查询统计范围；读取失败不显示为0' }">
+      <a-table :columns="categoryColumns" :data-source="overview?.categories || []" row-key="reasonCode" :loading="loading" :pagination="{ pageSize: 10, showSizeChanger: true }" :scroll="{ x: 1180, y: 'min(60vh, 560px)' }" size="middle" :locale="{ emptyText: overview ? '所选出票期间没有盈亏原因有值的订单' : '请查询统计范围；读取失败不显示为0' }">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'reason'"><strong>{{ record.reasonLabel }}</strong><small class="block-muted">{{ record.reasonCode }}</small></template>
           <a-button v-else-if="isMetricKey(column.key)" type="link" :class="{ 'problem-link': column.key === 'problem' }" @click="drillMetric(record.reasonCode, column.key)">{{ count(metricValue(record, column.key)) }}</a-button>
@@ -236,13 +236,15 @@ async function refreshResults() {
 .batch-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
 .auto-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
 .verification-overview { display: grid; gap: 16px; }
+.verification-overview > * { min-width: 0; }
+.verification-overview :deep(.page-header) { margin-bottom: 0; }
 .verification-overview :deep(.filter-panel) { margin-bottom: 0; }
 .applied-scope, .panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .applied-scope span, .panel-heading span, .panel-heading p, .muted, .block-muted { color: #69768a; font-size: 13px; }
 .metrics-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-.metric-card { display: grid; gap: 8px; padding: 20px 16px; text-align: left; border: 1px solid #e4e9ef; border-radius: 8px; background: #fff; cursor: pointer; color: #182235; }
-.metric-card strong { font-size: 30px; font-weight: 600; }
-.metric-card small { color: #69768a; }
+.metric-card { min-width: 0; display: grid; gap: 6px; padding: 16px; text-align: left; border: 1px solid #e4e9ef; border-radius: 8px; background: #fff; cursor: pointer; color: #182235; font: inherit; }
+.metric-card strong { font-size: 28px; line-height: 1.3; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.metric-card small { color: #69768a; font-size: 12px; line-height: 1.6; }
 .metric-card.problem strong, .problem-link { color: #cf1322; }
 .metric-card:focus-visible { outline: 2px solid #1677ff; outline-offset: 2px; }
 .metric-card:disabled { cursor: default; }

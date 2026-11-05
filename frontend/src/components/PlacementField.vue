@@ -64,9 +64,9 @@ withDefaults(defineProps<{
   padding: 2px 7px;
   border: 1px solid #dfe5ee;
   border-radius: 999px;
-  color: #8995a7;
+  color: #69768a;
   background: #fff;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.35;
 }
 .placement-field.is-required .placement-field__state {
@@ -105,7 +105,7 @@ withDefaults(defineProps<{
   min-height: 16px;
   margin: 6px 0 0;
   color: #8b96a8;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.55;
 }
 @media (max-width: 600px) {

@@ -148,7 +148,7 @@ onMounted(() => void load())
 .behavior-summary-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 11px; margin-bottom: 14px; }
 .behavior-summary-card { border: 1px solid #e7ebf1; box-shadow: 0 5px 18px rgba(28,45,72,.035); }
 .behavior-summary-card :deep(.ant-card-body) { padding: 16px; }
-.behavior-summary-card span, .behavior-summary-card small { display: block; color: #7b8798; font-size: 10px; }
+.behavior-summary-card span, .behavior-summary-card small { display: block; color: #7b8798; font-size: 12px; }
 .behavior-summary-card strong { display: block; margin: 10px 0 7px; color: #253249; font-size: 20px; white-space: nowrap; }
 .behavior-chart-grid { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(280px, .6fr); gap: 14px; margin-bottom: 14px; }
 .behavior-chart-grid .base-chart { height: 280px; }
@@ -157,15 +157,15 @@ onMounted(() => void load())
 .quality-list div { padding: 13px 0; display: grid; gap: 4px; border-bottom: 1px solid #edf0f4; }
 .quality-list div:last-child { border-bottom: 0; }
 .quality-list b { color: #3b4960; font-size: 12px; }
-.quality-list span { color: #7f8b9c; font-size: 11px; line-height: 1.5; }
+.quality-list span { color: #7f8b9c; font-size: 12px; line-height: 1.5; }
 .behavior-section { margin-bottom: 14px; }
-.behavior-section :deep(.ant-table-cell) { padding: 12px 10px; font-size: 11px; }
+.behavior-section :deep(.ant-table-cell) { padding: 12px 10px; font-size: 12px; }
 .behavior-detail-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(320px, .85fr); gap: 14px; }
 .behavior-page-name { display: grid; gap: 3px; }
 .behavior-page-name strong { color: #344258; font-size: 12px; }
-.behavior-page-name code, .path-flow code { color: #8390a2; font-size: 10px; }
+.behavior-page-name code, .path-flow code { color: #8390a2; font-size: 12px; }
 .path-flow { display: flex; align-items: center; gap: 7px; }
-.path-flow strong { color: #41516a; font-size: 11px; }
+.path-flow strong { color: #41516a; font-size: 12px; }
 .quality-risk { color: #c44f5e; font-weight: 600; }
 @media (max-width: 1250px) { .behavior-summary-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 @media (max-width: 900px) { .behavior-chart-grid, .behavior-detail-grid { grid-template-columns: 1fr; } .behavior-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
