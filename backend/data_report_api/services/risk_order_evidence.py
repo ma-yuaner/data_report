@@ -35,9 +35,10 @@ ORDER_FIELDS = "id,order_no,ota_order_no,ota_code,commission_type,commission_ord
 
 
 class EvidenceError(ValueError):
-    def __init__(self, message, status=400):
+    def __init__(self, message, status=400, code=None):
         super().__init__(message)
         self.status = status
+        self.code = code
 
 
 def order_id(value):

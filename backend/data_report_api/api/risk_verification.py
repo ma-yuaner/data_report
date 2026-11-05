@@ -22,7 +22,10 @@ def _call(action):
         response.headers["Cache-Control"] = "no-store"
         return response
     except (EvidenceError, FlowError) as error:
-        return jsonify(success=False, message=str(error), data=None), error.status
+        payload = {"success": False, "message": str(error), "data": None}
+        if getattr(error, "code", None):
+            payload["code"] = error.code
+        return jsonify(payload), error.status
     except StoreUnavailable as error:
         return jsonify(success=False, message=str(error), data=None), 503
     except Exception:

@@ -12,8 +12,9 @@
       <template #actions><a-button :loading="loading" @click="queryOverview">查询</a-button><a-button type="primary" :loading="autoRunning" :disabled="loading || autoRunning" @click="startAutomatic()">更新并核实</a-button></template>
     </FilterPanel>
     <a-alert v-if="error" type="error" show-icon :message="error" />
+    <a-alert v-if="catalogNotice" type="info" show-icon message="所选出票日期尚未同步" :description="`${catalogNotice}。默认今日只是查询范围，不会自动同步；点击上方‘更新并核实’同步并核实所选日期。`" />
     <a-alert v-if="overview?.dataFreshness" :type="['failed', 'running'].includes(overview.dataFreshness.latestAttempt?.status || '') ? 'warning' : 'info'" show-icon :message="`中台同步数据 · 最早同步 ${overview.dataFreshness.oldestSyncedAt} · 最近同步 ${overview.dataFreshness.newestSyncedAt}`" :description="syncDescription" />
-    <a-alert type="info" show-icon message="系统自动核实，人工只抽查与处理异常" :description="`通过无须人工确认；证据不足、执行失败、规则未接入分别列示。当前账号已抽查 ${overview?.sampling?.sampled || 0} 单，其中发现问题 ${overview?.sampling?.disputed || 0} 单。`" />
+    <a-alert type="info" show-icon message="系统自动核实，人工只抽查与处理异常" :description="`通过无须人工确认；证据不足、执行失败、规则未接入分别列示。${overview?.sampling ? `当前账号已抽查 ${overview.sampling.sampled} 单，其中发现问题 ${overview.sampling.disputed} 单。` : '当前抽查统计尚未读取，不能按0单解释。'}`" />
     <a-alert v-if="autoError" type="error" show-icon :message="autoError" />
     <div class="auto-actions"><span v-if="autoJob">{{ autoJob.startDate || '' }} 至 {{ autoJob.endDate || '' }} · {{ phaseLabels[autoJob.phase || autoJob.status] || jobLabels[autoJob.status] || autoJob.status }} · 核实 {{ autoJob.done }} / {{ autoJob.total }} · 复用 {{ autoJob.reused || 0 }} 次</span><small>查询不启动任务；更新会同步所选日期。范围最多2000个已接规则订单，失败不循环重试。</small></div>
     <a-alert v-if="autoJob?.message" :type="autoJob.status === 'failed' ? 'error' : 'info'" show-icon :message="autoJob.message" />
@@ -32,8 +33,9 @@
           <a-button v-else-if="isMetricKey(column.key)" type="link" :class="{ 'problem-link': column.key === 'problem' }" @click="drillMetric(record.reasonCode, column.key)">{{ count(metricValue(record, column.key)) }}</a-button>
           <template v-else-if="column.key === 'progress'">
             <div class="verification-progress" role="img" :aria-label="progressDescription(record)"><span v-for="segment in progressSegments(record)" :key="segment.key" :style="{ width: `${segment.percent}%`, backgroundColor: segment.color }" /></div>
-            <small class="progress-counts"><span class="progress-supported">通过 {{ record.supported }}</span><span class="progress-problem">有问题 {{ record.problem }}</span></small>
-            <small class="block-muted">已处理 {{ record.problem + record.supported + record.insufficient + record.failed }} / {{ record.total }} · {{ completion(record) }}%</small>
+            <small class="progress-counts"><span v-for="state in progressStates" :key="state.key">{{ state.label }} {{ record[state.key] }}</span></small>
+            <small class="block-muted">已执行核实 {{ record.problem + record.supported + record.insufficient + record.failed }} / {{ record.total }} · {{ record.total ? `${completion(record)}%` : '不适用' }}</small>
+            <small class="block-muted">执行进度不代表通过率；证据不足和执行失败仍需关注。</small>
           </template>
           <span v-else-if="column.key === 'rule'" class="rule-note">{{ record.ruleStatus }}</span>
           <a-button v-else-if="column.key === 'action'" type="link" @click="drill(record.reasonCode, 'all')">查看订单</a-button>
@@ -70,6 +72,7 @@ import PageHeader from '@/components/PageHeader.vue'
 import FilterPanel from '@/components/FilterPanel.vue'
 import DateRangeField from '@/components/DateRangeField.vue'
 import RiskAutomaticDetail from '@/components/RiskAutomaticDetail.vue'
+import { ApiError } from '@/api/http'
 import { verificationOverview, riskAutomatic, type AutoRiskJob, type RiskCatalogFreshness, type VerificationCategory, type VerificationMetrics, type VerificationOrder, type VerificationOrders, type VerificationOverview, type VerificationStatus } from '@/api/riskVerification'
 
 const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date())
@@ -89,6 +92,7 @@ const orders = ref<VerificationOrders>()
 const loading = ref(false)
 const ordersLoading = ref(false)
 const error = ref('')
+const catalogNotice = ref('')
 const ordersError = ref('')
 const selectedReason = ref<string>()
 const selectedStatus = ref<VerificationStatus | 'all'>('all')
@@ -134,8 +138,8 @@ let pollTimer: ReturnType<typeof setTimeout> | undefined
 const autoJob = ref<AutoRiskJob | null>(null)
 const autoError = ref('')
 const autoRunning = ref(false)
-const jobLabels: Record<string, string> = { queued: '排队中', running: '执行中', complete: '已完成', failed: '任务失败，可重试' }
-const phaseLabels: Record<string, string> = { queued: '排队中', refreshing: '同步目录', checking_schema: '检查数据源', refreshing_dictionary: '同步原因字典', verifying: '核对订单', complete: '已完成', failed: '更新失败' }
+const jobLabels: Record<string, string> = { queued: '排队中', running: '执行中', complete: '任务执行结束，请查看各项核实结果', failed: '任务失败，可重试' }
+const phaseLabels: Record<string, string> = { queued: '排队中', refreshing: '同步目录', checking_schema: '检查数据源', refreshing_dictionary: '同步原因字典', verifying: '核对订单', complete: '任务执行结束，请查看各项核实结果', failed: '更新失败' }
 async function startAutomatic() {
   if (!alive || autoRunning.value) return
   autoError.value = ''; autoRunning.value = true
@@ -189,14 +193,19 @@ function applyPreset() {
 async function queryOverview() {
   const request = ++summaryRequest
   orderRequest++
-  loading.value = true; ordersLoading.value = false; error.value = ''; ordersError.value = ''
+  loading.value = true; ordersLoading.value = false; error.value = ''; catalogNotice.value = ''; ordersError.value = ''
   overview.value = undefined; orders.value = undefined; applied.value = undefined
   selectedReason.value = undefined; selectedStatus.value = 'all'; page.value = 1
   const first = startDate.value || ''; const last = endDate.value || ''
   try {
     const data = await verificationOverview.summary(first, last)
     if (alive && request === summaryRequest) { overview.value = data; applied.value = { start: first, end: last }; await loadOrders() }
-  } catch (failure) { if (alive && request === summaryRequest) error.value = failure instanceof Error ? failure.message : '统计读取失败，请重试' }
+  } catch (failure) {
+    if (alive && request === summaryRequest) {
+      if (failure instanceof ApiError && failure.code === 'RISK_CATALOG_NOT_SYNCED') catalogNotice.value = failure.message
+      else error.value = failure instanceof Error ? failure.message : '统计读取失败，请重试'
+    }
+  }
   finally { if (alive && request === summaryRequest) loading.value = false }
 }
 async function loadOrders() {
