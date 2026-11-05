@@ -97,7 +97,7 @@ def read_evidence(config, identifier):
 
 
 def read_evidence_cursor(cursor, identifier, configuration_cache=None):
-    cursor.execute("SELECT id,ota_code,ota_site_code,product_type,manual_flag,issue_way,profit_reason_type,update_time FROM order_info WHERE id=%s", (order_id(identifier),))
+    cursor.execute("SELECT id,ota_code,ota_site_code,product_type,manual_flag,issue_way,dep_city,arr_city,profit_reason_type,update_time FROM order_info WHERE id=%s", (order_id(identifier),))
     orders = _rows(cursor)
     if len(orders) != 1:
         raise FlowError("订单不存在，需重新同步目录", 409)

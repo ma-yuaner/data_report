@@ -18,9 +18,16 @@ def enrich_matching_facts(cursor, issue, order, cache):
             'origin':'dep_airport','destination':'arr_airport'}
     complete=bool(rows) and len(rows)<=200 and len(rows)==issue.get('segmentCount') and len({str(row['id']) for row in rows})==len(rows)
     for target,source in fields.items():
-        values={str(row.get(source) or '') for row in rows}
-        if not complete or '' in values:
-            problems[target]='单票航段关联不完整或对应字段缺失'
+        if target in ('origin','destination'):
+            # User-confirmed legacy names: these order fields contain main-segment airports.
+            source='dep_city' if target=='origin' else 'arr_city'
+            values={str(order.get(source) or '')}
+            available='' not in values
+        else:
+            values={str(row.get(source) or '') for row in rows}
+            available=complete and '' not in values
+        if not available:
+            problems[target]=('订单主航段机场缺失：order_info.'+source if target in ('origin','destination') else '单票航段关联不完整或对应字段缺失')
             continue
         if len(values)!=1:
             problems[target]='多航段字段不一致，尚缺原出票调用方选择主航段的可靠依据'
