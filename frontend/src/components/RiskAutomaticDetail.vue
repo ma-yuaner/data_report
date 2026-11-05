@@ -12,7 +12,8 @@
           <a-descriptions-item label="止损值来源">{{ usesConfiguration ? '出票时通用配置（逐票见下表）' : '历史日志结果，需更新并核实' }}</a-descriptions-item>
           <a-descriptions-item :label="result.sourceMode === 'prepared_etl' ? '清洗核实时间' : '核实时间'">{{ formatDateTimeDisplay(result.checkedAt) }}</a-descriptions-item>
           <a-descriptions-item label="规则版本">{{ result.ruleVersion }}</a-descriptions-item>
-          <a-descriptions-item v-if="!isChild" label="核实依据" :span="2">非去哪儿平台优先判为选因有问题；去哪儿且有正佣金时，出票利润＋销售佣金 ≥ －单票止损值；金额为CNY。超过4段按4段配置＋超出段数×25元。</a-descriptions-item>
+          <a-descriptions-item v-if="!isChild && !isBet" label="核实依据" :span="2">非去哪儿平台优先判为选因有问题；去哪儿且有正佣金时，出票利润＋销售佣金 ≥ －单票止损值；金额为CNY。超过4段按4段配置＋超出段数×25元。</a-descriptions-item>
+          <a-descriptions-item v-if="isBet" label="核实依据" :span="2">逐票出票利润 ≥ －出票时单票止损值（含等号），不加佣金或预期收益；任一票突破则整单有问题。原始利润为CNY，不合并关联单平均利润。</a-descriptions-item>
           <a-descriptions-item v-if="isChild" label="核实依据" :span="2">必须有儿童或婴儿；携程同OTA订单与关联单汇总出票利润÷总票数，不加佣金；平均利润须满足当前单逐票止损阈值；平均值展示四位小数，判定不按展示值舍入。</a-descriptions-item>
           <template v-if="isChild && result.aggregate">
             <a-descriptions-item label="核算范围">{{ result.aggregate.orderCount }} 单 · {{ result.aggregate.ticketCount }} 票</a-descriptions-item>
@@ -39,7 +40,7 @@
           </template>
         </a-table>
         <a-alert v-if="result.missing?.length" type="warning" show-icon :message="`待补证据：${result.missing.join('；')}`" />
-        <p class="muted">{{ isChild ? '来源：范围内各独立订单出票利润（CNY）与票数、乘机人年龄类型；不加佣金，不去重独立出票。阈值沿用当前单出票时配置。' : usesConfiguration ? '来源：出票明细的利润、销售佣金和单票航段关联；止损值取出票时的通用配置。保留配置版本、快照哈希及必要的配置变更引用，不从订单止损日志取值。' : '此为旧版日志核实结果，仅供历史参考；请在列表点击加载清洗结果，使用通用配置重新计算。' }}</p>
+        <p class="muted">{{ isBet ? '来源：order_info_issue.issue_profit（CNY）与出票时通用配置单票止损值；逐票比较，不加佣金或预期收益。' : isChild ? '来源：范围内各独立订单出票利润（CNY）与票数、乘机人年龄类型；不加佣金，不去重独立出票。阈值沿用当前单出票时配置。' : usesConfiguration ? '来源：出票明细的利润、销售佣金和单票航段关联；止损值取出票时的通用配置。保留配置版本、快照哈希及必要的配置变更引用，不从订单止损日志取值。' : '此为旧版日志核实结果，仅供历史参考；请在列表点击加载清洗结果，使用通用配置重新计算。' }}</p>
         <section v-if="!outdated && canReview">
           <h3>人工抽查（可选）</h3>
           <a-radio-group v-model:value="sampleOutcome"><a-radio value="confirmed">确认无误</a-radio><a-radio value="disputed">发现问题</a-radio></a-radio-group>
@@ -76,9 +77,10 @@ const saved = ref('')
 const sampleOutcome = ref('confirmed')
 const sampleReason = ref('')
 const labels: Record<string, string> = { supported: '核实通过', problem: '有问题', insufficient: '证据不足', failed: '执行失败', rule_pending: '规则未接入' }
-const supportedReason = computed(() => ['RLA013', 'RLA040'].includes(props.reason))
+const isBet = computed(() => ['RLA068', 'RLA047', 'RLA50', 'RLA046', 'RLA045', 'RLA069', 'RLA070', 'RLA067'].includes(props.reason))
+const supportedReason = computed(() => isBet.value || ['RLA013', 'RLA040'].includes(props.reason))
 const isChild = computed(() => props.reason === 'RLA040')
-const columns = computed(() => [{ title: '出票明细ID', dataIndex: 'id', width: 150 }, { title: '出票利润', dataIndex: 'profit', width: 100 }, { title: '销售佣金', dataIndex: 'commission', width: 100 }, { title: isChild.value ? '平均单票利润' : '调整后利润', dataIndex: 'adjustedProfit', width: 110 }, { title: '票段数', dataIndex: 'segmentCount', width: 80 }, { title: '单票止损值', key: 'threshold', width: 110 }, { title: '出票时配置', key: 'configuration', width: 300 }, { title: '结果', key: 'status', width: 110 }, { title: '计算及原因', dataIndex: 'explanation', width: 300 }])
+const columns = computed(() => [{ title: '出票明细ID', dataIndex: 'id', width: 150 }, { title: '出票利润', dataIndex: 'profit', width: 100 }, ...(!isBet.value ? [{ title: '销售佣金', dataIndex: 'commission', width: 100 }] : []), { title: isBet.value ? '用于比较的原始利润' : isChild.value ? '平均单票利润' : '调整后利润', dataIndex: 'adjustedProfit', width: 130 }, { title: '票段数', dataIndex: 'segmentCount', width: 80 }, { title: '单票止损值', key: 'threshold', width: 110 }, { title: '出票时配置', key: 'configuration', width: 300 }, { title: '结果', key: 'status', width: 110 }, { title: '计算及原因', dataIndex: 'explanation', width: 300 }])
 const usesConfiguration = computed(() => result.value?.ruleVersion?.startsWith('qunar-commission-loss-config-v'))
 const normalize = (value: string | null) => value?.replace(' ', 'T') || null
 const outdated = computed(() => Boolean(result.value && (result.value.isCurrent === false || normalize(result.value.sourceUpdatedAt) !== normalize(props.sourceUpdatedAt) || result.value.reasonCode !== props.reason)))

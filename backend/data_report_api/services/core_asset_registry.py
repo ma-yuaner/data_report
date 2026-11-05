@@ -44,12 +44,12 @@ RISK_METRICS = [
 ]
 
 RISK_METRICS.append({
-    'name':'单票配置止损值','businessUse':'核对RLA013单票选因，非独立点击费计算',
+    'name':'单票配置止损值','businessUse':'供佣金、儿童/婴儿及八类对赌原因按各自公式核实，非独立点击费计算',
     'formula':'1–4段取extValue.paramOne/Two/Three/Four；超过4段=paramFour+(票段数-4)×25',
     'source':'base_issue_match_rule.ext_json；base_issue_match_log仅还原配置；order_info_issue_segment关联order_info_segment',
     'grain':'出票明细ID（单票）','timeField':'issue_ticket_time时有效配置','unit':'元/CNY',
-    'deduplication':'航空航段ID去重数须等于关联行数，重复或无效关联拒绝计算',
+    'deduplication':'关联段须同单、存在且唯一，正常非空运段不计航空段数；重复或无效关联拒绝计算',
     'nullHandling':'段数/阈值缺失、历史断档或匹配不明为证据不足，真实0保留',
-    'updateTime':'显式更新并核实的成功批次，配置快照和哈希留痕',
-    'permission':'现有管理员；自动结果按当前账号隔离','stage':'规则核实，非财务利润','status':'current'
+    'updateTime':'独立ETL成功批次，配置快照和哈希留痕；页面加载到当前账号',
+    'permission':'风控核对菜单及对应功能权限；自动结果按当前账号隔离','stage':'规则核实，非财务利润','status':'current'
 })

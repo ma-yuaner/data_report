@@ -6,7 +6,7 @@
 
 风控2026-11-05增量：[佣金亏损配置止损与管理员共享标签](docs/development/risk-loss-types-release-20261105.md)。V5按出票时通用配置逐票核实，超过4段按4段配置＋超出段数×25元；历史配置无法可靠还原时证据不足。共享类型/标签两张新表由247部署人显式执行`bash scripts/deploy_risk_verification.sh --problem-tags`，不改ERP，代码发布不等于服务器已上线。
 
-风控核对当前使用[独立ETL清洗与页面加载结果](docs/development/risk-prepared-v11.md)，按钮为“加载清洗结果”；不在页面逐单查询ERP。账号管理已接入[风控核对菜单及五类功能权限](docs/development/risk-permissions-and-bet-20261105.md)，角色和账号授权沿用现有机制，普通用户须同时具备菜单、查看及相应动作权限。八类对赌原因已完成字典与覆盖盘点，业务判定口径待确认，尚未接入自动通过；历史首版说明见[交付记录](docs/development/risk-verification-delivery.md)。
+风控核对当前使用[独立ETL清洗与页面加载结果](docs/development/risk-prepared-v11.md)，按钮为“加载清洗结果”；不在页面逐单查询ERP。账号管理已接入[风控核对菜单及五类功能权限](docs/development/risk-permissions-and-bet-20261105.md)，角色和账号授权沿用现有机制，普通用户须同时具备菜单、查看及相应动作权限。[V12八类对赌亏损](docs/development/risk-bet-v12.md)按原始逐票利润对照出票时止损值，不加佣金或预期收益；应用与ETL须同步更新并重跑查询日期，无新DDL。历史首版说明见[交付记录](docs/development/risk-verification-delivery.md)。
 
 ADM独立接管增量：新单多订单分别处理，补正式业务字段、批量分配和ERP历史JSON只读归档，不依赖Java运行。正式表在sibebid，新建与已有表升级DDL二选一，由部署人执行。人工验收、历史原件/外部日志及正式切换未完成；操作见[ADM建表部署与验收](docs/development/adm-independent-acceptance.md)。
 

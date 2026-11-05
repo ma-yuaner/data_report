@@ -11,6 +11,7 @@ from ..services.risk_verification_overview import RiskVerificationOverview
 from ..services.risk_auto_verification import RiskAutoVerification
 from ..services.risk_auto_store import StoreUnavailable
 from ..services.risk_commission_rule import RULE_ID
+from ..services.risk_child_loss import BET_REASONS
 from ..shared.permissions import permission_codes
 
 
@@ -138,7 +139,11 @@ def register_routes(api):
                                               "status": "自动规则已接入；历史配置、段数或必要字段不能可靠还原时证据不足"},
                                              {"id": RULE_ID+":RLA040", "label": "综合无亏损－儿童/婴儿",
                                               "formula": "必须有儿童或婴儿；携程OTA及关联拆单出票利润合计÷总票数≥－当前单出票时配置止损值，不加佣金",
-                                              "status": "自动规则已接入；全成人直接有问题，关联范围/利润/阈值不完整时证据不足"}],
+                                              "status": "自动规则已接入；全成人直接有问题，关联范围/利润/阈值不完整时证据不足"},
+                                             *[{"id": RULE_ID+":"+code, "label": label,
+                                                "formula": "逐票出票利润≥－出票时单票止损值（含等号），不加佣金或预期收益；任一票突破即有问题",
+                                                "status": "自动规则已接入；利润、历史阈值或出票范围不完整时保留证据不足"}
+                                               for code,label in BET_REASONS.items()]],
                                    "sourceConfigured": all(bool(current_app.config.get(f"MYSQL_{key}")) for key in ("HOST", "DATABASE", "USER", "PASSWORD")),
                                    "erpEvidenceConfigured": current_app.config.get("RISK_VERIFICATION_ERP_EXPLICIT") is True and all(bool(current_app.config.get(f"ERP_MYSQL_{key}")) for key in ("HOST", "DATABASE", "USER", "PASSWORD"))})
 

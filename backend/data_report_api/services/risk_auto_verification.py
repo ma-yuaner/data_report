@@ -8,7 +8,8 @@ import time
 import uuid
 
 from .risk_commission_rule import RULE_ID, evaluate_commission_loss
-from .risk_child_loss import CHILD_REASON, SUPPORTED_REASONS, ORDER_FIELDS, read_child_evidence, evaluate_child
+from .risk_child_loss import CHILD_REASON, BET_REASONS, SUPPORTED_REASONS, ORDER_FIELDS, read_child_evidence, evaluate_child
+from .risk_bet_loss import evaluate_bet
 from .risk_historical_threshold import HistoricalThresholds
 from .risk_order_evidence import RiskOrderEvidenceService, _rows, order_id
 from .risk_verification_flow import FlowError, _owner
@@ -32,6 +33,7 @@ def evaluate(evidence):
     """Only selected source fields, never raw logs or passenger information in results."""
     order = evidence["order"]
     if order.get("profit_reason_type")==CHILD_REASON:return evaluate_child(evidence,RULE_ID)
+    if order.get("profit_reason_type") in BET_REASONS:return evaluate_bet(evidence,RULE_ID)
     base = {"ruleVersion": RULE_ID, "status": "insufficient", "summary": "证据不足", "tickets": [],
             "platform": order.get("ota_code"), "stopLoss": None, "logReferences": [], "missing": []}
     if order.get("profit_reason_type") != "RLA013":
@@ -119,12 +121,14 @@ def read_evidence_cursor(cursor, identifier, configuration_cache=None, _basic=Fa
         if 'reader' not in cache:
             cache['reader'] = HistoricalThresholds(cursor)
         for issue in issues[:200]:
-            cursor.execute("""SELECT COUNT(*) AS link_count,COUNT(DISTINCT s.id) AS segment_count
+            cursor.execute("""SELECT COUNT(*) AS link_count,
+              COUNT(DISTINCT CASE WHEN s.airlift_flag IN (0,1) THEN s.id END) AS matched_segment_count,
+              COUNT(DISTINCT CASE WHEN s.airlift_flag=1 THEN s.id END) AS segment_count
               FROM order_info_issue_segment i LEFT JOIN order_info_segment s ON s.id=i.segment_id
-              AND s.order_id=%s AND s.airlift_flag=1 WHERE i.issue_id=%s""", (order_id(identifier), issue['id']))
+              AND s.order_id=%s WHERE i.issue_id=%s""", (order_id(identifier), issue['id']))
             counts = _rows(cursor)
             count = counts[0] if len(counts) == 1 else {}
-            issue['segmentCount'] = int(count['segment_count']) if count.get('segment_count') and count.get('link_count') == count.get('segment_count') else None
+            issue['segmentCount'] = int(count['segment_count']) if count.get('segment_count') and count.get('link_count') == count.get('matched_segment_count') else None
             from .risk_threshold_facts import enrich_matching_facts
             enrich_matching_facts(cursor, issue, orders[0], cache)
             issue['thresholdConfiguration'] = cache['reader'].resolve(issue, orders[0])
