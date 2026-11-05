@@ -1,4 +1,4 @@
-"""Read minimal segment/airport facts; ambiguous main-segment selection stays unknown."""
+"""Read main airports and segment cabins; unresolved evidence stays unknown."""
 from .risk_order_evidence import _rows
 
 SEGMENTS_SQL = """SELECT s.id,s.order_id,s.cabin,s.cabin_grade,s.flight_number,s.dep_airport,s.arr_airport,
@@ -28,6 +28,10 @@ def enrich_matching_facts(cursor, issue, order, cache):
             available=complete and '' not in values
         if not available:
             problems[target]=('订单主航段机场缺失：order_info.'+source if target in ('origin','destination') else '单票航段关联不完整或对应字段缺失')
+            continue
+        if target=='cabin':
+            # User-confirmed: any linked air segment sub-cabin may satisfy the rule.
+            facts[target]=','.join(sorted(values))
             continue
         if len(values)!=1:
             problems[target]='多航段字段不一致，尚缺原出票调用方选择主航段的可靠依据'

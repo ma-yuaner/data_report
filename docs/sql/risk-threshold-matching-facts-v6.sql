@@ -1,5 +1,5 @@
 -- RISK-CHECK-002，MySQL只读。航段参数：issue_id, order_id；机场参数：airport_code。
--- 源码 risk_threshold_facts.py；单票航段不完整/重复/超200或多段字段不一致均不猜值。
+-- 源码 risk_threshold_facts.py；单票航段不完整/重复/超200不猜值；子舱位取各段并集任一匹配。
 
 -- SEGMENTS_SQL
 SELECT s.id,s.order_id,s.cabin,s.cabin_grade,s.flight_number,s.dep_airport,s.arr_airport,
