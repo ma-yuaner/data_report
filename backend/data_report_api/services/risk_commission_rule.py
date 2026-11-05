@@ -2,7 +2,7 @@
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, localcontext
 import re
 
-RULE_ID = "qunar-commission-loss-config-v8"
+RULE_ID = "qunar-commission-loss-config-v9"
 
 
 def evaluate_commission_loss(*, is_qunar, single_ticket_profit, sales_commission, stop_loss):

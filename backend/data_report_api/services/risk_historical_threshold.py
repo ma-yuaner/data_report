@@ -95,6 +95,15 @@ def historical_exclusion(rule, logs, at, facts):
         raw=html.unescape(str(row.get('operator_content') or ''))
         if len(raw)>20000:return None
         content=re.sub(r'<(?:br\s*/?|/?b)>','',raw,flags=re.I)
+        # Source updateStatusByIds logs these exact scope-preserving actions.
+        status_action=re.fullmatch(r'修改规则状态为：(挂起|启用)。',content)
+        if status_action:
+            expected={'挂起':'2','启用':'1'}[status_action.group(1)]
+            if state.get('status') is not None and str(state['status'])!=expected:return None
+            state['status']=None  # Previous status is unknown; never used to select a threshold.
+            if instant(row['operator_datetime'])>at:
+                refs.append(str(row['id']));as_of=deepcopy(state)
+            continue
         blocks=re.findall(r'【([^【】]*)】',content)
         if not blocks or blocks[0]!='修改出票规则信息':return None
         if re.sub(r'【[^【】]*】','',content).strip():return None
@@ -108,7 +117,7 @@ def historical_exclusion(rule, logs, at, facts):
                 try:
                     if canonical(state.get('ext_json'))!=canonical(after):return None
                     old,new=json.loads(before),json.loads(after)
-                    if old.get('extFilter')!=new.get('extFilter'):return None
+                    if not isinstance(old,dict) or not isinstance(new,dict):return None
                 except (ValueError,TypeError,AttributeError):return None
                 state['ext_json']=before
             elif label in ('OTA平台','航司'):
