@@ -64,3 +64,7 @@
 | ETL | PY -B etl_scripts/automation/risk_verification_lifecycle_etl.py --history-start-date 2026-01-01 --preview | 0，未查源/未写目标 |
 
 本地构建产物未交付，服务器需按既有环境重建并验证；源码推送可取得不等于构建包已验。浏览器关闭、Worker新策略与生产目标写入未验事项不由以上通过项抵消。
+
+### 源码发布记录
+
+应用`501d567`已推送GitLab及GitHub的main；ETL`5b15511`已推送GitLab main，均为正常快进，无强制覆盖。目标版本可拉取；不代表新五表/新调度/API-Web已在服务器运行。本轮MYE内容已通过独立迁移筛选与统一文档检查，按公司源码发版后再推送的顺序执行，最终提交以用户交付回执为准。未查询或等待CI，未发群通知（本轮未确认申请人，不自动发送）。
