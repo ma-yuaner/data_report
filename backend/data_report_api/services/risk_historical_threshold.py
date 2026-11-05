@@ -109,7 +109,11 @@ def matches(rule,facts):
                 if not facts.get('issue_way'):unknown.append('issue_way')
                 elif facts['issue_way'] not in ISSUE_WAYS:unknown.append('issue_way非法编码')
                 elif not tokens(value).issubset({key.casefold() for key in ISSUE_WAYS}):unknown.append('extFilter.paramOne非法出票方式')
-                elif not tokens(value)&tokens(facts['issue_way']):return False,[]
+                else:
+                    configured=tokens(value)
+                    # User-confirmed loss-rule semantics: manual group includes semi-automatic.
+                    if 'manual' in configured:configured.add('system')
+                    if not configured&tokens(facts['issue_way']):return False,[]
             else:unknown.append('extFilter.'+key)
     except (ValueError,TypeError,AttributeError):unknown.append('ext_json')
     return (None if unknown else True),unknown

@@ -41,3 +41,9 @@ order_info.dep_city、arr_city虽命名为city，实际存放主航段机场。�
 用户本轮明确批准“修改完成就进行推送发布”。已将833617c、1b2eb5f、0da0722普通快进推送至GitLab analytics/data_report与GitHub ma-yuaner/data_report的main，两个远端均返回eb5c1b9..0da0722成功。提权账号属主差异通过单命令精确safe.directory解决，未改全局配置。48项测试及前端类型/lint证据复用，未因纯发布重复跑测试；不查询CI。
 
 247服务器未操作，未部署/业务验收。本次无新增DDL；在247现有main检出根目录执行git pull --ff-only origin main后，bash scripts/deploy_risk_verification.sh（普通无参数，不自动建表）。部署后点击更新并核实，核对V6及未知规则明细；历史版本链不能证明的继续阻断。群通知申请人本轮未确认，未发送通知。
+
+## V7手工组口径修正（2026-11-05）
+
+用户澄清“半自动和手工放一起”，亏损阈值配置MANUAL应覆盖订单SYSTEM及MANUAL；ALL_SYSTEM,MANUAL即全部。此前认定全局不覆盖半自动的结论作废。仅在RB01003的extFilter.paramOne匹配中展开MANUAL→MANUAL/SYSTEM，不改订单原编码、ERP配置、其他规则组或未知阻断。规则版本升qunar-commission-loss-config-v7，使旧结果过期需显式重核；前端已按配置版本前缀兼容。
+
+56项定向测试通过，含MANUAL覆盖半自动/手工、ALL_SYSTEM不覆盖半自动、显式SYSTEM不覆盖手工、非法编码仍未知以及原历史阻断。真实ERP只读复核用户KE单案例：全局规则23/version4，1段，阈值25元，configuration.status=ready，无历史回滚；仅证明配置匹配成功，未宣称该单最终选因通过。未写ERP或中台结果，未部署。本次SQL与取数范围未改变，复用RISK-CHECK-003核验入口；本地原始证据仍忽略。主会话执行，无子代理。
