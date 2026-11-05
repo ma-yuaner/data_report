@@ -188,7 +188,7 @@ onMounted(() => { void applyFilters() })
 .scope-panel { padding: 18px 20px; margin-bottom: 14px; border: 1px solid #e4e9f0; border-radius: 12px; background: #fff; }
 .section-heading, .scope-actions, .panel-title, .comparison-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .section-heading h2 { margin: 0; font-size: 14px; color: #26344b; }
-.section-heading > span, .scope-actions > span, .panel-title small { color: #8995a7; font-size: 11px; }
+.section-heading > span, .scope-actions > span, .panel-title small { color: #69768a; font-size: 12px; }
 .period-fields { margin: 16px 0; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
 .date-fields { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; color: #6c7a91; font-size: 12px; }
 .date-fields :deep(.ant-picker) { width: 142px; }
@@ -198,35 +198,35 @@ onMounted(() => { void applyFilters() })
 .scope-actions { margin-top: 16px; padding-top: 14px; border-top: 1px solid #edf0f5; }
 .scope-actions > div { display: flex; gap: 9px; }
 .applied-scope { display: flex; justify-content: space-between; gap: 12px; margin: 15px 1px 5px; align-items: center; flex-wrap: wrap; color: #526079; font-size: 12px; }
-.time-basis { margin: 0 0 16px; color: #8996a8; font-size: 11px; }
+.time-basis { margin: 0 0 16px; color: #8996a8; font-size: 12px; }
 .summary-grid { display: grid; grid-template-columns: repeat(var(--card-count), minmax(0, 1fr)); gap: 14px; margin-bottom: 16px; }
 .summary-total { padding: 20px; min-width: 0; border-radius: 12px; color: #fff; background: linear-gradient(135deg, #343b67, #6558a5); }
 .summary-total > span { color: #dedbf3; font-size: 12px; }
 .summary-total strong, .business-card > strong { display: block; margin: 20px 0 17px; font-size: clamp(18px, 1.7vw, 28px); letter-spacing: -.035em; white-space: nowrap; }
-.summary-total em, .business-card em { margin-left: 5px; font-size: 11px; font-weight: 400; font-style: normal; }
-.summary-total p, .summary-total small { color: #d1d0ec; font-size: 10px; }
+.summary-total em, .business-card em { margin-left: 5px; font-size: 12px; font-weight: 400; font-style: normal; }
+.summary-total p, .summary-total small { color: #d1d0ec; font-size: 12px; }
 .business-card { min-width: 0; padding: 18px 18px 14px; border: 1px solid #e4e9f0; border-top: 3px solid var(--business-color); border-radius: 12px; background: #fff; }
 .business-heading { display: flex; justify-content: space-between; align-items: center; color: #56657d; font-size: 13px; }
 .business-card > strong { color: #26354c; font-size: clamp(18px, 1.7vw, 26px); }
-.business-count { display: flex; justify-content: space-between; padding-top: 11px; border-top: 1px solid #edf0f5; color: #919bac; font-size: 11px; }
+.business-count { display: flex; justify-content: space-between; padding-top: 11px; border-top: 1px solid #edf0f5; color: #919bac; font-size: 12px; }
 .business-count b { color: #5a6a83; font-size: 14px; }
-.missing-note { color: #b88635; font-size: 10px; margin: 8px 0; }
+.missing-note { color: #b88635; font-size: 12px; margin: 8px 0; }
 .analysis-panel { min-width: 0; margin-bottom: 16px; border: 1px solid #e4e9f0; border-radius: 12px; }
 .analysis-panel :deep(.ant-card-head) { min-height: 56px; padding: 0 20px; border-color: #edf0f5; font-size: 14px; color: #2e3c52; }
 .analysis-panel :deep(.ant-card-body) { padding: 16px 20px; }
 .trend-panel :deep(.base-chart) { min-height: 300px; height: 300px; }
-.chart-note { color: #97a2b3; font-size: 11px; line-height: 1.7; }
+.chart-note { color: #97a2b3; font-size: 12px; line-height: 1.7; }
 .monthly-table :deep(.ant-table-cell) { padding: 14px 10px; font-size: 12px; }
-.monthly-table :deep(.ant-table-thead > tr > th) { color: #6e7d94; font-size: 11px; background: #f8fafc; }
-.partial-tag { display: block; width: fit-content; margin-top: 6px; font-size: 10px; }
+.monthly-table :deep(.ant-table-thead > tr > th) { color: #6e7d94; font-size: 12px; background: #f8fafc; }
+.partial-tag { display: block; width: fit-content; margin-top: 6px; font-size: 12px; }
 .profit-cell { display: grid; gap: 5px; }
-.profit-cell small { color: #9ca7b7; font-size: 10px; }
-.comparison-footer { flex-wrap: wrap; color: #8b98aa; font-size: 11px; }
-.notes { display: flex; gap: 10px; padding: 10px 2px; color: #8293a9; font-size: 11px; line-height: 1.7; }
+.profit-cell small { color: #9ca7b7; font-size: 12px; }
+.comparison-footer { flex-wrap: wrap; color: #69768a; font-size: 12px; }
+.notes { display: flex; gap: 10px; padding: 10px 2px; color: #8293a9; font-size: 12px; line-height: 1.7; }
 .notes p { margin: 5px 0; }
 .negative { color: #c34b5b !important; }
 .drawer-scope { margin: 0 0 14px; color: #718096; font-size: 12px; }
-.day-label { display: block; margin-top: 3px; color: #98a3b2; font-size: 9px; }
+.day-label { display: block; margin-top: 3px; color: #98a3b2; font-size: 12px; }
 @media (max-width: 1100px) { .summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } .summary-total { grid-column: 1 / -1; } }
 @media (max-width: 800px) { .filter-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); } .summary-grid { grid-template-columns: minmax(0, 1fr); } .section-heading, .scope-actions, .panel-title { flex-wrap: wrap; } }
 @media (max-width: 560px) { .scope-panel { padding: 15px 12px; } .period-fields :deep(.ant-segmented) { max-width: 100%; overflow-x: auto; } .analysis-panel :deep(.ant-card-body) { padding: 14px 12px; } }

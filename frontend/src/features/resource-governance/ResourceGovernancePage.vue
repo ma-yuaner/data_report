@@ -899,7 +899,7 @@ const {
 .panel-title small,
 .dimension-header small {
   color: #8c98aa;
-  font-size: 11px;
+  font-size: 12px;
 }
 .period-line {
   margin: 17px 0;
@@ -959,7 +959,7 @@ const {
 .hero-ratio small,
 .hero-ratio span {
   color: #c8dbf2;
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 0.08em;
 }
 .hero-copy h2 {
@@ -1005,8 +1005,8 @@ const {
 .kpi-grid span,
 .kpi-grid small {
   display: block;
-  color: #8a96a8;
-  font-size: 10px;
+  color: #69768a;
+  font-size: 12px;
 }
 .kpi-grid strong {
   display: block;
@@ -1035,7 +1035,7 @@ const {
 }
 .quality-heading span {
   color: #929dae;
-  font-size: 10px;
+  font-size: 12px;
 }
 .quality-grid {
   display: grid;
@@ -1050,7 +1050,7 @@ const {
 .quality-grid span {
   display: block;
   color: #8996a8;
-  font-size: 10px;
+  font-size: 12px;
 }
 .quality-grid strong {
   display: block;
@@ -1103,7 +1103,7 @@ const {
 }
 .funnel-row small {
   color: #929dae;
-  font-size: 10px;
+  font-size: 12px;
 }
 .funnel-row :deep(.ant-progress) {
   margin: 5px 0 2px;
@@ -1123,7 +1123,7 @@ const {
 }
 .resource-name small {
   color: #98a3b3;
-  font-size: 10px;
+  font-size: 12px;
 }
 .danger {
   color: #c44752 !important;
@@ -1136,7 +1136,7 @@ const {
   gap: 10px;
   padding: 17px 2px;
   color: #8291a6;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.7;
 }
 .notes p {
@@ -1151,7 +1151,7 @@ const {
   border-radius: 9px;
   color: #728096;
   background: #f5f8fb;
-  font-size: 11px;
+  font-size: 12px;
 }
 .drawer-scope > div {
   display: flex;
@@ -1172,8 +1172,8 @@ const {
 }
 .drawer-kpis span {
   display: block;
-  color: #8b97a8;
-  font-size: 10px;
+  color: #69768a;
+  font-size: 12px;
 }
 .drawer-kpis strong {
   display: block;
@@ -1193,7 +1193,7 @@ const {
   justify-content: space-between;
   gap: 12px;
   color: #7d899a;
-  font-size: 11px;
+  font-size: 12px;
 }
 .analysis-toolbar {
   display: flex;
@@ -1208,8 +1208,8 @@ const {
   color: #34465f;
 }
 .analysis-toolbar small {
-  color: #8b97a8;
-  font-size: 10px;
+  color: #69768a;
+  font-size: 12px;
 }
 .daily-table {
   border: 1px solid #e5eaf1;
