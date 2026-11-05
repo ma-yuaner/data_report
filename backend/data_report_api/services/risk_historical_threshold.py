@@ -74,6 +74,65 @@ def restore(rule,logs,at):
     return state,''
 
 
+
+def historical_exclusion(rule, logs, at, facts):
+    """Prove irrelevance from a complete legacy edit ledger; never supply a threshold."""
+    created,updated=instant(rule.get('create_time')),instant(rule.get('update_time'))
+    version=rule.get('version')
+    if at is None or created is None or updated is None or created>at or updated<=at:
+        return None
+    if type(version) is not int or version<1 or len(logs)!=version+1:
+        return None
+    dates=[instant(row.get('operator_datetime')) for row in logs]
+    if any(date is None for date in dates) or len(set(dates))!=len(dates):return None
+    if min(dates)!=created or max(dates)!=updated:return None
+    if len({str(row.get('id')) for row in logs})!=len(logs):return None
+    if any(str(row.get('business_obj_id'))!=str(rule['id']) or row.get('version')!=0 for row in logs):return None
+    ordered=sorted(logs,key=lambda row:instant(row['operator_datetime']))
+    if str(ordered[0].get('operator_content') or '').strip()!='新增规则。':return None
+    state=deepcopy(rule);refs=[]
+    for row in reversed(ordered[1:]):
+        raw=html.unescape(str(row.get('operator_content') or ''))
+        if len(raw)>20000:return None
+        content=re.sub(r'<(?:br\s*/?|/?b)>','',raw,flags=re.I)
+        blocks=re.findall(r'【([^【】]*)】',content)
+        if not blocks or blocks[0]!='修改出票规则信息':return None
+        if re.sub(r'【[^【】]*】','',content).strip():return None
+        if len(blocks)<2:return None
+        for block in reversed(blocks[1:]):
+            change=re.fullmatch(r"(.+?)\s+由\s*'(.*)'\s*修改为\s*'(.*)'",block,re.S)
+            if not change:return None
+            label,before,after=change.groups()
+            if label in ('规则名称','备注'):continue
+            if label=='扩展字段':
+                try:
+                    if canonical(state.get('ext_json'))!=canonical(after):return None
+                    old,new=json.loads(before),json.loads(after)
+                    if old.get('extFilter')!=new.get('extFilter'):return None
+                except (ValueError,TypeError,AttributeError):return None
+                state['ext_json']=before
+            elif label in ('OTA平台','航司'):
+                key={'OTA平台':'ota_code','航司':'airline'}[label]
+                if tokens(state.get(key))!=tokens(after):return None
+                state[key]=before
+            else:return None
+        if instant(row['operator_datetime'])>at:
+            refs.append(str(row['id']))
+        else:
+            # Earlier changes were checked against their newer state, but the as-of scope is already saved.
+            continue
+        # Save scope after rolling this edit back past the issue instant.
+        as_of=deepcopy(state)
+    if not refs:return None
+    # Only these fields have a proven historical chain in this restricted decoder.
+    for key in ('ota_code','airline'):
+        wanted=as_of.get(key);actual=facts.get(key)
+        if tokens(wanted) and tokens(actual) and not tokens(wanted)&tokens(actual):
+            return {'ruleId':str(rule['id']),'field':key,'historyReferences':refs,
+                    'basis':'complete_legacy_edit_ledger_scope_exclusion'}
+    return None
+
+
 def tokens(value):
     return {item.casefold() for item in re.split(r'[,;/|]',str(value))} if value is not None and str(value).strip() else set()
 
@@ -146,14 +205,20 @@ class HistoricalThresholds:
                'manual_flag':order.get('manual_flag'),'issue_supplier_code':issue.get('supplier_code'),
                'issue_gds':issue.get('issue_gds_channel'),'issue_pcc':pcc,'airline':issue.get('marketing_airline'),'issue_way':order.get('issue_way')}
         facts.update(issue.get('matchingFacts') or {})
-        candidates=[];unknown=[];diagnostics=[];excluded=[]
+        candidates=[];unknown=[];diagnostics=[];excluded=[];scope_exclusions=[]
         def unresolved(rule,stage,reason,fields=None):
             unknown.append(reason)
             diagnostics.append({'ruleId':str(rule['id']),'stage':stage,'reason':reason,'fields':fields or []})
         for rule in self.rules:
             state,error=restore(rule,self.logs.get(str(rule['id']),[]),at)
             if state is False:continue
-            if state is None:unresolved(rule,'history',error);continue
+            if state is None:
+                proof=historical_exclusion(rule,self.logs.get(str(rule['id']),[]),at,facts)
+                if proof is not None:
+                    scope_exclusions.append(proof)
+                    continue
+                unresolved(rule,'history',error)
+                continue
             if state.get('rule_type')!=LOSS_RULE_TYPE:continue
             start,end=instant(state.get('start_time')),instant(state.get('end_time'))
             if start and end and not start<=at<=end:continue
@@ -186,4 +251,4 @@ class HistoricalThresholds:
         digest=hashlib.sha256(json.dumps(snapshot,sort_keys=True,default=str,ensure_ascii=False).encode()).hexdigest()
         return {**amount,'ruleId':str(state['id']),'configurationVersion':state.get('version'),'asOf':str(issue['issue_ticket_time']),
                 'configurationHash':digest,'configurationSnapshot':snapshot,'historyReferences':state.get('historyReferences',[]),
-                'source':'base_issue_match_rule.ext_json','basis':'issue_time_configuration'}
+                'source':'base_issue_match_rule.ext_json','basis':'issue_time_configuration','excludedHistoricalCandidates':scope_exclusions}
