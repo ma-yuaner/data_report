@@ -135,7 +135,7 @@ export interface AutoRiskResult {
   id: string; orderId: string; reasonCode: string; sourceUpdatedAt: string | null; ruleVersion: string; checkedAt: string
   status: VerificationStatus; summary: string; platform?: string; stopLoss?: string; missing?: string[]; evidenceHash?: string
   isCurrent?: boolean; catalogRunId?: string; reusedFrom?: string
-  tickets: { id: string; profit: string | null; commission: string | null; adjustedProfit?: string; boundary?: string; status: VerificationStatus; explanation: string }[]
+  tickets: { id: string; profit: string | null; commission: string | null; adjustedProfit?: string; boundary?: string; status: VerificationStatus; explanation: string; segmentCount?: number | null; stopLoss?: string | null; configuration?: { status: string; ruleId?: string; configurationVersion?: number; asOf?: string; jsonPath?: string; baseAmount?: string; extraSegments?: number; extraPerSegment?: string; configurationHash?: string; historyReferences?: string[] } }[]
   logReferences?: { id: string; at: string | null }[]
   samples?: { id: string; outcome: string; reason: string; at: string }[]
 }
@@ -144,6 +144,15 @@ export const riskAutomatic = {
   job: () => flowGet<AutoRiskJob | null>('automatic/job'),
   result: (orderId: string) => flowGet<AutoRiskResult | null>(`automatic/orders/${orderId}`),
   sample: (orderId: string, resultId: string, outcome: string, reason: string) => flowPost<unknown>(`automatic/orders/${orderId}/sample`, { resultId, outcome, reason }),
+}
+export interface RiskProblemType { id: string; name: string; created_by: string; created_at: string }
+export interface RiskProblemTag { id: string; order_id: string; type_id: string; type_name: string; reason: string; created_by: string; created_at: string }
+export const riskProblems = {
+  types: () => flowGet<RiskProblemType[]>('problem-types'),
+  createType: (name: string) => flowPost<RiskProblemType>('problem-types', { name }),
+  tags: (orderId: string) => flowGet<RiskProblemTag[]>(`orders/${orderId}/problem-tags`),
+  saveTags: (orderId: string, typeIds: string[], reason: string) => flowPost<RiskProblemTag[]>(`orders/${orderId}/problem-tags`, { typeIds, reason }),
+  configs: (platform: string, group: string) => flowGet<{ items: Record<string, unknown>[]; notice: string; useForCalculation: false }>(`rule-configs?${new URLSearchParams({ platform, group })}`),
 }
 export interface VerificationOrder extends EvidenceRow {
   id: string

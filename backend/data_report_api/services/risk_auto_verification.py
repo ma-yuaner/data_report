@@ -7,7 +7,8 @@ import logging
 import time
 import uuid
 
-from .risk_commission_rule import RULE_ID, evaluate_commission_loss, parse_stop_loss_log
+from .risk_commission_rule import RULE_ID, evaluate_commission_loss
+from .risk_historical_threshold import HistoricalThresholds
 from .risk_order_evidence import RiskOrderEvidenceService, _rows, order_id
 from .risk_verification_flow import FlowError, _owner
 from .risk_auto_store import RiskAutoStore, StoreConflict
@@ -34,44 +35,37 @@ def evaluate(evidence):
             "platform": order.get("ota_code"), "stopLoss": None, "logReferences": [], "missing": []}
     if order.get("profit_reason_type") != "RLA013":
         return {**base, "status": "rule_pending", "summary": "该类型规则尚未接入"}
+    if not order.get("ota_code"):
+        return {**base, "missing": ["平台编码"], "summary": "平台缺失，无法判断去哪儿前提"}
+    if order["ota_code"] != "QUNAR":
+        return {**base, "status": "problem", "summary": "非去哪儿平台不得选择佣金、点击费亏损；平台条件优先，已判为有问题"}
     if not evidence.get("complete"):
-        return {**base, "missing": ["出票或止损日志读取不完整"], "summary": "证据截断或不完整，未执行通过判定"}
+        return {**base, "missing": ["出票明细读取不完整"], "summary": "证据截断或不完整，未执行通过判定"}
     issues = evidence.get("issues", [])
     if not issues:
         return {**base, "missing": ["出票明细"], "summary": "没有可核实的出票明细"}
-    if not order.get("ota_code"):
-        return {**base, "missing": ["平台编码"], "summary": "平台缺失，无法判断去哪儿前提"}
-    parsed = []
-    for log in evidence.get("logs", []):
-        records = parse_stop_loss_log(log.get("operator_content"))["records"]
-        if not records:
-            return {**base, "missing": ["可解析的止损日志"], "summary": "存在无法解析的止损日志，不能忽略后自动通过"}
-        for item in records:
-            parsed.append(item)
-            base["logReferences"].append({"id": str(log["id"]), "at": stamp(log.get("operator_datetime")), **item})
-    if not parsed:
-        return {**base, "missing": ["止损日志"], "summary": "没有可解析的止损日志"}
-    from decimal import Decimal
-    thresholds = {Decimal(row["stopLoss"]) for row in parsed}
-    if len(thresholds) != 1:
-        return {**base, "missing": ["唯一一致的日志止损值"], "summary": "订单止损值存在冲突，不能自动选择某一条"}
-    base["stopLoss"] = format(next(iter(thresholds)), "f")
-    if any(not row["amountsConsistent"] for row in parsed):
-        return {**base, "missing": ["金额自洽的止损日志"], "summary": "已提取止损值，但日志亏损金额与底价减结算费用按四舍五入保留两位后仍不一致"}
     outcomes = []
     for issue in issues:
+        configuration = issue.get("thresholdConfiguration") or {"status": "insufficient", "reason": "缺少出票时通用配置"}
         result = {"id": str(issue["id"]), "profit": issue.get("issue_profit"), "commission": issue.get("sale_commission_amount"),
-                  "currency": "CNY", "profitSource": "order_info_issue.issue_profit", "commissionSource": "order_info_issue.sale_commission_amount"}
-        if issue.get("sale_currency") != "CNY":
+                  "currency": issue.get("sale_currency"), "profitSource": "order_info_issue.issue_profit", "commissionSource": "order_info_issue.sale_commission_amount",
+                  "segmentCount": issue.get("segmentCount"), "configuration": configuration,
+                  "stopLoss": configuration.get("amount") if configuration.get("status") == "ready" else None}
+        if configuration.get("status") != "ready":
+            result.update(status="insufficient", explanation=configuration.get("reason") or "出票时配置无法可靠还原")
+        elif issue.get("sale_currency") != "CNY":
             result.update(status="insufficient", explanation=f"销售佣金币种为{issue.get('sale_currency') or '缺失'}，未确认为CNY，不能混币相加")
         else:
             checked = evaluate_commission_loss(is_qunar=order.get("ota_code") == "QUNAR", single_ticket_profit=issue.get("issue_profit"),
-                                               sales_commission=issue.get("sale_commission_amount"), stop_loss=base["stopLoss"])
+                                               sales_commission=issue.get("sale_commission_amount"), stop_loss=result["stopLoss"])
             status = {"supported": "supported", "contradicted": "problem", "not_applicable": "problem"}.get(checked["status"], "insufficient")
             explanation = checked.get("calculation") or checked.get("prerequisite") or "缺少有效的出票利润、销售佣金或止损值"
             result.update(status=status, adjustedProfit=checked.get("adjustedProfit"), boundary=checked.get("boundary"), explanation=explanation)
         outcomes.append(result["status"])
         base["tickets"].append(result)
+    thresholds = {row['stopLoss'] for row in base['tickets']}
+    if len(thresholds) == 1:
+        base['stopLoss'] = next(iter(thresholds))
     if "problem" in outcomes:
         base.update(status="problem", summary="至少一张票不符合选因条件，请查看逐票原因")
     elif "insufficient" in outcomes:
@@ -102,18 +96,34 @@ def read_evidence(config, identifier):
                 reader._close(cursor, connection)
 
 
-def read_evidence_cursor(cursor, identifier):
-    cursor.execute("SELECT id,ota_code,profit_reason_type,update_time FROM order_info WHERE id=%s", (order_id(identifier),))
+def read_evidence_cursor(cursor, identifier, configuration_cache=None):
+    cursor.execute("SELECT id,ota_code,ota_site_code,product_type,manual_flag,issue_way,profit_reason_type,update_time FROM order_info WHERE id=%s", (order_id(identifier),))
     orders = _rows(cursor)
     if len(orders) != 1:
         raise FlowError("订单不存在，需重新同步目录", 409)
-    cursor.execute("SELECT id,order_id,issue_profit,sale_commission_amount,sale_currency FROM order_info_issue WHERE order_id=%s ORDER BY id LIMIT 201", (order_id(identifier),))
+    if orders[0].get("profit_reason_type") == "RLA013" and orders[0].get("ota_code") != "QUNAR":
+        return {"order": orders[0], "issues": [], "logs": [], "complete": True}
+    if orders[0].get('profit_reason_type') != 'RLA013':
+        return {'order': orders[0], 'issues': [], 'logs': [], 'complete': True}
+    cursor.execute("""SELECT id,order_id,issue_profit,sale_commission_amount,sale_currency,issue_ticket_time,
+      supplier_code,marketing_airline,issue_gds_channel,issue_office_no,issue_ticketing_office_no
+      FROM order_info_issue WHERE order_id=%s ORDER BY id LIMIT 201""", (order_id(identifier),))
     issues = _rows(cursor)
-    cursor.execute("SELECT id,order_id,operator_datetime,LEFT(operator_content,20001) AS operator_content FROM order_info_operator_log WHERE order_id=%s AND operator_content LIKE %s ORDER BY id LIMIT 201", (order_id(identifier), "%止损值配置为%"))
-    logs = _rows(cursor)
-    if any(str(row["order_id"]) != str(identifier) for row in issues + logs):
+    if any(str(row["order_id"]) != str(identifier) for row in issues):
         raise FlowError("取证订单关联不一致", 409)
-    return {"order": orders[0], "issues": issues[:200], "logs": logs[:200], "complete": len(issues) <= 200 and len(logs) <= 200}
+    if issues:
+        cache = configuration_cache if configuration_cache is not None else {}
+        if 'reader' not in cache:
+            cache['reader'] = HistoricalThresholds(cursor)
+        for issue in issues[:200]:
+            cursor.execute("""SELECT COUNT(*) AS link_count,COUNT(DISTINCT s.id) AS segment_count
+              FROM order_info_issue_segment i LEFT JOIN order_info_segment s ON s.id=i.segment_id
+              AND s.order_id=%s AND s.airlift_flag=1 WHERE i.issue_id=%s""", (order_id(identifier), issue['id']))
+            counts = _rows(cursor)
+            count = counts[0] if len(counts) == 1 else {}
+            issue['segmentCount'] = int(count['segment_count']) if count.get('segment_count') and count.get('link_count') == count.get('segment_count') else None
+            issue['thresholdConfiguration'] = cache['reader'].resolve(issue, orders[0])
+    return {"order": orders[0], "issues": issues[:200], "logs": [], "complete": len(issues) <= 200}
 
 
 class RiskAutoVerification:
@@ -297,11 +307,12 @@ class RiskAutoVerification:
             body["total"] += len(new_ids)
             progress({"phase": "verifying", "day": day.isoformat()})
             results = []
+            configuration_cache = {}
             for target in targets:
                 result = {"id": uuid.uuid4().hex, "orderId": str(target["id"]), "reasonCode": target["profit_reason_type"],
                           "sourceUpdatedAt": stamp(target["update_time"]), "catalogRunId": run_id,
                           "checkedAt": now(), "checkedAtEpoch": time.time(), "issueDate": day.isoformat(), "ruleVersion": RULE_ID, "jobId": job_id}
-                evidence = read_evidence_cursor(source_cursor, target["id"])
+                evidence = read_evidence_cursor(source_cursor, target["id"], configuration_cache)
                 if evidence["order"]["profit_reason_type"] != target["profit_reason_type"] or stamp(evidence["order"].get("update_time")) != stamp(target["update_time"]):
                     raise FlowError("同一源快照数据不一致，本日未发布，请重新更新核实", 409)
                 digest = hashlib.sha256(json.dumps(evidence, ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()

@@ -24,12 +24,14 @@ command -v curl >/dev/null
 verify_only=false
 migrate_auto=false
 archive_auto=false
+problem_tags=false
 case "${1:-}" in
   '') ;;
   --verify-only) verify_only=true ;;
   --migrate-auto) migrate_auto=true ;;
   --archive-auto) archive_auto=true ;;
-  *) echo "Usage: bash scripts/deploy_risk_verification.sh [--verify-only|--migrate-auto|--archive-auto]" >&2; exit 1 ;;
+  --problem-tags) problem_tags=true ;;
+  *) echo "Usage: bash scripts/deploy_risk_verification.sh [--verify-only|--migrate-auto|--archive-auto|--problem-tags]" >&2; exit 1 ;;
 esac
 wait_for_url() {
   local url="$1" attempt
@@ -98,6 +100,29 @@ PY
 fi
 echo "[4/5] 构建并更新api、web（保留所有数据卷）"
 docker compose build api web
+if [ "$problem_tags" = true ]; then
+  echo "显式部署管理员共享类型/标签两张新表；仅CREATE IF NOT EXISTS，不修改ERP或既有业务表。"
+  docker compose run -T --rm --no-deps --entrypoint python api -c '
+import re, sys
+from data_report_api.config import Config
+from data_report_api.services.risk_auto_store import RiskAutoStore
+config = {name: getattr(Config, name) for name in dir(Config) if name.isupper()}
+sql = re.sub(r"(?m)^--.*$", "", sys.stdin.read())
+statements = [part.strip() for part in sql.split(";") if part.strip()]
+names = ("bi_risk_problem_types", "bi_risk_order_problem_tags")
+if len(statements) != 3 or statements[0] != "USE sibebid" or any(not statement.startswith("CREATE TABLE IF NOT EXISTS " + name + " (") for statement, name in zip(statements[1:], names)):
+    raise SystemExit("Unexpected schema script; stopped without executing DDL")
+try:
+    with RiskAutoStore(config).db() as db:
+        for statement in statements:
+            db.execute(statement)
+        db.execute("SELECT id,name,name_key,created_by,created_at FROM bi_risk_problem_types LIMIT 0").fetchall()
+        db.execute("SELECT id,order_id,type_id,type_name,reason,created_by,created_at,source_snapshot FROM bi_risk_order_problem_tags LIMIT 0").fetchall()
+except Exception:
+    raise SystemExit("Shared label schema failed; preserve existing data and inspect sibebid schema/CREATE permission. API/web were not switched. MySQL DDL may have created the first new table.") from None
+print("Shared problem type/tag tables checked; existing records preserved. Business acceptance still required.")
+' < docs/sql/risk-problem-tags-v1.sql
+fi
 if [ "$migrate_auto" = true ]; then
   echo "显式迁移自动核查记录：须已执行risk-auto-mysql-v1.sql；停止旧api后迁移，失败保持停止。"
   docker compose stop api

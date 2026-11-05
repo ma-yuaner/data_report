@@ -1,7 +1,7 @@
 <template>
   <div class="page-wrap verification-overview">
     <PageHeader eyebrow="RISK VERIFICATION" title="风控核对" description="查询只读已保存结果；点击更新并核实后后台同步最新数据并核算，关闭页面不影响已启动任务。">
-      <a-tag color="blue">订单去重 · 含各类盈亏原因</a-tag>
+      <a-space wrap><a-tag color="blue">订单去重 · 含各类盈亏原因</a-tag><a-button :loading="configLoading" @click="configOpen = true; loadConfigs()">读取通用配置候选</a-button></a-space>
     </PageHeader>
     <FilterPanel stacked :instant="false" :show-reset="false" :loading="loading" :hint="hasPending ? '日期已改变，点击查询后生效' : '按出票时间筛选，结束日期包含当天；同一订单多张票只计1单'">
       <template #header><h2>统计范围</h2><span>默认今日 · 单次最多31天</span></template>
@@ -12,6 +12,14 @@
       <template #actions><a-button :loading="loading" @click="queryOverview">查询</a-button><a-button type="primary" :loading="autoRunning" :disabled="loading || autoRunning" @click="startAutomatic()">更新并核实</a-button></template>
     </FilterPanel>
     <a-alert v-if="error" type="error" show-icon :message="error" />
+    <a-drawer v-model:open="configOpen" title="出票通用配置取证（候选）" :width="'min(1000px, 100vw)'">
+      <a-space wrap><a-input v-model:value="configPlatform" placeholder="平台编码，可留空" aria-label="配置平台编码" :disabled="configLoading" /><a-select v-model:value="configGroup" :options="[{ value: '', label: '两个规则大类' }, { value: '出票盈亏配置', label: '出票盈亏配置' }, { value: '出票规则配置', label: '出票规则配置' }]" :disabled="configLoading" aria-label="配置规则大类" /><a-button :loading="configLoading" @click="loadConfigs">读取候选</a-button></a-space>
+      <a-alert v-if="configError" type="error" show-icon :message="configError" />
+      <a-alert type="warning" show-icon :message="configNotice" />
+      <a-table :data-source="configItems" :columns="configColumns" row-key="id" :scroll="{ x: 1000 }" :pagination="{ pageSize: 10 }">
+        <template #expandedRowRender="{ record }"><p>配置说明：{{ record.rule_notes || '未配置' }}</p><pre class="config-content">{{ record.ext_json || '未配置' }}</pre><a-alert v-if="record.contentTruncated" type="warning" message="配置内容已截断，不能据此确定阈值" /></template>
+      </a-table>
+    </a-drawer>
     <a-alert v-if="catalogNotice" type="info" show-icon message="所选出票日期尚未同步" :description="`${catalogNotice}。默认今日只是查询范围，不会自动同步；点击上方‘更新并核实’同步并核实所选日期。`" />
     <a-alert v-if="overview?.dataFreshness" :type="['failed', 'running'].includes(overview.dataFreshness.latestAttempt?.status || '') ? 'warning' : 'info'" show-icon :message="`中台同步数据 · 最早同步 ${overview.dataFreshness.oldestSyncedAt} · 最近同步 ${overview.dataFreshness.newestSyncedAt}`" :description="syncDescription" />
     <a-alert type="info" show-icon message="系统自动核实，人工只抽查与处理异常" :description="`通过无须人工确认；证据不足、执行失败、规则未接入分别列示。${overview?.sampling ? `当前账号已抽查 ${overview.sampling.sampled} 单，其中发现问题 ${overview.sampling.disputed} 单。` : '当前抽查统计尚未读取，不能按0单解释。'}`" />
@@ -73,9 +81,21 @@ import FilterPanel from '@/components/FilterPanel.vue'
 import DateRangeField from '@/components/DateRangeField.vue'
 import RiskAutomaticDetail from '@/components/RiskAutomaticDetail.vue'
 import { ApiError } from '@/api/http'
+import { riskProblems } from '@/api/riskVerification'
 import { verificationOverview, riskAutomatic, type AutoRiskJob, type RiskCatalogFreshness, type VerificationCategory, type VerificationMetrics, type VerificationOrder, type VerificationOrders, type VerificationOverview, type VerificationStatus } from '@/api/riskVerification'
 
 const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date())
+const configOpen = ref(false), configLoading = ref(false), configError = ref(''), configNotice = ref('')
+const configPlatform = ref('QUNAR'), configGroup = ref('出票盈亏配置')
+const configItems = ref<Record<string, unknown>[]>([])
+const configColumns = [{ title: '规则ID', dataIndex: 'id' }, { title: '规则名称', dataIndex: 'rule_name' }, { title: '平台', dataIndex: 'ota_code' }, { title: '站点', dataIndex: 'ota_site_code' }, ...[1, 2, 3, 4].map(segments => ({ title: `${segments}段阈值`, dataIndex: ['segmentThresholds', 'values', String(segments)], customRender: ({ text }: { text: unknown }) => text ?? '未识别/不适用' })), { title: '生效开始', dataIndex: 'start_time' }, { title: '生效结束', dataIndex: 'end_time' }, { title: '配置更新时间', dataIndex: 'update_time' }]
+async function loadConfigs() {
+  if (configLoading.value) return
+  configLoading.value = true; configError.value = ''; configItems.value = []
+  try { const result = await riskProblems.configs(configPlatform.value.trim(), configGroup.value); if (alive) { configItems.value = result.items; configNotice.value = result.notice; configOpen.value = true } }
+  catch (failure) { if (alive) configError.value = failure instanceof Error ? failure.message : '通用配置读取失败' }
+  finally { if (alive) configLoading.value = false }
+}
 const startDate = ref(today)
 const endDate = ref(today)
 const preset = ref('today')
@@ -264,6 +284,7 @@ h2 { margin: 0 0 6px; font-size: 18px; }
 .panel-heading p { margin: 0; }
 .block-muted { display: block; }
 .rule-note { font-size: 13px; }
+.config-content { white-space: pre-wrap; overflow-wrap: anywhere; }
 .progress-legend, .progress-counts { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 12px; }
 .progress-legend { margin-bottom: 12px; color: #69768a; }
 .progress-legend > span { display: inline-flex; align-items: center; gap: 5px; }

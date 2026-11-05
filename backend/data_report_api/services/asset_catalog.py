@@ -9,6 +9,7 @@ from typing import Any
 
 from .data_source import DataSource, TABLE_SPECS, data_mode, is_live_mode
 from ..time_utils import business_now, business_now_naive
+from .core_asset_registry import CORE_TABLES, RISK_METRICS
 
 
 LOGGER = logging.getLogger(__name__)
@@ -92,11 +93,22 @@ class AssetCatalogService:
                 "error": None,
             })
             assets.append(item)
-        metrics = deepcopy(METRICS)
+        metrics = [*deepcopy(METRICS), *deepcopy(RISK_METRICS)]
+        original_sources = {'出票预估利润': 'issue', '退票利润': 'refund', '改签利润': 'change', '增值利润': 'ancillary', '增值航段数': 'ancillary'}
         for metric in metrics:
             if metric["name"] == "出票预估利润":
                 metric["timeField"] = TABLE_SPECS[source_mode]["issue"].time_field
-        return {"mode": mode, "source": source.label if source else "配置清单", "generatedAt": business_now().isoformat(timespec="seconds"), "cacheHit": False, "assets": assets, "metrics": metrics, "analyses": deepcopy(ANALYSIS_DOMAINS), "analysisTaskCount": sum(item["taskCount"] for item in ANALYSIS_DOMAINS)}
+            if metric['name'] in original_sources or metric['name'] == '总预估利润':
+                keys = [original_sources[metric['name']]] if metric['name'] in original_sources else list(original_sources.values())
+                metric.update(businessUse='沿用经营报表现有'+metric['name']+'，不作为财务结算结果',
+                              source='；'.join(dict.fromkeys(database+'.'+TABLE_SPECS[source_mode][key].table for key in keys)),
+                              grain='原业务时间及筛选范围内源记录汇总；源唯一粒度待核验',
+                              unit='航段' if metric['name']=='增值航段数' else '沿用原报表金额单位；币种覆盖待核验',
+                              deduplication='保留原查询与公式，不新增去重；源唯一键及关联放大待核验',
+                              nullHandling='保留原查询实现；NULL覆盖待独立核验，不以目录缺失补0',
+                              updateTime='源表同步时间待核验；generatedAt仅为目录生成时间',
+                              permission='沿用数据资产与经营报表既有权限')
+        return {"mode": mode, "source": source.label if source else "配置清单", "generatedAt": business_now().isoformat(timespec="seconds"), "cacheHit": False, "assets": assets, "coreTables": deepcopy(CORE_TABLES), "metrics": metrics, "analyses": deepcopy(ANALYSIS_DOMAINS), "analysisTaskCount": sum(item["taskCount"] for item in ANALYSIS_DOMAINS)}
 
     def _live_catalog(self, source: DataSource) -> dict[str, Any]:
         result = self._base_catalog("live", source)

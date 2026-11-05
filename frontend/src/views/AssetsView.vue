@@ -14,7 +14,7 @@
     <a-alert v-if="error" type="error" show-icon :message="error" :description="data ? '当前保留上次读取的结果，请刷新状态后核对。' : undefined" class="section-gap" role="alert" />
 
     <div class="asset-summary" aria-label="数据资产摘要">
-      <div><DatabaseOutlined /><span><strong>{{ data?.assets.length ?? '—' }}</strong>核心业务表</span></div>
+      <div><DatabaseOutlined /><span><strong>{{ data ? data.assets.length + (data.coreTables?.length ?? 0) : '—' }}</strong>核心业务表</span></div>
       <div><BookOutlined /><span><strong>{{ data?.metrics.length ?? '—' }}</strong>已登记指标</span></div>
       <div><FundProjectionScreenOutlined /><span><strong>{{ data?.analysisTaskCount ?? '—' }}</strong>历史分析任务</span></div>
       <div><CheckCircleOutlined /><span><strong>{{ readyCount }}</strong>数据源可用</span></div>
@@ -22,6 +22,10 @@
 
     <a-spin :spinning="loading">
       <a-tabs v-model:active-key="activeTab" class="business-tabs">
+        <a-tab-pane key="core" tab="核心业务表目录">
+          <a-alert type="info" show-icon message="以下为项目源码和SQL登记，不代表已连接、已建表或同步完成；ERP表与中台表分别核验，不自动扫描新数据源。" />
+          <a-table :data-source="data?.coreTables ?? []" :columns="coreColumns" row-key="table" :pagination="{ pageSize: 10 }" :scroll="{ x: 1150, y: 'min(60vh, 560px)' }" />
+        </a-tab-pane>
         <a-tab-pane key="tables" tab="业务数据表">
           <a-card class="panel-card" :bordered="false">
             <a-table :columns="assetColumns" :data-source="data?.assets ?? []" :pagination="false" row-key="key" :scroll="{ x: 1325, y: 'min(60vh, 560px)' }">
@@ -49,6 +53,7 @@
         <a-tab-pane key="metrics" tab="指标口径">
           <a-card class="panel-card" :bordered="false">
             <a-table :columns="metricColumns" :data-source="data?.metrics ?? []" :pagination="false" row-key="name" :scroll="{ x: 920, y: 'min(60vh, 560px)' }">
+              <template #expandedRowRender="{ record }"><a-descriptions bordered size="small" :column="2"><a-descriptions-item v-for="field in metricFields" :key="field.key" :label="field.label">{{ record[field.key] || '未登记，待核验' }}</a-descriptions-item></a-descriptions></template>
               <template #bodyCell="{ column, record }">
                 <template v-if="column.key === 'name'"><strong>{{ record.name }}</strong></template>
                 <template v-else-if="column.key === 'formula'"><code class="metric-formula">{{ record.formula }}</code></template>
@@ -95,6 +100,8 @@ import PageHeader from '@/components/PageHeader.vue'
 import DataStateBar from '@/components/DataStateBar.vue'
 
 const activeTab = ref('tables')
+const coreColumns = [{ title: '数据源', dataIndex: 'source', width: 90 }, { title: '核心业务表', dataIndex: 'table', width: 230 }, { title: '用途', dataIndex: 'purpose', width: 300 }, { title: '粒度/关联', dataIndex: 'grain', width: 240 }, { title: '时间字段', dataIndex: 'timeField', width: 200 }, { title: '核验状态', dataIndex: 'verification', width: 210 }]
+const metricFields = [{ key: 'businessUse', label: '业务用途' }, { key: 'source', label: '来源' }, { key: 'grain', label: '统计粒度' }, { key: 'unit', label: '单位' }, { key: 'deduplication', label: '去重' }, { key: 'nullHandling', label: '空值处理' }, { key: 'updateTime', label: '更新时间口径' }, { key: 'permission', label: '权限' }]
 const data = ref<AssetCatalogData>()
 const loading = ref(false)
 const error = ref('')

@@ -2,11 +2,14 @@
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, localcontext
 import re
 
-RULE_ID = "qunar-commission-loss-v3"
+RULE_ID = "qunar-commission-loss-config-v5"
 
 
 def evaluate_commission_loss(*, is_qunar, single_ticket_profit, sales_commission, stop_loss):
     """Evaluate a single CNY ticket, never invent missing inputs or compare order totals."""
+    if is_qunar is False:
+        return {"ruleId": RULE_ID, "status": "not_applicable", "missingEvidence": [],
+                "prerequisite": "非去哪儿平台不得选择佣金、点击费亏损；平台条件优先，不依赖佣金或止损证据"}
     missing = []
     values = {}
     for key, raw in (("singleTicketProfit", single_ticket_profit), ("salesCommission", sales_commission), ("stopLoss", stop_loss)):

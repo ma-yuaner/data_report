@@ -49,6 +49,34 @@ def _flow():
 
 
 def register_routes(api):
+    @api.get("/v1/risk-verification/problem-types")
+    def risk_problem_types():
+        from ..services.risk_problem_tags import RiskProblemTags
+        return _call(lambda owner: RiskProblemTags(current_app.config).types())
+
+    @api.post("/v1/risk-verification/problem-types")
+    def risk_problem_type_create():
+        from ..services.risk_problem_tags import RiskProblemTags
+        return _call(lambda owner: RiskProblemTags(current_app.config).create(owner,_body().get('name')))
+
+    @api.get("/v1/risk-verification/orders/<identifier>/problem-tags")
+    def risk_problem_tag_list(identifier):
+        from ..services.risk_problem_tags import RiskProblemTags
+        return _call(lambda owner: RiskProblemTags(current_app.config).list(identifier))
+
+    @api.post("/v1/risk-verification/orders/<identifier>/problem-tags")
+    def risk_problem_tag_save(identifier):
+        from ..services.risk_problem_tags import RiskProblemTags
+        def save(owner):
+            values=_body()
+            return RiskProblemTags(current_app.config).save(owner,identifier,values.get('typeIds'),values.get('reason'))
+        return _call(save)
+
+    @api.get("/v1/risk-verification/rule-configs")
+    def risk_issue_rule_configs():
+        from ..services.risk_issue_rule_configs import RiskIssueRuleConfigs
+        return _call(lambda owner: RiskIssueRuleConfigs(current_app.config).read(request.args.get('platform'), request.args.get('group')))
+
     @api.post("/v1/risk-verification/automatic/jobs")
     def risk_automatic_submit():
         def submit(owner):
@@ -90,8 +118,8 @@ def register_routes(api):
         return _call(lambda owner: {"ai": RiskAI(current_app.config).status(), "access": "admin_owner_only",
                                    "formulaStatus": "partially_confirmed", "source": "ERP_MYSQL",
                                    "rules": [{"id": RULE_ID, "label": "佣金、点击费亏损（去哪儿且有销售佣金）",
-                                              "formula": "调整后利润＝出票利润＋销售佣金；调整后利润≥－日志止损值时核实通过（含等号）",
-                                              "status": "自动规则已接入；必要字段缺失或止损值冲突时证据不足"}],
+                                              "formula": "非去哪儿优先判有问题；去哪儿正佣金单票：出票利润＋销售佣金≥－出票时配置止损值（含等号）；超过4段按4段配置＋超出段数×25元",
+                                              "status": "自动规则已接入；历史配置、段数或必要字段不能可靠还原时证据不足"}],
                                    "sourceConfigured": current_app.config.get("RISK_VERIFICATION_ERP_EXPLICIT") is True and all(bool(current_app.config.get(f"ERP_MYSQL_{key}")) for key in ("HOST", "DATABASE", "USER", "PASSWORD"))})
 
     @api.get("/v1/risk-verification/candidates")

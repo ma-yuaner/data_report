@@ -165,9 +165,18 @@ export interface MetricDefinitionItem {
   timeField: string
   stage: string
   status: 'current'
+  businessUse?: string
+  source?: string
+  grain?: string
+  unit?: string
+  deduplication?: string
+  nullHandling?: string
+  updateTime?: string
+  permission?: string
 }
 
 export interface AssetCatalogData {
+  coreTables?: { table: string; source: string; purpose: string; grain: string; timeField: string; verification: string }[]
   mode: 'mock' | 'live'
   source: string
   generatedAt: string

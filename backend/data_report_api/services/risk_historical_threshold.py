@@ -1,0 +1,158 @@
+"""Fail-closed historical configuration matching, no order stop-loss log fallback."""
+from copy import deepcopy
+from datetime import datetime
+from decimal import Decimal
+import hashlib
+import html
+import json
+import re
+
+from .risk_loss_threshold_config import LOSS_RULE_TYPE,ticket_threshold
+from .risk_order_evidence import _rows
+
+MATCH_FIELDS=('ota_code','ota_site_code','product_type','issue_supplier_code','issue_gds','issue_pcc',
+              'booking_supplier_code','booking_gds','booking_pcc','airline','airline_except','cabin','cabin_except',
+              'cabin_grade','cabin_grade_except','origin','origin_except','destination','destination_except',
+              'issue_ticketing_date','travel_start_date','travel_end_date','travel_date_scope','travel_time_scope',
+              'reverse_flag','is_transfer','business_earliest_days','business_latest_days','manual_flag','flight_number')
+SAFE_FIELDS=('id','rule_type','rule_group_type','status','create_time','update_time','start_time','end_time','version','ext_json',*MATCH_FIELDS)
+SUPPORTED=('ota_code','ota_site_code','product_type','issue_supplier_code','issue_gds','issue_pcc','airline','manual_flag')
+
+
+def instant(value):
+    if isinstance(value,datetime):return value if value.tzinfo is None else None
+    try:
+        parsed=datetime.fromisoformat(str(value).replace(' ','T')) if value else None
+        return parsed if parsed is None or parsed.tzinfo is None else None
+    except ValueError:return None
+
+
+def canonical(raw):
+    value=json.loads(raw,parse_float=Decimal) if isinstance(raw,str) else raw
+    return json.dumps(value,sort_keys=True,ensure_ascii=False,separators=(',',':'),
+                      default=lambda item:{'$decimal':str(item)} if isinstance(item,Decimal) else str(item))
+
+
+def restore(rule,logs,at):
+    """Only JSON/cosmetic edits are reversible here; missing/other edits remain unknown."""
+    state=deepcopy(rule);created=instant(rule.get('create_time'));updated=instant(rule.get('update_time'))
+    if at is None or created is None or updated is None:return None,'配置或出票时间缺失'
+    if created>at:return False,''
+    if updated<=at:return state,''
+    later=[row for row in logs if instant(row.get('operator_datetime')) and instant(row['operator_datetime'])>at]
+    later.sort(key=lambda row:(instant(row['operator_datetime']),int(row['id'])),reverse=True)
+    if not later:return None,'配置已改动但缺少出票后的完整变更历史'
+    version=rule.get('version');last=instant(later[0].get('operator_datetime'))
+    if version is None or last!=updated:return None,'配置更新时间与最后变更不一致'
+    refs=[]
+    for row in later:
+        if row.get('version')!=version:return None,'配置变更版本链断档'
+        raw=html.unescape(str(row.get('operator_content') or ''))
+        if len(raw)>20000:return None,'配置变更内容截断'
+        content=re.sub(r'<(?:br\s*/?|/?b)>','',raw,flags=re.I)
+        blocks=[block.strip() for block in re.findall(r'【([^【】]*)】',content)]
+        changes=[block for block in blocks if '由 ' in block or '由\'' in block or '修改为' in block]
+        if not changes:return None,'配置变更不是可还原的字段差异'
+        for block in changes:
+            if block.startswith(('规则名称','备注')):continue
+            if not block.startswith('扩展字段'):return None,'历史匹配条件或状态变化尚不能可靠还原'
+            match=re.search(r"由\s*'(\{.*\})'\s*修改为\s*'(\{.*\})'",block,re.S)
+            if not match:return None,'配置扩展JSON变更不可解析'
+            try:
+                if canonical(state.get('ext_json'))!=canonical(match.group(2)):return None,'配置新旧JSON链不连续'
+                # A filter change also changes rule scope. Do not mistake a threshold-only rollback for full scope recovery.
+                before=json.loads(match.group(1));after=json.loads(match.group(2))
+                if before.get('extFilter')!=after.get('extFilter'):return None,'历史扩展匹配条件发生变化'
+                state['ext_json']=match.group(1)
+            except (ValueError,TypeError,AttributeError):return None,'配置历史JSON无效'
+        refs.append(str(row['id']));version=int(version)-1
+    previous=[row for row in logs if instant(row.get('operator_datetime')) and instant(row['operator_datetime'])<=at and row.get('version')==version]
+    if previous:state['update_time']=max(instant(row['operator_datetime']) for row in previous)
+    elif version==1:state['update_time']=created
+    else:return None,'缺少出票时版本基线'
+    state['version']=version;state['historyReferences']=refs
+    return state,''
+
+
+def tokens(value):
+    return {item.casefold() for item in re.split(r'[,;/|]',str(value))} if value is not None and str(value).strip() else set()
+
+
+def matches(rule,facts):
+    unknown=[]
+    for key in SUPPORTED:
+        wanted=rule.get(key)
+        if wanted is None or not str(wanted).strip():continue
+        actual=facts.get(key)
+        if actual is None or not str(actual).strip():unknown.append(key);continue
+        if key=='manual_flag':
+            if str(wanted)!=str(actual):return False,[]
+        elif not tokens(wanted)&tokens(actual):return False,[]
+    # These flags affect rank but the loss-rule branch does not filter by them.
+    unknown.extend(key for key in MATCH_FIELDS if key not in (*SUPPORTED,'reverse_flag','is_transfer') and rule.get(key) is not None and str(rule[key]).strip())
+    try:
+        ext=json.loads(rule.get('ext_json') or '{}')
+        filters=ext.get('extFilter') or {}
+        for key,value in filters.items():
+            if value is None or not str(value).strip():continue
+            if key=='paramOne' and rule.get('rule_group_type')=='RB01003':
+                if not facts.get('issue_way'):unknown.append('issue_way')
+                elif not tokens(value)&tokens(facts['issue_way']):return False,[]
+            else:unknown.append('extFilter.'+key)
+    except (ValueError,TypeError,AttributeError):unknown.append('ext_json')
+    return (None if unknown else True),unknown
+
+
+class HistoricalThresholds:
+    def __init__(self,cursor):
+        # Include disabled/deleted historical rules, and rules previously logged as a loss-rule type.
+        cursor.execute("SELECT "+','.join('r.'+field for field in SAFE_FIELDS)+""" FROM base_issue_match_rule r WHERE r.rule_business_type=%s
+          AND (r.rule_type=%s OR EXISTS (SELECT 1 FROM base_issue_match_log l
+            WHERE l.business_obj=%s AND l.business_obj_id=r.id AND l.operator_type=%s))
+          ORDER BY r.id LIMIT 1001""",('RB01',LOSS_RULE_TYPE,'RB01',LOSS_RULE_TYPE))
+        rows=_rows(cursor)
+        self.problem=None;self.rules=[];self.logs={}
+        if len(rows)>1000:self.problem='历史配置候选超过1000条，不能用截断集合判定';return
+        self.rules=[{key:row.get(key) for key in SAFE_FIELDS} for row in rows]
+        if not rows:return
+        ids=[row['id'] for row in rows]
+        cursor.execute("SELECT id,business_obj_id,operator_datetime,version,LEFT(operator_content,20001) AS operator_content FROM base_issue_match_log WHERE business_obj=%s AND business_obj_id IN ("+','.join(['%s']*len(ids))+") ORDER BY operator_datetime DESC,id DESC LIMIT 20001",('RB01',*ids))
+        logs=_rows(cursor)
+        if len(logs)>20000:self.problem='配置变更超过历史取证上限，不能假定历史完整';return
+        for row in logs:self.logs.setdefault(str(row['business_obj_id']),[]).append(row)
+
+    def resolve(self,issue,order):
+        if self.problem:return {'status':'insufficient','reason':self.problem}
+        at=instant(issue.get('issue_ticket_time'))
+        if at is None:return {'status':'insufficient','reason':'缺少有效出票时间，无法还原配置'}
+        pcc=issue.get('issue_office_no') if issue.get('issue_office_no')==issue.get('issue_ticketing_office_no') else None
+        facts={'ota_code':order.get('ota_code'),'ota_site_code':order.get('ota_site_code'),'product_type':order.get('product_type'),
+               'manual_flag':order.get('manual_flag'),'issue_supplier_code':issue.get('supplier_code'),
+               'issue_gds':issue.get('issue_gds_channel'),'issue_pcc':pcc,'airline':issue.get('marketing_airline'),'issue_way':order.get('issue_way')}
+        candidates=[];unknown=[]
+        for rule in self.rules:
+            state,error=restore(rule,self.logs.get(str(rule['id']),[]),at)
+            if state is False:continue
+            if state is None:unknown.append(error);continue
+            if state.get('rule_type')!=LOSS_RULE_TYPE:continue
+            start,end=instant(state.get('start_time')),instant(state.get('end_time'))
+            if start and end and not start<=at<=end:continue
+            if str(state.get('status'))!='1':continue
+            match,missing=matches(state,facts)
+            if match is False:continue
+            if match is None:unknown.append('配置条件未可靠绑定：'+','.join(missing));continue
+            rank=sum(state.get(key) is not None and str(state[key]).strip()!='' for key in MATCH_FIELDS if key!='flight_number')
+            ext=json.loads(state.get('ext_json') or '{}')
+            rank+=sum(value is not None and str(value).strip()!='' for value in (ext.get('extFilter') or {}).values())
+            candidates.append((rank,instant(state['update_time']),int(state['id']),state))
+        if unknown:return {'status':'insufficient','reason':unknown[0],'unresolvedCandidates':len(unknown)}
+        if not candidates:return {'status':'insufficient','reason':'没有可靠匹配到出票时亏损阈值配置'}
+        state=max(candidates,key=lambda item:item[:3])[3]
+        amount=ticket_threshold(state.get('ext_json'),issue.get('segmentCount'))
+        if amount['status']!='ready':return amount
+        snapshot=json.loads(json.dumps({key:state.get(key) for key in SAFE_FIELDS},default=str))
+        snapshot['version']=state.get('version')
+        digest=hashlib.sha256(json.dumps(snapshot,sort_keys=True,default=str,ensure_ascii=False).encode()).hexdigest()
+        return {**amount,'ruleId':str(state['id']),'configurationVersion':state.get('version'),'asOf':str(issue['issue_ticket_time']),
+                'configurationHash':digest,'configurationSnapshot':snapshot,'historyReferences':state.get('historyReferences',[]),
+                'source':'base_issue_match_rule.ext_json','basis':'issue_time_configuration'}
