@@ -51,7 +51,7 @@
           <p v-if="block.status === 'truncated'">当前仅展示前200条，证据不完整，不能据此形成完整审核结论。</p>
           <a-table v-if="block.records.length" :columns="evidenceColumns(block.records)" :data-source="block.records" :row-key="(row: Record<string, unknown>) => String(row.id || JSON.stringify(row))" :pagination="{ pageSize: 10 }" :scroll="{ x: 'max-content' }" size="small" />
         </details>
-        <a-button type="primary" :disabled="!evidence.candidate || busy" :loading="busy" @click="createCase">以当前订单新建核查记录</a-button>
+        <a-button type="primary" :disabled="!canCheck || !evidence.candidate || busy" :loading="busy" @click="createCase">以当前订单新建核查记录</a-button>
         <p class="muted">新建时服务端重新取证并保存快照；当前预览不作为最终快照。再次核查创建独立记录，历史结果保留。</p>
       </template>
     </section>
@@ -65,8 +65,8 @@
         <p class="muted">证据指纹：{{ currentCase.evidenceFingerprint }}</p>
         <div class="verification-fields">
           <a-button :disabled="busy" @click="previewAi">查看拟发送AI的内容</a-button>
-          <a-button type="primary" :loading="busy" @click="reviewCase">AI审核当前快照</a-button>
-          <a-button v-if="currentCase.activeOperation" :disabled="busy" @click="recoverCase">恢复中断操作</a-button>
+          <a-button type="primary" :disabled="!canCheck" :loading="busy" @click="reviewCase">AI审核当前快照</a-button>
+          <a-button v-if="currentCase.activeOperation && canCheck" :disabled="busy" @click="recoverCase">恢复中断操作</a-button>
         </div>
         <details v-if="aiPreview" open><summary>外发预览与检索知识</summary><pre>{{ JSON.stringify(aiPreview, null, 2) }}</pre></details>
         <section v-if="currentCase.reviews.length" class="review-result">
@@ -80,8 +80,8 @@
         </div>
         <label class="text-field">确认理由与依据<a-textarea v-model:value="confirmationReason" :rows="3" :disabled="busy" placeholder="说明核对依据、公式或仍缺少的证据；不得只照抄AI结论" /></label>
         <div class="verification-fields">
-          <a-button :disabled="busy || !confirmationReason.trim()" @click="confirmCase">保存人工确认</a-button>
-          <a-button :disabled="busy || !currentCase.confirmation" @click="analyzeCase">基于确认结果分析</a-button>
+          <a-button :disabled="!canReview || busy || !confirmationReason.trim()" @click="confirmCase">保存人工确认</a-button>
+          <a-button :disabled="!canCheck || busy || !currentCase.confirmation" @click="analyzeCase">基于确认结果分析</a-button>
         </div>
         <a-alert v-if="currentCase.confirmation" type="info" show-icon :message="`已保存人工结论：${confirmationLabel}`" :description="String((currentCase.confirmation as any).reason || '')" />
         <section v-if="currentCase.analyses.length"><h3>最近分析</h3><p>{{ formatDateTimeDisplay((currentCase.analyses.at(-1) as any)?.result?.summary) }}</p></section>
@@ -94,7 +94,7 @@
           <label>确认依据或来源<a-input v-model:value="knowledgeDraft.source" :disabled="busy" /></label>
         </div>
         <label class="text-field">知识内容<a-textarea v-model:value="knowledgeDraft.content" :rows="4" :disabled="busy" /></label>
-        <a-button :disabled="busy || !currentCase.confirmation" @click="draftKnowledge">保存知识草稿</a-button>
+        <a-button :disabled="!canReview || busy || !currentCase.confirmation" @click="draftKnowledge">保存知识草稿</a-button>
       </template>
     </section>
     <section class="scope-panel">
@@ -104,7 +104,7 @@
       <details v-for="item in knowledge" :key="item.id">
         <summary>{{ item.title }} · {{ item.status === 'published' ? '已发布' : '草稿' }} · 版本 {{ item.version }}</summary>
         <p>适用范围：{{ item.scope }}；来源：{{ item.source }}</p><pre>{{ item.content }}</pre>
-        <a-popconfirm v-if="item.status === 'draft'" title="确认内容已核实、无原始订单或个人资料，并发布供后续检索？" @confirm="publishKnowledge(item)">
+        <a-popconfirm v-if="item.status === 'draft' && canPublish" title="确认内容已核实、无原始订单或个人资料，并发布供后续检索？" @confirm="publishKnowledge(item)">
           <a-button :disabled="busy">人工确认并发布</a-button>
         </a-popconfirm>
       </details>
@@ -113,6 +113,8 @@
 </template>
 
 <script setup lang="ts">
+import { useRiskPermissions } from '@/composables/useRiskPermissions'
+const { canCheck, canReview, canPublish } = useRiskPermissions()
 import { formatDateTimeDisplay, isDateTimeField } from '@/utils/dateTimeDisplay'
 
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'

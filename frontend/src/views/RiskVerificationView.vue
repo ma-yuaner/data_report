@@ -9,7 +9,7 @@
         <a-segmented v-model:value="preset" :options="presets" :disabled="loading" @change="applyPreset" />
         <DateRangeField v-model:start="startDate" v-model:end="endDate" :disabled="loading" @change="preset = 'custom'" />
       </template>
-      <template #actions><a-button :loading="loading" @click="queryOverview">查询</a-button><a-button type="primary" :loading="autoRunning" :disabled="loading || autoRunning" @click="startAutomatic()">加载清洗结果</a-button></template>
+      <template #actions><a-button :loading="loading" @click="queryOverview">查询</a-button><a-button type="primary" :loading="autoRunning" :disabled="!canCheck || loading || autoRunning" @click="startAutomatic()">加载清洗结果</a-button></template>
     </FilterPanel>
     <a-alert v-if="error" type="error" show-icon :message="error" />
     <a-drawer v-model:open="configOpen" title="出票通用配置取证（候选）" :width="'min(1000px, 100vw)'">
@@ -74,6 +74,8 @@
 </template>
 
 <script setup lang="ts">
+import { useRiskPermissions } from '@/composables/useRiskPermissions'
+const { canCheck } = useRiskPermissions()
 import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
 
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'

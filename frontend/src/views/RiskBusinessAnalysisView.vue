@@ -2,7 +2,7 @@
   <div class="page-wrap risk-business-page">
     <PageHeader eyebrow="RISK PROFIT ANALYSIS" :title="pageTitle" :description="pageDescription">
       <a-tag color="blue">实际数据 · MySQL</a-tag>
-      <a-button v-if="authStore.user?.isAdmin" href="/risk-verification">风控核对</a-button>
+      <a-button v-if="canView" href="/risk-verification">风控核对</a-button>
     </PageHeader>
 
     <a-alert class="source-banner" type="info" show-icon :message="data?.source || defaultSource"
@@ -143,7 +143,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useAuthStore } from '@/stores/auth'
+import { useRiskPermissions } from '@/composables/useRiskPermissions'
 import {
   DatePicker as ADatePicker,
   Descriptions as ADescriptions,
@@ -156,7 +156,7 @@ import { InfoCircleOutlined, SearchOutlined } from '@ant-design/icons-vue'
 import type { EChartsCoreOption } from 'echarts/core'
 import PageHeader from '@/components/PageHeader.vue'
 
-const authStore = useAuthStore()
+const { canView } = useRiskPermissions()
 import BaseChart from '@/components/BaseChart.vue'
 import RiskOrdersTable from '@/components/RiskOrdersTable.vue'
 import { fetchRiskBusiness, type RiskBusinessData, type RiskBusinessKey, type RiskBusinessScope, type RiskDimensionRow, type RiskGroupKey, type RiskOrderRow } from '@/api/riskBusiness'

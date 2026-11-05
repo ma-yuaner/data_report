@@ -1,18 +1,20 @@
 <template>
   <section class="problem-tags">
-    <h3>问题分类与标签（管理员共享）</h3>
+    <h3>问题分类与标签（授权用户共享）</h3>
     <p>独立记录人工发现的问题，不修改ERP原亏损原因，不覆盖自动核实结论。</p>
     <a-alert v-if="error" type="error" show-icon :message="error" />
     <a-alert v-if="saved" type="success" show-icon :message="saved" />
-    <label><span>问题类型（最多10项）</span><a-select v-model:value="selected" mode="multiple" :options="types.map(item => ({ value: item.id, label: item.name }))" :disabled="working" placeholder="选择问题类型" /></label>
-    <div class="type-create"><a-input v-model:value="newName" :maxlength="60" :disabled="working" aria-label="新增问题类型名称" placeholder="新增问题类型名称" /><a-button :loading="working" :disabled="!newName.trim()" @click="createType"><PlusOutlined />新增类型</a-button></div>
-    <label><span>备注原因</span><a-textarea v-model:value="reason" :rows="3" :maxlength="2000" :disabled="working" placeholder="填写问题依据或具体差异，保存后对管理员共享" /></label>
-    <a-space><a-button type="primary" :loading="working" :disabled="!selected.length || !reason.trim()" @click="save">保存问题标签</a-button><a-button :disabled="working" @click="load">刷新共享记录</a-button></a-space>
+    <label><span>问题类型（最多10项）</span><a-select v-model:value="selected" mode="multiple" :options="types.map(item => ({ value: item.id, label: item.name }))" :disabled="working || !canReview" placeholder="选择问题类型" /></label>
+    <div v-if="canManageTypes" class="type-create"><a-input v-model:value="newName" :maxlength="60" :disabled="working" aria-label="新增问题类型名称" placeholder="新增问题类型名称" /><a-button :loading="working" :disabled="!newName.trim()" @click="createType"><PlusOutlined />新增类型</a-button></div>
+    <label><span>备注原因</span><a-textarea v-model:value="reason" :rows="3" :maxlength="2000" :disabled="working || !canReview" placeholder="填写问题依据或具体差异，保存后对授权用户共享" /></label>
+    <a-space><a-button type="primary" :loading="working" :disabled="!canReview || !selected.length || !reason.trim()" @click="save">保存问题标签</a-button><a-button :disabled="working" @click="load">刷新共享记录</a-button></a-space>
     <div v-for="tag in tags" :key="tag.id" class="saved-tag"><a-tag color="red">{{ tag.type_name }}</a-tag><span>{{ tag.reason }}</span><small>登记人ID {{ tag.created_by }} · {{ formatDateTimeDisplay(tag.created_at) }}</small></div>
     <p v-if="loaded && !tags.length">暂无已保存的问题标签。</p>
   </section>
 </template>
 <script setup lang="ts">
+import { useRiskPermissions } from '@/composables/useRiskPermissions'
+const { canReview, canManageTypes } = useRiskPermissions()
 import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
 
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -43,14 +45,14 @@ async function createType() {
     if (!alive) return
     if (!types.value.some(existing => existing.id === item.id)) types.value.push(item)
     if (!selected.value.includes(item.id)) selected.value.push(item.id)
-    newName.value = ''; saved.value = '类型已新增（管理员共享），请填写备注并保存问题标签'
+    newName.value = ''; saved.value = '类型已新增（授权用户共享），请填写备注并保存问题标签'
   } catch (failure) { if (alive) error.value = failure instanceof Error ? failure.message : '类型新增失败' }
   finally { if (alive) working.value = false }
 }
 async function save() {
   if (working.value || !selected.value.length || !reason.value.trim()) return
   working.value = true; error.value = ''; saved.value = ''
-  try { const records = await riskProblems.saveTags(props.orderId, selected.value, reason.value); if (alive) { tags.value = records; selected.value = []; reason.value = ''; loaded.value = true; saved.value = '问题标签已保存（管理员共享）' } }
+  try { const records = await riskProblems.saveTags(props.orderId, selected.value, reason.value); if (alive) { tags.value = records; selected.value = []; reason.value = ''; loaded.value = true; saved.value = '问题标签已保存（授权用户共享）' } }
   catch (failure) { if (alive) error.value = failure instanceof Error ? failure.message : '标签保存失败，输入已保留' }
   finally { if (alive) working.value = false }
 }

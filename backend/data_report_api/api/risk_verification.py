@@ -1,4 +1,4 @@
-"""Administrator-only risk evidence and review workflow; ERP is read-only."""
+"""Permission-controlled risk evidence and review workflow; ERP is read-only."""
 import logging
 import sqlite3
 from flask import current_app, g, jsonify, request
@@ -11,12 +11,28 @@ from ..services.risk_verification_overview import RiskVerificationOverview
 from ..services.risk_auto_verification import RiskAutoVerification
 from ..services.risk_auto_store import StoreUnavailable
 from ..services.risk_commission_rule import RULE_ID
+from ..shared.permissions import permission_codes
+
+
+def required_permission():
+    if request.method in {"GET", "HEAD", "OPTIONS"}:
+        return "risk.verification.view"
+    path = request.path.rstrip("/")
+    if path.endswith("/problem-types"):
+        return "risk.verification.types.manage"
+    if path.endswith("/publish"):
+        return "risk.verification.knowledge.publish"
+    if path.endswith(("/sample", "/confirm", "/problem-tags", "/knowledge")):
+        return "risk.verification.review"
+    return "risk.verification.check"
 
 
 def _call(action):
     user = getattr(g, "current_user", {})
     if not user.get("is_admin"):
-        return jsonify(success=False, message="首版风控核对仅限管理员", data=None), 403
+        needed = {"risk.verification.view", required_permission()}
+        if "risk.verification" not in (user.get("menu_codes") or []) or not needed <= permission_codes(user):
+            return jsonify(success=False, message="没有此风控核对功能权限", code="PERMISSION_FORBIDDEN", data=None), 403
     try:
         response = ok(action(str(user["id"])))
         response.headers["Cache-Control"] = "no-store"
@@ -115,7 +131,7 @@ def register_routes(api):
 
     @api.get("/v1/risk-verification/status")
     def risk_verification_status():
-        return _call(lambda owner: {"ai": RiskAI(current_app.config).status(), "access": "admin_owner_only",
+        return _call(lambda owner: {"ai": RiskAI(current_app.config).status(), "access": "permission_owner_scoped",
                                    "formulaStatus": "partially_confirmed", "source": "sibebid_prepared",
                                    "rules": [{"id": RULE_ID, "label": "佣金、点击费亏损（去哪儿且有销售佣金）",
                                               "formula": "非去哪儿优先判有问题；去哪儿正佣金单票：出票利润＋销售佣金≥－出票时配置止损值（含等号）；超过4段按4段配置＋超出段数×25元",

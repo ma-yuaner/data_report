@@ -68,6 +68,11 @@ BUSINESS_ROLE_CATALOG = (
     {"code": "POLICY_OPERATOR", "name": "智能业务执行员", "description": "认领已审核任务并登记投放结果"},
 )
 PERMISSION_CATALOG = (
+    {"code": "risk.verification.view", "name": "查看风控核对", "description": "查看订单、证据、核实结果及共享问题标签", "menuCode": "risk.verification"},
+    {"code": "risk.verification.check", "name": "执行风控核对", "description": "加载清洗结果、新建核查及执行AI审核分析", "menuCode": "risk.verification"},
+    {"code": "risk.verification.review", "name": "人工复核风控", "description": "保存抽查、人工确认、问题标签及知识草稿", "menuCode": "risk.verification"},
+    {"code": "risk.verification.types.manage", "name": "管理风控问题分类", "description": "新增共享问题分类", "menuCode": "risk.verification"},
+    {"code": "risk.verification.knowledge.publish", "name": "发布风控知识", "description": "人工确认并发布核查知识", "menuCode": "risk.verification"},
     {"code": "hr.mail.upload", "name": "上传解析HR报表", "description": "上传考勤与部门映射并生成邮件预览", "menuCode": "hr.mail"},
     {"code": "hr.mail.send", "name": "确认发送HR邮件", "description": "逐部门预览并最终确认后发送", "menuCode": "hr.mail"},
     {"code": "adm.view", "name": "查看ADM", "description": "查看授权范围ADM及订单明细", "menuCode": "adm.center"},
@@ -111,6 +116,7 @@ PERMISSION_CATALOG = (
     {"code": "business_config.target_progress.view", "name": "查看目标进度", "description": "查看月度目标完成、利润、亏损与趋势", "menuCode": "business_config.target_progress"},
 )
 MENU_CATALOG = (
+    {"code": "risk.verification", "name": "风控核对", "description": "出票盈亏原因核实、人工复核与问题标签", "groupCode": "risk", "groupName": "风控分析"},
     {"code": "adm.center", "name": "ADM管理", "description": "ADM主单、多订单、材料及审核闭环", "groupCode": "adm", "groupName": "ADM管理"},
     {"code": "governance.gds", "name": "GDS资源治理", "description": "GDS、PCC查询量、航段数与查定比分析", "groupCode": "governance", "groupName": "资源治理"},
     {"code": "governance.ota", "name": "OTA渠道质量", "description": "平台查询、验价与生单接口成功率分析", "groupCode": "governance", "groupName": "资源治理"},

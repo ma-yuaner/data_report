@@ -43,7 +43,7 @@
             <template #icon><SafetyCertificateOutlined /></template>
             <template #title>风控分析</template>
             <a-menu-item v-if="canSeeMenu('risk.overview')" key="/risk-analysis">风控总览</a-menu-item>
-            <a-menu-item v-if="authStore.user?.isAdmin" key="/risk-verification">风控核对</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('risk.verification') && (authStore.user?.isAdmin || authStore.user?.permissions?.includes('risk.verification.view'))" key="/risk-verification">风控核对</a-menu-item>
             <a-menu-item v-if="canSeeMenu('risk.issue')" key="/risk-analysis/issue">出票利润分析</a-menu-item>
             <a-menu-item v-if="canSeeMenu('risk.refund')" key="/risk-analysis/refund">退票利润分析</a-menu-item>
             <a-menu-item v-if="canSeeMenu('risk.change')" key="/risk-analysis/change">改签利润分析</a-menu-item>
