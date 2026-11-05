@@ -16,7 +16,7 @@ MATCH_FIELDS=('ota_code','ota_site_code','product_type','issue_supplier_code','i
               'issue_ticketing_date','travel_start_date','travel_end_date','travel_date_scope','travel_time_scope',
               'reverse_flag','is_transfer','business_earliest_days','business_latest_days','manual_flag','flight_number')
 SAFE_FIELDS=('id','rule_type','rule_group_type','status','create_time','update_time','start_time','end_time','version','ext_json',*MATCH_FIELDS)
-SUPPORTED=('ota_code','ota_site_code','product_type','issue_supplier_code','issue_gds','issue_pcc','airline','manual_flag')
+SUPPORTED=('cabin','cabin_grade','origin','destination','flight_number','ota_code','ota_site_code','product_type','issue_supplier_code','issue_gds','issue_pcc','airline','manual_flag')
 
 
 def instant(value):
@@ -46,7 +46,7 @@ def restore(rule,logs,at):
     if version is None or last!=updated:return None,'配置更新时间与最后变更不一致'
     refs=[]
     for row in later:
-        if row.get('version')!=version:return None,'配置变更版本链断档'
+        if row.get('version')!=version:return None,f'配置变更版本链断档：预期版本{version}，日志{row["id"]}版本{row.get("version")}，不能证明出票时配置'
         raw=html.unescape(str(row.get('operator_content') or ''))
         if len(raw)>20000:return None,'配置变更内容截断'
         content=re.sub(r'<(?:br\s*/?|/?b)>','',raw,flags=re.I)
@@ -78,6 +78,11 @@ def tokens(value):
     return {item.casefold() for item in re.split(r'[,;/|]',str(value))} if value is not None and str(value).strip() else set()
 
 
+EXCLUSIONS={'airline_except':'airline','cabin_except':'cabin','cabin_grade_except':'cabin_grade',
+            'origin_except':'origin','destination_except':'destination'}
+ISSUE_WAYS={'ALL_SYSTEM':'全自动','SYSTEM':'半自动','MANUAL':'手工'}
+
+
 def matches(rule,facts):
     unknown=[]
     for key in SUPPORTED:
@@ -88,8 +93,13 @@ def matches(rule,facts):
         if key=='manual_flag':
             if str(wanted)!=str(actual):return False,[]
         elif not tokens(wanted)&tokens(actual):return False,[]
+    for key,source in EXCLUSIONS.items():
+        if not tokens(rule.get(key)):continue
+        actual=facts.get(source)
+        if not tokens(actual):unknown.append(source);continue
+        if tokens(rule[key])&tokens(actual):return False,[]
     # These flags affect rank but the loss-rule branch does not filter by them.
-    unknown.extend(key for key in MATCH_FIELDS if key not in (*SUPPORTED,'reverse_flag','is_transfer') and rule.get(key) is not None and str(rule[key]).strip())
+    unknown.extend(key for key in MATCH_FIELDS if key not in (*SUPPORTED,*EXCLUSIONS,'reverse_flag','is_transfer') and rule.get(key) is not None and str(rule[key]).strip())
     try:
         ext=json.loads(rule.get('ext_json') or '{}')
         filters=ext.get('extFilter') or {}
@@ -97,6 +107,8 @@ def matches(rule,facts):
             if value is None or not str(value).strip():continue
             if key=='paramOne' and rule.get('rule_group_type')=='RB01003':
                 if not facts.get('issue_way'):unknown.append('issue_way')
+                elif facts['issue_way'] not in ISSUE_WAYS:unknown.append('issue_way非法编码')
+                elif not tokens(value).issubset({key.casefold() for key in ISSUE_WAYS}):unknown.append('extFilter.paramOne非法出票方式')
                 elif not tokens(value)&tokens(facts['issue_way']):return False,[]
             else:unknown.append('extFilter.'+key)
     except (ValueError,TypeError,AttributeError):unknown.append('ext_json')
@@ -129,24 +141,39 @@ class HistoricalThresholds:
         facts={'ota_code':order.get('ota_code'),'ota_site_code':order.get('ota_site_code'),'product_type':order.get('product_type'),
                'manual_flag':order.get('manual_flag'),'issue_supplier_code':issue.get('supplier_code'),
                'issue_gds':issue.get('issue_gds_channel'),'issue_pcc':pcc,'airline':issue.get('marketing_airline'),'issue_way':order.get('issue_way')}
-        candidates=[];unknown=[]
+        facts.update(issue.get('matchingFacts') or {})
+        candidates=[];unknown=[];diagnostics=[];excluded=[]
+        def unresolved(rule,stage,reason,fields=None):
+            unknown.append(reason)
+            diagnostics.append({'ruleId':str(rule['id']),'stage':stage,'reason':reason,'fields':fields or []})
         for rule in self.rules:
             state,error=restore(rule,self.logs.get(str(rule['id']),[]),at)
             if state is False:continue
-            if state is None:unknown.append(error);continue
+            if state is None:unresolved(rule,'history',error);continue
             if state.get('rule_type')!=LOSS_RULE_TYPE:continue
             start,end=instant(state.get('start_time')),instant(state.get('end_time'))
             if start and end and not start<=at<=end:continue
             if str(state.get('status'))!='1':continue
             match,missing=matches(state,facts)
-            if match is False:continue
-            if match is None:unknown.append('配置条件未可靠绑定：'+','.join(missing));continue
+            if match is False:
+                excluded.append(str(rule['id']))
+                continue
+            if match is None:
+                detail='配置条件未可靠绑定：'+','.join(missing)
+                sources=issue.get('matchingFactProblems') or {}
+                explanations=sorted({sources.get(EXCLUSIONS.get(key,key), '') for key in missing} - {''})
+                if explanations:detail+='；'+'；'.join(explanations)
+                unresolved(rule,'conditions',detail,missing)
+                continue
             rank=sum(state.get(key) is not None and str(state[key]).strip()!='' for key in MATCH_FIELDS if key!='flight_number')
             ext=json.loads(state.get('ext_json') or '{}')
             rank+=sum(value is not None and str(value).strip()!='' for value in (ext.get('extFilter') or {}).values())
             candidates.append((rank,instant(state['update_time']),int(state['id']),state))
-        if unknown:return {'status':'insufficient','reason':unknown[0],'unresolvedCandidates':len(unknown)}
-        if not candidates:return {'status':'insufficient','reason':'没有可靠匹配到出票时亏损阈值配置'}
+        if unknown:return {'status':'insufficient','reason':f'规则{diagnostics[0]["ruleId"]}：{unknown[0]}（共{len(unknown)}条未知候选，保留阻断）',
+                           'unresolvedCandidates':len(unknown),'diagnostics':diagnostics,'matchedCandidateIds':[str(row[3]['id']) for row in candidates],
+                           'issueWay':order.get('issue_way'),'issueWayLabel':ISSUE_WAYS.get(order.get('issue_way'),'未知编码')}
+        if not candidates:return {'status':'insufficient','reason':'没有可靠匹配到出票时亏损阈值配置；出票方式：'+ISSUE_WAYS.get(order.get('issue_way'),'未知')+'（'+str(order.get('issue_way') or '缺失')+'），请核对兜底是否覆盖该方式',
+                                  'excludedCandidateIds':excluded,'issueWay':order.get('issue_way'),'issueWayLabel':ISSUE_WAYS.get(order.get('issue_way'),'未知编码')}
         state=max(candidates,key=lambda item:item[:3])[3]
         amount=ticket_threshold(state.get('ext_json'),issue.get('segmentCount'))
         if amount['status']!='ready':return amount

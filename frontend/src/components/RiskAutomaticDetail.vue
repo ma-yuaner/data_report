@@ -20,7 +20,13 @@
             <template v-else-if="column.key === 'threshold'">{{ record.stopLoss != null ? `${record.stopLoss} 元` : '证据不足' }}</template>
             <template v-else-if="column.key === 'configuration'">
               <template v-if="record.configuration?.ruleId">规则 {{ record.configuration.ruleId }} · v{{ record.configuration.configurationVersion }}<br />出票时点：{{ formatDateTimeDisplay(record.configuration.asOf) }}<br />{{ record.configuration.jsonPath }}：{{ record.configuration.baseAmount }} 元；超出 {{ record.configuration.extraSegments }} 段×{{ record.configuration.extraPerSegment }} 元</template>
-              <template v-else>未可靠匹配</template>
+              <template v-else>
+                未可靠匹配<span v-if="record.configuration?.issueWayLabel"> · {{ record.configuration.issueWayLabel }}（{{ record.configuration.issueWay || '缺失' }}）</span>
+                <details v-if="record.configuration?.diagnostics?.length">
+                  <summary>查看 {{ record.configuration.diagnostics.length }} 条未知候选（已阻断）</summary>
+                  <p v-for="item in record.configuration.diagnostics" :key="`${item.ruleId}-${item.stage}`">规则 {{ item.ruleId }} · {{ item.stage === 'history' ? '历史还原' : '条件匹配' }}：{{ item.reason }}</p>
+                </details>
+              </template>
             </template>
           </template>
         </a-table>
@@ -58,7 +64,7 @@ const sampleOutcome = ref('confirmed')
 const sampleReason = ref('')
 const labels: Record<string, string> = { supported: '核实通过', problem: '有问题', insufficient: '证据不足', failed: '执行失败', rule_pending: '规则未接入' }
 const columns = [{ title: '出票明细ID', dataIndex: 'id', width: 150 }, { title: '出票利润', dataIndex: 'profit', width: 100 }, { title: '销售佣金', dataIndex: 'commission', width: 100 }, { title: '调整后利润', dataIndex: 'adjustedProfit', width: 110 }, { title: '票段数', dataIndex: 'segmentCount', width: 80 }, { title: '单票止损值', key: 'threshold', width: 110 }, { title: '出票时配置', key: 'configuration', width: 300 }, { title: '结果', key: 'status', width: 110 }, { title: '计算及原因', dataIndex: 'explanation', width: 300 }]
-const usesConfiguration = computed(() => result.value?.ruleVersion === 'qunar-commission-loss-config-v5')
+const usesConfiguration = computed(() => result.value?.ruleVersion?.startsWith('qunar-commission-loss-config-v'))
 const normalize = (value: string | null) => value?.replace(' ', 'T') || null
 const outdated = computed(() => Boolean(result.value && (result.value.isCurrent === false || normalize(result.value.sourceUpdatedAt) !== normalize(props.sourceUpdatedAt) || result.value.reasonCode !== props.reason)))
 const hasUnsavedDrafts = computed(() => Boolean(sampleReason.value.trim() || tagPanel.value?.hasUnsavedDrafts))

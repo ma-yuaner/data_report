@@ -122,6 +122,8 @@ def read_evidence_cursor(cursor, identifier, configuration_cache=None):
             counts = _rows(cursor)
             count = counts[0] if len(counts) == 1 else {}
             issue['segmentCount'] = int(count['segment_count']) if count.get('segment_count') and count.get('link_count') == count.get('segment_count') else None
+            from .risk_threshold_facts import enrich_matching_facts
+            enrich_matching_facts(cursor, issue, orders[0], cache)
             issue['thresholdConfiguration'] = cache['reader'].resolve(issue, orders[0])
     return {"order": orders[0], "issues": issues[:200], "logs": [], "complete": len(issues) <= 200}
 
