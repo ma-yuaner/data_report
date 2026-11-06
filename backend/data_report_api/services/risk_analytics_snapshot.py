@@ -4,6 +4,7 @@ import hashlib
 import json
 import sys
 import uuid
+import time
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, localcontext
 from zoneinfo import ZoneInfo
@@ -31,7 +32,10 @@ class AnalyticsError(ValueError):
 def safe_error(error):
     if isinstance(error,AnalyticsError):return error.code
     if isinstance(error,EvidenceError):return 'ANALYTICS_FACT_VERSION_INVALID'
-    if isinstance(error,StoreUnavailable):return 'ANALYTICS_DATABASE_OPERATION_NOT_CONFIRMED'
+    if isinstance(error,StoreUnavailable):
+        cause=error.__cause__
+        if getattr(cause,'args',()) and cause.args[0]==2013:return 'ANALYTICS_DATABASE_CONNECTION_LOST'
+        return 'ANALYTICS_DATABASE_OPERATION_NOT_CONFIRMED'
     if isinstance(error,ValueError):return 'ANALYTICS_SOURCE_VALUE_INVALID'
     return 'ANALYTICS_REFRESH_NOT_CONFIRMED'
 
@@ -202,27 +206,35 @@ def source_metadata(db,first,last,digest):
     return meta,labels,hashlib.sha256(encoded(meta).encode()).hexdigest()
 
 
-def build_snapshot(store,end,existing=None,batch_size=1000,max_buckets=50000):
+def build_snapshot(store,end,existing=None,batch_size=250,max_buckets=50000):
     first=end-timedelta(days=30);cutoff=now();digest=engine_hash()
     with store.db(consistent_snapshot=True) as db:
         meta,labels,signature=source_metadata(db,first,end,digest)
         if not meta['catalogDays']:raise AnalyticsError('ANALYTICS_CATALOG_NOT_READY')
         if existing and existing.get('snapshot_id') and existing.get('source_signature')==signature and existing.get('schema_version')==VERSION and current_rules(existing.get('body')):
             return None,meta,signature,cutoff
-        builder=Builder(end,labels,max_buckets);after=0
+        builder=Builder(end,labels,max_buckets)
         projection=STATUS_PROJECTION+METRIC_FIELDS+',r.body AS review_body,c.disposition AS case_disposition'
         joins=JOINS+METRIC_JOIN+' LEFT JOIN bi_risk_order_reviews r ON r.order_id=o.order_id AND r.issue_date=o.issue_date LEFT JOIN bi_risk_followup_cases c ON c.id=r.case_id'
-        sql='SELECT '+projection+joins+''' WHERE o.issue_date>=? AND o.issue_date<=? AND o.order_id>?
+        # Use the date/order primary key first, then join only a bounded page.
+        # The order/date secondary index proves absence of a newer partition.
+        page_sql="""SELECT o.order_id FROM bi_risk_order_day o WHERE o.issue_date=? AND o.order_id>?
           AND NOT EXISTS (SELECT 1 FROM bi_risk_order_day newer WHERE newer.order_id=o.order_id AND newer.issue_date>o.issue_date AND newer.issue_date<=?)
-          ORDER BY o.order_id LIMIT ?'''
-        while True:
-            rows=db.execute(sql,(first.isoformat(),end.isoformat(),after,end.isoformat(),batch_size)).fetchall()
-            if not rows:break
-            for row in rows:
-                identifier=int(row['order_id'])
-                if identifier<=after:raise AnalyticsError('ANALYTICS_CURSOR_NOT_MONOTONIC')
-                builder.add(row,fact(row,expected_engine_hash=digest));after=identifier
-            if len(rows)<batch_size:break
+          ORDER BY o.order_id LIMIT ?"""
+        for covered in meta['catalogDays']:
+            business_day=day(covered['issue_date']);after=0
+            while True:
+                started=time.monotonic()
+                identifiers=[int(row['order_id']) for row in db.execute(page_sql,(business_day,after,end.isoformat(),batch_size)).fetchall()]
+                if not identifiers:break
+                if identifiers!=sorted(set(identifiers)) or identifiers[0]<=after:raise AnalyticsError('ANALYTICS_CURSOR_NOT_MONOTONIC')
+                marks=','.join('?' for _ in identifiers)
+                rows=db.execute('SELECT '+projection+joins+' WHERE o.issue_date=? AND o.order_id IN ('+marks+') ORDER BY o.order_id',(business_day,*identifiers)).fetchall()
+                if [int(row['order_id']) for row in rows]!=identifiers or any(day(row['issue_date'])!=business_day for row in rows):raise AnalyticsError('ANALYTICS_PAGE_INCOMPLETE')
+                for row in rows:builder.add(row,fact(row,expected_engine_hash=digest))
+                after=identifiers[-1]
+                print(encoded({'phase':'analytics_page','day':business_day,'pageOrders':len(rows),'processedOrders':builder.orders,'seconds':round(time.monotonic()-started,3)}),flush=True)
+                if len(identifiers)<batch_size:break
         meta['bucketCount']=len(builder.groups)
         return builder,meta,signature,cutoff
 
@@ -252,7 +264,7 @@ def publish(store,end,generation,builder,meta,signature,cutoff):
     return {'endDate':end.isoformat(),'status':'published' if builder is not None else 'unchanged','orders':builder.orders if builder is not None else None}
 
 
-def run(config,end=None,max_end_days=32,batch_size=1000,max_buckets=50000,store=None):
+def run(config,end=None,max_end_days=32,batch_size=250,max_buckets=50000,store=None):
     store=store or RiskAutoStore(config);today=end or now().date();results=[];errors=[];already_running=False
     try:
         with store.db() as lock_db:
@@ -291,6 +303,10 @@ def run(config,end=None,max_end_days=32,batch_size=1000,max_buckets=50000,store=
 
 def check_schema(store):
     with store.db() as db:
+        catalog_indexes=db.execute('SHOW INDEX FROM bi_risk_order_day').fetchall()
+        grouped={}
+        for item in sorted(catalog_indexes,key=lambda row:int(row['Seq_in_index'])):grouped.setdefault(item['Key_name'],[]).append(item['Column_name'])
+        if grouped.get('PRIMARY')!=['issue_date','order_id'] or not any(value[:2]==['order_id','issue_date'] for value in grouped.values()):raise AnalyticsError('ANALYTICS_CATALOG_INDEX_MISSING')
         db.execute('SELECT end_date,snapshot_id,schema_version,source_signature,source_cutoff,generated_at,checked_at,requested_at,request_generation,processed_generation,retry_after,last_error_code,order_count,body FROM '+MANIFEST+' LIMIT 0').fetchall()
         db.execute('SELECT end_date,issue_date,dimension,group_hash,group_key,group_label,snapshot_id,'+','.join((*COUNTERS,'known_profit','known_loss'))+' FROM '+BUCKET+' LIMIT 0').fetchall()
         fields={r['Field']:str(r['Type']).lower() for r in db.execute('SHOW FULL COLUMNS FROM '+BUCKET).fetchall()}
@@ -308,7 +324,7 @@ def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     modes=parser.add_mutually_exclusive_group();modes.add_argument('--preview',action='store_true');modes.add_argument('--check-schema',action='store_true')
     parser.add_argument('--end-date',type=date.fromisoformat)
-    parser.add_argument('--max-end-days',type=int,default=32);parser.add_argument('--batch-size',type=int,default=1000);parser.add_argument('--max-buckets',type=int,default=50000)
+    parser.add_argument('--max-end-days',type=int,default=32);parser.add_argument('--batch-size',type=int,default=250);parser.add_argument('--max-buckets',type=int,default=50000)
     args=parser.parse_args(argv)
     if not 1<=args.max_end_days<=128 or not 1<=args.batch_size<=5000 or not 1<=args.max_buckets<=1000000:parser.error('invalid bounded workload')
     if args.preview:
