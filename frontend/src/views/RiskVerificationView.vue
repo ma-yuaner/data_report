@@ -1,6 +1,6 @@
 <template>
   <div class="page-wrap verification-overview">
-    <PageHeader eyebrow="RISK VERIFICATION" title="风控核对" description="独立清洗批量准备证据与核实结果；页面查询读取已保存结果，查询直接读取各日已成功发布结果；个人抽查独立留存，不再依赖整段日期加载到账号。">
+    <PageHeader eyebrow="RISK VERIFICATION" title="风控核对" description="按出票日期查看核实结果，重点处理有问题和证据不足的订单；人工抽查独立留存。">
       <a-space wrap><a-tag color="blue">订单去重 · 含各类盈亏原因</a-tag><a-button @click="configOpen = true">读取通用配置候选</a-button></a-space>
     </PageHeader>
     <FilterPanel stacked :instant="false" :show-reset="false" :loading="loading" :hint="hasPending ? '日期已改变，点击查询后生效' : '按出票时间筛选，结束日期包含当天；同一订单多张票只计1单'">
@@ -14,11 +14,7 @@
     <a-alert v-if="error" type="error" show-icon :message="error" />
     <RiskRuleConfigDrawer :open="configOpen" @close="configOpen = false" />
     <a-alert v-if="catalogNotice" type="info" show-icon message="所选出票日期尚未同步" :description="`${catalogNotice}。请先运行所选日期的独立风控清洗任务，再查询最新清洗结果；缺少批次不表示零订单。`" />
-    <a-alert v-if="overview?.dataFreshness" :type="['failed', 'running'].includes(overview.dataFreshness.latestAttempt?.status || '') ? 'warning' : 'info'" show-icon :message="`中台同步数据 · 最早同步 ${formatDateTimeDisplay(overview.dataFreshness.oldestSyncedAt)} · 最近同步 ${formatDateTimeDisplay(overview.dataFreshness.newestSyncedAt)}`" :description="syncDescription" />
-    <a-alert type="info" show-icon message="系统自动核实，人工只抽查与处理异常" :description="`通过无须人工确认；证据不足、执行失败、规则未接入分别列示。${overview?.sampling ? `当前账号已抽查 ${overview.sampling.sampled} 单，其中发现问题 ${overview.sampling.disputed} 单。` : '当前抽查统计尚未读取，不能按0单解释。'}`" />
-    <a-alert v-if="coverageMissingDays.length" type="warning" show-icon message="部分日期尚未完成清洗，其他已成功日期仍可查询" :description="`缺失日期：${coverageMissingDays.join('、')}。请等待回补或追补任务；未覆盖不表示零订单。`" />
-    <div class="auto-actions"><small>直接读取每日成功清洗结果；页面每分钟刷新已生效范围（打开详情或存在操作时暂停），不触发ERP取证。</small></div>
-    <a-alert v-for="report in overview?.dataFreshness.preparation?.reports || []" :key="report.day" type="info" show-icon :message="`${report.day}清洗报告 · ${report.orders}单 · ${report.seconds}秒`" :description="Object.keys(report.insufficientCauses || {}).length ? `证据不足原因：${Object.entries(report.insufficientCauses).map(([code, count]) => `${causeLabels[code] || code} ${count}单`).join('；')}` : '该日没有证据不足；核实通过与问题分别列示。'" />
+    <RiskDataStatus v-if="overview?.dataFreshness" :freshness="overview.dataFreshness" :insufficient="overview.metrics.insufficient" :sampling="overview.sampling" @inspect-insufficient="drill(undefined, 'insufficient')" />
     <div v-if="applied" class="applied-scope"><strong>{{ applied.start }} 至 {{ applied.end }}</strong><span>出票日期 · 已生效范围</span></div>
     <div class="metrics-grid" aria-label="核查概况">
       <button v-for="card in metricCards" :key="card.key" type="button" class="metric-card" :class="card.key" :disabled="!overview || loading" @click="drill(undefined, card.key === 'total' ? 'all' : card.key)">
@@ -77,6 +73,7 @@ import DateRangeField from '@/components/DateRangeField.vue'
 import RiskAutomaticDetail from '@/components/RiskAutomaticDetail.vue'
 import { ApiError } from '@/api/http'
 import RiskRuleConfigDrawer from '@/components/RiskRuleConfigDrawer.vue'
+import RiskDataStatus from '@/components/RiskDataStatus.vue'
 import { verificationOverview, type RiskCatalogFreshness, type VerificationCategory, type VerificationMetrics, type VerificationOrder, type VerificationOrders, type VerificationOverview, type VerificationStatus } from '@/api/riskVerification'
 
 const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date())
@@ -87,12 +84,6 @@ const preset = ref('today')
 const presets = [{ label: '今日', value: 'today' }, { label: '昨日', value: 'yesterday' }, { label: '本月', value: 'month' }, { label: '自定义', value: 'custom' }]
 const applied = ref<{ start: string; end: string }>()
 const overview = ref<VerificationOverview>()
-const syncDescription = computed(() => {
-  const state = overview.value?.dataFreshness.latestAttempt?.status
-  if (state === 'failed') return '最近同步失败，保留各日上次成功数据。查询不会重试；排查并重新运行独立清洗，旧核实结果可能已过期。'
-  if (state === 'running') return '有同步批次尚未完成，当前显示各日已成功发布的数据；若长期未完成，请管理员检查批次。'
-  return '查询和详情读取中台已保存数据；独立清洗完成后加载新结果。展示以各日完整成功批次为准，不代表实时数据。'
-})
 const orders = ref<VerificationOrders>()
 const loading = ref(false)
 const ordersLoading = ref(false)
@@ -141,8 +132,6 @@ let summaryRequest = 0
 let orderRequest = 0
 let alive = true
 let refreshTimer: ReturnType<typeof setInterval> | undefined
-const causeLabels: Record<string, string> = { MATCH_FACTS_INCOMPLETE: '订单匹配条件不足', NO_APPLICABLE_RULE: '无适用配置', PRIORITY_EVIDENCE: '规则排序依据不足', HISTORY_RECONSTRUCTION: '历史配置无法还原', HISTORY_STATUS_BASELINE_MISSING: '历史状态缺修改前值', PARSER_REVIEW_REQUIRED: '解析能力待自查', HISTORY_LEDGER_INCOMPLETE: '历史记录不完整', SCOPE_INCOMPLETE: '关联范围不完整', PASSENGER_EVIDENCE: '乘机人证据不足', MONEY_EVIDENCE: '金额证据不足', THRESHOLD_EVIDENCE: '止损证据不足', UNCLASSIFIED_EVIDENCE: '待分析原因' }
-const coverageMissingDays = computed(() => [...new Set([...(overview.value?.dataFreshness.missingDays || []), ...(overview.value?.dataFreshness.preparation?.missingDays || [])])].sort())
 onBeforeUnmount(() => { alive = false; summaryRequest++; orderRequest++; if (refreshTimer) clearInterval(refreshTimer) })
 onMounted(() => {
   void queryOverview()
