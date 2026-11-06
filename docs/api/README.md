@@ -22,7 +22,7 @@
 | [上传说明](../business/air_ticketing/risk-data-upload.md) / [行为监控](../product/user-behavior-monitoring-v1.md) | 上传队列和行为采集 |
 
 <!-- BEGIN:API_ROUTES -->
-共 **214个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
+共 **222个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
 
 <a id="auth"></a>
 
@@ -373,6 +373,14 @@
 | `GET` | `/api/v1/risk-verification/cases/<case_id>/preview` | [risk_verification_preview](../../backend/data_report_api/api/risk_verification.py) |
 | `POST` | `/api/v1/risk-verification/cases/<case_id>/recover` | [risk_verification_recover](../../backend/data_report_api/api/risk_verification.py) |
 | `POST` | `/api/v1/risk-verification/cases/<case_id>/review` | [risk_verification_review](../../backend/data_report_api/api/risk_verification.py) |
+| `GET` | `/api/v1/risk-verification/followup/cases` | [risk_followup_cases](../../backend/data_report_api/api/risk_verification.py) |
+| `GET` | `/api/v1/risk-verification/followup/cases/<case_id>` | [risk_followup_case](../../backend/data_report_api/api/risk_verification.py) |
+| `POST` | `/api/v1/risk-verification/followup/cases/<case_id>` | [risk_followup_update](../../backend/data_report_api/api/risk_verification.py) |
+| `GET` | `/api/v1/risk-verification/followup/orders/<identifier>` | [risk_followup_order](../../backend/data_report_api/api/risk_verification.py) |
+| `GET` | `/api/v1/risk-verification/followup/policies` | [risk_followup_policies](../../backend/data_report_api/api/risk_verification.py) |
+| `POST` | `/api/v1/risk-verification/followup/policies` | [risk_followup_policy_create](../../backend/data_report_api/api/risk_verification.py) |
+| `GET` | `/api/v1/risk-verification/followup/reviews` | [risk_followup_summaries](../../backend/data_report_api/api/risk_verification.py) |
+| `POST` | `/api/v1/risk-verification/followup/reviews` | [risk_followup_review](../../backend/data_report_api/api/risk_verification.py) |
 | `GET` | `/api/v1/risk-verification/knowledge` | [risk_verification_knowledge](../../backend/data_report_api/api/risk_verification.py) |
 | `POST` | `/api/v1/risk-verification/knowledge/<knowledge_id>/publish` | [risk_verification_publish](../../backend/data_report_api/api/risk_verification.py) |
 | `GET` | `/api/v1/risk-verification/orders` | [risk_verification_order_list](../../backend/data_report_api/api/risk_verification.py) |

@@ -68,10 +68,10 @@ BUSINESS_ROLE_CATALOG = (
     {"code": "POLICY_OPERATOR", "name": "智能业务执行员", "description": "认领已审核任务并登记投放结果"},
 )
 PERMISSION_CATALOG = (
-    {"code": "risk.verification.view", "name": "查看风控核对", "description": "查看订单、证据、核实结果及共享问题标签", "menuCode": "risk.verification"},
+    {"code": "risk.verification.view", "name": "查看风控核对", "description": "查看订单、证据、核实结果及团队共享案例", "menuCode": "risk.verification"},
     {"code": "risk.verification.check", "name": "执行风控核对", "description": "加载清洗结果、新建核查及执行AI审核分析", "menuCode": "risk.verification"},
-    {"code": "risk.verification.review", "name": "人工复核风控", "description": "保存抽查、人工确认、问题标签及知识草稿", "menuCode": "risk.verification"},
-    {"code": "risk.verification.types.manage", "name": "管理风控问题分类", "description": "新增共享问题分类", "menuCode": "risk.verification"},
+    {"code": "risk.verification.review", "name": "人工复核风控", "description": "保存人工核实、共享案例跟进与差错认定、抽查及知识草稿", "menuCode": "risk.verification"},
+    {"code": "risk.verification.types.manage", "name": "管理风控问题分类", "description": "新增共享问题分类及登记公司策略版本", "menuCode": "risk.verification"},
     {"code": "risk.verification.knowledge.publish", "name": "发布风控知识", "description": "人工确认并发布核查知识", "menuCode": "risk.verification"},
     {"code": "hr.mail.upload", "name": "上传解析HR报表", "description": "上传考勤与部门映射并生成邮件预览", "menuCode": "hr.mail"},
     {"code": "hr.mail.send", "name": "确认发送HR邮件", "description": "逐部门预览并最终确认后发送", "menuCode": "hr.mail"},

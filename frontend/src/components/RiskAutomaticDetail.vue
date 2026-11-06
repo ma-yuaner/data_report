@@ -2,7 +2,8 @@
   <a-spin :spinning="busy">
     <div class="auto-detail">
       <a-alert v-if="error" type="error" show-icon :message="error" />
-      <RiskProblemTags ref="tagPanel" :order-id="orderId" @busy-change="tagBusy = $event" />
+      <RiskReviewPanel v-if="issueDate" :order-id="orderId" :issue-date="issueDate" @changed="emit('changed')" @busy-change="reviewBusy = $event" />
+      <details><summary>历史问题标签</summary><RiskProblemTags ref="tagPanel" :order-id="orderId" @busy-change="tagBusy = $event" /></details>
       <a-alert v-if="!supportedReason" type="info" show-icon message="该类型规则尚未接入" description="后续为此类型补充专属证据和规则，不套用佣金亏损公式。" />
       <a-alert v-else-if="!result" type="info" show-icon message="尚未形成自动结果" description="系统正在核实或等待当前批次完成。关闭详情后可查看进度。" />
       <template v-if="result && supportedReason">
@@ -28,7 +29,7 @@
             <a-tag v-if="column.key === 'status'" :color="record.status === 'supported' ? 'green' : record.status === 'problem' ? 'red' : 'orange'">{{ labels[record.status] || record.status }}</a-tag>
             <template v-else-if="column.key === 'threshold'">{{ record.stopLoss != null ? `${record.stopLoss} 元` : '证据不足' }}</template>
             <template v-else-if="column.key === 'configuration'">
-              <template v-if="record.configuration?.ruleId">规则 {{ record.configuration.ruleId }} · v{{ record.configuration.configurationVersion }}<br />权重：{{ record.configuration.weight ?? "旧结果未记录" }}<br />出票时点：{{ formatDateTimeDisplay(record.configuration.asOf) }}<br />{{ record.configuration.jsonPath }}：{{ record.configuration.baseAmount }} 元；超出 {{ record.configuration.extraSegments }} 段×{{ record.configuration.extraPerSegment }} 元</template>
+              <template v-if="record.configuration?.ruleId">规则 {{ record.configuration.ruleId }} · v{{ record.configuration.configurationVersion }}<br />{{ record.segmentCount }} 段 · 阈值 {{ record.stopLoss }} 元<details><summary>查看采用依据</summary>权重：{{ record.configuration.weight ?? "旧结果未记录" }}<br />出票时点：{{ formatDateTimeDisplay(record.configuration.asOf) }}<br />{{ record.configuration.jsonPath }}：{{ record.configuration.baseAmount }} 元；超出 {{ record.configuration.extraSegments }} 段×{{ record.configuration.extraPerSegment }} 元</details></template>
               <template v-else>
                 未可靠匹配<span v-if="record.configuration?.issueWayLabel"> · {{ record.configuration.issueWayLabel }}（{{ record.configuration.issueWay || '缺失' }}）</span>
                 <details v-if="record.configuration?.diagnostics?.length">
@@ -77,12 +78,14 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { Alert as AAlert, Button as AButton, Descriptions as ADescriptions, DescriptionsItem as ADescriptionsItem, Input as AInput, Radio as ARadio, RadioGroup as ARadioGroup, Spin as ASpin, Table as ATable, Tag as ATag } from 'ant-design-vue'
 import { riskAutomatic, type AutoRiskResult } from '@/api/riskVerification'
 import RiskProblemTags from '@/components/RiskProblemTags.vue'
+import RiskReviewPanel from '@/components/RiskReviewPanel.vue'
 const ATextarea = AInput.TextArea
 const props = defineProps<{ orderId: string; reason: string; sourceUpdatedAt: string | null; issueDate?: string }>()
 const emit = defineEmits<{ changed: []; 'busy-change': [boolean] }>()
 const result = ref<AutoRiskResult | null>(null)
 const busy = ref(false)
 const tagBusy = ref(false)
+const reviewBusy = ref(false)
 const tagPanel = ref<InstanceType<typeof RiskProblemTags>>()
 const error = ref('')
 const saved = ref('')
@@ -90,17 +93,18 @@ const sampleOutcome = ref('confirmed')
 const sampleReason = ref('')
 const factLabels: Record<string, string> = { ota_code: '平台', ota_site_code: '站点', product_type: '产品类型', manual_flag: '人工标记', issue_supplier_code: '出票供应商', issue_gds: '出票GDS', issue_pcc: '出票PCC', airline: '航司', issue_way: '出票方式', cabin: '子舱位', cabin_grade: '舱等', flight_number: '航班号', origin: '主航段出发地', destination: '主航段目的地' }
 const traceLabels: Record<string, string> = { rank_only: '仅参与权重，不筛选该类规则', selected: '最终选中', matched: '条件符合（尚未最终选中）', lower_priority: '条件符合，优先级较低', excluded: '不适用', unknown: '证据不足' }
-const labels: Record<string, string> = { supported: '核实通过', problem: '有问题', insufficient: '证据不足', failed: '执行失败', rule_pending: '规则未接入' }
-const isBet = computed(() => ['RLA068', 'RLA047', 'RLA50', 'RLA046', 'RLA045', 'RLA069', 'RLA070', 'RLA067'].includes(props.reason))
-const supportedReason = computed(() => isBet.value || ['RLA013', 'RLA040'].includes(props.reason))
-const isChild = computed(() => props.reason === 'RLA040')
+const labels: Record<string, string> = { supported: '自动通过', problem: '疑似问题', insufficient: '证据不足', failed: '执行失败', rule_pending: '规则未接入' }
+const effectiveReason = computed(() => props.reason || result.value?.reasonCode || '')
+const isBet = computed(() => ['RLA068', 'RLA047', 'RLA50', 'RLA046', 'RLA045', 'RLA069', 'RLA070', 'RLA067'].includes(effectiveReason.value))
+const supportedReason = computed(() => isBet.value || ['RLA013', 'RLA040'].includes(effectiveReason.value))
+const isChild = computed(() => effectiveReason.value === 'RLA040')
 const columns = computed(() => [{ title: '出票明细ID', dataIndex: 'id', width: 150 }, { title: '出票利润', dataIndex: 'profit', width: 100 }, ...(!isBet.value ? [{ title: '销售佣金', dataIndex: 'commission', width: 100 }] : []), { title: isBet.value ? '用于比较的原始利润' : isChild.value ? '平均单票利润' : '调整后利润', dataIndex: 'adjustedProfit', width: 130 }, { title: '票段数', dataIndex: 'segmentCount', width: 80 }, { title: '单票止损值', key: 'threshold', width: 110 }, { title: '出票时配置', key: 'configuration', width: 300 }, { title: '结果', key: 'status', width: 110 }, { title: '计算及原因', dataIndex: 'explanation', width: 300 }])
 const usesConfiguration = computed(() => result.value?.ruleVersion?.startsWith('qunar-commission-loss-config-v'))
 const normalize = (value: string | null) => value?.replace(' ', 'T') || null
-const outdated = computed(() => Boolean(result.value && (result.value.isCurrent === false || normalize(result.value.sourceUpdatedAt) !== normalize(props.sourceUpdatedAt) || result.value.reasonCode !== props.reason)))
+const outdated = computed(() => Boolean(result.value && (result.value.isCurrent === false || (props.sourceUpdatedAt !== null && normalize(result.value.sourceUpdatedAt) !== normalize(props.sourceUpdatedAt)) || (!!props.reason && result.value.reasonCode !== props.reason))))
 const hasUnsavedDrafts = computed(() => Boolean(sampleReason.value.trim() || tagPanel.value?.hasUnsavedDrafts))
 defineExpose({ hasUnsavedDrafts, reload: load })
-watch([busy, tagBusy], ([own, tags]) => emit('busy-change', own || tags))
+watch([busy, tagBusy, reviewBusy], ([own, tags, review]) => emit('busy-change', own || tags || review))
 onMounted(load)
 async function load() {
   busy.value = true; error.value = ''; result.value = null

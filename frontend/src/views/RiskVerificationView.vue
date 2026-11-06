@@ -1,7 +1,7 @@
 <template>
   <div class="page-wrap verification-overview">
-    <PageHeader eyebrow="RISK VERIFICATION" title="风控核对" description="按出票日期查看核实结果，重点处理有问题和证据不足的订单；人工抽查独立留存。">
-      <a-space wrap><a-tag color="blue">订单去重 · 含各类盈亏原因</a-tag><a-button @click="configOpen = true">读取通用配置候选</a-button></a-space>
+    <PageHeader eyebrow="RISK VERIFICATION" title="风控核对" description="按出票日期查看核实结果，重点处理有问题和证据不足的订单；人工核实与案例跟进独立留存。">
+      <a-space wrap><a-button @click="router.push('/risk-followup/workbench')">风控工作台</a-button><a-tag color="blue">订单去重 · 含各类盈亏原因</a-tag><a-button @click="configOpen = true">读取通用配置候选</a-button></a-space>
     </PageHeader>
     <FilterPanel stacked :instant="false" :show-reset="false" :loading="loading" :hint="hasPending ? '日期已改变，点击查询后生效' : '按出票时间筛选，结束日期包含当天；同一订单多张票只计1单'">
       <template #header><h2>统计范围</h2><span>默认今日 · 单次最多31天</span></template>
@@ -46,15 +46,19 @@
         <label>盈亏原因分类<a-select v-model:value="selectedReason" :options="reasonOptions" allow-clear placeholder="全部类型" :disabled="!applied || ordersLoading" @change="filterOrders" /></label>
         <label>核查结果<a-select v-model:value="selectedStatus" :options="statusOptions" :disabled="!applied || ordersLoading" @change="filterOrders" /></label>
       </div>
+        <div class="batch-actions"><a-button v-if="canReview" type="primary" :disabled="!selectedOrders.length || ordersLoading" @click="batchOpen = true">批量确认无问题（{{ selectedOrders.length }}）</a-button><span class="muted">仅本页选择；按同一策略核实，保存前逐单核对。</span></div>
+        <a-alert v-if="reviewError" type="warning" show-icon :message="reviewError" />
         <a-alert v-if="ordersError" type="error" show-icon :message="ordersError" />
-      <a-table :columns="orderColumns" :data-source="orders?.items || []" row-key="id" :loading="ordersLoading" :pagination="{ current: page, pageSize, total: orders?.total || 0, showSizeChanger: true, pageSizeOptions: ['20', '50', '100'], showTotal: (total: number) => `共 ${total} 单` }" :scroll="{ x: 1020, y: 420 }" size="middle" @change="changePage" :locale="{ emptyText: orders ? '当前类型和状态下没有订单' : '点击上方类型或数量查看明细' }">
+      <a-table :row-selection="canReview ? { selectedRowKeys: selectedOrders.map(o => o.orderId), onChange: selectOrders, getCheckboxProps: (record: VerificationOrder) => ({ disabled: !!manual[record.id]?.review?.caseId || !manual[record.id] }) } : undefined" :columns="orderColumns" :data-source="orders?.items || []" row-key="id" :loading="ordersLoading" :pagination="{ current: page, pageSize, total: orders?.total || 0, showSizeChanger: true, pageSizeOptions: ['20', '50', '100'], showTotal: (total: number) => `共 ${total} 单` }" :scroll="{ x: 1020, y: 420 }" size="middle" @change="changePage" :locale="{ emptyText: orders ? '当前类型和状态下没有订单' : '点击上方类型或数量查看明细' }">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'reason'">{{ categoryLabel(record.profit_reason_type) }}</template>
           <a-tag v-else-if="column.key === 'status'" :color="statusColors[record.verificationStatus as VerificationStatus]">{{ statusLabels[record.verificationStatus as VerificationStatus] }}</a-tag>
+          <template v-else-if="column.key === 'human'"><a-tag v-if="manual[record.id]?.stale" color="orange">待重新核实</a-tag><span v-else-if="manual[record.id]?.review">{{ conclusions[manual[record.id]?.review?.conclusion || ''] }}</span><span v-else>{{ reviewError ? '读取失败' : '尚未人工核实' }}</span><br /><a-button v-if="manual[record.id]?.review?.caseId" type="link" @click="router.push(`/risk-followup/cases?case=${manual[record.id]?.review?.caseId}`)">案例跟进</a-button></template>
           <a-button v-else-if="column.key === 'action'" type="link" @click="openOrder(record)">{{ '查看核实详情' }}</a-button>
         </template>
       </a-table>
     </section>
+    <RiskReviewForm :open="batchOpen" :orders="selectedOrders" @close="batchOpen = false" @saved="loadOrders" />
     <a-drawer :open="drawerOpen" :title="`订单核查 · ${activeOrderNo || activeOrderId}`" :width="'min(1280px, 100vw)'" :destroy-on-close="true" :closable="!panelBusy" :keyboard="!panelBusy" :mask-closable="!panelBusy" @close="closeDrawer">
       <RiskAutomaticDetail v-if="drawerOpen" :key="activeOrderId" ref="casePanel" :order-id="activeOrderId" :reason="activeReason" :source-updated-at="activeUpdatedAt" :issue-date="activeIssueDate" @changed="refreshResults" @busy-change="panelBusy = $event" />
     </a-drawer>
@@ -64,6 +68,10 @@
 <script setup lang="ts">
 import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
 
+import { useRouter } from 'vue-router'
+import RiskReviewForm from '@/components/RiskReviewForm.vue'
+import { useRiskPermissions } from '@/composables/useRiskPermissions'
+import { riskFollowup, conclusions, type ReviewContext } from '@/api/riskFollowup'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import dayjs from 'dayjs'
 import { Alert as AAlert, Button as AButton, Drawer as ADrawer, Modal, Segmented as ASegmented, Select as ASelect, Table as ATable, Tag as ATag } from 'ant-design-vue'
@@ -76,6 +84,12 @@ import RiskRuleConfigDrawer from '@/components/RiskRuleConfigDrawer.vue'
 import RiskDataStatus from '@/components/RiskDataStatus.vue'
 import { verificationOverview, type RiskCatalogFreshness, type VerificationCategory, type VerificationMetrics, type VerificationOrder, type VerificationOrders, type VerificationOverview, type VerificationStatus } from '@/api/riskVerification'
 
+const router = useRouter()
+const { canReview } = useRiskPermissions()
+const batchOpen = ref(false), reviewError = ref('')
+const manual = ref<Record<string, ReviewContext>>({})
+const selectedOrders = ref<{ orderId: string; issueDate: string }[]>([])
+function selectOrders(keys: (string | number)[]) { selectedOrders.value = (orders.value?.items || []).filter(o => keys.includes(o.id)).map(o => ({ orderId: o.id, issueDate: String(o.issue_date).slice(0, 10) })) }
 const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date())
 const configOpen = ref(false)
 const startDate = ref(today)
@@ -96,13 +110,13 @@ const page = ref(1)
 const pageSize = ref(20)
 const ordersPanel = ref<HTMLElement>()
 const hasPending = computed(() => Boolean(applied.value) && (startDate.value !== applied.value?.start || endDate.value !== applied.value?.end))
-const statusLabels: Record<VerificationStatus | 'all', string> = { outdated: '已过期待更新', all: '全部状态', problem: '有问题', supported: '核实通过', insufficient: '证据不足', reviewing: '核实中', unchecked: '待自动核实', failed: '执行失败', rule_pending: '规则未接入' }
+const statusLabels: Record<VerificationStatus | 'all', string> = { outdated: '已过期待更新', all: '全部状态', problem: '疑似问题', supported: '自动通过', insufficient: '证据不足', reviewing: '核实中', unchecked: '待自动核实', failed: '执行失败', rule_pending: '规则未接入' }
 const statusColors: Record<VerificationStatus, string> = { outdated: 'orange', problem: 'red', supported: 'green', insufficient: 'orange', reviewing: 'blue', unchecked: 'default', failed: 'red', rule_pending: 'default' }
 const statusOptions = Object.entries(statusLabels).filter(([value]) => value !== 'reviewing').map(([value, label]) => ({ value, label }))
 const metricCards: { key: keyof VerificationMetrics; label: string; note: string }[] = [
   { key: 'total', label: '待核查订单', note: '盈亏原因有值 · 订单去重' },
-  { key: 'problem', label: '有问题', note: '系统核算不符合规则' },
-  { key: 'supported', label: '核实通过', note: '系统核实符合，无须人工确认' },
+  { key: 'problem', label: '疑似问题', note: '系统核算不符合规则' },
+  { key: 'supported', label: '自动通过', note: '系统核实符合，无须人工确认' },
   { key: 'insufficient', label: '证据不足', note: '不能认定符合或有问题' },
   { key: 'failed', label: '执行失败', note: '取证或执行失败，需重试' },
   { key: 'unchecked', label: '待核实', note: '清洗完成后加载核实结果' },
@@ -111,15 +125,15 @@ const metricCards: { key: keyof VerificationMetrics; label: string; note: string
 ]
 const metricKeys = metricCards.map(item => item.key)
 const progressStates = [
-  { key: 'supported', label: '核实通过', color: '#52c41a' },
-  { key: 'problem', label: '有问题', color: '#ff4d4f' },
+  { key: 'supported', label: '自动通过', color: '#52c41a' },
+  { key: 'problem', label: '疑似问题', color: '#ff4d4f' },
   { key: 'insufficient', label: '证据不足', color: '#faad14' },
   { key: 'failed', label: '执行失败', color: '#8c8c8c' },
 ] as const
 const reasonOptions = computed(() => (overview.value?.categories || []).map(item => ({ value: item.reasonCode, label: item.reasonLabel })))
 const selectedReasonLabel = computed(() => selectedReason.value ? categoryLabel(selectedReason.value) : '全部类型')
 const categoryColumns = [{ title: '盈亏原因分类', key: 'reason', width: 210 }, ...metricCards.map(item => ({ title: item.label, key: item.key, width: 105 })), { title: '核查进度', key: 'progress', width: 220 }, { title: '规则状态', key: 'rule', width: 220 }, { title: '操作', key: 'action', width: 110 }]
-const orderColumns = [{ title: '业务订单号', dataIndex: 'order_no', width: 220 }, { title: 'OTA订单号', dataIndex: 'ota_order_no', width: 200 }, { title: '盈亏原因分类', key: 'reason', width: 200 }, { title: '核查结果', key: 'status', width: 130 }, { title: '操作', key: 'action', width: 110 }]
+const orderColumns = [{ title: '人工核实／跟进', key: 'human', width: 180 },{ title: '业务订单号', dataIndex: 'order_no', width: 220 }, { title: 'OTA订单号', dataIndex: 'ota_order_no', width: 200 }, { title: '盈亏原因分类', key: 'reason', width: 200 }, { title: '核查结果', key: 'status', width: 130 }, { title: '操作', key: 'action', width: 110 }]
 const drawerOpen = ref(false)
 const activeOrderId = ref('')
 const activeOrderNo = ref('')
@@ -136,7 +150,7 @@ onBeforeUnmount(() => { alive = false; summaryRequest++; orderRequest++; if (ref
 onMounted(() => {
   void queryOverview()
   refreshTimer = setInterval(() => {
-    if (alive && applied.value && !loading.value && !ordersLoading.value && !drawerOpen.value && document.visibilityState === 'visible') void refreshResults()
+    if (alive && applied.value && !loading.value && !ordersLoading.value && !drawerOpen.value && !batchOpen.value && !selectedOrders.value.length && document.visibilityState === 'visible') void refreshResults()
   }, 60000)
 })
 function count(value: number) { return value.toLocaleString('zh-CN') }
@@ -176,12 +190,14 @@ async function loadOrders() {
   const request = ++orderRequest
   const scope = { ...applied.value }
   const reason = selectedReason.value; const status = selectedStatus.value; const currentPage = page.value; const size = pageSize.value
-  ordersLoading.value = true; ordersError.value = ''; orders.value = undefined
+  ordersLoading.value = true; ordersError.value = ''; orders.value = undefined; selectedOrders.value = []; manual.value = {}; reviewError.value = ''
   try {
     const result = await verificationOverview.orders(scope.start, scope.end, reason, status, currentPage, size)
     if (alive && request === orderRequest) {
       if (catalogVersion(result.dataFreshness) !== catalogVersion(overview.value?.dataFreshness)) throw new Error('同步批次已改变，请重新查询统计范围后再查看订单')
       orders.value = result
+      try { const values = await riskFollowup.summaries(result.items.map(o => ({ orderId: o.id, issueDate: String(o.issue_date).slice(0, 10) }))); if (alive && request === orderRequest) manual.value = Object.fromEntries(values.map(v => [v.orderId, v])) }
+      catch (failure) { if (alive && request === orderRequest) reviewError.value = failure instanceof Error ? failure.message : '人工状态读取失败' }
     }
   } catch (failure) { if (alive && request === orderRequest) ordersError.value = failure instanceof Error ? failure.message : '订单读取失败，请重试' }
   finally { if (alive && request === orderRequest) ordersLoading.value = false }
@@ -209,6 +225,7 @@ async function refreshResults() {
 </script>
 
 <style scoped>
+.batch-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
 .auto-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
 .verification-overview { display: grid; gap: 16px; }
 .verification-overview :deep(.filter-panel) { margin-bottom: 0; }

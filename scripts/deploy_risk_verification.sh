@@ -25,13 +25,15 @@ verify_only=false
 migrate_auto=false
 archive_auto=false
 problem_tags=false
+followup_schema=false
 case "${1:-}" in
   '') ;;
   --verify-only) verify_only=true ;;
   --migrate-auto) migrate_auto=true ;;
   --archive-auto) archive_auto=true ;;
   --problem-tags) problem_tags=true ;;
-  *) echo "Usage: bash scripts/deploy_risk_verification.sh [--verify-only|--migrate-auto|--archive-auto|--problem-tags]" >&2; exit 1 ;;
+  --followup-schema) followup_schema=true ;;
+  *) echo "Usage: bash scripts/deploy_risk_verification.sh [--verify-only|--migrate-auto|--archive-auto|--problem-tags|--followup-schema]" >&2; exit 1 ;;
 esac
 wait_for_url() {
   local url="$1" attempt
@@ -100,6 +102,12 @@ PY
 fi
 echo "[4/5] 构建并更新api、web（保留所有数据卷）"
 docker compose build api web
+if [ "$followup_schema" = true ]; then
+  echo "显式创建风控跟进五张专用表，保留既有数据；仅由已授权的数据库部署人使用此选项。"
+  docker compose run -T --rm --no-deps --entrypoint python api -m data_report_api.services.risk_followup_schema --apply < docs/sql/risk-followup-v1.sql
+fi
+echo "检查风控跟进五表结构（只读；未就绪不切换服务）"
+docker compose run -T --rm --no-deps --entrypoint python api -m data_report_api.services.risk_followup_schema
 if [ "$problem_tags" = true ]; then
   echo "显式部署管理员共享类型/标签两张新表；仅CREATE IF NOT EXISTS，不修改ERP或既有业务表。"
   docker compose run -T --rm --no-deps --entrypoint python api -c '

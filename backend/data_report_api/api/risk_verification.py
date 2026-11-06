@@ -19,6 +19,10 @@ def required_permission():
     if request.method in {"GET", "HEAD", "OPTIONS"}:
         return "risk.verification.view"
     path = request.path.rstrip("/")
+    if "/followup/policies" in path:
+        return "risk.verification.types.manage"
+    if "/followup/" in path:
+        return "risk.verification.review"
     if path.endswith("/problem-types"):
         return "risk.verification.types.manage"
     if path.endswith("/publish"):
@@ -66,6 +70,53 @@ def _flow():
 
 
 def register_routes(api):
+    from ..services.risk_followup import RiskFollowup
+
+    @api.get("/v1/risk-verification/followup/reviews")
+    def risk_followup_summaries():
+        def read(actor):
+            import re
+            try:
+                raw = request.args.get('orders', '')
+                if len(raw) > 4000:
+                    raise ValueError('too many orders')
+                pairs = raw.split(',') if raw else []
+                if any(not re.fullmatch(r'[1-9][0-9]{0,18}:\d{4}-\d{2}-\d{2}', pair) for pair in pairs):
+                    raise ValueError('invalid scope')
+                items = [dict(zip(('orderId', 'issueDate'), pair.split(':'))) for pair in pairs]
+            except (ValueError, TypeError):
+                raise FlowError('订单范围格式无效') from None
+            return RiskFollowup(current_app.config).summaries(items)
+        return _call(read)
+
+    @api.get("/v1/risk-verification/followup/cases")
+    def risk_followup_cases():
+        return _call(lambda actor: RiskFollowup(current_app.config).listing(request.args, actor))
+
+    @api.get("/v1/risk-verification/followup/cases/<case_id>")
+    def risk_followup_case(case_id):
+        return _call(lambda actor: RiskFollowup(current_app.config).detail(case_id))
+
+    @api.post("/v1/risk-verification/followup/cases/<case_id>")
+    def risk_followup_update(case_id):
+        return _call(lambda actor: RiskFollowup(current_app.config).update(actor, case_id, _body()))
+
+    @api.get("/v1/risk-verification/followup/orders/<identifier>")
+    def risk_followup_order(identifier):
+        return _call(lambda actor: RiskFollowup(current_app.config).order(identifier, request.args.get('issueDate')))
+
+    @api.post("/v1/risk-verification/followup/reviews")
+    def risk_followup_review():
+        return _call(lambda actor: RiskFollowup(current_app.config).review(actor, _body()))
+
+    @api.get("/v1/risk-verification/followup/policies")
+    def risk_followup_policies():
+        return _call(lambda actor: RiskFollowup(current_app.config).policies())
+
+    @api.post("/v1/risk-verification/followup/policies")
+    def risk_followup_policy_create():
+        return _call(lambda actor: RiskFollowup(current_app.config).policy_create(actor, _body()))
+
     @api.get("/v1/risk-verification/problem-types")
     def risk_problem_types():
         from ..services.risk_problem_tags import RiskProblemTags

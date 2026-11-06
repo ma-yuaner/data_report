@@ -1,5 +1,7 @@
 # 企业数据中心（data_report）
 
+风控跟进V1：[人工核实、共享案例与三个认定池](docs/development/risk-followup-v1.md)。正式入口 `/risk-followup/workbench`；原风控分析入口已移归档。需五张专用表，普通发布仅检查、不自动DDL；本机类型/接口验证通过，生产构建遇Windows临时文件权限限制，247部署及业务验收未完成。
+
 风控V11：[独立批量清洗与证据不足自查](docs/development/risk-prepared-v11.md)。页面加载清洗成功结果，不再在线逐单取证；上线前需两张新表及独立ETL首批成功，不能只更新API。代码完成不等于DDL/清洗/部署已执行。
 
 风控V10：[综合无亏损－儿童/婴儿](docs/product/risk-child-loss-v10.md)已接入手工更新核实；携程关联拆单汇总出票利润÷票数，不加佣金，必须有儿童或婴儿，沿用当前单止损配置。未部署、未业务验收，无新增DDL或调度。
@@ -38,7 +40,7 @@ ADM责任流转V2：已增加协调人、接收确认式转交、责任分段、
 
 <!-- BEGIN:CURRENT_MENU -->
 <details>
-<summary>完整菜单：46个页面入口、3个禁用预留项</summary>
+<summary>完整菜单：50个页面入口、3个禁用预留项</summary>
 
 ```text
 工作台  [/home]
@@ -57,14 +59,11 @@ ADM责任流转V2：已增加协调人、接收确认式转交、责任分段、
   改签分析  [/analysis/change]
   增值分析  [/analysis/ancillary]
 风控分析
-  风控总览  [/risk-analysis]
+  风控工作台  [/risk-followup/workbench]
   风控核对  [/risk-verification]
-  出票利润分析  [/risk-analysis/issue]
-  退票利润分析  [/risk-analysis/refund]
-  改签利润分析  [/risk-analysis/change]
-  差错分析  [/risk-analysis/errors]
-  订单明细  [/risk-analysis/orders]
-  数据上传  [/risk-analysis/upload]
+  案例跟进  [/risk-followup/cases]
+  专题案例库  [/risk-followup/library]
+  类型与策略  [/risk-followup/policies]
 客服分析
   退票分析  [预留/禁用，无页面路由]
   改签分析  [预留/禁用，无页面路由]
@@ -98,6 +97,13 @@ ADM 管理
 数据资产  [/data-assets]
 归档功能
   数据加工工作台  [/data-workbench]
+  风控总览  [/risk-analysis]
+  出票利润分析  [/risk-analysis/issue]
+  退票利润分析  [/risk-analysis/refund]
+  改签利润分析  [/risk-analysis/change]
+  差错分析  [/risk-analysis/errors]
+  订单明细  [/risk-analysis/orders]
+  数据上传  [/risk-analysis/upload]
 HR报表邮件  [/hr-mail]
 系统管理
   用户行为监控  [/admin/behavior]
@@ -193,7 +199,7 @@ docker compose up -d --build
 API统一前缀为`/api`。认证与账号管理使用`/api/auth/*`、`/api/admin/*`；业务接口主要使用`/api/v1/*`。登录后使用会话Cookie，非安全方法需携带CSRF头；JSON通常返回`success/message/data`，导出接口返回文件。具体权限、参数与错误见[完整接口目录](docs/api/README.md)及对应源码。
 
 <!-- BEGIN:API_SUMMARY -->
-当前静态登记 **214个HTTP方法/路径条目**（含认证与管理接口，不重复列自动HEAD/OPTIONS）。
+当前静态登记 **222个HTTP方法/路径条目**（含认证与管理接口，不重复列自动HEAD/OPTIONS）。
 
 | 接口领域 | 条目数 | 完整清单 |
 |---|---:|---|
@@ -217,7 +223,7 @@ API统一前缀为`/api`。认证与账号管理使用`/api/auth/*`、`/api/admi
 | missed_orders | 3 | [missed_orders](docs/api/README.md#missed_orders) |
 | placement_diagnosis | 2 | [placement_diagnosis](docs/api/README.md#placement_diagnosis) |
 | placement_import | 3 | [placement_import](docs/api/README.md#placement_import) |
-| risk_verification | 25 | [risk_verification](docs/api/README.md#risk_verification) |
+| risk_verification | 33 | [risk_verification](docs/api/README.md#risk_verification) |
 <!-- END:API_SUMMARY -->
 
 ## 开发交付与README维护

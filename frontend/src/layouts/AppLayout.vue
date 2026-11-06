@@ -42,14 +42,13 @@
           <a-sub-menu v-if="canSeeGroup('risk')" key="risk">
             <template #icon><SafetyCertificateOutlined /></template>
             <template #title>风控分析</template>
-            <a-menu-item v-if="canSeeMenu('risk.overview')" key="/risk-analysis">风控总览</a-menu-item>
-            <a-menu-item v-if="canSeeMenu('risk.verification') && (authStore.user?.isAdmin || authStore.user?.permissions?.includes('risk.verification.view'))" key="/risk-verification">风控核对</a-menu-item>
-            <a-menu-item v-if="canSeeMenu('risk.issue')" key="/risk-analysis/issue">出票利润分析</a-menu-item>
-            <a-menu-item v-if="canSeeMenu('risk.refund')" key="/risk-analysis/refund">退票利润分析</a-menu-item>
-            <a-menu-item v-if="canSeeMenu('risk.change')" key="/risk-analysis/change">改签利润分析</a-menu-item>
-            <a-menu-item v-if="canSeeMenu('risk.errors')" key="/risk-analysis/errors">差错分析</a-menu-item>
-            <a-menu-item v-if="canSeeMenu('risk.orders')" key="/risk-analysis/orders">订单明细</a-menu-item>
-            <a-menu-item v-if="canSeeMenu('risk.upload')" key="/risk-analysis/upload">数据上传</a-menu-item>
+            <template v-if="canSeeMenu('risk.verification') && (authStore.user?.isAdmin || authStore.user?.permissions?.includes('risk.verification.view'))">
+              <a-menu-item key="/risk-followup/workbench">风控工作台</a-menu-item>
+              <a-menu-item key="/risk-verification">风控核对</a-menu-item>
+              <a-menu-item key="/risk-followup/cases">案例跟进</a-menu-item>
+              <a-menu-item key="/risk-followup/library">专题案例库</a-menu-item>
+              <a-menu-item key="/risk-followup/policies">类型与策略</a-menu-item>
+            </template>
           </a-sub-menu>
           <a-sub-menu v-if="canSeeGroup('customer_service')" key="customer-service">
             <template #icon><CustomerServiceOutlined /></template>
@@ -101,10 +100,18 @@
           </a-sub-menu>
           <a-menu-item v-if="canSeeMenu('problems')" key="/problems"><template #icon><WarningOutlined /></template>问题中心</a-menu-item>
           <a-menu-item v-if="canSeeMenu('data_assets')" key="/data-assets"><template #icon><DatabaseOutlined /></template>数据资产</a-menu-item>
-          <a-sub-menu v-if="canSeeMenu('data_workbench')" key="archived-features">
+          <a-sub-menu v-if="canSeeMenu('data_workbench') || canSeeGroup('risk')" key="archived-features">
             <template #icon><ControlOutlined /></template>
             <template #title>归档功能</template>
-            <a-menu-item key="/data-workbench">数据加工工作台</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('data_workbench')" key="/data-workbench">数据加工工作台</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('risk.overview')" key="/risk-analysis">风控总览</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('risk.issue')" key="/risk-analysis/issue">出票利润分析</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('risk.refund')" key="/risk-analysis/refund">退票利润分析</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('risk.change')" key="/risk-analysis/change">改签利润分析</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('risk.errors')" key="/risk-analysis/errors">差错分析</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('risk.orders')" key="/risk-analysis/orders">订单明细</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('risk.upload')" key="/risk-analysis/upload">数据上传</a-menu-item>
+
           </a-sub-menu>
           <a-menu-item v-if="canSeeMenu('hr.mail')" key="/hr-mail"><template #icon><MailOutlined /></template>HR报表邮件</a-menu-item>
           <a-sub-menu v-if="authStore.user?.isAdmin" key="system">
@@ -198,10 +205,10 @@ watch(canExport, allowed => { if (allowed) exportStore.startPolling(); else expo
 onBeforeUnmount(() => exportStore.stopPolling())
 const openKeys = ref<string[]>([])
 watch(() => route.path, path => {
-    openKeys.value = path.startsWith('/data-workbench') ? ['archived-features']
+    openKeys.value = path.startsWith('/data-workbench') || path.startsWith('/risk-analysis') ? ['archived-features']
       : path.startsWith('/analysis') ? ['analysis']
     : path.startsWith('/resource-governance') ? ['governance']
-    : path.startsWith('/risk-analysis') || path.startsWith('/risk-verification') ? ['risk']
+    : path.startsWith('/risk-followup') || path.startsWith('/risk-verification') ? ['risk']
       : path.startsWith('/smart-analysis/placement/') ? ['smart', 'smart-placement']
         : path.startsWith('/smart-analysis') ? ['smart', 'smart-overall']
         : path.startsWith('/business-configuration') ? ['business-configuration']

@@ -911,3 +911,12 @@ ETL交付：`391711b`已推GitLab，生产执行脚本路径和四段依赖保�
 用户授权，/root主会话chief-of-staff/frontend-design实施，无新代理。核查进度同条分绿色通过/红色有问题/黄色证据不足/深灰失败、浅灰未完成，保留数量和已处理率避免误读全绿；菜单仅隐藏滚动条外观，保留overflow-y:auto及键盘聚焦。业务/接口/ETL/迁移不改。
 
 25个Vue setup/静态场景、类型/lint/构建通过，未变后端证据复用；浏览器禁用，真实滚动/视觉/247验收待执行。[交付记录](../development/risk-verification-delivery.md#risk-progress-ui-20261104核查分段进度与主菜单隐藏滚动条)及本地.test-artifacts/evidence/risk-progress-ui-20261104/含命令/实际输出。下一步普通部署并验收菜单可滑动和红绿进度，不需迁移或归档。
+
+
+## 风控人工核实与案例跟进（2026-11-06，RISK-FOLLOWUP-20261106）
+
+用户已确认业务主线，最新明确取消原型、直接开发发版；本次申请人马远尔。基于远端main 296e3c5独立工作树实现，不纳入常用目录既有变更。沿用ETL事实与核对，增加共享人工核实、同策略批量无问题、案例多单关联、三认定池/补证、跟进时间线、完成重开、首次/特殊、策略版本，以及旧风控菜单归档。SQL归档RISK-DDL-013/RISK-CHECK-014，不执行正式DDL或ERP写入。
+
+L4评估：涉及跨层写入/权限/状态，采用主会话实现＋单一独立审查者`/root/risk_followup_review`先提预期再终审；无其他实现代理。独立发现并复核修复两项：已无问题案例重核无法关联、列表旧认定不失效；7项定向复放通过。主会话28项隔离事务/关系型SQL/真实Flask客户端认证CSRF通过；TS/ESLint/组件/索引通过。Vite构建转换4069模块后因esbuild临时文件删除Access is denied退出1，浏览器已禁用，真实MySQL/DDL/服务器/业务验收未验。
+
+交付/部署入口及命令见[跟进V1](../development/risk-followup-v1.md)，原始本机证据`.test-artifacts/risk-followup-v1/`。新增五表由部署人显式选择--followup-schema；普通发布只读结构门禁后再切服务。待核对双端main推送及一次发版通知回执，不默认查询CI。此前产品台未完成的静态原型不作为正式交付。
