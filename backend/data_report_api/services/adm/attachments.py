@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from ...time_utils import business_now_naive
+from .policy import now
 from . import AdmError, AdmService
 
 
@@ -31,7 +32,7 @@ FILE_TYPES = {
     ".txt": "text/plain",
     ".eml": "message/rfc822",
 }
-CATEGORIES = {"ORIGINAL", "VERIFICATION", "RECOVERY", "APPEAL", "FINANCE", "ANALYSIS"}
+CATEGORIES = {"ORIGINAL", "VERIFICATION", "RECOVERY", "APPEAL", "COLLECTION", "ANALYSIS"}
 STORAGE_KEY = re.compile(r"^[a-f0-9]{32}\.(?:pdf|png|jpe?g|gif|webp|xlsx|docx|csv|txt|eml)$")
 
 
@@ -178,8 +179,14 @@ class AdmAttachmentService:
             if final_path is not None:
                 final_path.unlink(missing_ok=True)
 
-    def file(self, user: dict, case_id: str, attachment_id: str) -> tuple[Path, dict]:
-        metadata = self.service.attachment(user, case_id, attachment_id)
+    def file(self, user: dict, case_id: str, attachment_id: str, *, preview: bool = False) -> tuple[Path, dict]:
+        metadata = (
+            self.service.attachment_preview(user, case_id, attachment_id)
+            if preview
+            else self.service.attachment(user, case_id, attachment_id)
+        )
+        if metadata.get("deletedAt"):
+            raise AdmError("附件原件已按结案满7天规则清理；元数据和审计记录仍保留", 410, "ADM_FILE_PURGED")
         key = str(metadata.get("storageKey", ""))
         if not STORAGE_KEY.fullmatch(key):
             raise AdmError("附件存储信息异常，请联系管理员", 503, "ADM_FILE_STORAGE")
@@ -187,6 +194,49 @@ class AdmAttachmentService:
         if path.parent != self.root or path.is_symlink() or not path.is_file():
             raise AdmError("附件原件缺失，请补传或联系管理员", 404, "ADM_FILE_MISSING")
         return path, metadata
+
+    def cleanup_due(self, maximum: int = 100) -> dict[str, Any]:
+        """Claim due closed cases, delete bytes, then persist tombstones and audit."""
+        stamp = now()
+        system = {"id": "adm-attachment-cleaner", "username": "ADM附件清理", "is_admin": True}
+        cleaned_cases = cleaned_files = failed = 0
+        candidates = [
+            case for case in self.service._all()
+            if case.get("status") == "CLOSED"
+            and case.get("attachmentCleanupDueAt")
+            and case["attachmentCleanupDueAt"] <= stamp
+            and case.get("attachmentCleanupState") != "COMPLETED"
+        ][: max(1, min(int(maximum), 1000))]
+        for candidate in candidates:
+            try:
+                current = self.service._get(candidate["id"])
+                if current.get("status") != "CLOSED" or current.get("attachmentCleanupDueAt", "") > stamp:
+                    continue
+                if current.get("attachmentCleanupState") != "DELETING":
+                    current["attachmentCleanupState"] = "DELETING"
+                    current["attachmentCleanupClaimedAt"] = stamp
+                    self.service._save(system, current, "attachment_cleanup_claimed", {"dueAt": current["attachmentCleanupDueAt"]})
+                    current = self.service._get(candidate["id"])
+                removed = []
+                for metadata in current.get("attachments", []):
+                    if metadata.get("deletedAt"):
+                        continue
+                    key = str(metadata.get("storageKey", ""))
+                    if not STORAGE_KEY.fullmatch(key):
+                        raise AdmError("附件存储键异常，清理已停止", 503, "ADM_FILE_STORAGE")
+                    path = self.root / key
+                    if path.parent != self.root or path.is_symlink():
+                        raise AdmError("附件路径异常，清理已停止", 503, "ADM_FILE_STORAGE")
+                    path.unlink(missing_ok=True)
+                    metadata.update(deletedAt=stamp, deletionReason="CASE_CLOSED_7_DAYS", storageDeleted=True)
+                    removed.append(metadata["id"])
+                current.update(attachmentCleanupState="COMPLETED", attachmentCleanedAt=stamp)
+                self.service._save(system, current, "attachment_cleanup_completed", {"attachmentIds": removed})
+                cleaned_cases += 1
+                cleaned_files += len(removed)
+            except Exception:
+                failed += 1
+        return {"scanned": len(candidates), "cleanedCases": cleaned_cases, "cleanedFiles": cleaned_files, "failedCases": failed}
 
     def table_preview(self, path: Path, *, sheet: str = "") -> dict:
         maximum_rows, maximum_columns = 200, 50
@@ -233,7 +283,7 @@ class AdmAttachmentService:
         }
 
     def preview(self, user: dict, case_id: str, attachment_id: str, sheet: str = "") -> tuple[str, Any, dict]:
-        path, metadata = self.file(user, case_id, attachment_id)
+        path, metadata = self.file(user, case_id, attachment_id, preview=True)
         if path.suffix in {".xlsx", ".csv"}:
             return "json", self.table_preview(path, sheet=sheet), metadata
         if metadata.get("mime") == "application/pdf" or str(metadata.get("mime", "")).startswith("image/"):

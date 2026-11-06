@@ -32,7 +32,8 @@ def prepare(raw):
     line = {
         "businessType": "UNKNOWN", "platform": text("ota_name") or text("ota_code"),
         "platformCode": text("ota_code"), "orderNo": text("ota_order_no"), "ticketNo": text("ticket_no"),
-        "pnr": text("pnr_no"), "currency": case["currency"], "amount": case["originalAmount"],
+        "pnr": text("pnr_no"), "attachmentUrl": text("file_url"),
+        "currency": case["currency"], "amount": case["originalAmount"],
         "amountCny": case["originalAmountCny"], "ticketCount": case["ticketCount"],
         "airline": case["airline"], "businessCategory": category,
         "actualOwner": text("actual_owner"), "actualHandler": text("actual_handler"),

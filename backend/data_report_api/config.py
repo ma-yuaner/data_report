@@ -53,7 +53,7 @@ class Config:
     ERP_MYSQL_DATABASE = (
         os.getenv("ERP_MYSQL_DATABASE", "").strip()
         or os.getenv("ERP_ROSTER_DATABASE", "").strip()
-        or "sibebd"
+        or "sibedb"
     )
     ERP_MYSQL_USER = (
         os.getenv("ERP_MYSQL_USER", "").strip()
@@ -97,6 +97,34 @@ class Config:
         "ERP_ROSTER_USER_DEPARTMENT_TABLE", "system_user_department"
     )
     ERP_ROSTER_ORG_TABLE = os.getenv("ERP_ROSTER_ORG_TABLE", "base_organization")
+    ADM_REFERENCE_DATABASE = os.getenv("ADM_REFERENCE_DATABASE", "").strip() or ERP_MYSQL_DATABASE
+    ADM_EXCHANGE_RATE_TABLE = os.getenv("ADM_EXCHANGE_RATE_TABLE", "sibe_exchange_rate")
+    ADM_OTA_TABLE = os.getenv("ADM_OTA_TABLE", "sibe_ota")
+    ADM_SUPPLIER_TABLE = os.getenv("ADM_SUPPLIER_TABLE", "sibe_supplier")
+    # sibe_exchange_rate stores CNY as currency and the original currency as
+    # exchange_currency. central_parity_rate is the per-one-unit CNY rate;
+    # buy/sell columns are quoted per exchange_unit and are not used here.
+    # Business-confirmed ADM exchange-rate source. Do not override per deployment.
+    ADM_EXCHANGE_RATE_SOURCE = 6
+    ADM_EXCHANGE_RATE_ACTUAL_SOURCE = os.getenv("ADM_EXCHANGE_RATE_ACTUAL_SOURCE", "").strip()
+    HOTEL_MYSQL_HOST = os.getenv("HOTEL_MYSQL_HOST", "").strip()
+    HOTEL_MYSQL_PORT = int(os.getenv("HOTEL_MYSQL_PORT", "3306"))
+    HOTEL_MYSQL_DATABASE = os.getenv("HOTEL_MYSQL_DATABASE", "common_prod_db").strip()
+    HOTEL_MYSQL_USER = os.getenv("HOTEL_MYSQL_USER", "").strip()
+    HOTEL_MYSQL_PASSWORD = os.getenv("HOTEL_MYSQL_PASSWORD", "")
+    HOTEL_MYSQL_CHARSET = os.getenv("HOTEL_MYSQL_CHARSET", "utf8mb4").strip()
+    HOTEL_MYSQL_CONNECT_TIMEOUT = int(os.getenv("HOTEL_MYSQL_CONNECT_TIMEOUT", "10"))
+    HOTEL_MYSQL_READ_TIMEOUT = int(os.getenv("HOTEL_MYSQL_READ_TIMEOUT", "60"))
+    HOTEL_MYSQL_WRITE_TIMEOUT = int(os.getenv("HOTEL_MYSQL_WRITE_TIMEOUT", "60"))
+    FI_MYSQL_HOST = os.getenv("FI_MYSQL_HOST", "").strip()
+    FI_MYSQL_PORT = int(os.getenv("FI_MYSQL_PORT", "3306"))
+    FI_MYSQL_DATABASE = os.getenv("FI_MYSQL_DATABASE", "ibf_prod_db").strip()
+    FI_MYSQL_USER = os.getenv("FI_MYSQL_USER", "").strip()
+    FI_MYSQL_PASSWORD = os.getenv("FI_MYSQL_PASSWORD", "")
+    FI_MYSQL_CHARSET = os.getenv("FI_MYSQL_CHARSET", "utf8mb4").strip()
+    FI_MYSQL_CONNECT_TIMEOUT = int(os.getenv("FI_MYSQL_CONNECT_TIMEOUT", "10"))
+    FI_MYSQL_READ_TIMEOUT = int(os.getenv("FI_MYSQL_READ_TIMEOUT", "60"))
+    FI_MYSQL_WRITE_TIMEOUT = int(os.getenv("FI_MYSQL_WRITE_TIMEOUT", "60"))
     # 目标进度ETL的ERP业务明细库；未单独配置时复用同一sibedb连接。
     TARGET_ERP_MYSQL_HOST = os.getenv("TARGET_ERP_MYSQL_HOST", ERP_ROSTER_MYSQL_HOST)
     TARGET_ERP_MYSQL_PORT = int(os.getenv("TARGET_ERP_MYSQL_PORT", str(ERP_ROSTER_MYSQL_PORT)))
@@ -172,6 +200,7 @@ class Config:
     ADM_ALLOW_SELF_REVIEW = env_bool("ADM_ALLOW_SELF_REVIEW", False)
     ADM_WORKFLOW_MAX_CASES = int(os.getenv("ADM_WORKFLOW_MAX_CASES", "5000"))
     ADM_EXTERNAL_DELIVERY_ENABLED = env_bool("ADM_EXTERNAL_DELIVERY_ENABLED", False)
+    ADM_NOTIFICATIONS_ENABLED = False
     DATA_WORKBENCH_ENABLED = env_bool("DATA_WORKBENCH_ENABLED", False)
     DATA_WORKBENCH_DIR = os.getenv("DATA_WORKBENCH_DIR", "var/data-workbench")
     DATA_WORKBENCH_MAX_ROWS = int(os.getenv("DATA_WORKBENCH_MAX_ROWS", "2000000"))

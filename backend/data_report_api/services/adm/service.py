@@ -5,18 +5,28 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-from datetime import date, datetime, time
+import re
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
-from .store import AdmStore, Conflict, StoreUnavailable
+from .normalized_store import AdmStore
+from .store import Conflict, StoreUnavailable
 from .policy import AdmError, has, identity, now, require, uid
 from .workflow import WORKFLOW_ACTIONS, WorkflowService, associated_ids, role_actions, segment_assign, segment_accept
-from .collaboration import ACTIONS as COLLABORATION_ACTIONS, CollaborationService, blockers as collaboration_blockers, extra_actions, file_visible, task_actions, upload_categories
+from .access import file_visible, upload_categories
+from .v05 import (
+    ATTRIBUTIONS,
+    ORDER_STATUSES,
+    collection_total,
+    exact_amounts,
+    require_exact_amounts,
+    validate_attribution,
+)
 
-CASE_STATUSES = ["DRAFT", "PENDING_ASSIGN", "PROCESSING", "PENDING_REVIEW", "WAITING_FINANCE", "CLOSED", "HISTORICAL"]
-LINE_STATUSES = ["PENDING_ASSIGN", "PENDING_ACCEPT", "PROCESSING", "PENDING_REVIEW", "WAITING_FINANCE", "COMPLETED", "HISTORICAL"]
-CATEGORIES = ["ORIGINAL", "VERIFICATION", "RECOVERY", "APPEAL", "FINANCE", "ANALYSIS"]
+CASE_STATUSES = ["DRAFT", "PENDING_LEADER_ASSIGNMENT", "IN_PROGRESS", "READY_TO_CLOSE", "CLOSED", "HISTORICAL"]
+LINE_STATUSES = [*ORDER_STATUSES, "HISTORICAL"]
+CATEGORIES = ["ORIGINAL", "VERIFICATION", "RECOVERY", "APPEAL", "COLLECTION", "ANALYSIS"]
 ANALYSIS_FIELDS = ("facts", "dispute", "cause", "proposal", "conclusion", "prevention")
 CASE_FIELDS = (
     "supplierCode", "airline", "ticketCount", "originalAmountCny", "businessCategory",
@@ -33,6 +43,7 @@ CASE_FIELDS = (
 )
 LINE_FIELDS = (
     "platformCode", "airline", "ticketCount", "amountCny", "businessCategory",
+    "supplierCode", "supplier",
     "actualOwner", "actualHandler", "recoveryDeadline", "resolution",
     "businessType",
     "platform",
@@ -41,6 +52,7 @@ LINE_FIELDS = (
     "orderNo",
     "ticketNo",
     "pnr",
+    "attachmentUrl",
     "system",
     "pcc",
     "currency",
@@ -58,6 +70,9 @@ LINE_FIELDS = (
     "appealDecision",
     "appealReason",
     "recoveryRequired",
+    "investigationNote",
+    "departmentCode",
+    "departmentName",
     "finance",
 )
 
@@ -74,6 +89,25 @@ def deadline_expired(value):
     if deadline.tzinfo is None:
         deadline = deadline.replace(tzinfo=zone)
     return deadline < datetime.now(zone)
+
+
+def internal_adm_no(adm_no, case_id):
+    """Compatibility number for pre-readable-number documents only."""
+    suffix = str(case_id or "").replace("-", "").upper()[:8]
+    prefix = str(adm_no or "").strip()[:34]
+    return f"{prefix}-LEGACY-{suffix}"
+
+
+def next_line_internal_no(case):
+    prefix = str(case.get("internalNo") or "").strip()
+    if not prefix:
+        return ""
+    used = []
+    for line in case.get("lines") or []:
+        match = re.fullmatch(re.escape(prefix) + r"-(\d+)", str(line.get("lineInternalNo") or ""))
+        if match:
+            used.append(int(match.group(1)))
+    return f"{prefix}-{max(used, default=0) + 1:03d}"
 
 
 def money(value, nullable=True):
@@ -98,14 +132,30 @@ def money(value, nullable=True):
 class AdmService:
     def __init__(self, config):
         self.config = config
+        self._reference_options_cache = None
         try:
             self.store = AdmStore(config)
         except StoreUnavailable as exc:
             raise AdmError(str(exc), 503, exc.code) from exc
 
+    def _reference_options(self):
+        if self._reference_options_cache is None:
+            provider = self.config.get("ADM_REFERENCE_OPTIONS")
+            self._reference_options_cache = provider() if callable(provider) else {}
+        return self._reference_options_cache
+
     def _get(self, case_id):
         try:
             case = self.store.get(str(case_id))
+        except StoreUnavailable as exc:
+            raise AdmError(str(exc), 503, exc.code) from exc
+        if not case:
+            raise AdmError("ADM不存在", 404, "ADM_NOT_FOUND")
+        return case
+
+    def _get_by_internal_no(self, internal_no):
+        try:
+            case = self.store.get_by_internal_no(str(internal_no))
         except StoreUnavailable as exc:
             raise AdmError(str(exc), 503, exc.code) from exc
         if not case:
@@ -120,7 +170,9 @@ class AdmService:
 
     def _full(self, user, case):
         coordinator = case.get("coordinatorId", case["createdBy"])
-        return has(user, "adm.scope.all") or str(coordinator) == identity(user)
+        # 全量查询范围不等于操作权限。只有管理员或本单ADM负责人
+        # 拥有整单管理范围，避免scope.all账号越权修改他人的单。
+        return bool(user.get("is_admin")) or str(coordinator) == identity(user)
 
     def _ids(self, user, scope="mine"):
         ids = {identity(user)}
@@ -133,14 +185,27 @@ class AdmService:
         if self._full(user, case):
             return case["lines"]
         ids = self._ids(user, "team" if scope == "team" and has(user, "adm.scope.team") else "mine")
+        case_people = {
+            str(value)
+            for value in (
+                case.get("ownerId"),
+                (case.get("handover") or {}).get("toId")
+                if (case.get("handover") or {}).get("status") == "PENDING"
+                else None,
+            )
+            if value
+        }
+        if case_people & ids:
+            return case["lines"]
         return [line for line in case["lines"] if associated_ids(line) & ids]
 
     def _read(self, user, case_id):
         require(user, "adm.view")
-        case = self._get(case_id)
-        if not self._full(user, case) and not self._visible_lines(user, case):
-            raise AdmError("无此ADM数据访问权限", 403, "ADM_FORBIDDEN")
-        return case
+        return self._get(case_id)
+
+    def _read_by_internal_no(self, user, internal_no):
+        require(user, "adm.view")
+        return self._get_by_internal_no(internal_no)
 
     def _write(self, user, case_id, body, permission, full=False, control_action=None):
         require(user, permission)
@@ -158,7 +223,14 @@ class AdmService:
         return case
 
     def _line(self, case, line_id):
-        line = next((item for item in case["lines"] if item["id"] == str(line_id)), None)
+        reference = str(line_id)
+        line = next(
+            (
+                item for item in case["lines"]
+                if item["id"] == reference or str(item.get("lineInternalNo") or "") == reference
+            ),
+            None,
+        )
         if not line:
             raise AdmError("明细不存在", 404, "ADM_NOT_FOUND")
         return line
@@ -171,8 +243,8 @@ class AdmService:
         detail = copy.deepcopy(detail or {})
         if line_id:
             line = self._line(case, line_id)
-            detail["responsibility"] = {"ownerId": line.get("ownerId"), "ownerName": line.get("ownerName"), "round": case["round"]}
-            detail["measurement"] = {"ownerId": line.get("ownerId"), "ownerName": line.get("ownerName"), "round": case["round"], "businessType": line.get("businessType"), "lineStatus": line["status"]}
+            detail["responsibility"] = {"ownerId": case.get("ownerId"), "ownerName": case.get("ownerName"), "round": case["round"]}
+            detail["measurement"] = {"ownerId": case.get("ownerId"), "ownerName": case.get("ownerName"), "round": case["round"], "businessType": line.get("businessType"), "lineStatus": line["status"]}
         case["timeline"].append(
             {
                 "id": uid(),
@@ -186,18 +258,16 @@ class AdmService:
         )
 
     def _derive(self, case):
-        case["openRemediation"] = any(task.get("kind") == "REMEDIATION" and task.get("status") not in {"COMPLETED", "CANCELLED"} for line in case["lines"] for task in line.get("collaborations", []))
+        case["openRemediation"] = False
         if case["status"] in {"CLOSED", "DRAFT", "HISTORICAL"}:
             return
         states = {line["status"] for line in case["lines"]}
-        if not states or states == {"PENDING_ASSIGN"}:
-            case["status"] = "PENDING_ASSIGN"
-        elif states <= {"COMPLETED", "WAITING_FINANCE"} and "WAITING_FINANCE" in states:
-            case["status"] = "WAITING_FINANCE"
-        elif states <= {"COMPLETED", "PENDING_REVIEW"}:
-            case["status"] = "PENDING_REVIEW"
+        if not states or states == {"PENDING_LEADER_ASSIGNMENT"}:
+            case["status"] = "PENDING_LEADER_ASSIGNMENT"
+        elif states == {"COMPLETED"}:
+            case["status"] = "READY_TO_CLOSE"
         else:
-            case["status"] = "PROCESSING"
+            case["status"] = "IN_PROGRESS"
 
     def _save(self, user, case, action, detail=None, line_id=None):
         expected = case["version"]
@@ -211,7 +281,7 @@ class AdmService:
             raise AdmError(str(exc), 409, "ADM_VERSION_CONFLICT") from exc
         except StoreUnavailable as exc:
             raise AdmError(str(exc), 503, exc.code) from exc
-        return self._present(user, case)
+        return self._present_with_difference_verification(user, case)
 
     def _clean(self, body, fields):
         result = {}
@@ -278,6 +348,8 @@ class AdmService:
                 raise AdmError("业务类型无效")
             if field == "businessCategory" and value not in {"", "0", "1", "2"}:
                 raise AdmError("业务大类须为票务、业务、客服或留空")
+            if field == "attachmentUrl" and value and not re.fullmatch(r"https://[^\s]{1,2048}", value):
+                raise AdmError("附件地址须为有效HTTPS地址")
             if field in {"admNo", "supplierCode"} and len(value) > (100 if field == "admNo" else 200):
                 raise AdmError("ADM号最多100字，下发方编码最多200字")
             if field == "matchStatus" and value not in {"UNVERIFIED", "OURS", "NOT_OURS"}:
@@ -287,6 +359,69 @@ class AdmService:
             result[field] = value
         return result
 
+    def _apply_exchange_rate(self, case, *, force=False):
+        """Fill a missing CNY amount and retain the exact ERP row used."""
+        currency = str(case.get("currency") or "").strip()
+        original = case.get("originalAmount")
+        if not currency or original in (None, ""):
+            if force:
+                case.update(fxRate=None, fxDate=None, fxSource=None)
+            return
+        if case.get("originalAmountCny") not in (None, "") and not force:
+            return
+        provider = self.config.get("ADM_EXCHANGE_RATE_LOOKUP")
+        if currency == "CNY" and not callable(provider):
+            case["originalAmountCny"] = format(Decimal(str(original)).quantize(Decimal("0.00000001")), "f")
+            case["fxRate"] = "1.00000000"
+            case["fxDate"] = now()
+            case["fxSource"] = {
+                "rate": "1.00000000", "effectiveAt": case["fxDate"], "rowId": None,
+                "source": "BASE_CURRENCY", "actualSource": None,
+                "baseCurrency": "CNY", "exchangeCurrency": "CNY", "rateColumn": "identity",
+            }
+            return
+        if not callable(provider):
+            # Explicitly entered CNY values remain supported in isolated/test
+            # deployments that intentionally have no ERP reference provider.
+            if case.get("originalAmountCny") in (None, ""):
+                raise AdmError("汇率参考数据提供器未配置", 503, "ADM_EXCHANGE_RATE_UNAVAILABLE")
+            return
+        snapshot = provider(currency)
+        rate = Decimal(str(snapshot["rate"]))
+        amount = Decimal(str(original)) * rate
+        case["originalAmountCny"] = format(amount.quantize(Decimal("0.00000001")), "f")
+        case["fxRate"] = format(rate, ".8f")
+        case["fxDate"] = snapshot["effectiveAt"]
+        case["fxSource"] = copy.deepcopy(snapshot)
+
+    def _apply_line_exchange_rate(self, case, line, *, force=False):
+        if line.get("amount") in (None, ""):
+            if force:
+                line["amountCny"] = None
+            return
+        if line.get("amountCny") not in (None, "") and not force:
+            return
+        rate = case.get("fxRate")
+        if rate in (None, ""):
+            currency = str(case.get("currency") or "")
+            provider = self.config.get("ADM_EXCHANGE_RATE_LOOKUP")
+            if currency == "CNY" and not callable(provider):
+                snapshot = {
+                    "rate": "1.00000000", "effectiveAt": now(), "rowId": None,
+                    "source": "BASE_CURRENCY", "actualSource": None,
+                    "baseCurrency": "CNY", "exchangeCurrency": "CNY", "rateColumn": "identity",
+                }
+            elif callable(provider):
+                snapshot = provider(currency)
+            else:
+                raise AdmError("汇率参考数据提供器未配置", 503, "ADM_EXCHANGE_RATE_UNAVAILABLE")
+            rate = snapshot["rate"]
+            case["fxRate"] = format(Decimal(str(rate)), ".8f")
+            case["fxDate"] = snapshot["effectiveAt"]
+            case["fxSource"] = copy.deepcopy(snapshot)
+        amount = Decimal(str(line["amount"])) * Decimal(str(rate))
+        line["amountCny"] = format(amount.quantize(Decimal("0.00000001")), "f")
+
     def config_info(self, user):
         require(user, "adm.view")
         try:
@@ -295,6 +430,11 @@ class AdmService:
             raise AdmError(str(exc), 503, exc.code) from exc
         people_provider = self.config.get("ADM_WORKFLOW_USER_OPTIONS")
         people = people_provider() if callable(people_provider) and any(has(user, p) for p in ("adm.assign", "adm.handle")) else {}
+        reference_provider = self.config.get("ADM_REFERENCE_OPTIONS")
+        references = self._reference_options() if callable(reference_provider) else {
+            "platforms": [], "suppliers": [],
+            "exchangeRateSource": {"table": "sibe_exchange_rate", "configured": False, "limitation": "参考数据提供器未配置"},
+        }
         assignees = people.get("handle", [])
         if not people and has(user, "adm.assign") and callable(self.config.get("ADM_USER_OPTIONS")):
             assignees = self.config["ADM_USER_OPTIONS"]()
@@ -308,24 +448,72 @@ class AdmService:
             "attachmentCategories": CATEGORIES,
             "assignees": assignees if has(user, "adm.assign") else [],
             "people": people,
+            "references": references,
         }
 
-    def _public_attachment(self, item):
-        return {key: value for key, value in item.items() if key != "storageKey"}
+    def _apply_line_references(self, line, validate_difference_type=True):
+        reference_provider = self.config.get("ADM_REFERENCE_OPTIONS")
+        references = self._reference_options() if callable(reference_provider) else None
+        for code_key, name_key, collection, label in (
+            ("platformCode", "platform", "platforms", "OTA平台"),
+            ("supplierCode", "supplier", "suppliers", "供应商"),
+        ):
+            code = str(line.get(code_key) or "")
+            if not code:
+                line[name_key] = ""
+                continue
+            if references is None:
+                continue
+            option = next((item for item in references.get(collection, []) if item["code"] == code), None)
+            if not option:
+                raise AdmError(f"{label}编码不存在或不在当前启用来源中")
+            line[name_key] = option["name"]
+        difference_type = str(line.get("diffType") or "").strip()
+        if validate_difference_type and difference_type and references is not None and "differenceTypes" in references:
+            enabled = {
+                str(item.get("code") or item.get("name") or "").strip()
+                for item in references.get("differenceTypes", [])
+            }
+            if difference_type not in enabled:
+                raise AdmError("差异类型不存在或不在当前启用来源中")
+            line["diffType"] = difference_type
+        people_provider = self.config.get("ADM_WORKFLOW_USER_OPTIONS")
+        people = people_provider() if callable(people_provider) else {}
+        department_code = str(line.get("departmentCode") or "")
+        if department_code and callable(people_provider):
+            department = next((item for item in people.get("departments", []) if item["code"] == department_code), None)
+            if not department:
+                raise AdmError("业务归属部门不存在或不在当前组织来源中")
+            line["departmentName"] = department["name"]
+
+    def _require_assignment_ready(self, case, line):
+        require_exact_amounts(case)
+        for key, label in (("departmentCode", "业务归属部门"), ("diffType", "差异类型"), ("diffSecondType", "细分差异原因")):
+            if not str(line.get(key) or "").strip():
+                raise AdmError(label + "未填写", 409, "ADM_ASSIGNMENT_BLOCKED")
+
+    def _public_attachment(self, item, *, can_download=False):
+        return {**{key: value for key, value in item.items() if key != "storageKey"}, "canDownload": can_download}
 
     def _present(self, user, source, detail=True):
         case = copy.deepcopy(source)
         case["legacyCoordination"] = "coordinatorId" not in source
         case["coordinatorId"] = source.get("coordinatorId", source["createdBy"])
         full = self._full(user, source)
-        visible = self._visible_lines(user, source)
+        # ADM台账是全员可查询的业务账本。是否可以办理仍由_full、
+        # _line_actions和各写接口单独判定，不能用字段裁剪代替操作鉴权。
+        whole_case_visible = True
+        visible = source["lines"]
         ids = {line["id"] for line in visible}
-        case["partial"] = not full
+        download_ids = {line["id"] for line in self._visible_lines(user, source)}
+        case["partial"] = not whole_case_visible
         case["lines"] = copy.deepcopy(visible)
         case["attachments"] = [
-            self._public_attachment(item) for item in case["attachments"] if full or file_visible(item, ids)
+            self._public_attachment(item, can_download=full or file_visible(item, download_ids))
+            for item in case["attachments"]
+            if whole_case_visible or file_visible(item, ids)
         ]
-        case["timeline"] = [item for item in case["timeline"] if full or item.get("lineId") in ids]
+        case["timeline"] = [item for item in case["timeline"] if whole_case_visible or item.get("lineId") in ids]
         case["lineCount"] = len(case["lines"])
         case["completedCount"] = sum(line["status"] == "COMPLETED" for line in case["lines"])
         case["attachmentCount"] = len(case["attachments"])
@@ -348,7 +536,6 @@ class AdmService:
                             "addLine": "adm.edit",
                             "upload": "adm.edit",
                             "coordinator": "adm.assign",
-                            "attachment_share": "adm.edit",
                         }
                     )
                     if source["status"] == "DRAFT":
@@ -364,8 +551,6 @@ class AdmService:
             line["attachments"] = [item for item in case["attachments"] if file_visible(item, {line["id"]})]
             line["allowedActions"] = self._line_actions(user, source, line)
             line["uploadCategories"] = upload_categories(user, source, line, full) if "upload" in line["allowedActions"] else []
-            for task in line.get("collaborations", []):
-                task["allowedActions"] = task_actions(user, source, line, task, full)
         case["closureCheck"] = (
             (
                 self._closure(source)
@@ -377,11 +562,6 @@ class AdmService:
         )
         case.pop("idempotencyKey", None)
         case.pop("requestHash", None)
-        if not full:
-            case.update(originalAmount=None, originalAmountCny=None, ticketCount=None, remark="", description="", analysis={}, snapshots=[], analysisVersions=[])
-            case.pop("source", None)
-            case.pop("history", None)
-
         def redact_internal(value):
             if isinstance(value, dict):
                 return {
@@ -401,42 +581,55 @@ class AdmService:
 
     def _line_actions(self, user, case, line):
         if case["status"] in {"CLOSED", "HISTORICAL"} or case.get("paused") or case.get("voided"):
-            return extra_actions(user, case, line, self._full(user, case))
+            return []
         result = []
-        if line["status"] == "PENDING_ASSIGN" and self._full(user, case) and has(user, "adm.edit"):
+        full = self._full(user, case)
+        status = line["status"]
+        actor = identity(user)
+        mine = str(case.get("ownerId") or line.get("ownerId")) == actor
+        if status == "PENDING_LEADER_ASSIGNMENT" and full and has(user, "adm.edit"):
             result.append("edit")
         if case["status"] == "DRAFT":
             return result
-        if has(user, "adm.assign") and self._full(user, case) and line["status"] in {"PENDING_ASSIGN", "PENDING_ACCEPT", "PROCESSING"}:
-            result.append("assign")
-        mine = str(line.get("ownerId")) == identity(user)
+        if full and has(user, "adm.assign"):
+            if status in {"PENDING_LEADER_ASSIGNMENT", "PENDING_OPERATOR_ASSIGNMENT"} and not case.get("ownerId"):
+                result.append("assign_operator")
+            if status not in {"PENDING_REVIEW", "PENDING_COLLECTION", "COMPLETED", "HISTORICAL"}:
+                result.append("plan")
         if mine and has(user, "adm.handle"):
-            if line["status"] == "PENDING_ACCEPT":
-                result.append("claim")
-            if line["status"] == "PROCESSING":
-                if line.get("lockedBy") == identity(user):
-                    result += ["edit", "upload", "recovery", "appeal", "difference", "submit", "unlock"]
-                elif line.get("lockedBy") is None:
-                    result.append("lock")
-        if line["status"] == "PENDING_REVIEW" and has(user, "adm.review"):
-            reviewer = (line.get("workflow") or {}).get("reviewerId")
-            if (not reviewer or str(reviewer) == identity(user) or user.get("is_admin")) and (not mine or self.config.get("ADM_ALLOW_SELF_REVIEW", False)):
+            if status == "PENDING_CODE_PROCESSING":
+                recovery = (line.get("recovery") or {}).get("state", "UNDECIDED")
+                if recovery == "UNDECIDED":
+                    result.append("recovery_decide")
+                elif recovery == "WAITING_MANUAL":
+                    result.append("recovery_complete")
+            if status == "PENDING_DECISION":
+                result.append("decide")
+            if status == "APPEAL_IN_PROGRESS":
+                result.append("appeal_result")
+            if status == "REJECTED_FOR_REVISION":
+                result.append("resubmit")
+            if status in {
+                "PENDING_CODE_PROCESSING",
+                "PENDING_DECISION",
+                "APPEAL_IN_PROGRESS",
+                "REJECTED_FOR_REVISION",
+            }:
+                result += ["edit", "upload"]
+        coordinator = str(case.get("coordinatorId", case["createdBy"]))
+        is_reviewer = bool(user.get("is_admin")) or actor == coordinator
+        if status == "PENDING_REVIEW" and has(user, "adm.review") and is_reviewer:
+            if not mine or self.config.get("ADM_ALLOW_SELF_REVIEW", False):
                 result += ["approve", "return", "upload"]
-        if line["status"] == "WAITING_FINANCE" and has(user, "adm.finance.confirm"):
-            finance_owner = (line.get("workflow") or {}).get("financeOwnerId")
-            if not finance_owner or str(finance_owner) == identity(user) or user.get("is_admin"):
-                result += ["finance_confirm", "upload"]
-        if has(user, "adm.unlock.force"):
-            result.append("unlock")
-        return list(dict.fromkeys(result + role_actions(user, case, line, self._full(user, case)) + extra_actions(user, case, line, self._full(user, case))))
+        if status == "PENDING_COLLECTION" and has(user, "adm.review") and is_reviewer:
+            result += ["record_collection", "upload"]
+        return list(dict.fromkeys(result + role_actions(user, case, line, full)))
 
     def list_cases(self, user, filters):
         require(user, "adm.view")
         scope = filters.get("scope", "mine")
         if scope not in {"mine", "team", "all"}:
             raise AdmError("范围无效")
-        if scope == "all":
-            require(user, "adm.scope.all")
         ids = self._ids(user, scope)
         try:
             page, size = max(1, int(filters.get("page", 1))), min(100, max(1, int(filters.get("pageSize", 20))))
@@ -509,14 +702,16 @@ class AdmService:
             "summary": summary,
         }
 
-    def create_case(self, user, body, history=None):
+    def create_case(self, user, body, history=None, activate_import=False):
         require(user, "adm.create")
         require(user, "adm.view")
         fields = self._clean(body, CASE_FIELDS)
         if not fields.get("admNo") or not fields.get("supplierName"):
             raise AdmError("ADM号和下发方必填")
+        case_id = uid()
         case = {
-            "id": uid(),
+            "id": case_id,
+            "contractVersion": "ADM_V05",
             "version": 1,
             "status": "DRAFT",
             "paused": False,
@@ -524,6 +719,11 @@ class AdmService:
             "createdBy": identity(user),
             "coordinatorId": identity(user),
             "coordinatorName": user.get("display_name") or user.get("username") or identity(user),
+            "ownerId": None,
+            "ownerName": "",
+            "handover": None,
+            "handoverHistory": [],
+            "assignmentSegments": [],
             "createdAt": now(),
             "updatedAt": now(),
             "lines": [],
@@ -539,6 +739,8 @@ class AdmService:
         case["originalAmount"] = fields.get("originalAmount")
         case["originalAmountCny"] = fields.get("originalAmountCny")
         case["ticketCount"] = fields.get("ticketCount")
+        case.update(fxRate=None, fxDate=None, fxSource=None)
+        self._apply_exchange_rate(case)
         if "source" in body:
             if not isinstance(body["source"], dict) or len(json.dumps(body["source"], ensure_ascii=False)) > 100000:
                 raise AdmError("来源快照格式或大小无效")
@@ -551,7 +753,21 @@ class AdmService:
         ):
             raise AdmError("初始明细须为对象数组，最多1000条")
         for initial_line in initial_lines:
-            case["lines"].append(self._new_line(case, initial_line, historical=history is not None))
+            case["lines"].append(self._new_line(case, initial_line, historical=history is not None, activate_import=activate_import))
+        if activate_import:
+            require(user, "adm.assign")
+            require_exact_amounts(case)
+            owners = {(line.get("ownerId"), line.get("ownerName")) for line in case["lines"] if line.get("ownerId")}
+            if not case["lines"] or len(owners) != 1 or any(line["status"] != "PENDING_CODE_PROCESSING" for line in case["lines"]):
+                raise AdmError("19列建单导入的同一ADM必须指定同一有效整单承办人", 422, "ADM_IMPORT_INVALID")
+            owner_id, owner_name = owners.pop()
+            case.update(ownerId=owner_id, ownerName=owner_name)
+            assigned_at = now()
+            case["assignmentSegments"].append(
+                {"id": uid(), "ownerId": owner_id, "ownerName": owner_name, "assignedAt": assigned_at,
+                 "acceptedAt": assigned_at, "endedAt": None, "round": case["round"], "reason": "19列建单导入"}
+            )
+            case["status"] = "IN_PROGRESS"
         case["requestHash"] = hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         if history is not None:
             if not user.get("is_admin"):
@@ -570,7 +786,7 @@ class AdmService:
             raise AdmError(str(exc), 409, "ADM_CONFLICT") from exc
         except StoreUnavailable as exc:
             raise AdmError(str(exc), 503, exc.code) from exc
-        result = self._present(user, created)
+        result = self._present_with_difference_verification(user, created)
         try:
             duplicates = self.store.same_identity(created)
         except StoreUnavailable as exc:
@@ -594,10 +810,49 @@ class AdmService:
 
     def import_case(self, user, body):
         require(user, "adm.import")
-        return self.create_case(user, body)
+        activate = (body.get("source") or {}).get("system") == "daily19"
+        return self.create_case(user, body, activate_import=activate)
 
     def case_detail(self, user, case_id):
-        return self._present(user, self._read(user, case_id))
+        return self._present_with_difference_verification(user, self._read(user, case_id))
+
+    def _present_with_difference_verification(self, user, source):
+        case = self._present(user, source)
+        if not case.get("internalNo") and case.get("admNo") and case.get("id"):
+            case["internalNo"] = internal_adm_no(case["admNo"], case["id"])
+        lines = case.get("lines") or []
+        lookup = self.config.get("ADM_DIFFERENCE_MATCH_LOOKUP")
+        checked_at = now()
+        if not callable(lookup):
+            return case
+        internal_no = str(case.get("internalNo") or "").strip()
+        values = [str(line.get("orderNo") or "").strip() for line in lines]
+        if internal_no:
+            values.append(internal_no)
+        try:
+            matched = set(lookup(values))
+        except Exception:
+            for line in lines:
+                difference = line.setdefault("difference", {})
+                difference.update(
+                    verification="CHECK_FAILED", matchedBy=None, matchedValue=None,
+                    checkedAt=checked_at,
+                )
+            return case
+        for line in lines:
+            order_no = str(line.get("orderNo") or "").strip()
+            difference = line.setdefault("difference", {})
+            if order_no and order_no in matched:
+                verification, matched_by, matched_value = "RECORDED", "OTA_ORDER_NO", order_no
+            elif internal_no and internal_no in matched:
+                verification, matched_by, matched_value = "RECORDED", "INTERNAL_ADM_NO", internal_no
+            else:
+                verification, matched_by, matched_value = "NOT_RECORDED", None, None
+            difference.update(
+                verification=verification, matchedBy=matched_by, matchedValue=matched_value,
+                checkedAt=checked_at,
+            )
+        return case
 
     def update_case(self, user, case_id, body):
         case = self._write(user, case_id, body, "adm.edit", True)
@@ -607,7 +862,27 @@ class AdmService:
             case["analysisVersions"].append(
                 {"version": case["version"], "analysis": case["analysis"], "at": now(), "actorId": identity(user)}
             )
+        previous_currency = case.get("currency")
         case.update(changes)
+        if "originalAmountCny" in changes:
+            case.update(fxRate=None, fxDate=None, fxSource=None)
+        explicit_cny = "originalAmountCny" in changes and changes["originalAmountCny"] not in (None, "")
+        currency_changed = "currency" in changes and case.get("currency") != previous_currency
+        if currency_changed and not explicit_cny:
+            if case.get("fxSource"):
+                case.setdefault("fxHistory", []).append(
+                    {"rate": case.get("fxRate"), "date": case.get("fxDate"), "source": copy.deepcopy(case.get("fxSource")), "changedAt": now(), "changedBy": identity(user)}
+                )
+            case.update(originalAmountCny=None, fxRate=None, fxDate=None, fxSource=None)
+            self._apply_exchange_rate(case, force=True)
+        elif "originalAmount" in changes and not explicit_cny:
+            if case.get("fxRate") not in (None, ""):
+                case["originalAmountCny"] = format(
+                    (Decimal(str(case["originalAmount"])) * Decimal(str(case["fxRate"]))).quantize(Decimal("0.00000001")),
+                    "f",
+                )
+            else:
+                self._apply_exchange_rate(case, force=True)
         return self._save(user, case, "edit", {"before": before, "after": changes})
 
     def copy_case(self, user, case_id, body):
@@ -637,27 +912,16 @@ class AdmService:
 
     def bulk_assign(self, user, case_id, body):
         case = self._write(user, case_id, body, "adm.assign", True)
-        ids = body.get("lineIds")
-        if not isinstance(ids, list) or not 1 <= len(ids) <= 100 or any(not isinstance(item, str) for item in ids) or len(set(ids)) != len(ids):
-            raise AdmError("批量分配请选择1—100条不同明细")
-        for line_id in ids:
-            self._line(case, line_id)
-        outcomes = []
-        version = case["version"]
-        for line_id in ids:
-            try:
-                result = self.line_action(user, case_id, line_id, {"version": version, "action": "assign", "ownerId": body.get("ownerId"), "reason": body.get("reason"), "summary": body.get("summary")})
-                version = result["version"]
-                saved_line = next(item for item in result["lines"] if item["id"] == line_id)
-                outcomes.append({"lineId": line_id, "status": "SAVED", "handoverPending": (saved_line.get("handover") or {}).get("status") == "PENDING"})
-            except AdmError as error:
-                outcomes.append({"lineId": line_id, "status": "FAILED", "message": str(error), "code": error.code})
-                if error.code == "ADM_VERSION_CONFLICT":
-                    outcomes.extend({"lineId": item, "status": "SKIPPED", "message": "版本变化，未继续处理"} for item in ids[len(outcomes):])
-                    break
-        return {"items": outcomes, "successCount": sum(item["status"] == "SAVED" for item in outcomes), "failedCount": sum(item["status"] != "SAVED" for item in outcomes)}
+        if not case.get("lines"):
+            raise AdmError("主单没有可分配的订单明细", 409)
+        return self.line_action(
+            user,
+            case_id,
+            case["lines"][0]["id"],
+            {**body, "action": "assign_operator", "version": case["version"]},
+        )
 
-    def _new_line(self, case, body, historical=False):
+    def _new_line(self, case, body, historical=False, activate_import=False):
         line = {
             **{key: "" for key in LINE_FIELDS},
             "id": uid(),
@@ -666,9 +930,11 @@ class AdmService:
             "amount": None,
             "amountCny": None,
             "ticketCount": None,
-            "status": "PENDING_ASSIGN",
-            "ownerId": None,
-            "ownerName": "",
+            "status": "PENDING_LEADER_ASSIGNMENT",
+            "leaderId": None,
+            "leaderName": "",
+            "ownerId": case.get("ownerId"),
+            "ownerName": case.get("ownerName", ""),
             "lockedBy": None,
             "analysis": {},
             "analysisVersions": [],
@@ -680,15 +946,43 @@ class AdmService:
                 "reference": "",
                 "evidence": [],
             },
-            "finance": {"required": True, "status": "PENDING", "reference": None, "amount": None, "currency": None},
+            # Kept as a read-only legacy snapshot for pre-0.5 documents. New
+            # workflow writes collectionExpectedAmount/collections instead.
+            "finance": {"required": False, "status": "NOT_APPLICABLE", "reference": None, "amount": None, "currency": None},
             "appealDecision": "UNDECIDED",
+            "processingResult": "UNDECIDED",
+            "attribution": "",
             "recoveryRequired": False,
+            "recovery": {
+                "state": "UNDECIDED",
+                "decidedBy": None,
+                "decidedAt": None,
+                "completedBy": None,
+                "completedAt": None,
+            },
+            "reviewResult": "UNDECIDED",
+            "reviewedBy": None,
+            "reviewedAt": None,
+            "collectionExpectedAmount": None,
+            "collectionStatus": "NOT_REQUIRED",
+            "collections": [],
             "matchStatus": "UNVERIFIED",
             "reviews": [],
             **self._clean(body, LINE_FIELDS),
         }
+        line["lineInternalNo"] = next_line_internal_no(case)
+        line["currency"] = case["currency"]
+        self._apply_line_exchange_rate(case, line)
+        self._apply_line_references(line, validate_difference_type=not historical)
+        if activate_import:
+            owner_id, owner_name = WorkflowService(self).resolve(body.get("initialOwnerId"), "handle")
+            line.update(ownerId=owner_id, ownerName=owner_name, status="PENDING_CODE_PROCESSING", assignedAt=now())
+            segment_assign(case, line, "19列建单导入")
         if isinstance(body.get("source"), dict):
             line["source"] = copy.deepcopy(body["source"])
+        if case.get("ownerId") and not historical and not activate_import:
+            line.update(status="PENDING_CODE_PROCESSING", assignedAt=now())
+            segment_assign(case, line, "新增订单沿用整单当前承办人")
         # No approved recovery SLA yet: absence is unknown, not an invented +48h deadline.
         if historical:
             line["status"] = "HISTORICAL"
@@ -699,12 +993,15 @@ class AdmService:
         case = self._write(user, case_id, body, "adm.edit" if has(user, "adm.edit") else "adm.handle")
         line = self._line(case, line_id)
         self._line_access(user, case, line)
-        if line["status"] != "PENDING_ASSIGN":
+        if line["status"] != "PENDING_LEADER_ASSIGNMENT":
             if "edit" not in self._line_actions(user, case, line):
                 raise AdmError("仅当前处理人可编辑处理中明细", 403)
         elif not self._full(user, case):
             raise AdmError("待分配明细需专员编辑", 403)
         changes = self._clean(body, LINE_FIELDS)
+        if "currency" in changes and changes["currency"] != case["currency"]:
+            raise AdmError("明细币种必须引用主单币种，不能独立修改")
+        changes.pop("currency", None)
         before = {key: copy.deepcopy(line.get(key)) for key in changes}
         if "analysis" in changes:
             line["analysisVersions"].append(
@@ -716,6 +1013,10 @@ class AdmService:
                 }
             )
         line.update(changes)
+        if "amount" in changes and not ("amountCny" in changes and changes["amountCny"] not in (None, "")):
+            line["amountCny"] = None
+            self._apply_line_exchange_rate(case, line, force=True)
+        self._apply_line_references(line)
         return self._save(user, case, "edit_line", {"before": before, "after": changes}, line_id)
 
     def _evidence(self, case, line_id, ids):
@@ -742,190 +1043,188 @@ class AdmService:
             return False
 
     def _submission_blockers(self, case, line):
-        blockers = collaboration_blockers(case, line)
-        if (line.get("handover") or {}).get("status") == "PENDING":
+        blockers = []
+        if (case.get("handover") or {}).get("status") == "PENDING":
             blockers.append("仍有待确认交接，请先接受、驳回或取消")
-        for key, label in [
-            ("description", "问题描述"),
-            ("platform", "平台"),
-            ("diffType", "差异一级分类"),
-            ("diffSecondType", "差异二级分类"),
-            ("attribution", "结案归因"),
-            ("matchEvidence", "归属核实依据"),
-        ]:
+        for key, label in [("diffType", "差异类型"), ("diffSecondType", "细分差异原因")]:
             if not line.get(key):
                 blockers.append(label + "未填写")
-        if line["businessType"] == "UNKNOWN" or line["matchStatus"] == "UNVERIFIED":
-            blockers.append("业务类型或我司归属待核实")
-        if not line.get("orderNo") and not line.get("unlinkedReason"):
-            blockers.append("订单号或未关联依据缺失")
-        for key in ("facts", "cause", "proposal", "conclusion"):
-            if not line["analysis"].get(key):
-                blockers.append("分析" + key + "缺失")
         if line.get("amount") is None or not line.get("currency"):
-            blockers.append("分摊金额或币种缺失")
-        if line.get("appealDecision") == "UNDECIDED":
-            blockers.append("申诉决策未填写")
-        if line.get("appealDecision") == "NOT_REQUIRED" and not line.get("appealReason"):
+            blockers.append("明细原币金额或主单币种缺失")
+        recovery_state = (line.get("recovery") or {}).get("state")
+        if recovery_state not in {"NOT_REQUIRED", "MANUALLY_COMPLETED"}:
+            blockers.append("恢复编码前置尚未人工完成")
+        if line.get("processingResult") == "UNDECIDED":
+            blockers.append("处理结果未填写")
+        if line.get("processingResult") == "NO_APPEAL" and not line.get("appealReason"):
             blockers.append("不申诉原因缺失")
-        if line.get("appealDecision") == "REQUIRED" and not line["appeals"]:
-            blockers.append("需申诉但尚无申诉记录")
-        latest = {}
-        for appeal in line["appeals"]:
-            latest[(appeal["targetType"], appeal["targetName"])] = appeal
-        if any(item["status"] not in {"SUCCESS", "PARTIAL_SUCCESS", "FAILED", "WITHDRAWN"} for item in latest.values()):
-            blockers.append("仍有未终结申诉")
-        latest_recovery = {}
-        for recovery in line["recoveries"]:
-            latest_recovery[(recovery["system"], recovery["pcc"])] = recovery
-        if (line.get("recoveryRequired") and not latest_recovery) or any(
-            item["status"] != "COMPLETED" for item in latest_recovery.values()
-        ):
-            blockers.append("必需编码恢复未完成")
-        if not line["finance"]["required"] and not line["finance"].get("reason"):
-            blockers.append("无需财务处理依据缺失")
-        if not any(item.get("lineId") == line["id"] for item in case["attachments"]):
-            blockers.append("明细结果证据缺失")
-        elif not all(
-            self._verified_attachment(item) for item in case["attachments"] if item.get("lineId") == line["id"]
-        ):
-            blockers.append("明细证据缺失、损坏或不可读")
+        if line.get("processingResult") in {"NO_APPEAL", "APPEAL_FAILED"} and line.get("attribution") not in ATTRIBUTIONS:
+            blockers.append("问题归因未填写")
         return blockers
 
     def line_action(self, user, case_id, line_id, body):
         action = body.get("action")
-        if action in COLLABORATION_ACTIONS:
-            return CollaborationService(self).action(user, case_id, line_id, body)
         if action in WORKFLOW_ACTIONS:
             return WorkflowService(self).line_action(user, case_id, line_id, body)
         permissions = {
-            "lock": "adm.handle",
-            "assign": "adm.assign",
-            "claim": "adm.handle",
-            "unlock": "adm.handle",
-            "submit": "adm.handle",
+            "assign_operator": "adm.assign",
+            "recovery_decide": "adm.handle",
+            "recovery_complete": "adm.handle",
+            "decide": "adm.handle",
+            "appeal_result": "adm.handle",
+            "resubmit": "adm.handle",
             "approve": "adm.review",
             "return": "adm.review",
-            "finance_confirm": "adm.finance.confirm",
-            "recovery": "adm.handle",
-            "appeal": "adm.handle",
-            "difference": "adm.handle",
+            "record_collection": "adm.review",
         }
         if action not in permissions:
             raise AdmError("明细操作无效")
-        permission = "adm.unlock.force" if action == "unlock" and has(user, "adm.unlock.force") else permissions[action]
-        case = self._write(user, case_id, body, permission)
+        case = self._write(user, case_id, body, permissions[action])
         line = self._line(case, line_id)
         self._line_access(user, case, line)
         if action not in self._line_actions(user, case, line):
             raise AdmError("当前状态或处理人不允许此操作", 409, "ADM_ACTION_BLOCKED")
-        if action == "assign":
-            if line["status"] in {"COMPLETED", "WAITING_FINANCE"}:
-                raise AdmError("审核完成明细需先重开或退回", 409)
-            if line.get("ownerId"):
-                detail = WorkflowService(self).request_transfer(user, case, line, body)
-                return self._save(user, case, "transfer_request", detail, line_id)
-            owner = str(body.get("ownerId") or "")
-            if not owner:
-                raise AdmError("请选择处理人")
-            resolver = self.config.get("ADM_USER_RESOLVER")
-            if resolver:
-                selected = resolver(owner)
-                if not selected or not selected.get("is_enabled", True):
-                    raise AdmError("处理人不存在或停用")
-                if not has(selected, "adm.view") or not has(selected, "adm.handle"):
-                    raise AdmError("处理人尚未配置ADM查看和处理权限，请先在账号管理授权")
-                if not selected.get("is_admin") and "adm.center" not in (selected.get("menu_codes") or []):
-                    raise AdmError("处理人尚未配置ADM菜单权限")
-                owner_name = selected.get("display_name") or selected.get("username") or owner
-            elif self.config.get("TESTING"):
-                owner_name = owner
+        actor = identity(user)
+
+        def resolve(value, purpose):
+            return WorkflowService(self).resolve(value, purpose)
+
+        if action == "assign_operator":
+            for candidate in case["lines"]:
+                if candidate["status"] not in {"PENDING_LEADER_ASSIGNMENT", "PENDING_OPERATOR_ASSIGNMENT"}:
+                    raise AdmError("整单已有订单进入办理，不能再次分配；请使用整单转派", 409)
+                self._require_assignment_ready(case, candidate)
+            owner_id, owner_name = resolve(body.get("ownerId"), "handle")
+            case.update(ownerId=owner_id, ownerName=owner_name)
+            assigned_at = now()
+            for candidate in case["lines"]:
+                candidate.update(
+                    ownerId=owner_id,
+                    ownerName=owner_name,
+                    status="PENDING_CODE_PROCESSING",
+                    assignedAt=assigned_at,
+                    recovery={"state": "UNDECIDED", "decidedBy": None, "decidedAt": None, "completedBy": None, "completedAt": None},
+                )
+                segment_assign(case, candidate, str(body.get("reason") or "ADM负责人分配整单承办人"))
+            case.setdefault("assignmentSegments", []).append(
+                {"id": uid(), "ownerId": owner_id, "ownerName": owner_name, "assignedAt": assigned_at,
+                 "acceptedAt": assigned_at, "endedAt": None, "round": case["round"],
+                 "reason": str(body.get("reason") or "ADM负责人分配整单承办人")}
+            )
+        elif action == "recovery_decide":
+            if type(body.get("required")) is not bool:
+                raise AdmError("须明确是否需要恢复编码")
+            required = body["required"]
+            line["recoveryRequired"] = required
+            line["recovery"] = {
+                "state": "WAITING_MANUAL" if required else "NOT_REQUIRED",
+                "decidedBy": actor,
+                "decidedAt": now(),
+                "completedBy": None,
+                "completedAt": None,
+            }
+            if not required:
+                line["status"] = "PENDING_DECISION"
+        elif action == "recovery_complete":
+            recovery = line.get("recovery") or {}
+            if recovery.get("state") != "WAITING_MANUAL":
+                raise AdmError("当前没有等待人工完成的编码恢复", 409, "ADM_ACTION_BLOCKED")
+            recovery.update(state="MANUALLY_COMPLETED", completedBy=actor, completedAt=now())
+            line["status"] = "PENDING_DECISION"
+        elif action == "decide":
+            decision = str(body.get("decision") or "")
+            if decision == "APPEAL":
+                if not str(body.get("reason") or "").strip() or not str(body.get("target") or "").strip():
+                    raise AdmError("申诉原因和申诉对象必填")
+                line.update(appealDecision="REQUIRED", appealReason=str(body["reason"]), status="APPEAL_IN_PROGRESS")
+                line["appeals"].append({"id": uid(), "status": "IN_PROGRESS", "reason": str(body["reason"]), "target": str(body["target"]), "actorId": actor, "at": now()})
+            elif decision == "NO_APPEAL":
+                if not str(body.get("reason") or "").strip():
+                    raise AdmError("不申诉原因必填")
+                line.update(
+                    appealDecision="NOT_REQUIRED",
+                    appealReason=str(body["reason"]),
+                    processingResult="NO_APPEAL",
+                    attribution=validate_attribution(body.get("attribution")),
+                    status="PENDING_REVIEW",
+                    submittedAt=now(),
+                )
             else:
-                raise AdmError("处理人目录尚未接入", 503, "ADM_UNAVAILABLE")
-            if line.get("ownerId") and not body.get("reason"):
-                raise AdmError("转单须填写原因")
-            line.update(ownerId=owner, ownerName=owner_name, status="PENDING_ACCEPT", lockedBy=None)
-            segment_assign(case, line, str(body.get("reason") or "首次分配"))
-        elif action == "claim":
-            line.update(status="PROCESSING", lockedBy=identity(user), acceptedAt=now())
-            segment_accept(case, line)
-        elif action == "lock":
-            line["lockedBy"] = identity(user)
-        elif action == "unlock":
-            if line.get("lockedBy") not in {None, identity(user)} and not str(body.get("reason") or "").strip():
-                raise AdmError("强制解锁须填写原因")
-            if line.get("lockedBy") not in {None, identity(user)} and not has(user, "adm.unlock.force"):
-                raise AdmError("只能解锁本人持单", 403)
-            line["lockedBy"] = None
-        elif action == "submit":
-            blockers = self._submission_blockers(case, line)
-            if blockers:
-                raise AdmError("；".join(blockers), 409, "ADM_SUBMIT_BLOCKED")
-            line.update(status="PENDING_REVIEW", lockedBy=None, submittedAt=now())
-        elif action in {"approve", "return"}:
-            if not str(body.get("reason") or "").strip():
-                raise AdmError("审核意见必填")
-            if action == "approve":
+                raise AdmError("处理决定无效")
+        elif action == "appeal_result":
+            result = str(body.get("result") or "")
+            if result not in {"APPEAL_SUCCESS", "APPEAL_FAILED"}:
+                raise AdmError("申诉结果无效")
+            line["processingResult"] = result
+            line["attribution"] = "" if result == "APPEAL_SUCCESS" else validate_attribution(body.get("attribution"))
+            line["status"] = "PENDING_REVIEW"
+            line["submittedAt"] = now()
+            line["appeals"].append({"id": uid(), "status": "SUCCESS" if result == "APPEAL_SUCCESS" else "FAILED", "reason": str(body.get("reason") or ""), "actorId": actor, "at": now()})
+        elif action == "resubmit":
+            decision, result = str(body.get("decision") or ""), str(body.get("result") or "")
+            if decision == "APPEAL":
+                reason, target = str(body.get("reason") or "").strip(), str(body.get("target") or "").strip()
+                if not reason or not target:
+                    raise AdmError("申诉原因和申诉对象必填")
+                line.update(appealDecision="REQUIRED", appealReason=reason, processingResult="UNDECIDED", attribution="", status="APPEAL_IN_PROGRESS")
+                line["appeals"].append({"id": uid(), "status": "IN_PROGRESS", "reason": reason, "target": target, "actorId": actor, "at": now()})
+            elif decision == "NO_APPEAL":
+                reason = str(body.get("reason") or "").strip()
+                if not reason:
+                    raise AdmError("不申诉原因必填")
+                line.update(appealDecision="NOT_REQUIRED", appealReason=reason, processingResult="NO_APPEAL", attribution=validate_attribution(body.get("attribution")), status="PENDING_REVIEW", submittedAt=now())
+            elif result in {"APPEAL_SUCCESS", "APPEAL_FAILED"}:
+                reason, target = str(body.get("reason") or "").strip(), str(body.get("target") or "").strip()
+                if not reason or not target:
+                    raise AdmError("申诉原因和申诉对象必填")
+                line.update(appealDecision="REQUIRED", appealReason=reason, processingResult=result, attribution="" if result == "APPEAL_SUCCESS" else validate_attribution(body.get("attribution")), status="PENDING_REVIEW", submittedAt=now())
+                line["appeals"].append({"id": uid(), "status": "SUCCESS" if result == "APPEAL_SUCCESS" else "FAILED", "reason": reason, "target": target, "actorId": actor, "at": now()})
+            else:
                 blockers = self._submission_blockers(case, line)
                 if blockers:
-                    raise AdmError("；".join(blockers), 409)
-                line["status"] = "WAITING_FINANCE" if line["finance"]["required"] else "COMPLETED"
+                    raise AdmError("；".join(blockers), 409, "ADM_SUBMIT_BLOCKED")
+                line.update(status="PENDING_REVIEW", submittedAt=now())
+        elif action in {"approve", "return"}:
+            reason = str(body.get("reason") or "")
+            if action == "return":
+                line.update(status="REJECTED_FOR_REVISION", reviewResult="RETURNED", reviewedBy=actor, reviewedAt=now())
             else:
-                line.update(status="PROCESSING", lockedBy=line["ownerId"])
-            line["reviews"].append(
-                {
-                    "action": action,
-                    "reason": body["reason"],
-                    "actorId": identity(user),
-                    "at": now(),
-                    "version": case["version"],
-                }
-            )
-        elif action == "finance_confirm":
-            evidence = self._evidence(case, line_id, body.get("evidence"))
+                requires_collection = body.get("requiresCollection")
+                if type(requires_collection) is not bool:
+                    raise AdmError("审核通过时须明确是否需要回款")
+                expected = money(body.get("collectionExpectedAmount"), False) if requires_collection else None
+                if requires_collection and Decimal(expected) <= 0:
+                    raise AdmError("应追回金额必须大于0")
+                line.update(
+                    status="PENDING_COLLECTION" if requires_collection else "COMPLETED",
+                    reviewResult="APPROVED",
+                    reviewedBy=actor,
+                    reviewedAt=now(),
+                    collectionExpectedAmount=expected,
+                    collectionStatus="PENDING" if requires_collection else "NOT_REQUIRED",
+                )
+            line["reviews"].append({"action": action, "reason": reason, "actorId": actor, "at": now(), "version": case["version"]})
+        elif action == "record_collection":
             amount = money(body.get("amount"), False)
-            if not body.get("reference") or body.get("currency") != line["currency"]:
-                raise AdmError("财务凭证号及对应币种必填")
-            if Decimal(amount) > Decimal(line["amount"]):
-                raise AdmError("确认金额不能超过明细分摊金额")
-            line["finance"].update(
-                status="CONFIRMED",
-                reference=body["reference"],
-                amount=amount,
-                currency=body["currency"],
-                evidence=evidence,
-                confirmedBy=identity(user),
-                confirmedAt=now(),
-                source="MANUAL_EVIDENCE",
-                reason=str(body.get("reason") or ""),
-            )
-            if (
-                amount != line["amount"]
-                and Decimal(amount) != Decimal(line["amount"])
-                and not line["finance"]["reason"]
-            ):
-                raise AdmError("财务金额与分摊不同时须说明减免或其他处置")
-            line["status"] = "COMPLETED"
-        elif action == "recovery":
-            self._recovery(user, case, line, body)
-        elif action == "appeal":
-            self._appeal(user, case, line, body)
-        elif action == "difference":
-            declaration = body.get("declaration")
-            if declaration not in {"UNDECLARED", "MANUAL_DECLARED", "NOT_REQUIRED"}:
-                raise AdmError("人工差异声明无效")
-            evidence = self._evidence(case, line_id, body.get("evidence")) if declaration == "MANUAL_DECLARED" else []
-            if declaration != "UNDECLARED" and not body.get("reason"):
-                raise AdmError("差异声明须填写说明")
-            line["difference"].update(
-                declaration=declaration,
-                reference=str(body.get("reference") or ""),
-                evidence=evidence,
-                reason=str(body.get("reason") or ""),
-                updatedBy=identity(user),
-                updatedAt=now(),
-                verification="NOT_CONNECTED",
-            )
+            if Decimal(amount) <= 0:
+                raise AdmError("本次回款金额必须大于0")
+            if not str(body.get("receivedDate") or "").strip():
+                raise AdmError("回款日期必填")
+            expected = Decimal(str(line.get("collectionExpectedAmount") or "0"))
+            if collection_total(line) + Decimal(amount) > expected:
+                raise AdmError("累计回款不能超过应追回金额")
+            evidence = []
+            if body.get("evidence"):
+                evidence = self._evidence(case, line_id, body["evidence"])
+            line["collections"].append({
+                "id": uid(), "amount": amount, "currency": line["currency"],
+                "receivedDate": str(body["receivedDate"]), "note": str(body.get("note") or ""),
+                "evidence": evidence, "recordedBy": actor, "recordedAt": now(),
+            })
+            if collection_total(line) == expected:
+                line.update(status="COMPLETED", collectionStatus="COMPLETED")
+            else:
+                line["collectionStatus"] = "PARTIAL"
         audit = {key: value for key, value in body.items() if key not in {"version", "action"}}
         if line["status"] == "COMPLETED":
             line["completedAt"] = now()
@@ -1041,11 +1340,8 @@ class AdmService:
             case["status"] != "DRAFT" and not case.get("paused") and not case.get("voided"),
         )
         check("LINES", "至少一条订单处理明细", bool(case["lines"]))
-        check("COLLABORATIONS", "必需协办已完成或有据取消", not any(collaboration_blockers(case, line) for line in case["lines"]))
-        check("ORIGINAL", "已上传下发原件", any(item["category"] == "ORIGINAL" for item in case["attachments"]))
         evidence_ids = set()
         for line in case["lines"]:
-            evidence_ids.update(line["finance"].get("evidence") or [])
             evidence_ids.update(line["difference"].get("evidence") or [])
             for record in line["appeals"] + line["recoveries"]:
                 evidence_ids.update(record.get("evidence") or [])
@@ -1056,47 +1352,32 @@ class AdmService:
         ]
         check(
             "FILES_INTACT",
-            "原件及必需证据仍可读且校验完整",
-            bool(required_files)
-            and evidence_ids <= {item["id"] for item in required_files}
+            "现有附件仍可读且校验完整",
+            evidence_ids <= {item["id"] for item in required_files}
             and all(self._verified_attachment(item) for item in required_files),
         )
         check(
             "IDENTITY",
             "ADM身份及日期截止完整",
-            all(case.get(key) for key in ("admNo", "supplierName", "issuedDate", "deadline", "description")),
+            all(case.get(key) for key in ("admNo", "supplierName", "currency", "originalAmount", "issuedDate", "deadline")),
         )
-        check(
-            "ANALYSIS",
-            "主单事实、结论和预防改进完整",
-            all(case["analysis"].get(key) for key in ("facts", "conclusion", "prevention")),
-        )
-        allocated = sum(
-            (
-                Decimal(line["amount"])
-                for line in case["lines"]
-                if line.get("amount") is not None and line.get("currency") == case["currency"]
-            ),
-            Decimal("0"),
-        )
-        original = Decimal(case["originalAmount"]) if case.get("originalAmount") is not None else None
+        original, allocated, amounts_match = exact_amounts(case)
         gap = original - allocated if original is not None else None
         check(
             "AMOUNTS",
             "原币金额全部分摊核平",
-            gap == 0
-            and original is not None
-            and all(
-                line.get("amount") is not None and line.get("currency") == case["currency"] for line in case["lines"]
-            ),
+            amounts_match,
         )
         for line in case["lines"]:
             check(
                 "LINE_COMPLETED",
-                "明细已完成审核和必需财务",
+                "明细已完成审核及必要回款",
                 line["status"] == "COMPLETED"
-                and bool(line["reviews"])
-                and (not line["finance"]["required"] or line["finance"]["status"] == "CONFIRMED"),
+                and line.get("reviewResult") == "APPROVED"
+                and (
+                    line.get("collectionStatus") == "NOT_REQUIRED"
+                    or collection_total(line) >= Decimal(str(line.get("collectionExpectedAmount") or "0"))
+                ),
                 line["id"],
             )
         return {
@@ -1124,8 +1405,6 @@ class AdmService:
 
     def case_action(self, user, case_id, body):
         action = body.get("action")
-        if action == "attachment_share":
-            return CollaborationService(self).share(user, case_id, body)
         if action == "coordinator":
             return WorkflowService(self).coordinate(user, case_id, body)
         if action not in {"publish", "pause", "resume", "void", "close", "reopen"}:
@@ -1135,7 +1414,8 @@ class AdmService:
         if action == "publish":
             if case["status"] != "DRAFT" or not case["lines"] or not case.get("admNo") or not case.get("supplierName"):
                 raise AdmError("仅有明细且身份完整的草稿可发布", 409)
-            case["status"] = "PENDING_ASSIGN"
+            require_exact_amounts(case)
+            case["status"] = "PENDING_LEADER_ASSIGNMENT"
         elif action in {"pause", "void"}:
             if not body.get("reason"):
                 raise AdmError("挂起或作废原因必填")
@@ -1167,9 +1447,14 @@ class AdmService:
                 }
             )
             case.update(status="CLOSED", closedAt=now(), closedBy=identity(user))
+            closed_at = datetime.fromisoformat(case["closedAt"])
+            case["attachmentCleanupDueAt"] = (closed_at + timedelta(days=7)).isoformat(timespec="seconds")
+            case["attachmentCleanupCancelledAt"] = None
         else:
             if case["status"] != "CLOSED" or not body.get("reason"):
                 raise AdmError("重开须为已结案并填写原因", 409)
+            if case.get("attachmentCleanupState") == "DELETING":
+                raise AdmError("附件清理正在执行，暂不能重开", 409, "ADM_ATTACHMENT_CLEANUP_RUNNING")
             ids = body.get("lineIds") or [line["id"] for line in case["lines"]]
             if (
                 not isinstance(ids, list)
@@ -1179,10 +1464,20 @@ class AdmService:
                 raise AdmError("重开明细范围无效")
             for line in case["lines"]:
                 if line["id"] in ids:
-                    line.update(status="PENDING_ACCEPT" if line.get("ownerId") else "PENDING_ASSIGN", lockedBy=None)
-                    if line["finance"]["required"]:
-                        line["finance"]["status"] = "PENDING"
-            case.update(status="PROCESSING", round=case["round"] + 1, closedAt=None, closedBy=None)
+                    line.update(
+                        status="PENDING_CODE_PROCESSING" if line.get("ownerId") else (
+                            "PENDING_OPERATOR_ASSIGNMENT" if line.get("leaderId") else "PENDING_LEADER_ASSIGNMENT"
+                        ),
+                        lockedBy=None,
+                    )
+            case.update(
+                status="IN_PROGRESS",
+                round=case["round"] + 1,
+                closedAt=None,
+                closedBy=None,
+                attachmentCleanupCancelledAt=now() if case.get("attachmentCleanupState") != "COMPLETED" else None,
+                attachmentCleanupDueAt=None,
+            )
         return self._save(
             user, case, action, {key: value for key, value in body.items() if key not in {"version", "action"}}
         )
@@ -1200,13 +1495,10 @@ class AdmService:
         if line_id and not has(user, "adm.edit"):
             current = self._read(user, case_id)
             current_line = self._line(current, line_id)
-            collaborator = any("collaboration_submit" in task_actions(user, current, current_line, task, self._full(user, current)) for task in current_line.get("collaborations", []))
-            if collaborator:
-                permission = "adm.handle"
-            elif current_line["status"] == "PENDING_REVIEW":
+            if current_line["status"] == "PENDING_REVIEW":
                 permission = "adm.review"
-            elif current_line["status"] == "WAITING_FINANCE":
-                permission = "adm.finance.confirm"
+            elif current_line["status"] == "PENDING_COLLECTION":
+                permission = "adm.review"
         current = self._read(user, case_id)
         remediation = line_id and current["status"] == "CLOSED" and "upload" in self._line_actions(user, current, self._line(current, line_id))
         case = self._write(user, case_id, body, permission, control_action="remediation" if remediation else "archive_attachment")
@@ -1218,7 +1510,7 @@ class AdmService:
                     raise AdmError("当前节点无明细材料上传权限", 403)
                 permitted = ["VERIFICATION", "ANALYSIS"] if remediation else upload_categories(user, case, line, self._full(user, case))
                 if attachment["category"] not in permitted:
-                    raise AdmError("此节点仅允许上传对应审核/财务材料", 403)
+                    raise AdmError("此节点仅允许上传对应审核或回款材料", 403)
         elif not (self._full(user, case) and has(user, "adm.edit")):
             raise AdmError("无主单材料上传权限", 403)
         if any(item["id"] == attachment["id"] for item in case["attachments"]):
@@ -1249,5 +1541,13 @@ class AdmService:
         if not self._full(user, case) and not file_visible(attachment, {
             line["id"] for line in self._visible_lines(user, case)
         }):
-            raise AdmError("无附件权限", 403)
+            raise AdmError("无附件下载权限", 403, "ADM_FORBIDDEN")
+        return copy.deepcopy(attachment)
+
+    def attachment_preview(self, user, case_id, attachment_id):
+        """Allow ledger viewers to inspect bytes online without download authority."""
+        case = self._read(user, case_id)
+        attachment = next((item for item in case["attachments"] if item["id"] == str(attachment_id)), None)
+        if not attachment:
+            raise AdmError("附件不存在", 404)
         return copy.deepcopy(attachment)

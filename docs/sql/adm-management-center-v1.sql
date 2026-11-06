@@ -1,5 +1,7 @@
--- NEW installation only. Execute manually; never alter ERP adm_records.
--- Existing adm_case_document: use adm-management-center-upgrade-v2.sql instead.
+-- LEGACY DOCUMENT-TABLE DDL: DO NOT USE FOR THE NEW ADM RELEASE.
+-- Retained only to identify/remove abandoned pre-release objects after data confirmation.
+-- Use adm-normalized-v1.sql for all new installations.
+-- Do not execute or upgrade this legacy table for the new release.
 -- Requires MySQL 5.7+ JSON support; production compatibility and privileges need DBA verification.
 -- One aggregate contains lines, attachment metadata, immutable events and closure snapshots.
 -- CAS version update makes each business mutation and its audit event atomic.
@@ -11,12 +13,14 @@ CREATE TABLE IF NOT EXISTS adm_case_document (
     idempotency_key VARCHAR(200) NULL,
     payload JSON NOT NULL,
     adm_no VARCHAR(100) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(payload,'$.admNo'))) STORED,
+    internal_no VARCHAR(50) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(payload,'$.internalNo'))) STORED,
     supplier_code VARCHAR(200) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(payload,'$.supplierCode'))) STORED,
     case_status VARCHAR(32) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(payload,'$.status'))) STORED,
     business_category VARCHAR(8) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(payload,'$.businessCategory'))) STORED,
     issued_date VARCHAR(10) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(payload,'$.issuedDate'))) STORED,
     updated_at VARCHAR(40) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(payload,'$.updatedAt'))) STORED,
     UNIQUE KEY uk_adm_create_idempotency (idempotency_key),
+    UNIQUE KEY uk_adm_internal_no (internal_no),
     KEY idx_adm_no (adm_no),
     KEY idx_adm_status_update (case_status,updated_at),
     KEY idx_adm_supplier_date (supplier_code,issued_date),

@@ -40,6 +40,8 @@ class NotificationWorker(OperationsService):
         return user
 
     def run_once(self):
+        if not self.service.config.get("ADM_NOTIFICATIONS_ENABLED", False):
+            return {"enabled": False, "created": 0, "reason": "DEFERRED_TO_NEXT_VERSION"}
         policy = self.policy()
         actor = self.active_user(policy.get("approvedBy")) if policy.get("approvedBy") else None
         if not actor or not actor.get("is_admin"):
@@ -110,12 +112,10 @@ class NotificationWorker(OperationsService):
             self.service._line_access(user, case, line)
             if row.get("escalation"):
                 return has(user, "adm.assign") and self.service._full(user, case) and str(case.get("coordinatorId", case["createdBy"])) == identity(user)
-            if task["kind"] in {"COLLABORATION", "REMEDIATION"}:
-                from .collaboration import task_actions
-                collaboration = next((item for item in line.get("collaborations", []) if item["id"] == task.get("taskId")), None)
-                expected = "collaboration_review" if task["status"] == "PENDING_REVIEW" else "collaboration_accept" if task["status"] == "PENDING_ACCEPT" else "collaboration_submit"
-                return bool(collaboration and identity(user) == task["ownerId"] and expected in task_actions(user, case, line, collaboration, self.service._full(user, case)))
-            permission = {"ASSIGN": "adm.assign", "REVIEW": "adm.review", "FINANCE": "adm.finance.confirm"}.get(task["kind"], "adm.handle")
+            permission = {
+                "ASSIGN_OPERATOR": "adm.assign",
+                "REVIEW": "adm.review", "COLLECTION": "adm.review",
+            }.get(task["kind"], "adm.handle")
             return has(user, permission) and identity(user) == task["ownerId"]
         except AdmError:
             return False

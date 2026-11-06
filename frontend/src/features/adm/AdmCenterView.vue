@@ -22,7 +22,12 @@
       style="margin-bottom: 16px"
     />
     <WorkflowPanel v-if="isWorkbench" :refresh-key="workflowRefresh" />
-    <CompletionPanel v-if="isWorkbench" ref="completionPanel" />
+    <a-alert
+      v-if="isWorkbench"
+      type="info"
+      show-icon
+      message="ADM第一版不提供站内消息、企业微信或其他主动通知；全部待办以本工作台实时任务为准。"
+    />
     <div class="adm-metrics">
       <div v-for="item in metrics" :key="item.key">
         <span>{{ item.title }}</span
@@ -33,7 +38,7 @@
       <label
         >搜索<a-input
           v-model:value="search"
-          placeholder="ADM / 订单 / 票号 / PNR / 备注"
+          placeholder="内部单号 / ADM / 订单 / 票号 / PNR / 备注"
           allow-clear
           @press-enter="query"
       /></label>
@@ -42,7 +47,7 @@
           v-model:value="status"
           :options="[{ label: '全部状态', value: '' }, ...options(config?.caseStatuses)]"
       /></label>
-      <label>数据范围<a-select v-model:value="scope" :options="scopes" /></label>
+      <label>数据范围<a-select v-model:value="scope" :options="scopes" disabled /></label>
       <label
         >业务大类<a-select
           v-model:value="businessCategory"
@@ -56,9 +61,10 @@
       <label>下发方编码<a-input v-model:value="supplierCode" allow-clear @press-enter="query" /></label>
       <a-button type="primary" :loading="loading" @click="query">查询</a-button>
       <a-button v-if="permission('import')" @click="importOpen = true">批量导入</a-button>
+      <a-button v-if="isWorkbench && permission('handle')" @click="operatorOpen = true">操作人员离线处理</a-button>
       <a-button v-if="permission('export')" :loading="exporting" @click="startExport('adm_cases')">导出主单</a-button>
       <a-button v-if="permission('export')" :loading="exporting" @click="startExport('adm_lines')">导出明细</a-button>
-      <a-button @click="downloadTemplate('center')">下载统一模板</a-button>
+      <a-button @click="downloadTemplate('daily19')">下载19列建单模板</a-button>
     </div>
     <p class="adm-muted">
       当前结果：{{ scopeLabel }} · {{ total }} 张 ADM。金额按原币种展示；明细及权限范围以服务端为准。
@@ -69,12 +75,12 @@
       :data-source="items"
       :loading="loading"
       :pagination="false"
-      :scroll="{ x: 1730, y: 'calc(100vh - 440px)' }"
+      :scroll="{ x: 1910, y: 'calc(100vh - 440px)' }"
       size="middle"
     >
       <template #bodyCell="{ column, record }">
-        <template v-if="column.key === 'admNo'"
-          ><router-link :to="`/adm/cases/${encodeURIComponent(record.id)}`">{{ record.admNo }}</router-link
+        <template v-if="column.key === 'internalNo'"
+          ><router-link :to="`/adm/cases/${encodeURIComponent(record.id)}`">{{ record.internalNo }}</router-link
           ><span v-if="record.partial" class="adm-muted">（部分明细）</span></template
         >
         <template v-else-if="column.key === 'status'"
@@ -137,9 +143,10 @@
       <InitialOrderLines v-model="initialLines" :currency="draft.currency || 'CNY'" :disabled="saving" />
     </FormDialog>
     <a-modal v-model:open="importOpen" title="批量导入 ADM" :width="900" :footer="null" :mask-closable="false">
-      <p>日常录入使用XLSX模板；管理员可上传ERP导出的JSON数组，作为历史只读档案。均先预览再提交，不自动覆盖已有数据。</p>
+      <p>日常建单使用19列单Sheet XLSX模板；管理员可上传ERP导出的JSON数组作为历史只读档案。均先预览再提交，不自动覆盖已有数据。</p>
       <a-space wrap
-        ><a-button @click="downloadTemplate('center')">统一模板</a-button
+        ><a-button type="primary" @click="downloadTemplate('daily19')">19列日常建单模板</a-button
+        ><a-button @click="downloadTemplate('center')">兼容双Sheet模板</a-button
         ><a-button @click="downloadTemplate('java44')">Java 44 列模板</a-button
         ><a-button @click="downloadTemplate('python38')">Python 38 列模板</a-button
         ><input type="file" accept=".xlsx,.json" aria-label="选择导入文件" @change="selectImport" /><a-button
@@ -180,11 +187,27 @@
         >
       </template>
     </a-modal>
+    <a-modal v-model:open="operatorOpen" title="操作人员34列离线处理" :width="920" :footer="null" :mask-closable="false">
+      <p>只导出本人当前待处理订单。回导时重新校验归属、原状态、恢复阶段和数据版本；任何错误都会阻止本次确认。</p>
+      <label>导出任务类型</label>
+      <a-checkbox-group v-model:value="operatorStatuses" :options="operatorStatusOptions" style="display:block;margin:8px 0 16px" />
+      <a-space wrap>
+        <a-button type="primary" :loading="operatorBusy" :disabled="!operatorStatuses.length" @click="downloadOperatorWorkbook">导出34列任务</a-button>
+        <input type="file" accept=".xlsx" aria-label="选择操作人员处理结果" @change="selectOperatorImport" />
+        <a-button :loading="operatorBusy" :disabled="!operatorFile" @click="previewOperatorImport">校验并预览</a-button>
+      </a-space>
+      <a-alert v-if="operatorError" type="error" :message="operatorError" style="margin-top:12px" />
+      <template v-if="operatorResult">
+        <p>共 {{ operatorResult.rowCount }} 行；可提交 {{ operatorResult.readyCount }} 行；跳过 {{ operatorResult.skippedCount }} 行；错误 {{ operatorResult.errorCount }} 行。</p>
+        <a-alert v-for="(item, index) in operatorResult.errors || []" :key="index" type="error" :message="`第 ${item.row} 行：${item.message}`" />
+        <a-button type="primary" :loading="operatorBusy" :disabled="!operatorResult.previewId || operatorResult.errorCount > 0 || operatorResult.readyCount < 1" @click="commitOperatorImport">确认提交处理结果</a-button>
+      </template>
+    </a-modal>
   </div>
 </template>
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
@@ -192,7 +215,6 @@ import CaseFields from './CaseFields.vue'
 import FormDialog from '@/components/FormDialog.vue'
 import InitialOrderLines from './InitialOrderLines.vue'
 import WorkflowPanel from './WorkflowPanel.vue'
-import CompletionPanel from './CompletionPanel.vue'
 import { createAdmKey } from './identifier'
 import { admApi, allowed, errorText, label, options, saveBlob, type AdmCase, type AdmConfig, type Fields } from './api'
 import './adm.css'
@@ -203,20 +225,65 @@ const permission = (name: string) => Boolean(auth.user?.isAdmin || auth.user?.pe
 const exportStore = useComprehensiveExportStore()
 const exporting = ref(false)
 const workflowRefresh = ref(0)
-const completionPanel = ref<InstanceType<typeof CompletionPanel> | null>(null)
-function completionBeforeUnload(event: BeforeUnloadEvent) {
-  if (completionPanel.value?.hasUnsavedDraft()) {
-    event.preventDefault()
-    event.returnValue = ''
+const operatorOpen = ref(false),
+  operatorBusy = ref(false),
+  operatorFile = ref<File | null>(null),
+  operatorError = ref(''),
+  operatorResult = ref<Fields | null>(null),
+  operatorStatuses = ref(['PENDING_CODE_PROCESSING', 'PENDING_DECISION', 'APPEAL_IN_PROGRESS', 'REJECTED_FOR_REVISION'])
+const operatorStatusOptions = [
+  { label: '待编码处理', value: 'PENDING_CODE_PROCESSING' },
+  { label: '待决定', value: 'PENDING_DECISION' },
+  { label: '申诉中', value: 'APPEAL_IN_PROGRESS' },
+  { label: '驳回待修改', value: 'REJECTED_FOR_REVISION' },
+]
+async function downloadOperatorWorkbook() {
+  operatorBusy.value = true
+  operatorError.value = ''
+  try {
+    const task = await exportStore.createBackground('adm_operator_tasks', { statuses: operatorStatuses.value })
+    message.success(task.reused ? '相同任务正在生成，已打开页头导出任务' : '已进入页头导出任务')
+  } catch (cause) {
+    operatorError.value = errorText(cause)
+  } finally {
+    operatorBusy.value = false
   }
 }
-onBeforeRouteLeave(
-  () => !completionPanel.value?.hasUnsavedDraft() || window.confirm('运营操作有未保存草稿，离开将丢失。是否继续？'),
-)
-onBeforeRouteUpdate(
-  () => !completionPanel.value?.hasUnsavedDraft() || window.confirm('运营操作有未保存草稿，切换将丢失。是否继续？'),
-)
-window.addEventListener('beforeunload', completionBeforeUnload)
+function selectOperatorImport(event: Event) {
+  operatorFile.value = (event.target as HTMLInputElement).files?.[0] || null
+  operatorResult.value = null
+  operatorError.value = ''
+}
+async function previewOperatorImport() {
+  if (!operatorFile.value) return
+  operatorBusy.value = true
+  operatorError.value = ''
+  try {
+    operatorResult.value = await admApi.operatorImportPreview(operatorFile.value)
+  } catch (cause) {
+    operatorError.value = errorText(cause)
+  } finally {
+    operatorBusy.value = false
+  }
+}
+async function commitOperatorImport() {
+  if (!operatorResult.value?.previewId) return
+  operatorBusy.value = true
+  operatorError.value = ''
+  try {
+    const result = await admApi.operatorImportCommit(operatorResult.value.previewId)
+    if (result.failedCount) throw new Error(`提交完成，但有 ${result.failedCount} 行因并发变化失败，请重新导出`)
+    message.success(`已提交 ${result.successCount} 行，跳过 ${result.skippedCount} 行`)
+    operatorOpen.value = false
+    operatorFile.value = null
+    operatorResult.value = null
+    await load()
+  } catch (cause) {
+    operatorError.value = errorText(cause)
+  } finally {
+    operatorBusy.value = false
+  }
+}
 async function startExport(kind: 'adm_cases' | 'adm_lines') {
   if (exporting.value) return
   exporting.value = true
@@ -237,7 +304,7 @@ async function startExport(kind: 'adm_cases' | 'adm_lines') {
   }
 }
 const isWorkbench = computed(() => route.meta.admView === 'workbench')
-const defaultScope = () => (!isWorkbench.value && permission('scope.all') ? 'all' : 'mine')
+const defaultScope = () => (isWorkbench.value ? 'mine' : 'all')
 const config = ref<AdmConfig | null>(null),
   items = ref<AdmCase[]>([]),
   summary = ref<Fields>({}),
@@ -247,15 +314,15 @@ const search = ref(String(route.query.search || '')),
   businessCategory = ref(String(route.query.businessCategory || '')),
   supplierCode = ref(String(route.query.supplierCode || '')),
   status = ref(String(route.query.status || '')),
-  scope = ref(String(route.query.scope || defaultScope())),
+  scope = ref(defaultScope()),
   page = ref(1),
   pageSize = ref(20),
   total = ref(0)
-const scopes = computed(() => [
-  { value: 'mine', label: '我的待办' },
-  ...(permission('scope.team') ? [{ value: 'team', label: '管理团队' }] : []),
-  ...(permission('scope.all') ? [{ value: 'all', label: '全部' }] : []),
-])
+const scopes = computed(() =>
+  isWorkbench.value
+    ? [{ value: 'mine', label: '分配给我的单' }]
+    : [{ value: 'all', label: '全部单据（只读范围不等于操作权限）' }],
+)
 const scopeLabel = computed(() => scopes.value.find((item) => item.value === scope.value)?.label || '我的待办')
 const metrics = [
   { key: 'cases', title: '范围内主单' },
@@ -266,7 +333,8 @@ const metrics = [
 const capabilityNames = { orders: '订单查询', finance: '财务核验', notifications: '自动提醒' }
 const capabilityAvailable = (value: any) => value === true || value?.available === true
 const columns = [
-  { title: 'ADM 单号', key: 'admNo', width: 200, fixed: 'left' as const },
+  { title: '主单内部单号', key: 'internalNo', width: 210, fixed: 'left' as const },
+  { title: '原ADM单号', dataIndex: 'admNo', width: 180 },
   { title: '下发方', dataIndex: 'supplierName', width: 170 },
   { title: '状态', key: 'status', width: 160 },
   { title: '下发金额', key: 'amount', width: 170, align: 'right' as const },
@@ -470,7 +538,7 @@ async function commitImport() {
 watch(
   () => route.meta.admView,
   () => {
-    scope.value = String(route.query.scope || defaultScope())
+    scope.value = defaultScope()
     query()
   },
 )
@@ -500,7 +568,6 @@ async function loadConfig() {
 void loadConfig()
 void load()
 onBeforeUnmount(() => {
-  window.removeEventListener('beforeunload', completionBeforeUnload)
   request++
   configRequest++
 })

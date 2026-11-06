@@ -90,15 +90,11 @@ class OperationsService:
     def config(self, user):
         self.admin(user)
         policy = self.policy()
-        provider = self.service.config.get("ADM_ENDPOINT_OPTIONS")
-        available = callable(self.service.config.get("ADM_ENDPOINT_RESOLVER"))
-        try:
-            options = provider(user) if callable(provider) else []
-        except AdmError:
-            options, available = [], False
-        return {**{key: policy[key] for key in DEFAULTS}, "version": policy["version"], "endpointOptions": options,
-                "endpointAvailable": available,
-                "externalDeliveryEnabled": bool(self.service.config.get("ADM_EXTERNAL_DELIVERY_ENABLED", False))}
+        values = {key: policy[key] for key in DEFAULTS}
+        values.update(notificationsEnabled=False, endpointIds=[])
+        return {**values, "version": policy["version"], "endpointOptions": [],
+                "endpointAvailable": False, "externalDeliveryEnabled": False,
+                "notificationLimitation": "ADM第一版不提供站内或站外主动通知"}
 
     def configure(self, user, body):
         self.admin(user)
@@ -108,6 +104,9 @@ class OperationsService:
         if type(body.get("version")) is not int or old["version"] != body["version"]:
             raise AdmError("运营策略版本冲突，请刷新", 409, "ADM_VERSION_CONFLICT")
         values = {key: copy.deepcopy(body.get(key, old[key])) for key in DEFAULTS}
+        if values["notificationsEnabled"] or values["endpointIds"]:
+            raise AdmError("ADM第一版不提供站内或站外主动通知", 409, "ADM_NOTIFICATION_DEFERRED")
+        values.update(notificationsEnabled=False, endpointIds=[])
         for key in ("notificationsEnabled", "snapshotsEnabled", "rankingEnabled"):
             if type(values[key]) is not bool:
                 raise AdmError("策略启用项必须是布尔值")
@@ -176,9 +175,7 @@ class OperationsService:
 
     def inbox(self, user):
         require(user, "adm.view")
-        rows = [item for item in self.store.list("NOTICE", 100, identity(user), channel="IN_APP") if self.current_notice(user, item)]
-        items = [{key: item.get(key) for key in ("id", "version", "title", "body", "createdAt", "readAt", "caseId", "lineId", "url", "status")} for item in rows]
-        return dict(items=items, unread=sum(not item.get("readAt") for item in items), limit=100, limitations=["最多最近100条，未读数仅此范围；已失效任务隐藏"])
+        return dict(items=[], unread=0, limit=0, limitations=["ADM第一版不提供站内或站外主动通知；待办保留在我的工作台"])
 
     def read(self, user, record_id, body):
         require(user, "adm.view")
@@ -193,8 +190,7 @@ class OperationsService:
 
     def deliveries(self, user):
         self.admin(user)
-        keys = ("id", "version", "channel", "recipientId", "status", "attempts", "createdAt", "nextAttemptAt", "errorCode")
-        return {"items": [{key: item.get(key) for key in keys} for item in self.store.list("NOTICE", 100)], "limit": 100}
+        return {"items": [], "limit": 0, "limitations": ["ADM第一版不提供主动通知"]}
 
 
 def unavailable(error):

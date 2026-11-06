@@ -16,6 +16,43 @@ PUBLIC_AUTH_ENDPOINTS = {"api.health", "auth.login", "auth.status"}
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
+def build_adm_workflow_user_options(users, employees, binding_resolver, departments):
+    """Build ADM assignee options with login-account IDs as the authority key.
+
+    ERP roster bindings enrich labels and department metadata only.  An enabled
+    account with the ADM menu and required permission remains assignable when it
+    has no roster binding.
+    """
+    purposes = {"handle": "adm.handle", "coordinate": "adm.assign", "owner": "adm.assign"}
+    result = {purpose: [] for purpose in purposes}
+    employee_by_id = {int(item["id"]): item for item in employees}
+    for user in users:
+        if not user.get("is_enabled", True):
+            continue
+        admin = bool(user.get("is_admin"))
+        permissions = set(user.get("permissions") or [])
+        if not admin and ("adm.view" not in permissions or "adm.center" not in (user.get("menu_codes") or [])):
+            continue
+        binding = binding_resolver(int(user["id"]))
+        employee = None
+        if binding and str(binding.get("status") or "ACTIVE") == "ACTIVE":
+            employee = employee_by_id.get(int(binding.get("employee_id") or 0))
+        account_name = user.get("display_name") or user.get("username") or str(user["id"])
+        person = {
+            "id": str(user["id"]),
+            "name": employee["name"] if employee else account_name,
+            "accountName": account_name,
+            "rosterEmployeeId": str(employee["id"]) if employee else "",
+            "departmentCode": employee.get("departmentCode", "") if employee else "",
+            "departmentName": employee.get("departmentName", "") if employee else "",
+        }
+        for purpose, permission in purposes.items():
+            if admin or (permission in permissions and (purpose != "owner" or "adm.review" in permissions)):
+                result[purpose].append(person)
+    result["departments"] = departments
+    return result
+
+
 def required_menu_code(path: str) -> str | None:
     if path.startswith("/api/v1/risk-verification"):
         return "risk.verification"
@@ -124,21 +161,34 @@ def create_app(config: type[Config] = Config, auth_store=None) -> Flask:
                     if user.get("is_enabled", True) and (user.get("is_admin") or ({"adm.view", "adm.handle"} <= set(user.get("permissions") or []) and "adm.center" in (user.get("menu_codes") or [])))]
         app.config["ADM_USER_OPTIONS"] = adm_user_options
         def adm_workflow_user_options():
-            purposes = {"handle": "adm.handle", "review": "adm.review", "finance": "adm.finance.confirm", "coordinate": "adm.assign"}
-            result = {purpose: [] for purpose in purposes}
-            for user in manager.store.list_users():
-                if not user.get("is_enabled", True):
-                    continue
-                admin = user.get("is_admin")
-                permissions = set(user.get("permissions") or [])
-                if not admin and ("adm.view" not in permissions or "adm.center" not in (user.get("menu_codes") or [])):
-                    continue
-                person = {"id": str(user["id"]), "name": user.get("display_name") or user.get("username") or str(user["id"])}
-                for purpose, permission in purposes.items():
-                    if admin or permission in permissions:
-                        result[purpose].append(person)
-            return result
+            from .services.target_management import TargetManagementService
+
+            try:
+                employees, departments = TargetManagementService(app.config)._roster_options()
+            except Exception as error:
+                # Account permissions are authoritative for ADM assignment.  A
+                # roster outage may remove optional labels/departments, but must
+                # not make otherwise valid login accounts unassignable.
+                app.logger.warning("ADM roster enrichment unavailable: %s", error)
+                employees, departments = [], []
+            database = str(app.config.get("ERP_ROSTER_DATABASE", "sibedb"))
+            table = str(app.config.get("ERP_ROSTER_TABLE", "system_user"))
+            return build_adm_workflow_user_options(
+                manager.store.list_users(),
+                employees,
+                lambda user_id: manager.store.get_employee_binding(user_id, database, table),
+                departments,
+            )
         app.config["ADM_WORKFLOW_USER_OPTIONS"] = adm_workflow_user_options
+        from .services.adm.reference_data import AdmReferenceData
+        adm_reference_data = AdmReferenceData(app.config)
+        from .services.adm.business_reference import AdmBusinessReference
+        adm_business_reference = AdmBusinessReference(app.config)
+        def adm_reference_options():
+            return {**adm_reference_data.options(), **adm_business_reference.options()}
+        app.config["ADM_REFERENCE_OPTIONS"] = adm_reference_options
+        app.config["ADM_EXCHANGE_RATE_LOOKUP"] = adm_reference_data.rate_snapshot
+        app.config["ADM_DIFFERENCE_MATCH_LOOKUP"] = adm_business_reference.matched_difference_keys
         from .services.adm.providers import configure_providers
         configure_providers(app.config, manager)
         if not configured:

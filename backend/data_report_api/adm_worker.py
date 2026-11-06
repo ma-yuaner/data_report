@@ -6,7 +6,7 @@ import threading
 
 from .config import Config
 from .services.adm import AdmService
-from .services.adm.attachments import verify_stored_attachment
+from .services.adm.attachments import AdmAttachmentService, verify_stored_attachment
 from .services.adm.notifications import NotificationWorker
 from .services.adm.providers import configure_providers
 from .services.auth import AuthManager, MySqlAuthStore
@@ -20,14 +20,20 @@ def main():
     manager = AuthManager(MySqlAuthStore(config), config)
     configure_providers(config, manager)
     config["ADM_ATTACHMENT_VERIFIER"] = lambda item: verify_stored_attachment(config, item)
-    worker = NotificationWorker(AdmService(config))
+    service = AdmService(config)
+    worker = NotificationWorker(service)
     stopped = threading.Event()
     for number in (signal.SIGINT, signal.SIGTERM):
         signal.signal(number, lambda *_: stopped.set())
     while not stopped.is_set():
         try:
+            cleanup = AdmAttachmentService(config, service).cleanup_due()
             result = worker.run_once()
-            logging.info("ADM worker enabled=%s created=%s", result.get("enabled"), result.get("created", 0))
+            logging.info(
+                "ADM worker notifications=%s created=%s attachment_cases=%s attachment_files=%s cleanup_failed=%s",
+                result.get("enabled"), result.get("created", 0), cleanup.get("cleanedCases", 0),
+                cleanup.get("cleanedFiles", 0), cleanup.get("failedCases", 0),
+            )
         except Exception:
             # No raw URLs, credentials, employee identifiers or driver exception dumps in logs.
             logging.error("ADM worker cycle failed; inspect configured schema, approval and sanitized delivery ledger")

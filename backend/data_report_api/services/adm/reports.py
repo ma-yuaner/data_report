@@ -40,7 +40,12 @@ class ReportService(OperationsService):
                                    firstPassRate=None, completedTasks=0, eligible=False, rank=None)
             return people[key]
 
-        roles = {"PROCESS": "HANDLER", "ACCEPT": "HANDLER", "FOLLOW_UP": "HANDLER", "REVIEW": "REVIEWER", "FINANCE": "FINANCE", "ASSIGN": "COORDINATOR", "TRANSFER": "HANDLER", "COLLABORATION": "COLLABORATOR", "REMEDIATION": "REMEDIATOR"}
+        roles = {
+            "ASSIGN_OPERATOR": "ADM_OWNER",
+            "CODE_PROCESSING": "HANDLER", "DECISION": "HANDLER", "APPEAL": "HANDLER",
+            "FOLLOW_UP": "HANDLER", "REVIEW": "REVIEWER", "COLLECTION": "ADM_OWNER",
+            "TRANSFER": "HANDLER",
+        }
         for task in tasks:
             if not task["ownerId"]:
                 continue
@@ -52,7 +57,7 @@ class ReportService(OperationsService):
         for case in cases:
             for event in case["timeline"]:
                 action = event["action"]
-                if action not in {"approve", "return", "finance_confirm"} or not event.get("lineId"):
+                if action not in {"approve", "return", "record_collection"} or not event.get("lineId"):
                     continue
                 measurement = event.get("detail", {}).get("measurement") or {}
                 old = event.get("detail", {}).get("responsibility") or {}
@@ -72,7 +77,7 @@ class ReportService(OperationsService):
                 if first:
                     row["firstReviewed"] += 1
                     row["firstPassed"] += int(action == "approve")
-                if measurement["lineStatus"] == "COMPLETED" and action in {"approve", "finance_confirm"} and key not in completed:
+                if measurement["lineStatus"] == "COMPLETED" and action in {"approve", "record_collection"} and key not in completed:
                     row["completedTasks"] += 1
                     completed.add(key)
         for row in people.values():

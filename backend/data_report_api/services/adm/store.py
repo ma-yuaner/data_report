@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from contextlib import contextmanager
 
@@ -17,7 +18,8 @@ class Conflict(Exception):
     pass
 
 
-class AdmStore:
+class LegacyDocumentAdmStore:
+    """Deprecated pre-release store. Runtime ADM services must use normalized_store.AdmStore."""
     def __init__(self, config):
         self.config = config
         self.mode = str(config.get("ADM_STORAGE_MODE", "mysql")).lower()
@@ -120,8 +122,34 @@ class AdmStore:
             row = self.query(conn, "SELECT payload FROM adm_case_document WHERE id=?", (case_id,)).fetchone()
         return json.loads(row[0]) if row else None
 
+    def get_by_internal_no(self, internal_no):
+        field = "internal_no" if self.mode == "mysql" else "json_extract(payload,'$.internalNo')"
+        with self.connection() as conn:
+            row = self.query(
+                conn, f"SELECT payload FROM adm_case_document WHERE {field}=?", (internal_no,)
+            ).fetchone()
+        return json.loads(row[0]) if row else None
+
+    @staticmethod
+    def _assign_readable_numbers(case, existing):
+        adm_no = str(case.get("admNo") or "").strip()
+        used = []
+        for payload in existing:
+            internal_no = str(payload.get("internalNo") or "")
+            head, separator, suffix = internal_no.rpartition("-")
+            if separator and suffix.isdigit() and head == adm_no[: 49 - len(suffix)]:
+                used.append(int(suffix))
+        ordinal = max([len(existing), *used], default=0) + 1
+        suffix = f"{ordinal:02d}"
+        prefix = adm_no[: 49 - len(suffix)]
+        case["internalNo"] = f"{prefix}-{suffix}"
+        for index, line in enumerate(case.get("lines") or [], 1):
+            line["lineInternalNo"] = f"{case['internalNo']}-{index:03d}"
+
     def create(self, case, key=None):
         with self.connection() as conn:
+            if self.mode == "sqlite":
+                conn.execute("BEGIN IMMEDIATE")
             if key:
                 row = self.query(
                     conn, "SELECT payload FROM adm_case_document WHERE idempotency_key=?", (key,)
@@ -131,6 +159,15 @@ class AdmStore:
                     if previous.get("requestHash") != case.get("requestHash"):
                         raise Conflict("相同幂等键请求内容不同")
                     return previous
+            adm_field = "adm_no" if self.mode == "mysql" else "json_extract(payload,'$.admNo')"
+            lock = " FOR UPDATE" if self.mode == "mysql" else ""
+            index = " FORCE INDEX (idx_adm_no)" if self.mode == "mysql" else ""
+            rows = self.query(
+                conn,
+                f"SELECT payload FROM adm_case_document{index} WHERE {adm_field}=?{lock}",
+                (case.get("admNo"),),
+            ).fetchall()
+            self._assign_readable_numbers(case, [json.loads(row[0]) for row in rows])
             try:
                 self.query(
                     conn,
@@ -157,7 +194,7 @@ class AdmStore:
 
     def check(self):
         with self.connection() as conn:
-            fields = "id,version,payload,case_status,supplier_code,business_category,updated_at" if self.mode == "mysql" else "id,version,payload"
+            fields = "id,version,payload,internal_no,case_status,supplier_code,business_category,updated_at" if self.mode == "mysql" else "id,version,payload"
             self.query(conn, f"SELECT {fields} FROM adm_case_document LIMIT 0")
 
     def same_identity(self, case):

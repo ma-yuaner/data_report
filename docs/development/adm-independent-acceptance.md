@@ -1,6 +1,6 @@
 # ADM独立接管：建表、部署和人工验收
 
-2026-10-24。本轮由中台独立管理，新数据写MySQL `sibebid.adm_case_document`，不修改ERP `adm_records`。原子主单JSON保存明细、处理/申诉/审核、附件元数据及审计；生成列只供检索，附件原件在独立持久卷。此为管理首版，不是无限容量或全量旧系统已迁完。
+2026-11-06更新：本轮由中台独立管理，新数据写MySQL `sibebid`下ADM规范化新表，不修改ERP `adm_records`，也不再读写`adm_case_document`。主单、明细、流转、申诉、回款、附件元数据和汇率快照分表保存，附件原件仍在独立持久卷。
 
 ## 1. 你执行的DDL（二选一）
 
@@ -8,11 +8,11 @@
 
 ```sql
 SELECT DATABASE(), VERSION();
-SHOW TABLES FROM sibebid LIKE 'adm_case_document';
+SHOW TABLES FROM sibebid LIKE 'adm_case%';
 ```
 
-- **没有adm_case_document**：执行[新建DDL](../sql/adm-management-center-v1.sql)。脚本明确USE sibebid；只新建中台表和索引，不创建新数据库，不动ERP表。
-- **已经执行过旧版中台DDL**：备份后查看`SHOW CREATE TABLE sibebid.adm_case_document;`，执行[升级DDL](../sql/adm-management-center-upgrade-v2.sql)，保留原payload及版本。此脚本执行一次；若已有部分生成列，核对后只补缺项，不重复整段执行。
+- **新ADM环境**：执行[规范化新表DDL](../sql/adm-normalized-v1.sql)。脚本明确`USE sibebid`；只新建中台ADM表和索引，不创建新数据库，不动ERP表。
+- **存在预发布`adm_case_document`**：先只读核对行数及是否存在需要保留的数据；应用已经不再读取该表。没有数据或确认不保留后，才能另行审批删除，不在建表脚本中自动删除。
 - 两份不要都执行。CREATE IF NOT EXISTS不会自动升级旧表。生成列/索引升级可能占用资源，按实际数据量安排维护窗口；禁止用删表重建来解决升级错误。
 
 用户提供的ERP DDL有38字段；Java当前实体43字段，额外的CNY金额、PNR、恢复时限、差异二级及申诉对象在该DDL中未见。新系统保留这些扩展字段，但历史缺失不补造。原`uk_adm_no`是普通CREATE INDEX，并非唯一约束；新系统以独立主键建档，历史以旧id防重，不按ADM号强行归并。

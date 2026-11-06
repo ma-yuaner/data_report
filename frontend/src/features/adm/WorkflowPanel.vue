@@ -11,8 +11,8 @@
         <template #actions
           ><a-button type="primary" :loading="loading" @click="query">查询 / 刷新待办</a-button></template
         >
-        <template #footer
-          >无任务不代表已达标；缺期限单列，不视为按时。提醒策略、收件箱与日报请展开下方运营面板；未配置批准前不发送，综合绩效不自动生成。</template
+          <template #footer
+          >无任务不代表已达标；缺期限单列，不视为按时。第一版不发送站内、企业微信或其他主动通知，待办仅保留在我的工作台。</template
         >
       </FilterPanel>
       <a-alert v-if="overviewError" type="error" :message="overviewError" show-icon />
@@ -80,16 +80,11 @@
         主单协调人：{{ record.coordinatorName || record.coordinatorId || '待指定'
         }}<a-tag v-if="record.legacyCoordination">旧单创建者兼协调人</a-tag>
       </p>
-      <p class="adm-muted">协调人与造成问题的实际责任人不同；截止时间不因转交重置。站内待办不等同于站外通知已发送。</p>
+      <p class="adm-muted">整张ADM任一时刻只有一名当前承办人；需要他人处理时必须整单转派。截止时间不因转派重置。</p>
       <template v-if="line">
         <a-descriptions bordered size="small" :column="{ xs: 1, sm: 2, lg: 3 }">
-          <a-descriptions-item label="当前承办">{{ line.ownerName || line.ownerId || '未分配' }}</a-descriptions-item>
-          <a-descriptions-item label="审核人">{{
-            line.workflow?.reviewerName || line.workflow?.reviewerId || '待指定（沿用获权审核角色）'
-          }}</a-descriptions-item>
-          <a-descriptions-item label="财务确认人">{{
-            line.workflow?.financeOwnerName || line.workflow?.financeOwnerId || '待指定（沿用获权财务角色）'
-          }}</a-descriptions-item>
+          <a-descriptions-item label="当前承办人">{{ record.ownerName || record.ownerId || '未分配' }}</a-descriptions-item>
+          <a-descriptions-item label="审核人">{{ record.coordinatorName || record.coordinatorId || 'ADM负责人' }}</a-descriptions-item>
           <a-descriptions-item v-for="field in deadlineFields" :key="field.key" :label="field.label">{{
             displayDateTimeField(line.workflow?.[field.key] || '未设置', field.key)
           }}</a-descriptions-item>
@@ -105,31 +100,31 @@
           }}</a-button>
         </div>
         <a-alert
-          v-if="line.handover?.status === 'PENDING'"
+          v-if="record.handover?.status === 'PENDING'"
           type="warning"
           show-icon
-          :message="`待交接：${line.handover.fromName || '未分配'} → ${line.handover.toName}；接收前原责任不变，接收人仅可查看交接内容。`"
+          :message="`待整单转派：${record.handover.fromName || '未分配'} → ${record.handover.toName}；接收前仍由原承办人负责。`"
         />
-        <div v-if="line.handover" class="adm-record">
-          <strong>最近交接 · {{ handoverLabels[line.handover.status] || line.handover.status }}</strong>
-          <p>{{ line.handover.fromName || '未分配' }} → {{ line.handover.toName }} · {{ formatDateTimeDisplay(line.handover.requestedAt) }}</p>
-          <p class="adm-prose">原因：{{ line.handover.reason }}<br />已做 / 待做 / 风险：{{ line.handover.summary }}</p>
-          <p v-if="line.handover.responseReason" class="adm-prose">回应：{{ line.handover.responseReason }}</p>
+        <div v-if="record.handover" class="adm-record">
+          <strong>最近整单转派 · {{ handoverLabels[record.handover.status] || record.handover.status }}</strong>
+          <p>{{ record.handover.fromName || '未分配' }} → {{ record.handover.toName }} · {{ formatDateTimeDisplay(record.handover.requestedAt) }}</p>
+          <p class="adm-prose">原因：{{ record.handover.reason }}<br />已做 / 待做 / 风险：{{ record.handover.summary }}</p>
+          <p v-if="record.handover.responseReason" class="adm-prose">回应：{{ record.handover.responseReason }}</p>
         </div>
-        <details v-if="line.assignmentSegments?.length">
-          <summary>分段责任与接单记录</summary>
+        <details v-if="record.assignmentSegments?.length">
+          <summary>整单承办记录</summary>
           <a-table
             row-key="id"
             :columns="segmentColumns"
-            :data-source="line.assignmentSegments"
+            :data-source="record.assignmentSegments"
             :pagination="false"
             :scroll="{ x: 900 }"
             size="small"
           />
         </details>
-        <details v-if="line.handoverHistory?.length">
-          <summary>交接历史</summary>
-          <div v-for="handover in line.handoverHistory" :key="handover.id" class="adm-record">
+        <details v-if="record.handoverHistory?.length">
+          <summary>整单转派历史</summary>
+          <div v-for="handover in record.handoverHistory" :key="handover.id" class="adm-record">
             <strong>{{ handoverLabels[handover.status] || handover.status }}</strong>
             <p>{{ handover.fromName || '未分配' }} → {{ handover.toName }} · {{ formatDateTimeDisplay(handover.requestedAt) }}</p>
             <p class="adm-prose">
@@ -138,7 +133,7 @@
           </div>
         </details>
       </template>
-      <p v-else class="adm-muted">选择订单明细，查看其计划、交接与分段责任。</p>
+      <p v-else class="adm-muted">选择任一订单查看节点期限；承办人与转派记录属于整张ADM。</p>
     </template>
     <FormDialog
       v-model:open="dialogOpen"
@@ -150,7 +145,7 @@
       @submit="saveAction"
     >
       <p v-if="action === 'plan'" class="adm-muted">
-        仅更新本次字段；空值会清除原值。未确认的SLA不自动填入期限。审核人与承办人默认不可相同。
+        仅更新本次期限；未确认的SLA不自动填入。审核人固定为本ADM负责人，不单独设置。
       </p>
       <p v-if="action.startsWith('transfer_')" class="adm-muted">
         接收前原责任保留；接受后切换承办和锁。外部截止与原有期限不重置。
@@ -158,17 +153,9 @@
       <FormGrid>
         <label v-if="action === 'coordinator'"
           ><span>主单协调人 <span class="required">*</span></span
-          ><AccountSelect v-model="draft.coordinatorId" :options="config?.people?.coordinate || []" :disabled="saving"
+          ><AccountSelect v-model="draft.coordinatorId" :options="config?.people?.owner || []" :disabled="saving"
         /></label>
         <template v-if="action === 'plan'">
-          <label
-            ><span>审核人</span
-            ><AccountSelect v-model="draft.reviewerId" :options="config?.people?.review || []" :disabled="saving"
-          /></label>
-          <label
-            ><span>财务确认人</span
-            ><AccountSelect v-model="draft.financeOwnerId" :options="config?.people?.finance || []" :disabled="saving"
-          /></label>
           <label v-for="field in deadlineFields" :key="field.key"
             ><span>{{ field.label }}（北京时间）</span
             ><DateField v-model="draft[field.key]" with-time :disabled="saving"
@@ -263,15 +250,14 @@ const appliedScopeLabel = computed(
 const taskKinds = [
   { value: '', label: '全部环节' },
   ...Object.entries({
-    ASSIGN: '待分配',
-    ACCEPT: '待接单',
-    PROCESS: '处理中',
-    TRANSFER: '待交接确认',
+    ASSIGN_OPERATOR: '待分配整单承办人',
+    CODE_PROCESSING: '待编码处理',
+    DECISION: '待决定/修改',
+    APPEAL: '申诉中',
+    TRANSFER: '待整单转派确认',
     REVIEW: '待审核',
-    FINANCE: '待财务',
+    COLLECTION: '待回款跟进',
     FOLLOW_UP: '待跟进',
-    COLLABORATION: '协办',
-    REMEDIATION: '整改',
   }).map(([value, text]) => ({ value, label: text })),
 ]
 const metrics = [
@@ -326,19 +312,18 @@ function changePage(value: number) {
   void loadOverview()
 }
 const deadlineFields = [
-  { key: 'acceptanceDueAt', label: '接单截止' },
   { key: 'processingDueAt', label: '办理截止' },
   { key: 'reviewDueAt', label: '审核截止' },
-  { key: 'financeDueAt', label: '财务截止' },
+  { key: 'collectionDueAt', label: '回款跟进截止' },
 ]
 const actionNames: Record<string, string> = {
   coordinator: '调整协调人',
   plan: '设置人员与期限',
   follow_up: '登记等待与跟进',
-  transfer_request: '发起转交',
-  transfer_accept: '接受交接',
-  transfer_reject: '驳回交接',
-  transfer_cancel: '撤销交接',
+  transfer_request: '发起整单转派',
+  transfer_accept: '接受整单转派',
+  transfer_reject: '驳回整单转派',
+  transfer_cancel: '撤销整单转派',
 }
 const handoverLabels: Record<string, string> = {
   PENDING: '待确认',
@@ -350,7 +335,7 @@ const workflowActions = computed(() =>
   Object.keys(actionNames).filter((name) => name !== 'coordinator' && allowed(props.line || null, name)),
 )
 const handlePeople = computed(() =>
-  (props.config?.people?.handle || props.config?.assignees || []).filter((person) => person.id !== props.line?.ownerId),
+  (props.config?.people?.handle || props.config?.assignees || []).filter((person) => person.id !== props.record?.ownerId),
 )
 const segmentColumns = [
   { title: '承办人', dataIndex: 'ownerName', width: 130 },
@@ -380,7 +365,7 @@ function openAction(name: string) {
   draft.value = { reason: '' }
   if (name === 'coordinator') draft.value.coordinatorId = props.record.coordinatorId || ''
   if (name === 'plan')
-    for (const key of ['reviewerId', 'financeOwnerId', ...deadlineFields.map((field) => field.key)])
+    for (const key of deadlineFields.map((field) => field.key))
       draft.value[key] = props.line?.workflow?.[key] || ''
   if (name === 'follow_up')
     for (const key of ['waitingFor', 'waitingReason', 'nextFollowUpAt'])

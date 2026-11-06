@@ -3,9 +3,9 @@
     <div class="adm-heading">
       <div>
         <router-link to="/adm/cases">← ADM 台账</router-link>
-        <h1>{{ record?.admNo || 'ADM 详情' }}</h1>
+        <h1>{{ record?.internalNo || record?.admNo || 'ADM 详情' }}</h1>
         <p v-if="record">
-          {{ record.supplierName }} · {{ label(record.status) }} · 版本 {{ record.version
+          原ADM单号 {{ record.admNo }} · {{ record.supplierName }} · {{ label(record.status) }} · 版本 {{ record.version
           }}<span v-if="record.partial"> · 仅展示获授权明细</span>
         </p>
       </div>
@@ -61,6 +61,10 @@
         />
         <a-alert v-if="record.voided" type="warning" message="主单已作废，保留历史供追溯。" show-icon />
         <a-descriptions bordered size="small" :column="{ xs: 1, sm: 2, lg: 3 }" class="adm-summary">
+          <a-descriptions-item label="主单内部单号"
+            ><a-typography-text v-if="record.internalNo" copyable>{{ record.internalNo }}</a-typography-text
+            ><template v-else>—</template></a-descriptions-item
+          >
           <a-descriptions-item label="下发方">{{ record.supplierName }}</a-descriptions-item
           ><a-descriptions-item label="原始金额"
             ><span class="adm-money"
@@ -108,7 +112,7 @@
               :options="
                 record.lines.map((line) => ({
                   value: line.id,
-                  label: `${line.platform || '待核实平台'} · ${line.orderNo || line.id}`,
+                  label: `${line.lineInternalNo || '待编号明细'} · ${line.platform || '待核实平台'} · ${line.orderNo || '无OTA订单号'}`,
                 }))
               "
               placeholder="选择订单明细查看流转"
@@ -116,14 +120,6 @@
               allow-clear
             />
             <WorkflowPanel ref="workflowPanel" :record="record" :line="selectedLine" :config="config" @changed="load" />
-            <CollaborationPanel
-              ref="collaborationPanel"
-              :record="record"
-              :line="selectedLine"
-              :config="config"
-              @changed="load"
-              @attachments="showAttachments"
-            />
           </a-tab-pane>
           <a-tab-pane v-if="record.source && !record.history && !record.partial" key="source" tab="原始导入字段">
             <p class="adm-muted">原始字段留存，不代表已核实或已完成；处理状态以当前流程为准。</p>
@@ -138,26 +134,20 @@
             <div class="adm-toolbar">
               <strong>多平台 / 出退改订单明细</strong
               ><a-button v-if="allowed(record, 'addLine')" type="primary" @click="editLine()">添加订单明细</a-button
-              ><a-button
-                v-if="permission('assign') && !record.historicalArchive"
-                :disabled="!selectedOrders.length || busy"
-                @click="bulkOpen = true"
-                >批量分配 {{ selectedOrders.length || '' }}</a-button
-              ><span class="adm-muted">点击订单展开完整描述、分析和处理记录。</span>
+              ><span class="adm-muted">整张ADM只有一名当前承办人；订单明细可分别处理，但不能分别分配给多人。</span>
             </div>
             <a-table
               row-key="id"
               :columns="lineColumns"
               :data-source="record.lines || []"
-              :row-selection="orderSelection"
               :pagination="false"
               :scroll="{ x: 1670, y: 'calc(100vh - 500px)' }"
               size="small"
             >
               <template #bodyCell="{ column, record: line }">
-                <template v-if="column.key === 'orderNo'"
+                <template v-if="column.key === 'lineInternalNo'"
                   ><a-button type="link" size="small" @click="selectedLineId = line.id">{{
-                    line.orderNo || '待关联订单'
+                    line.lineInternalNo || '待编号明细'
                   }}</a-button></template
                 >
                 <template v-else-if="column.key === 'businessType'">{{ label(line.businessType) }}</template>
@@ -167,7 +157,7 @@
                 <template v-else-if="column.key === 'amount'"
                   ><span class="adm-money">{{ line.amount ?? '—' }} {{ line.currency }}</span></template
                 >
-                <template v-else-if="column.key === 'owner'">{{ line.ownerName || line.ownerId || '未分配' }}</template>
+                <template v-else-if="column.key === 'owner'">{{ record.ownerName || record.ownerId || '未分配' }}</template>
                 <template v-else-if="column.key === 'actions'"
                   ><a-space
                     ><a-button size="small" @click="selectedLineId = line.id">查看处理</a-button
@@ -182,8 +172,9 @@
             <section v-if="selectedLine" class="adm-line-detail">
               <div class="adm-heading">
                 <div>
-                  <h2>{{ selectedLine.platform || '待核实平台' }} · {{ selectedLine.orderNo || selectedLine.id }}</h2>
+                  <h2>{{ selectedLine.lineInternalNo || '待编号明细' }}</h2>
                   <p>
+                    {{ selectedLine.platform || '待核实平台' }} · {{ selectedLine.orderNo || '无OTA订单号' }} ·
                     {{ label(selectedLine.businessType) }} · {{ label(selectedLine.status) }} ·
                     {{ label(selectedLine.matchStatus) }}
                   </p>
@@ -224,16 +215,10 @@
               <div class="adm-record-grid">
                 <section>
                   <h3>编码恢复</h3>
-                  <a-empty v-if="!selectedLine.recoveries?.length" description="尚无恢复记录" />
-                  <div v-for="(item, index) in selectedLine.recoveries" :key="item.id || index" class="adm-record">
-                    <a-tag>{{ recoveryStatuses.find((s) => s.value === item.status)?.label || item.status }}</a-tag>
-                    <p>{{ item.code }} → {{ item.resultCode || '待恢复' }}</p>
-                    <p>{{ item.reason || '—' }}</p>
-                    <p class="adm-muted">{{ item.system }} / {{ item.pcc }} · {{ formatDateTimeDisplay(item.updatedAt || item.createdAt) }}</p>
-                    <a-button v-if="lineAllowed(selectedLine, 'recovery')" size="small" @click="editRecovery(item)"
-                      >更新此恢复任务</a-button
-                    >
-                  </div>
+                  <p>当前阶段：{{ recoveryLabels[selectedLine.recovery?.state] || '待判断' }}</p>
+                  <p class="adm-muted">决定：{{ formatDateTimeDisplay(selectedLine.recovery?.decidedAt || '') }} · 人员 {{ selectedLine.recovery?.decidedBy || '—' }}</p>
+                  <p class="adm-muted">人工完成：{{ formatDateTimeDisplay(selectedLine.recovery?.completedAt || '') }} · 人员 {{ selectedLine.recovery?.completedBy || '—' }}</p>
+                  <p>订单核查情况及原因说明：{{ selectedLine.investigationNote || selectedLine.recoveryNote || '—' }}</p>
                 </section>
                 <section>
                   <h3>多对象申诉</h3>
@@ -258,23 +243,36 @@
                   </p>
                   <p>
                     系统核验：{{
-                      selectedLine.difference?.verification === 'NOT_CONNECTED'
-                        ? '未接入'
-                        : selectedLine.difference?.verification || '未核验'
+                      differenceVerificationLabels[selectedLine.difference?.verification] ||
+                      selectedLine.difference?.verification ||
+                      '未核验'
                     }}
                   </p>
+                  <p>
+                    命中方式：{{
+                      selectedLine.difference?.matchedBy === 'OTA_ORDER_NO'
+                        ? 'OTA订单号'
+                        : selectedLine.difference?.matchedBy === 'INTERNAL_ADM_NO'
+                          ? '内部单号'
+                          : '—'
+                    }}
+                  </p>
+                  <p>命中值：{{ selectedLine.difference?.matchedValue || '—' }}</p>
+                  <p class="adm-muted">核验时间：{{ formatDateTimeDisplay(selectedLine.difference?.checkedAt || '') }}</p>
                   <p>关联编号：{{ selectedLine.difference?.reference || '—' }}</p>
                   <p class="adm-prose">{{ selectedLine.difference?.reason || '尚无登记说明' }}</p>
                   <p>证据附件：{{ selectedLine.difference?.evidence?.length || 0 }} 份（原件与附件页查看）</p>
                 </section>
                 <section>
-                  <h3>财务与结案归因</h3>
-                  <p>财务状态：{{ selectedLine.finance?.status || '未确认' }}</p>
-                  <p>凭证编号：{{ selectedLine.finance?.reference || '—' }}</p>
-                  <p class="adm-money">
-                    确认金额：{{ selectedLine.finance?.amount ?? '—' }} {{ selectedLine.finance?.currency }}
+                  <h3>审核与回款</h3>
+                  <p>审核结果：{{ selectedLine.reviewResult || '待审核' }}</p>
+                  <p>问题归因：{{ attributionLabels[selectedLine.attribution] || '无需/待填写' }}</p>
+                  <p class="adm-money">应追回：{{ selectedLine.collectionExpectedAmount ?? '—' }} {{ selectedLine.currency }}</p>
+                  <p class="adm-money">已登记：{{ collectionTotal(selectedLine) }} {{ selectedLine.currency }}</p>
+                  <p>回款状态：{{ selectedLine.collectionStatus || '未要求' }}</p>
+                  <p v-for="item in selectedLine.collections || []" :key="item.id" class="adm-muted">
+                    {{ item.receivedDate }} · {{ item.amount }} {{ item.currency }} · {{ item.note || '无说明' }}
                   </p>
-                  <p>原因归属：{{ selectedLine.attribution || '待填写' }}</p>
                 </section>
               </div>
             </section>
@@ -320,7 +318,7 @@
                 :message="blocker"
                 style="margin: 8px 0"
             /></template>
-            <p v-else class="adm-muted">检查原件、必要分析、明细、审核、财务及金额核平状态后再结案。</p></a-tab-pane
+            <p v-else class="adm-muted">检查明细、审核、必要回款、附件完整性及金额核平状态后再结案。</p></a-tab-pane
           >
           <a-tab-pane key="timeline" tab="完整操作历史"
             ><a-button :loading="historyLoading" @click="loadHistory">刷新历史</a-button
@@ -396,46 +394,36 @@
         目标：{{ actionLine ? `${actionLine.platform || ''} ${actionLine.orderNo || actionLine.id}` : record?.admNo }}
       </p>
       <div class="adm-form-grid">
-        <template v-if="currentAction === 'assign'"
-          ><label
-            >处理人 <span class="required">*</span
-            ><AccountSelect
-              v-model="actionDraft.ownerId"
-              :options="assigneePeople"
-              placeholder="选择已获ADM权限的人员" /></label
-        ></template>
-        <template v-if="currentAction === 'recovery'"
-          ><label>恢复状态<a-select v-model:value="actionDraft.status" :options="recoveryStatuses" /></label
-          ><label>原编码<a-input v-model:value="actionDraft.code" /></label
-          ><label>系统<a-input v-model:value="actionDraft.system" /></label
-          ><label>PCC<a-input v-model:value="actionDraft.pcc" /></label
-          ><label>恢复后编码<a-input v-model:value="actionDraft.resultCode" /></label
-        ></template>
-        <template v-if="currentAction === 'appeal'"
-          ><label>申诉对象类型<a-select v-model:value="actionDraft.targetType" :options="appealTargets" /></label
-          ><label
-            >申诉主体名称<a-input
-              v-model:value="actionDraft.targetName"
-              placeholder="具体平台 / 供应商 / 航司" /></label
-          ><label>申诉状态<a-select v-model:value="actionDraft.status" :options="appealStatuses" /></label
-          ><label
-            >减免金额<a-input
-              v-model:value="actionDraft.waivedAmount"
-              inputmode="decimal"
-              placeholder="成功 / 部分成功时必填" /></label
-        ></template>
-        <template v-if="currentAction === 'difference'"
-          ><label>人工登记状态<a-select v-model:value="actionDraft.declaration" :options="differenceStatuses" /></label
-          ><label>差异记录编号<a-input v-model:value="actionDraft.reference" /></label
-          ><a-alert class="adm-span" type="info" message="人工登记与系统核验分别保存。已录差异不代表已付款或可结案。"
-        /></template>
-        <template v-if="currentAction === 'finance_confirm'"
-          ><label>凭证编号 <span class="required">*</span><a-input v-model:value="actionDraft.reference" /></label
-          ><label>确认金额<a-input v-model:value="actionDraft.amount" inputmode="decimal" /></label
-          ><label>币种<a-input v-model:value="actionDraft.currency" :maxlength="3" /></label
-          ><a-alert class="adm-span" type="info" message="记录为人工财务确认；未接入外部核验时不能冒充系统核验成功。"
-        /></template>
-        <label v-if="['recovery', 'appeal', 'difference', 'finance_confirm'].includes(currentAction)" class="adm-span"
+        <template v-if="currentAction === 'assign_operator'">
+          <label>整单承办人 <span class="required">*</span><AccountSelect v-model="actionDraft.ownerId" :options="operatorPeople" /></label>
+          <a-alert class="adm-span" type="info" message="分配作用于整张ADM及全部订单；同一时刻只有一名当前承办人，后续换人必须走整单转派。" />
+        </template>
+        <template v-if="currentAction === 'recovery_decide'">
+          <label>恢复编码决定<a-select v-model:value="actionDraft.required" :options="recoveryDecisionOptions" /></label>
+          <a-alert class="adm-span" type="info" message="选择需要恢复后仅记录决定、人员和时间；实际恢复在线下完成，不等待系统回写。" />
+        </template>
+        <template v-if="currentAction === 'recovery_complete'">
+          <a-alert class="adm-span" type="warning" message="请仅在实际恢复已完成且已处理后确认。系统不会从外部接口回写恢复结果。" />
+        </template>
+        <template v-if="currentAction === 'decide'">
+          <label>处理决定<a-select v-model:value="actionDraft.decision" :options="decisionOptions" /></label>
+          <label v-if="actionDraft.decision === 'APPEAL'">申诉对象<a-input v-model:value="actionDraft.target" /></label>
+          <label v-if="actionDraft.decision === 'NO_APPEAL'">问题归因<a-select v-model:value="actionDraft.attribution" :options="attributionOptions" /></label>
+        </template>
+        <template v-if="currentAction === 'appeal_result'">
+          <label>申诉结果<a-select v-model:value="actionDraft.result" :options="appealResultOptions" /></label>
+          <label v-if="actionDraft.result === 'APPEAL_FAILED'">问题归因<a-select v-model:value="actionDraft.attribution" :options="attributionOptions" /></label>
+        </template>
+        <template v-if="currentAction === 'approve'">
+          <label>是否需要回款<a-select v-model:value="actionDraft.requiresCollection" :options="collectionDecisionOptions" /></label>
+          <label v-if="actionDraft.requiresCollection">应追回金额<a-input v-model:value="actionDraft.collectionExpectedAmount" inputmode="decimal" /></label>
+        </template>
+        <template v-if="currentAction === 'record_collection'">
+          <label>本次回款金额<a-input v-model:value="actionDraft.amount" inputmode="decimal" /></label>
+          <label>回款日期<a-date-picker v-model:value="actionDraft.receivedDate" value-format="YYYY-MM-DD" /></label>
+          <label class="adm-span">回款说明<a-textarea v-model:value="actionDraft.note" :rows="2" /></label>
+        </template>
+        <label v-if="currentAction === 'record_collection'" class="adm-span"
           >引用证据附件<a-select
             v-model:value="actionDraft.evidence"
             mode="multiple"
@@ -443,15 +431,19 @@
             placeholder="先在原件与附件页上传，再选择证据"
         /></label>
         <a-button
-          v-if="actionLine && ['recovery', 'appeal', 'difference', 'finance_confirm'].includes(currentAction)"
+          v-if="actionLine && currentAction === 'record_collection'"
           @click="showActionAttachments"
           >先上传附件</a-button
         >
         <label class="adm-span"
           >{{
-            ['pause', 'void', 'return', 'reopen', 'unlock', 'approve', 'appeal', 'difference'].includes(currentAction)
-              ? '操作原因 / 审核意见（必填）'
-              : '操作说明 / 异常原因'
+            ['pause', 'void', 'reopen'].includes(currentAction)
+              ? '操作原因（必填）'
+              : currentAction === 'decide' && actionDraft.decision === 'NO_APPEAL'
+                ? '不申诉原因（必填）'
+                : currentAction === 'decide' && actionDraft.decision === 'APPEAL'
+                  ? '申诉原因（必填）'
+                  : '操作说明 / 审核意见（选填）'
           }}<a-textarea v-model:value="actionDraft.reason" :rows="3"
         /></label>
       </div>
@@ -461,19 +453,6 @@
         message="服务端将再次检查全部结案条件；任一未满足将拒绝结案。"
         show-icon
       />
-    </a-modal>
-    <a-modal
-      v-model:open="bulkOpen"
-      title="批量分配订单"
-      :confirm-loading="busy"
-      :mask-closable="false"
-      @ok="saveBulkAssign"
-    >
-      <p>按明细逐条保存并留痕；已有承办人时发起待确认交接，不立即替换责任。部分失败会显示逐项结果。</p>
-      <label>处理人<AccountSelect v-model="bulkOwner" :options="assigneePeople" placeholder="选择处理人" /></label>
-      <label>分配 / 转单原因<a-textarea v-model:value="bulkReason" :rows="2" /></label>
-      <label>交接摘要（涉及已分配订单时必填）<a-textarea v-model:value="bulkSummary" :rows="3" /></label>
-      <a-alert v-if="bulkError" type="error" :message="bulkError" style="margin-top: 12px" />
     </a-modal>
   </div>
 </template>
@@ -500,7 +479,6 @@ import CaseFields from './CaseFields.vue'
 import FormDialog from '@/components/FormDialog.vue'
 import AccountSelect from '@/components/AccountSelect.vue'
 import WorkflowPanel from './WorkflowPanel.vue'
-import CollaborationPanel from './CollaborationPanel.vue'
 import LineFields from './LineFields.vue'
 import AttachmentPanel from './AttachmentPanel.vue'
 import DraftComparison from './DraftComparison.vue'
@@ -508,56 +486,12 @@ import './adm.css'
 const route = useRoute(),
   auth = useAuthStore()
 const businessCategoryLabels: Record<string, string> = { '0': '票务', '1': '业务', '2': '客服' }
-const selectedOrders = ref<string[]>([]),
-  bulkOpen = ref(false),
-  bulkOwner = ref(''),
-  bulkReason = ref(''),
-  bulkSummary = ref(''),
-  bulkError = ref('')
-const orderSelection = computed(() =>
-  permission('assign') && record.value && !record.value.historicalArchive
-    ? {
-        selectedRowKeys: selectedOrders.value,
-        onChange: (keys: (string | number)[]) => {
-          selectedOrders.value = keys.map(String)
-        },
-        getCheckboxProps: (line: AdmLine) => ({ disabled: !lineAllowed(line, 'assign') }),
-      }
-    : undefined,
-)
-async function saveBulkAssign() {
-  if (busy.value || !record.value || !bulkOwner.value.trim()) return
-  const caseId = id.value
-  busy.value = true
-  bulkError.value = ''
-  try {
-    const result = await admApi.bulkAssign(caseId, {
-      version: record.value.version,
-      lineIds: selectedOrders.value,
-      ownerId: bulkOwner.value.trim(),
-      reason: bulkReason.value.trim(),
-      summary: bulkSummary.value.trim(),
-    })
-    if (caseId !== id.value) return
-    const failed = (result.items || []).filter((item: Fields) => item.status !== 'SAVED')
-    selectedOrders.value = failed.map((item: Fields) => item.lineId)
-    if (failed.length)
-      bulkError.value =
-        `成功${result.successCount}条，失败/未执行${failed.length}条：` +
-        failed
-          .map((item: Fields) => item.message)
-          .slice(0, 5)
-          .join('；')
-    else {
-      bulkOpen.value = false
-      message.success(`已保存${result.successCount}条分配/交接请求；已有承办者的订单需接收人确认`)
-    }
-    await load()
-  } catch (cause) {
-    bulkError.value = errorText(cause)
-  } finally {
-    busy.value = false
-  }
+const differenceVerificationLabels: Record<string, string> = {
+  NOT_CONNECTED: '未接入',
+  NOT_CHECKED: '未核验',
+  RECORDED: '已录入差异单',
+  NOT_RECORDED: '未录入差异单',
+  CHECK_FAILED: '核验暂时失败',
 }
 const record = ref<AdmCase | null>(null),
   config = ref<AdmConfig | null>(null),
@@ -567,19 +501,13 @@ const record = ref<AdmCase | null>(null),
   conflict = ref(false),
   tab = ref('lines')
 const id = computed(() => String(route.params.caseId || ''))
-const assigneePeople = computed(() => config.value?.people?.handle || config.value?.assignees || [])
 const workflowPanel = ref<InstanceType<typeof WorkflowPanel> | null>(null)
-const collaborationPanel = ref<InstanceType<typeof CollaborationPanel> | null>(null)
 function showAttachments() {
   tab.value = 'attachments'
 }
-watch(id, () => {
-  selectedOrders.value = []
-  bulkOpen.value = false
-  bulkError.value = ''
-})
 const selectedLineId = ref(''),
   selectedLine = computed(() => record.value?.lines?.find((item) => item.id === selectedLineId.value) || null)
+const operatorPeople = computed(() => config.value?.people?.handle || [])
 const permission = (name: string) => Boolean(auth.user?.isAdmin || auth.user?.permissions.includes(`adm.${name}`))
 function showClosureLine(lineId: string) {
   selectedLineId.value = lineId
@@ -607,43 +535,35 @@ const actionLabels: Record<string, string> = {
   void: '作废',
   close: '结案',
   reopen: '重开',
-  assign: '分配 / 转单',
-  claim: '接单',
-  lock: '重新持锁',
-  unlock: '解锁',
-  submit: '提交审核',
+  assign_operator: '分配整单承办人',
+  recovery_decide: '判断是否恢复编码',
+  recovery_complete: '已恢复并处理',
+  decide: '选择申诉决定',
+  appeal_result: '登记申诉结果',
+  resubmit: '修改后重提审核',
   approve: '审核通过',
-  return: '退回处理',
-  finance_confirm: '财务确认',
-  recovery: '登记编码恢复',
-  appeal: '登记申诉',
-  difference: '登记差异',
+  return: '驳回修改',
+  record_collection: '登记回款',
 }
 const caseActions = computed(() =>
   ['publish', 'pause', 'resume', 'void', 'close', 'reopen'].filter((action) => allowed(record.value, action)),
 )
 const lineActions = computed(() =>
   [
-    'assign',
-    'claim',
-    'lock',
-    'unlock',
-    'recovery',
-    'appeal',
-    'difference',
-    'submit',
+    'assign_operator',
+    'recovery_decide',
+    'recovery_complete',
+    'decide',
+    'appeal_result',
+    'resubmit',
     'approve',
     'return',
-    'finance_confirm',
-  ].filter(
-    (action) =>
-      selectedLine.value &&
-      lineAllowed(selectedLine.value, action) &&
-      !(action === 'assign' && selectedLine.value.ownerId),
-  ),
+    'record_collection',
+  ].filter((action) => selectedLine.value && lineAllowed(selectedLine.value, action)),
 )
 const lineColumns = [
-  { title: '订单号', key: 'orderNo', width: 200, fixed: 'left' as const },
+  { title: '明细内部单号', key: 'lineInternalNo', width: 210, fixed: 'left' as const },
+  { title: 'OTA订单号', dataIndex: 'orderNo', width: 180 },
   { title: '业务', key: 'businessType', width: 90 },
   { title: '平台', dataIndex: 'platform', width: 130 },
   { title: '店铺 / 站点', dataIndex: 'shop', width: 150 },
@@ -798,9 +718,6 @@ function editLine(line?: AdmLine) {
         ),
       )
   lineDraft.value.analysis ||= {}
-  lineDraft.value.finance ||= { required: true, reason: '' }
-  lineDraft.value.appealDecision ||= 'UNDECIDED'
-  lineDraft.value.recoveryRequired ||= false
   editVersion = record.value.version
   editCaseId = record.value.id
   lineBaseline = cached?.baseline || JSON.stringify(lineDraft.value)
@@ -889,40 +806,62 @@ const actionOpen = ref(false),
   currentAction = ref(''),
   actionLine = ref<AdmLine | null>(null),
   actionDraft = ref<Fields>({})
-const recoveryStatuses = ['PENDING', 'PROCESSING', 'COMPLETED', 'EXCEPTION'].map((value, index) => ({
-  value,
-  label: ['待恢复', '恢复中', '恢复完成', '恢复异常'][index],
-}))
+const recoveryLabels: Record<string, string> = {
+  UNDECIDED: '待判断',
+  NOT_REQUIRED: '无需恢复编码',
+  WAITING_MANUAL: '等待人工线下恢复',
+  MANUALLY_COMPLETED: '已恢复并处理',
+}
+const attributionLabels: Record<string, string> = { HUMAN: '人为问题', PLATFORM: '平台问题', SYSTEM: '系统问题' }
+const attributionOptions = Object.entries(attributionLabels).map(([value, label]) => ({ value, label }))
+const recoveryDecisionOptions = [
+  { value: true, label: '需要恢复编码' },
+  { value: false, label: '无需恢复编码' },
+]
+const decisionOptions = [
+  { value: 'APPEAL', label: '申诉' },
+  { value: 'NO_APPEAL', label: '不申诉' },
+]
+const appealResultOptions = [
+  { value: 'APPEAL_SUCCESS', label: '申诉成功' },
+  { value: 'APPEAL_FAILED', label: '申诉不成功' },
+]
 const appealTargets = ['PLATFORM', 'SUPPLIER', 'AIRLINE'].map((value, index) => ({
   value,
   label: ['平台', '供应商', '航司'][index],
 }))
-const appealStatuses = ['DRAFT', 'SUBMITTED', 'NEED_INFO', 'SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'WITHDRAWN'].map(
-  (value, index) => ({
-    value,
-    label: ['待申诉', '已提交', '待补材料', '申诉成功', '部分成功', '申诉失败', '已撤销'][index],
-  }),
-)
+const appealStatuses = ['IN_PROGRESS', 'SUCCESS', 'FAILED'].map((value, index) => ({
+  value,
+  label: ['申诉中', '申诉成功', '申诉不成功'][index],
+}))
+const collectionDecisionOptions = [
+  { value: true, label: '需要回款' },
+  { value: false, label: '无需回款' },
+]
 const differenceStatuses = ['UNDECLARED', 'MANUAL_DECLARED', 'NOT_REQUIRED'].map((value, index) => ({
   value,
-  label: ['未录差异', '已录差异', '无需录入'][index],
+  label: ['待匹配', '已录入', '无需录入'][index],
 }))
+const collectionTotal = (line: AdmLine) =>
+  (line.collections || []).reduce((total: number, item: Fields) => total + Number(item.amount || 0), 0).toFixed(2)
 function openAction(action: string, line?: AdmLine) {
   if (!record.value) return
   currentAction.value = action
   actionLine.value = line || null
   actionDraft.value = {
     reason: '',
-    status: action === 'appeal' ? 'SUBMITTED' : 'COMPLETED',
-    targetType: 'PLATFORM',
-    targetName: '',
-    code: line?.pnr || '',
-    system: line?.system || '',
-    pcc: line?.pcc || '',
+    required: false,
+    decision: 'APPEAL',
+    target: '',
+    attribution: '',
+    result: 'APPEAL_SUCCESS',
+    requiresCollection: false,
+    collectionExpectedAmount: '',
+    receivedDate: '',
+    note: '',
     evidence: [],
-    declaration: 'MANUAL_DECLARED',
     currency: line?.currency || record.value.currency,
-    amount: line?.amount || '',
+    amount: '',
   }
   editVersion = record.value.version
   editCaseId = record.value.id
@@ -934,21 +873,20 @@ const evidenceOptions = computed(() =>
     .filter((file) => !file.lineId || file.lineId === actionLine.value?.id)
     .map((file) => ({ value: file.id, label: `${file.name} · ${file.lineId ? '明细材料' : '主单材料'}` })),
 )
-function editRecovery(recovery: Fields) {
-  if (!selectedLine.value) return
-  openAction('recovery', selectedLine.value)
-  actionDraft.value = { ...actionDraft.value, ...JSON.parse(JSON.stringify(recovery)), recoveryId: recovery.id }
-}
 function performAction() {
   if (
-    ['pause', 'void', 'return', 'reopen', 'unlock', 'approve', 'appeal', 'difference'].includes(currentAction.value) &&
+    ['pause', 'void', 'reopen'].includes(currentAction.value) &&
     !actionDraft.value.reason?.trim()
   ) {
     formError.value = '请填写操作原因'
     return
   }
-  if (currentAction.value === 'assign' && !actionDraft.value.ownerId) {
-    formError.value = '请选择处理人；名单为空时请先配置ADM账号权限'
+  if (currentAction.value === 'assign_operator' && !actionDraft.value.ownerId) {
+    formError.value = '请选择整单承办人；名单为空时请先为系统账号配置ADM菜单及办理权限'
+    return
+  }
+  if (currentAction.value === 'decide' && !actionDraft.value.reason?.trim()) {
+    formError.value = actionDraft.value.decision === 'APPEAL' ? '请填写申诉原因' : '请填写不申诉原因'
     return
   }
   const body = { ...actionDraft.value, version: editVersion, action: currentAction.value }
@@ -1005,7 +943,6 @@ void loadConfig()
 function hasUnsavedDraft() {
   return (
     Boolean(workflowPanel.value?.hasUnsavedDraft()) ||
-    Boolean(collaborationPanel.value?.hasUnsavedDraft()) ||
     (lineOpen.value && JSON.stringify(lineDraft.value) !== lineBaseline) ||
     (caseOpen.value && JSON.stringify(caseDraft.value) !== caseBaseline) ||
     [...lineDraftCache.values()].some((item) => JSON.stringify(item.draft) !== item.baseline)

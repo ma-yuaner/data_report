@@ -21,7 +21,7 @@
 
 ## 实际复用与组件
 
-- 持久化复用`sibebid.adm_case_document`的JSON及原子CAS；不另建业务任务数据库。本轮无需新增DDL，已安装表仍需此前的生成列/索引基线。
+- 2026-11-06存储修订：持久化已切换为`sibebid`下ADM规范化新表，以`adm_case.version`执行CAS，并在同一事务更新明细及业务记录。需执行`docs/sql/adm-normalized-v1.sql`，不再执行旧document表升级脚本。
 - 人员复用认证账号目录、角色功能、ADM受管成员；一次配置请求复用同一目录结果，不另造全员接口。身份/错误/权限公共规则提取到ADM `policy.py`，新旧动作共用。
 - 公共`AccountSelect.vue`只接收业务授权的`{id,name}`选项，复用在单项/批量分配、转交和计划；不自行取全员，不做人员授权。
 - `WorkflowPanel.vue`复用`FormDialog/FormGrid/DateField/FilterPanel`，工作台与详情共用；失败保草稿、版本冲突不直接覆盖、切账号清旧数据。
@@ -34,7 +34,7 @@
 
 | 表 | 源码证据与判断 | 本轮处理 |
 | --- | --- | --- |
-| `adm_case_document` | 当前中台正式业务入口，主单多明细/事件/附件元数据 | 直接复用JSON扩展，保留原数据 |
+| `adm_case`及ADM子表 | 当前中台正式业务入口，主单、明细、事件、附件、申诉、回款、审核和汇率快照分表 | 新建并由全部ADM接口统一读写；旧`adm_case_document`不再使用 |
 | `adm_dashboard_process_snapshot` | 旧ETL按adm_records.id一行，解析操作日志；含阶段、转交、无动作和质量标记；是当前流程快照，不是新系统分段责任历史 | 有价值，保留为历史核对与后续读模型参考；不直接当新流程事实库 |
 | `adm_dashboard_result` | 按旧下发日、整体/航司/差异/owner聚合；成功ADM全额被算作“申诉挽回利润”，不能证明真实到账或部分减免 | 保留旧分析，不与新多明细结果混加；财务确认口径未核定前不用于正式人员评价 |
 | `ads_target_progress_day` | 正被目标管理服务与ETL消费，按目标项/日期保存完成进度，不是ADM专用 | 保持原用途，不改表、不挪用 |

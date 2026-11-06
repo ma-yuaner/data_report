@@ -367,8 +367,7 @@ const summaryLabels: Record<string, string> = {
 const roleLabels: Record<string, string> = {
   HANDLER: '承办人',
   REVIEWER: '审核人',
-  FINANCE: '财务',
-  COLLABORATOR: '协办人',
+  ADM_OWNER: 'ADM负责人',
 }
 const deliveryLabels: Record<string, string> = {
   PENDING: '待投递',

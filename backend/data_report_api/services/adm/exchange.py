@@ -19,6 +19,8 @@ from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.cell import WriteOnlyCell
+from openpyxl.styles import Font, PatternFill, Protection
+from openpyxl.worksheet.datavalidation import DataValidation
 
 from ...time_utils import business_now_naive
 from ...shared.permissions import permission_codes
@@ -113,6 +115,16 @@ LEGACY_EXTRA = {
 }
 LEGACY44 = [column for item in LEGACY38 for column in [item, *LEGACY_EXTRA.get(item[0], [])]]
 
+DAILY19 = [
+    ("admNo", "ADM单号"), ("supplierType", "下发方类型"), ("supplierName", "下发方名称"),
+    ("currency", "主单原币币种"), ("originalAmount", "主单原币总金额"), ("issuedDate", "下发日期"),
+    ("deadline", "主单回复截止时间"), ("remark", "主单备注"), ("platform", "OTA平台"),
+    ("orderNo", "OTA订单号"), ("supplier", "供应商"), ("airline", "航司"),
+    ("ticketNo", "票号"), ("pnr", "PNR编码"), ("amount", "明细原币金额"),
+    ("department", "业务归属部门"), ("owner", "整单承办人"), ("diffType", "差异类型"),
+    ("diffSecondType", "细分差异原因"),
+]
+
 
 def check_permission(user: dict, permission: str) -> None:
     if not user.get("id"):
@@ -143,9 +155,52 @@ def append_text(sheet, values) -> None:
     sheet.append([text_cell(sheet, value) for value in values])
 
 
+def reference_export_value(code, name) -> str:
+    """Render ERP reference data without losing the stable code column."""
+    code_text, name_text = excel_text(code), excel_text(name)
+    if code_text and name_text:
+        if name_text == code_text or name_text.startswith(f"{code_text}/"):
+            return name_text
+        return f"{code_text}/{name_text}"
+    return code_text or name_text
+
+
+def split_reference(value) -> tuple[str, str]:
+    text = excel_text(value)
+    if "/" not in text:
+        return "", text
+    code, name = text.split("/", 1)
+    return code.strip(), name.strip()
+
+
 def template(format_name: str = "center") -> tuple[io.BytesIO, str]:
-    if format_name not in {"center", "java44", "python38"}:
-        raise AdmError("模板格式须为center、java44或python38", 422, "ADM_TEMPLATE")
+    if format_name not in {"daily19", "center", "java44", "python38"}:
+        raise AdmError("模板格式须为daily19、center、java44或python38", 422, "ADM_TEMPLATE")
+    if format_name == "daily19":
+        book = Workbook()
+        sheet = book.active
+        sheet.title = "ADM导入"
+        sheet.append([label for _, label in DAILY19])
+        sheet.freeze_panes = "A2"
+        sheet.auto_filter.ref = "A1:S5001"
+        header_fill = PatternFill("solid", fgColor="245FCE")
+        for cell in sheet[1]:
+            cell.font = Font(name="Arial", size=10, bold=True, color="FFFFFF")
+            cell.fill = header_fill
+            cell.protection = Protection(locked=True)
+        for index, width in enumerate((20, 14, 24, 16, 18, 14, 22, 24, 24, 22, 24, 16, 22, 18, 18, 22, 22, 22, 28), 1):
+            sheet.column_dimensions[chr(64 + index)].width = width
+        issuer = DataValidation(type="list", formula1='"平台,供应商,航司"', allow_blank=False)
+        currency = DataValidation(type="list", formula1='"CNY,USD,EUR,GBP,JPY,HKD"', allow_blank=False)
+        sheet.add_data_validation(issuer)
+        sheet.add_data_validation(currency)
+        issuer.add("B2:B5001")
+        currency.add("D2:D5001")
+        content = io.BytesIO()
+        book.save(content)
+        book.close()
+        content.seek(0)
+        return content, "ADM_19列日常建单模板.xlsx"
     book = Workbook(write_only=True)
     if format_name == "center":
         for title, columns in [("ADM主单", CASE_COLUMNS), ("订单明细", LINE_COLUMNS)]:
@@ -257,6 +312,81 @@ class AdmExchangeService:
                             {"row": case["source"]["row"], "message": f"{label}应为非负精确金额，最多4位小数"}
                         )
 
+    @staticmethod
+    def _resolve_option(value: str, options: list[dict], label: str) -> dict:
+        code, name = split_reference(value)
+        matches = [
+            item for item in options
+            if (code and code in {str(item.get("code") or ""), str(item.get("id") or "")})
+            or (not code and name and name in {str(item.get("name")), str(item.get("label")), str(item.get("id"))})
+        ]
+        if len(matches) != 1:
+            raise AdmError(f"{label}须填写唯一的编码/名称")
+        return matches[0]
+
+    def _daily19_cases(self, rows: list[dict], errors: list[dict]) -> list[dict]:
+        reference_provider = self.config.get("ADM_REFERENCE_OPTIONS")
+        people_provider = self.config.get("ADM_WORKFLOW_USER_OPTIONS")
+        references = reference_provider() if callable(reference_provider) else {"platforms": [], "suppliers": []}
+        people = people_provider() if callable(people_provider) else {"handle": [], "departments": []}
+        groups: dict[str, dict] = {}
+        master_keys = ("supplierType", "supplierName", "currency", "originalAmount", "issuedDate", "deadline", "remark")
+        type_map = {"平台": "PLATFORM", "供应商": "SUPPLIER", "航司": "AIRLINE"}
+        for row in rows:
+            try:
+                adm_no = row["admNo"].strip()
+                if not adm_no:
+                    raise AdmError("ADM单号不能为空")
+                supplier_type = type_map.get(row["supplierType"], row["supplierType"])
+                if supplier_type not in {"PLATFORM", "SUPPLIER", "AIRLINE"}:
+                    raise AdmError("下发方类型须为平台、供应商或航司")
+                issuer_code, issuer_name = split_reference(row["supplierName"])
+                if supplier_type in {"PLATFORM", "SUPPLIER"}:
+                    collection = "platforms" if supplier_type == "PLATFORM" else "suppliers"
+                    option = self._resolve_option(row["supplierName"], references.get(collection, []), "下发方")
+                    issuer_code, issuer_name = str(option["code"]), str(option["name"])
+                if not issuer_name:
+                    raise AdmError("下发方名称不能为空")
+                values = {
+                    "supplierType": supplier_type, "supplierName": issuer_name, "supplierCode": issuer_code,
+                    "currency": row["currency"].strip().upper(), "originalAmount": row["originalAmount"],
+                    "issuedDate": row["issuedDate"], "deadline": row["deadline"], "remark": row["remark"],
+                }
+                case = groups.get(adm_no)
+                if case is None:
+                    case = {
+                        "admNo": adm_no, **values, "lines": [],
+                        "source": {"system": "daily19", "recordId": adm_no, "row": row["_row"], "fields": row["_fields"]},
+                    }
+                    groups[adm_no] = case
+                elif any(excel_text(case.get(key)) != excel_text(values.get(key)) for key in master_keys):
+                    raise AdmError("同一ADM单号的主单字段不一致")
+                department = self._resolve_option(row["department"], people.get("departments", []), "业务归属部门")
+                owner = self._resolve_option(row["owner"], people.get("handle", []), "整单承办人")
+                if case.get("initialOwnerId") and str(case["initialOwnerId"]) != str(owner["id"]):
+                    raise AdmError("同一ADM的所有订单必须填写同一整单承办人")
+                case.update(initialOwnerId=str(owner["id"]), initialOwnerName=str(owner["name"]))
+                platform_code, platform_name = ("", "")
+                if row["platform"]:
+                    platform = self._resolve_option(row["platform"], references.get("platforms", []), "OTA平台")
+                    platform_code, platform_name = str(platform["code"]), str(platform["name"])
+                supplier_code, supplier_name = ("", "")
+                if row["supplier"]:
+                    supplier = self._resolve_option(row["supplier"], references.get("suppliers", []), "供应商")
+                    supplier_code, supplier_name = str(supplier["code"]), str(supplier["name"])
+                case["lines"].append({
+                    "platformCode": platform_code, "platform": platform_name, "orderNo": row["orderNo"],
+                    "supplierCode": supplier_code, "supplier": supplier_name, "airline": row["airline"],
+                    "ticketNo": row["ticketNo"], "pnr": row["pnr"], "amount": row["amount"],
+                    "departmentCode": str(department["code"]), "departmentName": str(department["name"]),
+                    "initialOwnerId": str(owner["id"]), "initialOwnerName": str(owner["name"]),
+                    "diffType": row["diffType"], "diffSecondType": row["diffSecondType"],
+                    "source": {"row": row["_row"], "fields": row["_fields"]},
+                })
+            except AdmError as error:
+                errors.append({"row": row["_row"], "sheet": "ADM导入", "message": str(error)})
+        return list(groups.values())
+
     def preview(self, user: dict, file) -> dict:
         check_permission(user, "adm.import")
         if str(file.filename or "").lower().endswith(".json"):
@@ -283,7 +413,13 @@ class AdmExchangeService:
             cases = []
             book = load_workbook(source, read_only=True, data_only=False, keep_links=False)
             try:
-                if "ADM主单" in book.sheetnames and "订单明细" in book.sheetnames:
+                daily_headers = [label for _, label in DAILY19]
+                active_headers = [excel_text(cell.value) for cell in next(book.active.iter_rows(), [])]
+                if len(book.sheetnames) == 1 and active_headers == daily_headers:
+                    format_name = "daily19"
+                    rows = self._rows(book.active, DAILY19, errors)
+                    cases = self._daily19_cases(rows, errors)
+                elif "ADM主单" in book.sheetnames and "订单明细" in book.sheetnames:
                     format_name = "center"
                     rows = self._rows(book["ADM主单"], CASE_COLUMNS, errors)
                     detail_rows = self._rows(book["订单明细"], LINE_COLUMNS, errors)
@@ -354,6 +490,7 @@ class AdmExchangeService:
                                     "orderNo": row["ota_order_no"],
                                     "ticketNo": row["ticket_no"],
                                     "pnr": row.get("pnr_no", ""),
+                                    "attachmentUrl": row.get("file_url", ""),
                                     "currency": row["currency"],
                                     "amount": row["total_amount"],
                                     "description": row["diff_detail_reason"],
@@ -397,7 +534,7 @@ class AdmExchangeService:
                 return {
                     "previewId": preview_id,
                     "format": format_name,
-                    "headers": [label for _, label in (CASE_COLUMNS if format_name == "center" else columns)],
+                    "headers": [label for _, label in (DAILY19 if format_name == "daily19" else CASE_COLUMNS if format_name == "center" else columns)],
                     "rowCount": sum(len(item["lines"]) for item in cases),
                     "cases": [
                         {
@@ -477,22 +614,35 @@ def export_workbook(cases: list[dict], kind: str = "adm_cases") -> tuple[io.Byte
     book = Workbook(write_only=True)
     sheet = book.create_sheet("ADM主单" if kind == "adm_cases" else "订单明细")
     columns = (
-        CASE_COLUMNS
+        [("internalNo", "主单内部单号"), *(item for item in CASE_COLUMNS if item[0] != "key")]
         if kind == "adm_cases"
         else [
             *(item for item in CASE_COLUMNS if item[0] in {"admNo", "supplierName"}),
-            *LINE_COLUMNS,
+            ("internalNo", "主单内部单号"),
+            ("lineInternalNo", "明细内部单号"),
+            *(item for item in LINE_COLUMNS if item[0] not in {"id", "caseKey"}),
+            ("investigationNote", "订单核查情况及原因说明"),
             ("status", "处理状态"),
             ("ownerName", "当前处理人"),
         ]
     )
     append_text(sheet, [label for _, label in columns])
     for case in cases:
+        supplier_display = reference_export_value(case.get("supplierCode"), case.get("supplierName"))
         if kind == "adm_cases":
-            append_text(sheet, [case.get("id") if key == "key" else case.get(key) for key, _ in columns])
+            values = {**case, "supplierName": supplier_display}
+            append_text(sheet, [case.get("id") if key == "key" else values.get(key) for key, _ in columns])
         else:
             for line in case["lines"]:
-                values = {**line, "caseKey": case["id"], "admNo": case["admNo"], "supplierName": case["supplierName"]}
+                values = {
+                    **line,
+                    "caseKey": case["id"],
+                    "admNo": case["admNo"],
+                    "internalNo": case.get("internalNo"),
+                    "lineInternalNo": line.get("lineInternalNo"),
+                    "supplierName": supplier_display,
+                    "platform": reference_export_value(line.get("platformCode"), line.get("platform")),
+                }
                 append_text(sheet, [values.get(key) for key, _ in columns])
     content = io.BytesIO()
     if any(case.get("history") for case in cases):

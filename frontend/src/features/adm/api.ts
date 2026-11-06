@@ -4,6 +4,10 @@ export type Fields = Record<string, any>
 export interface AdmPerson {
   id: string
   name: string
+  accountName?: string
+  rosterEmployeeId?: string
+  departmentCode?: string
+  departmentName?: string
 }
 export interface WorkflowTask extends Fields {
   id: string
@@ -50,6 +54,7 @@ export interface AdmAttachment extends Fields {
 }
 export interface AdmLine extends Fields {
   id: string
+  lineInternalNo: string
   businessType: string
   platform: string
   orderNo: string
@@ -67,6 +72,7 @@ export interface AdmLine extends Fields {
 }
 export interface AdmCase extends Fields {
   id: string
+  internalNo: string
   admNo: string
   supplierName: string
   currency: string
@@ -86,7 +92,21 @@ export interface AdmConfig extends Fields {
   lineStatuses: any[]
   businessTypes: any[]
   attachmentCategories: any[]
-  people?: { handle: AdmPerson[]; review: AdmPerson[]; finance: AdmPerson[]; coordinate: AdmPerson[] }
+  people?: { handle: AdmPerson[]; coordinate: AdmPerson[]; owner: AdmPerson[]; departments?: { code: string; name: string }[] }
+  references?: {
+    sourceDatabase: string
+    platforms: { code: string; name: string; label: string; exportValue: string }[]
+    suppliers: { code: string; name: string; label: string; exportValue: string }[]
+    differenceTypes: { code: string; name: string; label: string }[]
+    differenceTypeSource?: { database: string; table: string; typeCode: string; configured: boolean }
+    differenceEntrySource?: {
+      database: string
+      table: string
+      configured: boolean
+      matchPriority: string[]
+    }
+    exchangeRateSource: { table: string; configured: boolean; limitation?: string }
+  }
   assignees?: AdmPerson[]
 }
 export interface AdmOperationConfig extends Fields {
@@ -186,6 +206,15 @@ export const admApi = {
   },
   importCommit: (previewId: string, idempotencyKey: string) =>
     data<Fields>(http.post(`${base}/imports/${encodeURIComponent(previewId)}/commit`, { idempotencyKey })),
+  operatorWorkbook: (statuses: string[]) =>
+    http.get<Blob>(`${base}/operator-workbook`, { responseType: 'blob', params: { statuses: statuses.join(',') } }),
+  operatorImportPreview: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return data<Fields>(http.post(`${base}/operator-imports/preview`, form))
+  },
+  operatorImportCommit: (previewId: string) =>
+    data<Fields>(http.post(`${base}/operator-imports/${encodeURIComponent(previewId)}/commit`, {})),
 }
 
 export function saveBlob(blob: Blob, name: string) {
@@ -199,14 +228,19 @@ export function saveBlob(blob: Blob, name: string) {
 
 export const statusLabels: Record<string, string> = {
   DRAFT: '草稿',
-  PENDING_ASSIGN: '待分配',
-  PENDING_ACCEPT: '待接单',
-  PROCESSING: '处理中',
+  PENDING_LEADER_ASSIGNMENT: '待分配整单承办人',
+  PENDING_OPERATOR_ASSIGNMENT: '待分配整单承办人',
+  PENDING_CODE_PROCESSING: '待编码处理',
+  PENDING_DECISION: '待决定',
+  APPEAL_IN_PROGRESS: '申诉中',
   PENDING_REVIEW: '待审核',
-  WAITING_FINANCE: '待财务确认',
+  REJECTED_FOR_REVISION: '驳回待修改',
+  PENDING_COLLECTION: '待回款跟进',
+  IN_PROGRESS: '处理中',
+  READY_TO_CLOSE: '可以结案',
   CLOSED: '已结案',
   HISTORICAL: '历史只读档案',
-  HISTORICAL_UNVERIFIED: '历史财务未核验',
+  HISTORICAL_UNVERIFIED: '历史状态未核验',
   COMPLETED: '已完成',
   ISSUE: '出票',
   REFUND: '退票',

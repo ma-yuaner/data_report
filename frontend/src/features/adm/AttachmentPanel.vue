@@ -12,7 +12,7 @@
     </div>
     <a-alert v-if="error" type="error" :message="error" show-icon style="margin: 12px 0" />
     <p class="adm-muted">
-      主单原件不会自动向所有承办人开放；在“责任与流转”明确授权整份文件。需要脱敏时先上传实际脱敏副本。附件访问由服务端逐次鉴权。
+      台账查看者可在线预览，但不能因此下载原件；下载仍按负责人、当前责任范围和管理员权限逐次鉴权。需要脱敏时先上传实际脱敏副本。
     </p>
     <a-table
       row-key="id"
@@ -28,7 +28,7 @@
         <template v-if="column.key === 'actions'">
           <a-space
             ><a-button size="small" @click="preview(record)">预览</a-button
-            ><a-button size="small" @click="download(record)">下载</a-button></a-space
+            ><a-button v-if="record.canDownload" size="small" @click="download(record)">下载</a-button></a-space
           >
         </template>
       </template>
@@ -100,7 +100,7 @@ const categoryLabels: Record<string, string> = {
   VERIFICATION: '核实材料',
   RECOVERY: '编码恢复',
   APPEAL: '申诉材料',
-  FINANCE: '财务凭证',
+  COLLECTION: '回款材料',
   ANALYSIS: '分析材料',
 }
 const categories = computed(() =>
@@ -118,7 +118,7 @@ const lineOptions = computed(() => [
     .filter((line) => allowed(props.record, 'upload') || allowed(line, 'upload'))
     .map((line) => ({
       value: line.id,
-      label: `${line.platform || '待核实平台'} · ${line.orderNo || line.id}`,
+      label: `${line.lineInternalNo || '待编号明细'} · ${line.platform || '待核实平台'} · ${line.orderNo || '无OTA订单号'}`,
     })),
 ])
 watch(

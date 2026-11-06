@@ -1,4 +1,5 @@
--- Existing V1 aggregate table ONLY. Back up before execution. Run once.
+-- LEGACY DOCUMENT-TABLE UPGRADE: DO NOT RUN FOR THE NEW NORMALIZED ADM RELEASE.
+-- Use adm-normalized-v1.sql instead.
 -- If some columns already exist, compare SHOW CREATE TABLE and apply only missing clauses.
 -- No DROP/TRUNCATE/UPDATE of existing business data; no changes to ERP adm_records.
 USE sibebid;

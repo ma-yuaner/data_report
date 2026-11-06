@@ -26,7 +26,7 @@
 
 ## 数据与部署
 
-正式存储为MySQL `adm_case_document`，聚合JSON保存主单、明细、任务、事件和快照；每次写以version CAS事务提交业务和审计。此为首版原子性取舍，尚未对大规模主单/历史做索引和容量优化，不承诺百万级性能。
+2026-11-06起正式存储改为MySQL规范化新表：`adm_case`保存主单核心字段，`adm_case_line`保存订单明细，事件、附件、责任流转、申诉、编码恢复、回款、审核及汇率快照分别落独立子表。主表以version CAS控制并发，所有相关子表在同一事务提交。应用不再读写`adm_case_document`；新环境执行`docs/sql/adm-normalized-v1.sql`。
 
 1. 由DBA在确认的中台业务库执行[DDL](../sql/adm-management-center-v1.sql)，要求MySQL JSON支持，API不会启动自动创建生产表。
 2. 默认复用平台MYSQL连接；可在私密环境设置`ADM_MYSQL_HOST/PORT/DATABASE/USER/PASSWORD`。不修改公共ERP连接，不将配置值入Git。

@@ -12,8 +12,7 @@ from .policy import AdmError, has, identity, now, require, uid
 from .store import StoreUnavailable
 
 ZONE = ZoneInfo("Asia/Shanghai")
-DATE_FIELDS = ("acceptanceDueAt", "processingDueAt", "reviewDueAt", "financeDueAt")
-ROLE_FIELDS = {"reviewerId": "review", "financeOwnerId": "finance"}
+DATE_FIELDS = ("processingDueAt", "reviewDueAt", "collectionDueAt")
 WORKFLOW_ACTIONS = {"plan", "follow_up", "transfer_request", "transfer_accept", "transfer_reject", "transfer_cancel"}
 
 
@@ -33,16 +32,14 @@ def timestamp(value):
 
 
 def associated_ids(line):
-    workflow = line.get("workflow") or {}
     ids = {
         str(value)
-        for value in (line.get("ownerId"), workflow.get("reviewerId"), workflow.get("financeOwnerId"))
+        for value in (line.get("ownerId"),)
         if value
     }
     transfer = line.get("handover") or {}
     if transfer.get("status") == "PENDING":
         ids.add(str(transfer["toId"]))
-    ids.update(str(task["ownerId"]) for task in line.get("collaborations", []) if task.get("ownerId") and task.get("status") != "CANCELLED")
     return ids
 
 
@@ -51,21 +48,23 @@ def role_actions(user, case, line, full):
         return []
     actor = identity(user)
     manager = full and has(user, "adm.assign")
-    owner = str(line.get("ownerId")) == actor and has(user, "adm.handle")
-    active = line["status"] in {"PENDING_ACCEPT", "PROCESSING"}
-    pending = (line.get("handover") or {}).get("status") == "PENDING"
+    owner = str(case.get("ownerId") or line.get("ownerId")) == actor and has(user, "adm.handle")
+    active = line["status"] in {
+        "PENDING_CODE_PROCESSING", "PENDING_DECISION", "APPEAL_IN_PROGRESS", "REJECTED_FOR_REVISION"
+    }
+    pending = (case.get("handover") or {}).get("status") == "PENDING"
     result = []
     if manager and line["status"] not in {"COMPLETED", "HISTORICAL"}:
         result.append("plan")
-    if active and line.get("ownerId"):
+    if active and (case.get("ownerId") or line.get("ownerId")):
         if pending:
-            if str(line["handover"]["toId"]) == actor and has(user, "adm.handle"):
+            if str(case["handover"]["toId"]) == actor and has(user, "adm.handle"):
                 result += ["transfer_accept", "transfer_reject"]
             if owner or manager:
                 result.append("transfer_cancel")
         elif owner or manager:
             result.append("transfer_request")
-    if owner and line["status"] == "PROCESSING" and line.get("lockedBy") == actor:
+    if owner and line["status"] in {"PENDING_DECISION", "APPEAL_IN_PROGRESS", "REJECTED_FOR_REVISION"}:
         result.append("follow_up")
     return result
 
@@ -112,15 +111,15 @@ class WorkflowService:
             user = {"id": str(value), "username": str(value), "is_admin": True}
         permission = {
             "handle": "adm.handle",
-            "review": "adm.review",
-            "finance": "adm.finance.confirm",
             "coordinate": "adm.assign",
+            "owner": "adm.assign",
         }[purpose]
         if (
             not user
             or not user.get("is_enabled", True)
             or not has(user, "adm.view")
             or not has(user, permission)
+            or (purpose == "owner" and not has(user, "adm.review"))
             or (not user.get("is_admin") and "adm.center" not in (user.get("menu_codes") or []))
         ):
             raise AdmError("账号不存在、停用或缺少对应ADM菜单/功能权限")
@@ -130,7 +129,7 @@ class WorkflowService:
         case = self.service._write(user, case_id, body, "adm.assign", True)
         if not str(body.get("reason") or "").strip():
             raise AdmError("更换协调人须填写原因")
-        actor, name = self.resolve(body.get("coordinatorId"), "coordinate")
+        actor, name = self.resolve(body.get("coordinatorId"), "owner")
         before = case.get("coordinatorId", case["createdBy"])
         case.update(coordinatorId=actor, coordinatorName=name)
         return self.service._save(
@@ -164,7 +163,7 @@ class WorkflowService:
         elif action == "transfer_request":
             detail = self.request_transfer(user, case, line, body)
         else:
-            transfer = line["handover"]
+            transfer = case["handover"]
             reason = str(body.get("reason") or "").strip()
             if action != "transfer_accept" and not reason:
                 raise AdmError("驳回/取消交接须填写原因")
@@ -180,16 +179,23 @@ class WorkflowService:
             if action == "transfer_accept":
                 # Current owner is unchanged until this CAS succeeds; no authority gap.
                 self.resolve(identity(user), "handle")
-                line.update(
-                    ownerId=transfer["toId"],
-                    ownerName=transfer["toName"],
-                    status="PROCESSING",
-                    lockedBy=identity(user),
-                    acceptedAt=now(),
+                accepted_at = now()
+                for segment in case.setdefault("assignmentSegments", []):
+                    if not segment.get("endedAt"):
+                        segment["endedAt"] = accepted_at
+                case.update(ownerId=transfer["toId"], ownerName=transfer["toName"])
+                case["assignmentSegments"].append(
+                    {"id": uid(), "ownerId": transfer["toId"], "ownerName": transfer["toName"],
+                     "assignedAt": transfer["requestedAt"], "acceptedAt": accepted_at, "endedAt": None,
+                     "round": case["round"], "reason": transfer["reason"]}
                 )
-                segment_assign(case, line, transfer["reason"])
-                segment_accept(case, line)
-            line.setdefault("handoverHistory", []).append(dict(transfer))
+                for candidate in case["lines"]:
+                    if candidate["status"] in {"COMPLETED", "HISTORICAL"}:
+                        continue
+                    candidate.update(ownerId=transfer["toId"], ownerName=transfer["toName"], lockedBy=identity(user), acceptedAt=accepted_at)
+                    segment_assign(case, candidate, transfer["reason"])
+                    segment_accept(case, candidate)
+            case.setdefault("handoverHistory", []).append(dict(transfer))
             detail = dict(transfer)
         return self.service._save(user, case, action, detail, line_id)
 
@@ -200,30 +206,6 @@ class WorkflowService:
             raise AdmError("调整原因过长")
         values = dict(line.get("workflow") or {})
         before = dict(values)
-        for key, purpose in ROLE_FIELDS.items():
-            if key in body:
-                value = body[key]
-                active_role = (
-                    "reviewerId"
-                    if line["status"] == "PENDING_REVIEW"
-                    else "financeOwnerId"
-                    if line["status"] == "WAITING_FINANCE"
-                    else None
-                )
-                if key == active_role and values.get(key) and str(value or "") != str(values[key]):
-                    raise AdmError("审核/财务进行中不得通过计划更换责任人，请先按授权退回处置", 409)
-                name_key = "reviewerName" if key == "reviewerId" else "financeOwnerName"
-                if value in (None, ""):
-                    values.update({key: None, name_key: ""})
-                else:
-                    person_id, name = self.resolve(value, purpose)
-                    if (
-                        key == "reviewerId"
-                        and person_id == str(line.get("ownerId"))
-                        and not self.service.config.get("ADM_ALLOW_SELF_REVIEW", False)
-                    ):
-                        raise AdmError("审核人与当前承办人不能相同")
-                    values.update({key: person_id, name_key: name})
         for key in DATE_FIELDS:
             if key in body:
                 values[key] = timestamp(body[key])
@@ -232,12 +214,12 @@ class WorkflowService:
 
     def request_transfer(self, user, case, line, body):
         if (
-            line["status"] not in {"PENDING_ACCEPT", "PROCESSING"}
-            or (line.get("handover") or {}).get("status") == "PENDING"
+            line["status"] not in {"PENDING_CODE_PROCESSING", "PENDING_DECISION", "APPEAL_IN_PROGRESS", "REJECTED_FOR_REVISION"}
+            or (case.get("handover") or {}).get("status") == "PENDING"
         ):
             raise AdmError("此状态不可转交，或已有待确认交接", 409)
         actor, name = self.resolve(body.get("ownerId"), "handle")
-        if actor == str(line.get("ownerId")):
+        if actor == str(case.get("ownerId") or line.get("ownerId")):
             raise AdmError("不能转交给当前承办人")
         reason = str(body.get("reason") or "").strip()
         summary = str(body.get("summary") or reason).strip()
@@ -246,8 +228,8 @@ class WorkflowService:
         transfer = {
             "id": uid(),
             "status": "PENDING",
-            "fromId": line["ownerId"],
-            "fromName": line.get("ownerName", ""),
+            "fromId": case.get("ownerId") or line.get("ownerId"),
+            "fromName": case.get("ownerName") or line.get("ownerName", ""),
             "toId": actor,
             "toName": name,
             "requestedBy": identity(user),
@@ -255,7 +237,7 @@ class WorkflowService:
             "reason": reason,
             "summary": summary,
         }
-        line["handover"] = transfer
+        case["handover"] = transfer
         return dict(transfer)
 
     def overview(self, user, filters, *, unpaginated=False, source_cases=None):
@@ -263,15 +245,14 @@ class WorkflowService:
         if filters.get("date") or filters.get("businessDate"):
             raise AdmError("当前观察不支持历史日期回溯，请勿作为历史日报使用")
         if filters.get("kind") and filters["kind"] not in {
-            "ASSIGN",
-            "ACCEPT",
-            "PROCESS",
+            "ASSIGN_OPERATOR",
+            "CODE_PROCESSING",
+            "DECISION",
+            "APPEAL",
             "TRANSFER",
             "REVIEW",
-            "FINANCE",
+            "COLLECTION",
             "FOLLOW_UP",
-            "COLLABORATION",
-            "REMEDIATION",
         }:
             raise AdmError("任务环节无效")
         scope = filters.get("scope", "mine")
@@ -343,64 +324,53 @@ class WorkflowService:
                 visible = full or bool(associated_ids(line) & ids)
                 if not visible and not coordination_visible:
                     continue
-                for task in line.get("collaborations", []):
-                    if task["status"] in {"COMPLETED", "CANCELLED"} or (case["status"] == "CLOSED" and task["kind"] != "REMEDIATION") or not visible:
-                        continue
-                    reviewing = task["status"] == "PENDING_REVIEW"
-                    if reviewing:
-                        from .collaboration import review_recipient
-                        recipient, name, missing = review_recipient(self.service, case, line, task)
-                    else:
-                        recipient, name, missing = task["ownerId"], task["ownerName"], False
-                    add(case, line, task["kind"], "待复核协办/整改" if reviewing else "待办理协办/整改", recipient, name, task.get("dueAt"), needs_assignee=missing, task=task)
                 if case["status"] == "CLOSED":
                     continue
                 workflow = line.get("workflow") or {}
-                owner, name = line.get("ownerId"), line.get("ownerName")
-                if line["status"] == "PENDING_ASSIGN":
-                    if full or coordination_visible:
+                owner, name = case.get("ownerId") or line.get("ownerId"), case.get("ownerName") or line.get("ownerName")
+                if line["status"] in {"PENDING_LEADER_ASSIGNMENT", "PENDING_OPERATOR_ASSIGNMENT"}:
+                    if (full or coordination_visible) and line is case["lines"][0]:
                         add(
                             case,
                             line,
-                            "ASSIGN",
-                            "待分配承办人",
+                            "ASSIGN_OPERATOR",
+                            "待分配整单承办人",
                             coordinator,
                             case.get("coordinatorName"),
                             None,
                             True,
                             not visible,
                         )
-                elif line["status"] == "PENDING_ACCEPT" and visible:
-                    add(case, line, "ACCEPT", "待接单", owner, name, workflow.get("acceptanceDueAt"))
-                elif line["status"] == "PROCESSING" and visible:
+                elif line["status"] == "PENDING_CODE_PROCESSING" and visible:
+                    add(case, line, "CODE_PROCESSING", "待编码处理", owner, name, workflow.get("processingDueAt") or case.get("deadline"))
+                elif line["status"] in {"PENDING_DECISION", "REJECTED_FOR_REVISION"} and visible:
                     add(
                         case,
                         line,
-                        "PROCESS",
-                        "待办理",
+                        "DECISION",
+                        "驳回待修改" if line["status"] == "REJECTED_FOR_REVISION" else "待决定",
                         owner,
                         name,
                         workflow.get("processingDueAt") or case.get("deadline"),
                     )
-                elif line["status"] in {"PENDING_REVIEW", "WAITING_FINANCE"}:
+                elif line["status"] == "APPEAL_IN_PROGRESS" and visible:
+                    add(case, line, "APPEAL", "申诉中", owner, name, workflow.get("processingDueAt") or case.get("deadline"))
+                elif line["status"] in {"PENDING_REVIEW", "PENDING_COLLECTION"}:
                     review = line["status"] == "PENDING_REVIEW"
-                    person = workflow.get("reviewerId" if review else "financeOwnerId")
-                    if (person and visible) or (not person and (full or coordination_visible)):
+                    if full or coordination_visible:
                         add(
                             case,
                             line,
-                            "REVIEW" if review else "FINANCE",
-                            "待审核" if review else "待财务确认",
-                            person or coordinator,
-                            workflow.get("reviewerName" if review else "financeOwnerName")
-                            if person
-                            else "协调人：请指定节点责任人",
-                            workflow.get("reviewDueAt" if review else "financeDueAt"),
-                            not person,
+                            "REVIEW" if review else "COLLECTION",
+                            "待审核" if review else "待回款跟进",
+                            coordinator,
+                            case.get("coordinatorName") or "ADM负责人",
+                            workflow.get("reviewDueAt" if review else "collectionDueAt"),
+                            False,
                             not visible,
                         )
-                transfer = line.get("handover") or {}
-                if transfer.get("status") == "PENDING" and visible:
+                transfer = case.get("handover") or {}
+                if transfer.get("status") == "PENDING" and visible and line is case["lines"][0]:
                     add(
                         case,
                         line,
@@ -410,7 +380,7 @@ class WorkflowService:
                         transfer["toName"],
                         workflow.get("acceptanceDueAt"),
                     )
-                if line["status"] == "PROCESSING" and workflow.get("waitingFor") and visible:
+                if line["status"] in {"PENDING_DECISION", "APPEAL_IN_PROGRESS", "REJECTED_FOR_REVISION"} and workflow.get("waitingFor") and visible:
                     add(case, line, "FOLLOW_UP", "等待外部：需跟进", owner, name, workflow.get("nextFollowUpAt"))
         items.sort(key=lambda item: (not item["overdue"], item["dueAt"] or "9999", item["id"]))
         counts = Counter(item["kind"] for item in items)

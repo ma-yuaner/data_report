@@ -45,11 +45,13 @@ SMART_DETAILS_KIND = "smart_details"
 MISSED_ORDERS_KIND = "smart_missed_orders"
 ADM_CASES_KIND = "adm_cases"
 ADM_LINES_KIND = "adm_lines"
+ADM_OPERATOR_TASKS_KIND = "adm_operator_tasks"
 HR_MAIL_FILE_KIND = "hr_mail_file"
 BACKGROUND_EXPORT_KINDS = {
     MISSED_ORDERS_KIND,
     ADM_CASES_KIND,
     ADM_LINES_KIND,
+    ADM_OPERATOR_TASKS_KIND,
     HR_MAIL_FILE_KIND,
     GDS_ROUTE_KIND,
     RESOURCE_GDS_KIND,
@@ -63,6 +65,7 @@ TASK_LABELS = {
     MISSED_ORDERS_KIND: "漏处理订单",
     ADM_CASES_KIND: "ADM主单",
     ADM_LINES_KIND: "ADM订单明细",
+    ADM_OPERATOR_TASKS_KIND: "ADM操作人员34列任务",
     HR_MAIL_FILE_KIND: "HR邮件附件",
     GDS_ROUTE_KIND: "GDS航线名单",
     RESOURCE_GDS_KIND: "GDS资源治理汇报",
@@ -112,8 +115,9 @@ def _require_kind(user: dict[str, Any], kind: str) -> None:
         if not (_is_admin(user) or "hr.mail" in menu_codes):
             raise PermissionError("当前账号没有HR报表邮件菜单权限")
         return
-    if kind in {ADM_CASES_KIND, ADM_LINES_KIND}:
-        if not (_is_admin(user) or ("adm.center" in menu_codes and "adm.export" in permission_codes(user))):
+    if kind in {ADM_CASES_KIND, ADM_LINES_KIND, ADM_OPERATOR_TASKS_KIND}:
+        permission = "adm.handle" if kind == ADM_OPERATOR_TASKS_KIND else "adm.export"
+        if not (_is_admin(user) or ("adm.center" in menu_codes and permission in permission_codes(user))):
             raise PermissionError("当前账号没有ADM导出权限")
         return
     if kind == "comprehensive" or kind in BUSINESSES:
@@ -669,6 +673,12 @@ class ComprehensiveExportService:
                 if error.status in {401, 403, 404}:
                     raise PermissionError(str(error)) from error
                 raise ValueError(str(error)) from error
+        elif kind == ADM_OPERATOR_TASKS_KIND:
+            from .adm.operator_exchange import STATUS_LABELS
+            statuses = payload.get("statuses") or list(STATUS_LABELS)
+            if not isinstance(statuses, list) or not statuses or any(value not in STATUS_LABELS for value in statuses):
+                raise ValueError("操作人员导出任务类型无效")
+            payload = {"statuses": list(dict.fromkeys(statuses))}
         if kind == HR_MAIL_FILE_KIND:
             start_date = end_date = str(batch.get("period") or batch.get("createdAt") or "")[:100]
         else:
@@ -794,6 +804,16 @@ class ComprehensiveExportService:
                 raise PermissionError("账号已停用或不存在")
             _require_kind(actor, kind)
             content, name = export_workbook(self._validate_adm_export(actor, values["_admSelection"]), kind)
+        elif kind == ADM_OPERATOR_TASKS_KIND:
+            from .adm.operator_exchange import AdmOperatorExchange
+            resolver = self.config.get("ADM_USER_RESOLVER")
+            if not callable(resolver):
+                raise PermissionError("ADM导出缺少可信账号解析器")
+            actor = resolver(int(task["user_id"]))
+            if not actor or not actor.get("is_enabled", True):
+                raise PermissionError("账号已停用或不存在")
+            _require_kind(actor, kind)
+            content, name = AdmOperatorExchange(self.config).export(actor, values.get("statuses"))
         elif kind in {RESOURCE_GDS_KIND, RESOURCE_OTA_KIND}:
             data_source = "gds" if kind == RESOURCE_GDS_KIND else "ota"
             content, name = ResourceGovernanceService(self.config).export_report(
