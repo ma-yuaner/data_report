@@ -81,3 +81,9 @@ cd /home/lywz/data-team-repo
 247更新本次应用后沿既有`bash scripts/deploy_risk_verification.sh`；本地未取得生产构建成功，须在服务器构建成功并复核日志后切换，失败不报告部署完成。既有分析调度成功生成V14快照后核查列表/详情/分析同日期同范围一致；没有部署权限时不自动登录执行。用户验收入口保持`/risk-verification`。
 
 剩余未验：浏览器真实点击/中文/低高度/缩放/焦点，目标MySQL事务与并发，V14正式清洗/分析调度、服务器构建/部署、真实用户业务验收。构建限制和未全量原始命令归档必须保留，不能以本地测试数代替。
+
+## 代码发布接续
+
+2026-11-07正常快进发布并以ls-remote核验：应用功能提交`029531f8bf80712e9030eea93aa44b0ab5f90a23`已到GitLab/GitHub main；配套清洗`dde310ed62fb7648eb692d45ed7460c71713fddc`已到GitLab main。`release.json`及app/etl-push-*/verify-*.json保存完整实际命令、cwd、原始输出及退出0。发布前fetch并核对远端main为祖先，未强推、未混入其他任务改动。
+
+独立追加快照审查4项通过，见independent-snapshot.json及independent-review.md；连同首轮共16项独立Python和4组Vue场景。正式代码之后仅补本发布记录，不改变运行时SHA。发版通知已询问本次申请人，未获答复前不发送；不沿用其他任务申请人。没有执行服务器部署、正式清洗、DDL、CI查询或业务验收。
