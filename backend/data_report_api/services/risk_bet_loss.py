@@ -52,3 +52,18 @@ def evaluate_bet(evidence, version):
         'supported': '全部出票明细的原始利润均满足单票止损条件',
     }[status])
     return base
+
+
+def evaluate_normal(evidence, version):
+    """Normal business uses the same per-ticket historical stop-loss arithmetic.
+
+    A supported result closes the automatic check; manual sampling remains optional.
+    No commission, platform prerequisite, cross-order averaging or human verdict is added.
+    """
+    result = evaluate_bet(evidence, version)
+    result['summary'] = {
+        'supported': '正常业务全部出票明细均满足出票时单票止损条件，自动通过（已闭环），可人工抽查',
+        'problem': '正常业务至少一张票的出票利润突破单票止损值，需人工核实',
+        'insufficient': '正常业务取证不完整或缺少出票利润、出票时止损证据，不能判为通过',
+    }[result['status']]
+    return result

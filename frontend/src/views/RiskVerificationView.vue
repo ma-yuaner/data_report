@@ -56,8 +56,8 @@
       <a-table :row-selection="canReview ? { selectedRowKeys: selectedOrders.map(o => o.orderId), onChange: selectOrders, getCheckboxProps: (record: VerificationOrder) => ({ disabled: !!manual[record.id]?.review?.caseId || !manual[record.id] }) } : undefined" :columns="orderColumns" :data-source="orders?.items || []" row-key="id" :loading="ordersLoading" :pagination="{ current: page, pageSize, total: orders?.total || 0, showSizeChanger: true, pageSizeOptions: ['20', '50', '100'], showTotal: (total: number) => `共 ${total} 单` }" :scroll="{ x: 1020, y: 420 }" size="middle" @change="changePage" :locale="{ emptyText: orders ? '当前类型和状态下没有订单' : '点击上方类型或数量查看明细' }">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'reason'">{{ categoryLabel(record.profit_reason_type) }}</template>
-          <a-tag v-else-if="column.key === 'status'" :color="statusColors[record.verificationStatus as VerificationStatus]">{{ statusLabels[record.verificationStatus as VerificationStatus] }}</a-tag>
-          <template v-else-if="column.key === 'human'"><a-tag v-if="manual[record.id]?.stale" color="orange">待重新核实</a-tag><span v-else-if="manual[record.id]?.review">{{ reviewStatus(manual[record.id]) }}</span><span v-else>{{ reviewError ? '读取失败' : '尚未人工核实' }}</span><br /><a-button v-if="manual[record.id]?.review?.caseId" type="link" @click="router.push(`/risk-followup/cases?case=${manual[record.id]?.review?.caseId}`)">案例跟进</a-button></template>
+          <a-tag v-else-if="column.key === 'status'" :color="statusColors[record.verificationStatus as VerificationStatus]">{{ record.verificationStatus === 'supported' && NORMAL_REASON_CODES.includes(record.profit_reason_type) ? '自动通过（已闭环）' : statusLabels[record.verificationStatus as VerificationStatus] }}</a-tag>
+          <template v-else-if="column.key === 'human'"><a-tag v-if="manual[record.id]?.stale" color="orange">待重新核实</a-tag><span v-else-if="manual[record.id]?.review">{{ reviewStatus(manual[record.id]) }}</span><span v-else>{{ reviewError ? '读取失败' : record.verificationStatus === 'supported' && NORMAL_REASON_CODES.includes(record.profit_reason_type) ? '自动闭环，可人工抽查' : '尚未人工核实' }}</span><br /><a-button v-if="manual[record.id]?.review?.caseId" type="link" @click="router.push(`/risk-followup/cases?case=${manual[record.id]?.review?.caseId}`)">案例跟进</a-button></template>
           <a-button v-else-if="column.key === 'action'" type="link" @click="openOrder(record)">{{ '查看核实详情' }}</a-button>
         </template>
       </a-table>
@@ -87,7 +87,7 @@ import RiskAutomaticDetail from '@/components/RiskAutomaticDetail.vue'
 import { ApiError } from '@/api/http'
 import RiskRuleConfigDrawer from '@/components/RiskRuleConfigDrawer.vue'
 import RiskDataStatus from '@/components/RiskDataStatus.vue'
-import { verificationOverview, type RiskCatalogFreshness, type VerificationCategory, type VerificationMetrics, type VerificationOrder, type VerificationOrders, type VerificationOverview, type VerificationStatus } from '@/api/riskVerification'
+import { verificationOverview, NORMAL_REASON_CODES, type RiskCatalogFreshness, type VerificationCategory, type VerificationMetrics, type VerificationOrder, type VerificationOrders, type VerificationOverview, type VerificationStatus } from '@/api/riskVerification'
 
 const router = useRouter()
 const { canReview } = useRiskPermissions()

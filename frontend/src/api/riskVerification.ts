@@ -184,3 +184,6 @@ export const verificationOverview = {
   summary: (startDate: string, endDate: string) => http.get<ApiEnvelope<VerificationOverview>>('/v1/risk-verification/overview', { params: { startDate, endDate } }).then(response => response.data.data),
   orders: (startDate: string, endDate: string, reason: string | undefined, status: VerificationStatus | 'all', page: number, pageSize: number, filters: { orderNo?: string; platform?: string; airline?: string; sort?: string } = {}) => http.get<ApiEnvelope<VerificationOrders>>('/v1/risk-verification/orders', { params: { startDate, endDate, reason, status, page, pageSize, ...filters } }).then(response => response.data.data),
 }
+
+// Exact 正常业务 codes verified against the published reason dictionary.
+export const NORMAL_REASON_CODES: string[] = ['R001', 'RPA000']

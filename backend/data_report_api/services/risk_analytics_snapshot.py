@@ -48,16 +48,24 @@ def day(value):
     return str(value)[:10]
 
 
+def current_rules(raw):
+    try:
+        meta = json.loads(raw)
+    except (ValueError, TypeError):
+        return False
+    return isinstance(meta, dict) and meta.get('ruleVersion') == RULE_ID and meta.get('engineHash') == engine_hash()
+
+
 def request_snapshot(config, start, end, store=None, force=False):
     _, last = _period(start, end)
     if last < date.min + timedelta(days=30):raise EvidenceError('分析结束日期过早')
     store = store or RiskAutoStore(config)
     at = now()
     with store.db() as db:
-        previous = db.execute('SELECT snapshot_id,schema_version,checked_at,last_error_code FROM '+MANIFEST+' WHERE end_date=?',(last.isoformat(),)).fetchone()
+        previous = db.execute('SELECT snapshot_id,schema_version,checked_at,last_error_code,body FROM '+MANIFEST+' WHERE end_date=?',(last.isoformat(),)).fetchone()
         if previous and previous.get('checked_at') and not force:
             checked = datetime.fromisoformat(str(previous['checked_at']))
-            if previous['snapshot_id'] and previous['schema_version'] == VERSION and not previous['last_error_code'] and checked >= at - timedelta(minutes=INTERVAL_MINUTES):
+            if previous['snapshot_id'] and previous['schema_version'] == VERSION and current_rules(previous.get('body')) and not previous['last_error_code'] and checked >= at - timedelta(minutes=INTERVAL_MINUTES):
                 return {'status':'ready','endDate':last.isoformat(),'refreshMinutes':INTERVAL_MINUTES}
         db.execute('INSERT INTO '+MANIFEST+' (end_date,schema_version,requested_at,request_generation,processed_generation,retry_after) VALUES(?,?,?,1,0,?) ON DUPLICATE KEY UPDATE requested_at=VALUES(requested_at),request_generation=request_generation+1',
                    (last.isoformat(), VERSION, at, at))
@@ -111,6 +119,10 @@ def read_snapshot(config, start, end, store=None):
     meta = json.loads(row['body'])
     if not isinstance(meta,dict) or meta.get('version') != VERSION:
         raise EvidenceError('分析快照内容无效，请联系管理员检查定时任务',503)
+    if not current_rules(row['body']):
+        return {'status':'pending','period':{'startDate':start,'endDate':end},'refreshMinutes':INTERVAL_MINUTES,
+                'lastErrorCode':'ANALYTICS_RULE_VERSION_OUTDATED',
+                'message':'分析快照使用旧核实规则，请等待当前规则清洗及分析调度完成；旧统计保留，不作为当前结果展示'}
     freshness=_freshness(meta,first,last)
     if not freshness['days']:
         return {'status':'pending','period':{'startDate':start,'endDate':end},'refreshMinutes':INTERVAL_MINUTES,
@@ -195,7 +207,7 @@ def build_snapshot(store,end,existing=None,batch_size=1000,max_buckets=50000):
     with store.db(consistent_snapshot=True) as db:
         meta,labels,signature=source_metadata(db,first,end,digest)
         if not meta['catalogDays']:raise AnalyticsError('ANALYTICS_CATALOG_NOT_READY')
-        if existing and existing.get('snapshot_id') and existing.get('source_signature')==signature and existing.get('schema_version')==VERSION:
+        if existing and existing.get('snapshot_id') and existing.get('source_signature')==signature and existing.get('schema_version')==VERSION and current_rules(existing.get('body')):
             return None,meta,signature,cutoff
         builder=Builder(end,labels,max_buckets);after=0
         projection=STATUS_PROJECTION+METRIC_FIELDS+',r.body AS review_body,c.disposition AS case_disposition'

@@ -4,7 +4,7 @@
     <a-alert v-if="error" type="error" show-icon :message="error" /><a-button v-if="error" :loading="busy" @click="load">重新读取人工记录</a-button>
     <a-alert v-if="context?.stale" type="warning" show-icon message="证据已变化，原人工结论待重新核实" />
     <template v-if="context?.review"><p><a-tag :color="context.stale ? 'orange' : 'blue'">{{ humanReviewLabel(context.review) }}{{ context.stale ? '（历史结论）' : '' }}</a-tag>{{ context.review.reason }}</p><p v-if="context.review.remark">备注：{{ context.review.remark }}</p><p class="muted">{{ formatDateTimeDisplay(context.review.at) }} · 操作账号 {{ context.review.actor }}</p><router-link v-if="context.review.caseId" :to="`/risk-followup/cases?case=${context.review.caseId}`">进入关联案例跟进</router-link></template>
-    <p v-else-if="context" class="muted">尚无人工核实结论。可根据当前证据完成人工判断。</p>
+    <p v-else-if="context" class="muted">{{ normalBusiness && context.systemStatus === 'supported' ? '自动通过已闭环，无须人工确认，可按需抽查。' : '尚无人工核实结论。可根据当前证据完成人工判断。' }}</p>
     <details v-if="context?.events?.length"><summary>查看人工核实历史</summary><p v-for="(event, i) in context.events" :key="i">{{ formatDateTimeDisplay(event.at) }} · {{ humanReviewLabel(event.after) }} · {{ event.note }}<span v-if="event.after.remark"> · 备注：{{ event.after.remark }}</span><a-tag v-for="type in event.after.problemTypes || []" :key="type.id">{{ type.name }}</a-tag> · 账号 {{ event.actor }}</p><p v-if="context.eventsTruncated">仅展示最近100条，历史未删除</p></details>
     <div class="review-action"><a-button v-if="canReview" type="primary" size="large" :loading="busy" :disabled="!context" @click="open = true">人工核实</a-button><span v-else class="muted">当前账号没有人工核实权限</span></div>
     <RiskReviewForm :open="open" :orders="[{ orderId, issueDate }]" @close="open = false" @saved="reload" />
@@ -18,7 +18,7 @@ import { useRiskPermissions } from '@/composables/useRiskPermissions'
 import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
 import RiskReviewForm from './RiskReviewForm.vue'
 const { canReview } = useRiskPermissions()
-const props = defineProps<{ orderId: string; issueDate: string }>()
+const props = defineProps<{ orderId: string; issueDate: string; normalBusiness?: boolean }>()
 const emit = defineEmits<{ changed: []; 'busy-change': [boolean] }>()
 const context = ref<ReviewContext>(), error = ref(''), open = ref(false), busy = ref(false)
 let alive = true

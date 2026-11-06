@@ -6,7 +6,7 @@ from .risk_order_evidence import EvidenceError, _rows
 from .risk_verification_catalog import RiskVerificationCatalog
 from .risk_verification_flow import FlowError
 from .risk_auto_verification import RiskAutoVerification
-from .risk_child_loss import BET_REASONS, SUPPORTED_REASONS
+from .risk_child_loss import BET_REASONS, NORMAL_REASONS, SUPPORTED_REASONS
 
 LOGGER = logging.getLogger(__name__)
 STATES = ("problem", "supported", "insufficient", "reviewing", "unchecked", "failed", "rule_pending", "outdated")
@@ -94,7 +94,7 @@ class RiskVerificationOverview:
                 known = reason in SUPPORTED_REASONS
                 categories[reason] = {"reasonCode": reason,
                     "reasonLabel": labels.get(reason) or f"{reason}（字典名称缺失）",
-                    "ruleStatus": ("逐票原始出票利润对照出票时单票止损值，不加佣金或预期收益" if reason in BET_REASONS else "儿童/婴儿前提＋综合平均单票出票利润对照当前单止损配置（不加佣金）" if reason=="RLA040" else "去哪儿出票利润加回销售佣金，对照出票时配置止损值") if known else "规则未接入，不自动放行",
+                    "ruleStatus": ("正常业务逐票出票利润对照出票时通用配置止损值，不加佣金；自动通过即闭环，可人工抽查" if reason in NORMAL_REASONS else "逐票原始出票利润对照出票时单票止损值，不加佣金或预期收益" if reason in BET_REASONS else "儿童/婴儿前提＋综合平均单票出票利润对照当前单止损配置（不加佣金）" if reason=="RLA040" else "去哪儿出票利润加回销售佣金，对照出票时配置止损值") if known else "规则未接入，不自动放行",
                     **_metrics(total), "unchecked": total if known else 0, "rule_pending": 0 if known else total}
             statuses = self._statuses(cursor, owner, scope, values)
             for item in statuses.values():

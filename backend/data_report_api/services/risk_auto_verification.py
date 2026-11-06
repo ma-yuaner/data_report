@@ -8,8 +8,8 @@ import time
 import uuid
 
 from .risk_commission_rule import RULE_ID, evaluate_commission_loss
-from .risk_child_loss import CHILD_REASON, BET_REASONS, SUPPORTED_REASONS, ORDER_FIELDS, read_child_evidence, evaluate_child
-from .risk_bet_loss import evaluate_bet
+from .risk_child_loss import CHILD_REASON, BET_REASONS, NORMAL_REASONS, SUPPORTED_REASONS, ORDER_FIELDS, read_child_evidence, evaluate_child
+from .risk_bet_loss import evaluate_bet, evaluate_normal
 from .risk_historical_threshold import HistoricalThresholds
 from .risk_order_evidence import RiskOrderEvidenceService, _rows, order_id
 from .risk_verification_flow import FlowError, _owner
@@ -32,6 +32,7 @@ def now():
 def evaluate(evidence):
     """Only selected source fields, never raw logs or passenger information in results."""
     order = evidence["order"]
+    if order.get("profit_reason_type") in NORMAL_REASONS:return evaluate_normal(evidence,RULE_ID)
     if order.get("profit_reason_type")==CHILD_REASON:return evaluate_child(evidence,RULE_ID)
     if order.get("profit_reason_type") in BET_REASONS:return evaluate_bet(evidence,RULE_ID)
     base = {"ruleVersion": RULE_ID, "status": "insufficient", "summary": "证据不足", "tickets": [],
