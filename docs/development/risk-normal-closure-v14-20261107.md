@@ -87,3 +87,5 @@ cd /home/lywz/data-team-repo
 2026-11-07正常快进发布并以ls-remote核验：应用功能提交`029531f8bf80712e9030eea93aa44b0ab5f90a23`已到GitLab/GitHub main；配套清洗`dde310ed62fb7648eb692d45ed7460c71713fddc`已到GitLab main。`release.json`及app/etl-push-*/verify-*.json保存完整实际命令、cwd、原始输出及退出0。发布前fetch并核对远端main为祖先，未强推、未混入其他任务改动。
 
 独立追加快照审查4项通过，见independent-snapshot.json及independent-review.md；连同首轮共16项独立Python和4组Vue场景。正式代码之后仅补本发布记录，不改变运行时SHA。发版通知已询问本次申请人，未获答复前不发送；不沿用其他任务申请人。没有执行服务器部署、正式清洗、DDL、CI查询或业务验收。
+
+通知接续：用户随后明确“马远尔，发送通知”。2026-11-07 00:55:22 Asia/Shanghai通过既有qa_wecom_delivery.py模板向发版群发送一次，HTTP 200、errcode=0，耗时0.256秒；仅证明接口接收，不证明人工已读或服务器部署。内容包含两仓版本、已推送/未部署、生产构建限制及未验项，不@人。完整命令/输出见本地notify-validation.json、notify-send.json；脱敏接口回执在notify-receipts目录。任务ID RISK-NORMAL-CLOSURE-V14-20261107，不因本次文档补记再次发送。
