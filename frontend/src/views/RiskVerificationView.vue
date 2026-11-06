@@ -32,7 +32,6 @@
             <div class="verification-progress" role="img" :aria-label="progressDescription(record)"><span v-for="segment in progressSegments(record)" :key="segment.key" :style="{ width: `${segment.percent}%`, backgroundColor: segment.color }" /></div>
             <small class="progress-counts"><span v-for="state in progressStates" :key="state.key">{{ state.label }} {{ record[state.key] }}</span></small>
             <small class="block-muted">已执行核实 {{ record.problem + record.supported + record.insufficient + record.failed }} / {{ record.total }} · {{ record.total ? `${completion(record)}%` : '不适用' }}</small>
-            <small class="block-muted">执行进度不代表通过率；证据不足和执行失败仍需关注。</small>
           </template>
           <span v-else-if="column.key === 'rule'" class="rule-note">{{ record.ruleStatus }}</span>
           <a-button v-else-if="column.key === 'action'" type="link" @click="drill(record.reasonCode, 'all')">查看订单</a-button>
