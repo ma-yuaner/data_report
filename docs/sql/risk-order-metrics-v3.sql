@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS bi_risk_order_metric_day (
  catalog_run_id VARCHAR(64) CHARACTER SET ascii NOT NULL COMMENT '关联目录发布批次；不匹配时指标不可用',
  total_profit DECIMAL(28,4) NULL COMMENT '订单全部出票明细issue_profit原值之和，CNY；任一缺失则NULL，不加佣金',
  segment_count INT NULL COMMENT '订单airlift_flag=1的航空段去重数；来源缺失或标记未知则NULL',
- body LONGTEXT NOT NULL COMMENT 'V3指标JSON：航司数组、业务部门数组、缺失原因及源更新时间；不含乘客/票号',
+ body LONGTEXT NOT NULL COMMENT 'V3指标JSON：航司和业务部门数组、缺失标记及部门来源说明；不含乘客/票号',
  measured_at DATETIME(6) NOT NULL COMMENT '本次只读源快照的指标加工时间，Asia/Shanghai',
  PRIMARY KEY(issue_date,order_id),
  KEY ix_risk_metric_profit(issue_date,total_profit,order_id)
