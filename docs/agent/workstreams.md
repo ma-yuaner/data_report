@@ -946,3 +946,5 @@ L4评估：涉及跨层写入/权限/状态，采用主会话实现＋单一独�
 主会话21项合成/真实Flask客户端认证CSRF验证通过；TS/Lint/组件/Bash/Python语法通过。独立10项Python＋3组Vue状态/SSR通过；返工关闭历史未证实措辞及分页在途错页。真实只读3单/1规则、精确搜索1条、两次源快照未变，不称生产变更或真实目标写入已验。原始数据/命令/退出码/输入SHA/前后对照/返工见忽略目录`.test-artifacts/risk-config-evidence-20261106/`及independent-index.json。
 
 SQL归档RISK-DDL-016/RISK-CHECK-017；正式DDL、真实MySQL并发/注释回读、浏览器（禁用）、服务器及业务验收未验。既有Vite宿主临时文件删除限制未变，不重复无效构建。MYE仅独立审查允许的通用草稿，隔离工作树写入，保留原MYE目录他人未提交变更；先审查再提交。不沿用上一任务外部群通知授权。本轮提交/双端推送和MYE发布按实际回执另记。
+
+配置证据发布回执：应用核心`0583bd8`已正常快进推送GitLab/GitHub main，两端ls-remote核验一致；MYE仅审查通过的通用回执`f152242`已推其GitHub main。正式两表DDL/服务器部署/真实页面/业务验收仍未执行，未发新外部群消息。最终本机状态见`.test-artifacts/risk-config-evidence-20261106/evidence-index.json`。
