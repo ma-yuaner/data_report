@@ -78,6 +78,10 @@ def register_routes(api):
     def risk_config_evidence_get(identifier):
         return _call(lambda actor: RiskConfigEvidence(current_app.config).get(identifier, request.args.get('issueDate')))
 
+    @api.get('/v1/risk-verification/configuration-evidence/<identifier>/history')
+    def risk_config_evidence_history(identifier):
+        return _call(lambda actor: RiskConfigEvidence(current_app.config).history(identifier, request.args.get('issueDate')))
+
     @api.post('/v1/risk-verification/configuration-evidence/<identifier>')
     def risk_config_evidence_save(identifier):
         return _call(lambda actor: RiskConfigEvidence(current_app.config).save(actor, identifier, _body()))

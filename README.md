@@ -2,7 +2,7 @@
 
 风控配置证据V1：[精确搜索、固定原核对与最新单票止损提醒](docs/development/risk-config-evidence-v1.md)。新增两表需显式DDL；原核算不被后续配置覆盖，最新观察不代表历史生效。实现/隔离及部分真实只读验证完成，DDL/部署/页面/业务未验。
 
-风控人工核实最小MVP：[三结论、类型标签与状态闭环](docs/development/risk-review-mvp-20261106.md)。核对详情底部进入人工核实；新记录不强制创建案例，历史案例保留原入口。本机验证通过，247部署与业务验收未完成。
+风控人工核实最小MVP：[三结论、类型标签与状态闭环](docs/development/risk-review-mvp-20261106.md)。核对详情底部进入人工核实；有问题时选择类型；证据历史由清洗发布保留、页面只读回看，无手动保存面板。新记录不强制创建案例，历史案例保留原入口。本机验证通过，247部署与业务验收未完成。
 
 历史风控跟进V1：[人工核实、共享案例与三个认定池](docs/development/risk-followup-v1.md)。正式入口 `/risk-followup/workbench`；原风控分析入口已移归档。需五张专用表，普通发布仅检查、不自动DDL；本机类型/接口验证通过，生产构建遇Windows临时文件权限限制，247部署及业务验收未完成。
 
@@ -203,7 +203,7 @@ docker compose up -d --build
 API统一前缀为`/api`。认证与账号管理使用`/api/auth/*`、`/api/admin/*`；业务接口主要使用`/api/v1/*`。登录后使用会话Cookie，非安全方法需携带CSRF头；JSON通常返回`success/message/data`，导出接口返回文件。具体权限、参数与错误见[完整接口目录](docs/api/README.md)及对应源码。
 
 <!-- BEGIN:API_SUMMARY -->
-当前静态登记 **225个HTTP方法/路径条目**（含认证与管理接口，不重复列自动HEAD/OPTIONS）。
+当前静态登记 **229个HTTP方法/路径条目**（含认证与管理接口，不重复列自动HEAD/OPTIONS）。
 
 | 接口领域 | 条目数 | 完整清单 |
 |---|---:|---|
@@ -221,13 +221,13 @@ API统一前缀为`/api`。认证与账号管理使用`/api/auth/*`、`/api/admi
 | HR报表邮件 | 8 | [hr_mail](docs/api/README.md#hr_mail) |
 | 行为采集与管理看板 | 4 | [telemetry](docs/api/README.md#telemetry) |
 | adm | 14 | [adm](docs/api/README.md#adm) |
-| adm_exchange | 3 | [adm_exchange](docs/api/README.md#adm_exchange) |
+| adm_exchange | 6 | [adm_exchange](docs/api/README.md#adm_exchange) |
 | adm_files | 4 | [adm_files](docs/api/README.md#adm_files) |
 | adm_operations | 10 | [adm_operations](docs/api/README.md#adm_operations) |
 | missed_orders | 3 | [missed_orders](docs/api/README.md#missed_orders) |
 | placement_diagnosis | 2 | [placement_diagnosis](docs/api/README.md#placement_diagnosis) |
 | placement_import | 3 | [placement_import](docs/api/README.md#placement_import) |
-| risk_verification | 36 | [risk_verification](docs/api/README.md#risk_verification) |
+| risk_verification | 37 | [risk_verification](docs/api/README.md#risk_verification) |
 <!-- END:API_SUMMARY -->
 
 ## 开发交付与README维护

@@ -16,6 +16,7 @@ async function call<T>(order: string, method: 'get' | 'post', body: Record<strin
   return data.data
 }
 export const riskConfigEvidence = {
+  history: (order: string, issueDate: string) => call<{ items: { versionKey: string; result: AutoRiskResult; validFrom: string; validTo: string | null; lastCheckedAt: string }[]; truncated: boolean }>(order, 'get', { issueDate }, '/history'),
   get: (order: string, issueDate: string) => call<ConfigEvidence | null>(order, 'get', { issueDate }),
   save: (order: string, issueDate: string, resultId: string) => call<ConfigEvidence>(order, 'post', { issueDate, resultId }),
   observe: (order: string, issueDate: string, requestId: string) => call<ConfigObservation>(order, 'post', { issueDate, requestId }, '/observe'),

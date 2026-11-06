@@ -63,6 +63,32 @@ class RiskConfigEvidence:
         observations=[json.loads(row['body']) for row in rows[:500]]
         return {**saved,'latest':observations[0] if observations else None,'observations':observations,'historyTruncated':len(rows)>500}
 
+    def history(self, order, issue_date):
+        """Read ETL-published revisions; viewing never saves or recomputes evidence."""
+        order, issue_date = str(order_id(order)), day(issue_date)
+        with self.store.db() as db:
+            rows = db.execute("""SELECT order_id,issue_date,reason_code,rule_version,engine_hash,evidence_hash,
+                result_json,source_updated_at,etl_run_id,prepared_at,valid_from,valid_to,last_checked_at
+                FROM bi_risk_prepared_order_history WHERE order_id=? AND issue_date=?
+                ORDER BY valid_from DESC,etl_run_id DESC LIMIT 51""", (order, issue_date)).fetchall()
+        items = []
+        for row in rows[:50]:
+            try:
+                result = json.loads(row['result_json'])
+            except (ValueError, TypeError):
+                raise FlowError('历史核查内容损坏，请联系管理员核对清洗批次', 503) from None
+            if not isinstance(result, dict) or result.get('status') not in ('supported', 'problem', 'insufficient', 'failed'):
+                raise FlowError('历史核查内容无效，请联系管理员核对清洗批次', 503)
+            identity = [issue_date, order, row['rule_version'], row['engine_hash'], row['evidence_hash']]
+            result.update(id=hashlib.sha256(json.dumps(identity).encode()).hexdigest()[:32],
+                          orderId=order, issueDate=issue_date, reasonCode=row['reason_code'], checkedAt=str(row['prepared_at']),
+                          sourceUpdatedAt=str(row['source_updated_at']) if row['source_updated_at'] is not None else None,
+                          sourceMode='prepared_etl', isCurrent=False)
+            items.append({'versionKey': str(row['etl_run_id']), 'result': result, 'validFrom': str(row['valid_from']),
+                          'validTo': str(row['valid_to']) if row['valid_to'] is not None else None,
+                          'lastCheckedAt': str(row['last_checked_at'])})
+        return {'items': items, 'truncated': len(rows) > 50}
+
     def save(self, actor, order, payload):
         actor,order,issue_date=_owner(actor),str(order_id(order)),day(payload.get('issueDate'))
         try:

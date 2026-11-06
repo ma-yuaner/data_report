@@ -221,6 +221,17 @@ class RiskFollowup:
                         raise FlowError('核实类型无效')
                     markers[field] = payload.get(field, False)
                 markers['specialReason'] = text(payload.get('specialReason'), 1000, '类型说明') if any(markers.values()) else ''
+                type_ids = payload.get('problemTypeIds', []) if conclusion == 'problem' else []
+                if not isinstance(type_ids, list) or len(type_ids) > 10 or any(not isinstance(value, str) or not re.fullmatch(r'[a-f0-9]{32}', value) for value in type_ids) or len(set(type_ids)) != len(type_ids):
+                    raise FlowError('请选择最多10个不重复的问题类型')
+                markers['problemTypes'] = []
+                if type_ids:
+                    rows = db.execute('SELECT id,name FROM bi_risk_problem_types WHERE id IN (' + ','.join('?' for _ in type_ids) + ')', tuple(type_ids)).fetchall()
+                    found = {row['id']: row['name'] for row in rows}
+                    if len(found) != len(type_ids):
+                        raise FlowError('问题类型已变化，请刷新后重新选择', 409)
+                    markers['problemTypes'] = [{'id': value, 'name': found[value]} for value in type_ids]
+
             policy = None
             no_issue_reason = payload.get('noIssueReason', 'company_policy')
             if conclusion == 'no_issue':
