@@ -6,6 +6,8 @@
 
 状态：代码完成、本地自检完成，业务提交6972442。只读核对GitLab origin/main和GitHub github/main均为ca9037e；正常快进推送被自动批准审查拒绝，理由是用户本轮未明确批准这两个main目标，未实际推送，不改用旁路。待用户明确批准后推送。通知申请人马远尔（本轮明确）；按既有约定等推送成功后再发一次通知，本轮未发送。服务器未操作。
 
+发版接续：用户本轮明确“批准发版”后，已正常快进推送GitLab origin/main与GitHub github/main至e64cf49（功能提交6972442），两端push均成功。两端ls-remote只读核验均与e64cf49一致（GitHub首次TLS中断后重试核验成功）。2026-11-06 16:44:46（Asia/Shanghai）以马远尔发送本任务唯一发版通知，HTTP 200、errcode=0、耗时0.217秒；脱敏回执位于.test-artifacts/risk-review-mvp/receipts。通知接收不代表人工已读、服务器部署或业务验收。后续仅补交接记录，不重复发通知。
+
 ## 风控提醒UI推送成功（2026-11-06）
 
 用户明确批准，3feedbc（含70d848c源码）已成功推送应用GitLab/GitHub main；GitHub首次TLS握手失败，原命令重试成功。替代下方待批准状态。MYE21330e0已独立推送；本回执随文档同步发布。未部署，247更新Web后页面才生效；无后端/ETL/DDL改动。
