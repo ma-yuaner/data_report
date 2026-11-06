@@ -194,12 +194,17 @@ def register_routes(api):
         return _call(lambda owner: RiskVerificationOverview(current_app.config).summary(
             owner, request.args.get("startDate"), request.args.get("endDate")))
 
+    @api.get('/v1/risk-verification/analytics')
+    def risk_workflow_analytics():
+        return _call(lambda owner: RiskVerificationOverview(current_app.config).analytics(owner, request.args.get('startDate'), request.args.get('endDate')))
+
     @api.get("/v1/risk-verification/orders")
     def risk_verification_order_list():
         return _call(lambda owner: RiskVerificationOverview(current_app.config).orders(
             owner, request.args.get("startDate"), request.args.get("endDate"),
             request.args.get("reason"), request.args.get("status", "all"),
-            request.args.get("page", "1"), request.args.get("pageSize", "20")))
+            request.args.get("page", "1"), request.args.get("pageSize", "20"),
+            order_no=request.args.get("orderNo"), platform=request.args.get("platform"), airline=request.args.get("airline"), sort=request.args.get("sort", "profit_asc")))
 
     @api.get("/v1/risk-verification/status")
     def risk_verification_status():

@@ -26,7 +26,8 @@
       <div class="progress-legend" aria-label="核查进度颜色说明"><span v-for="state in progressStates" :key="state.key"><i :style="{ backgroundColor: state.color }" />{{ state.label }}</span><span><i class="progress-pending" />未完成</span></div>
       <a-table :columns="categoryColumns" :data-source="overview?.categories || []" row-key="reasonCode" :loading="loading" :pagination="{ pageSize: 10, showSizeChanger: true }" :scroll="{ x: 1180 }" size="middle" :locale="{ emptyText: overview ? '所选出票期间没有盈亏原因有值的订单' : '请查询统计范围；读取失败不显示为0' }">
         <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'reason'"><strong>{{ record.reasonLabel }}</strong><small class="block-muted">{{ record.reasonCode }}</small></template>
+          <template v-if="column.key === 'airlines'">{{ record.airlines?.join('、') || '未同步' }}</template><template v-else-if="column.key === 'profit'">{{ record.total_profit ?? '未同步／缺失' }}</template><template v-else-if="column.key === 'segments'">{{ record.segment_count ?? '未同步／缺失' }}</template>
+          <template v-else-if="column.key === 'reason'"><strong>{{ record.reasonLabel }}</strong><small class="block-muted">{{ record.reasonCode }}</small></template>
           <a-button v-else-if="isMetricKey(column.key)" type="link" :class="{ 'problem-link': column.key === 'problem' }" @click="drillMetric(record.reasonCode, column.key)">{{ count(metricValue(record, column.key)) }}</a-button>
           <template v-else-if="column.key === 'progress'">
             <div class="verification-progress" role="img" :aria-label="progressDescription(record)"><span v-for="segment in progressSegments(record)" :key="segment.key" :style="{ width: `${segment.percent}%`, backgroundColor: segment.color }" /></div>
@@ -43,9 +44,13 @@
       <div class="panel-heading"><div><h2>核查订单明细</h2><p>{{ selectedReasonLabel }} · {{ statusLabels[selectedStatus] }} · {{ applied ? `${applied.start} 至 ${applied.end}` : '尚未查询' }}</p></div><a-button :disabled="!applied || ordersLoading" @click="drill(undefined, 'all')">查看全部</a-button></div>
       <div class="order-filters">
         <label>盈亏原因分类<a-select v-model:value="selectedReason" :options="reasonOptions" allow-clear placeholder="全部类型" :disabled="!applied || ordersLoading" @change="filterOrders" /></label>
+        <label>OTA订单号<a-input v-model:value="orderNoFilter" placeholder="完整OTA订单号" allow-clear @press-enter="filterOrders" /></label><label>平台<a-input v-model:value="platformFilter" placeholder="平台编码" allow-clear @press-enter="filterOrders" /></label><label>航司<a-input v-model:value="airlineFilter" placeholder="航司编码" allow-clear @press-enter="filterOrders" /></label>
         <label>核查结果<a-select v-model:value="selectedStatus" :options="statusOptions" :disabled="!applied || ordersLoading" @change="filterOrders" /></label>
+        <a-button :disabled="!applied || ordersLoading" @click="filterOrders">筛选订单</a-button>
       </div>
-        <div class="batch-actions"><a-button v-if="canReview" type="primary" :disabled="!selectedOrders.length || ordersLoading" @click="batchOpen = true">批量确认无问题（{{ selectedOrders.length }}）</a-button><span class="muted">仅本页选择；按同一策略核实，保存前逐单核对。</span></div>
+        <p class="muted">已生效筛选：OTA订单号 {{ appliedOrderFilters.orderNo || '全部' }} · 平台 {{ appliedOrderFilters.platform || '全部' }} · 航司 {{ appliedOrderFilters.airline || '全部' }}</p>
+        <p class="muted">利润为订单全部出票明细利润合计（CNY），不加佣金；默认按总利润由低到高，未同步或缺失排最后。</p>
+        <div class="batch-actions"><a-button v-if="canReview" type="primary" :disabled="!selectedOrders.length || ordersLoading" @click="batchOpen = true">批量确认无问题（{{ selectedOrders.length }}）</a-button><span class="muted">仅本页选择，保存前逐单核对无问题依据。</span></div>
         <a-alert v-if="reviewError" type="warning" show-icon :message="reviewError" />
         <a-alert v-if="ordersError" type="error" show-icon :message="ordersError" />
       <a-table :row-selection="canReview ? { selectedRowKeys: selectedOrders.map(o => o.orderId), onChange: selectOrders, getCheckboxProps: (record: VerificationOrder) => ({ disabled: !!manual[record.id]?.review?.caseId || !manual[record.id] }) } : undefined" :columns="orderColumns" :data-source="orders?.items || []" row-key="id" :loading="ordersLoading" :pagination="{ current: page, pageSize, total: orders?.total || 0, showSizeChanger: true, pageSizeOptions: ['20', '50', '100'], showTotal: (total: number) => `共 ${total} 单` }" :scroll="{ x: 1020, y: 420 }" size="middle" @change="changePage" :locale="{ emptyText: orders ? '当前类型和状态下没有订单' : '点击上方类型或数量查看明细' }">
@@ -73,7 +78,8 @@ import { useRiskPermissions } from '@/composables/useRiskPermissions'
 import { riskFollowup, reviewStatus, type ReviewContext } from '@/api/riskFollowup'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import dayjs from 'dayjs'
-import { Alert as AAlert, Button as AButton, Drawer as ADrawer, Modal, Segmented as ASegmented, Select as ASelect, Table as ATable, Tag as ATag } from 'ant-design-vue'
+import type { ColumnsType, SorterResult } from 'ant-design-vue/es/table/interface'
+import { Alert as AAlert, Button as AButton, Drawer as ADrawer, Input as AInput, Modal, Segmented as ASegmented, Select as ASelect, Table as ATable, Tag as ATag } from 'ant-design-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import FilterPanel from '@/components/FilterPanel.vue'
 import DateRangeField from '@/components/DateRangeField.vue'
@@ -85,6 +91,8 @@ import { verificationOverview, type RiskCatalogFreshness, type VerificationCateg
 
 const router = useRouter()
 const { canReview } = useRiskPermissions()
+const orderNoFilter = ref(''), platformFilter = ref(''), airlineFilter = ref(''), profitSort = ref('profit_asc')
+const appliedOrderFilters = ref({ orderNo: '', platform: '', airline: '' })
 const batchOpen = ref(false), reviewError = ref('')
 const manual = ref<Record<string, ReviewContext>>({})
 const selectedOrders = ref<{ orderId: string; issueDate: string }[]>([])
@@ -132,7 +140,7 @@ const progressStates = [
 const reasonOptions = computed(() => (overview.value?.categories || []).map(item => ({ value: item.reasonCode, label: item.reasonLabel })))
 const selectedReasonLabel = computed(() => selectedReason.value ? categoryLabel(selectedReason.value) : '全部类型')
 const categoryColumns = [{ title: '盈亏原因分类', key: 'reason', width: 210 }, ...metricCards.map(item => ({ title: item.label, key: item.key, width: 105 })), { title: '核查进度', key: 'progress', width: 220 }, { title: '规则状态', key: 'rule', width: 220 }, { title: '操作', key: 'action', width: 110 }]
-const orderColumns = [{ title: '人工核实状态', key: 'human', width: 200 }, { title: 'OTA订单号', dataIndex: 'ota_order_no', width: 200 }, { title: '盈亏原因分类', key: 'reason', width: 200 }, { title: '核查结果', key: 'status', width: 130 }, { title: '操作', key: 'action', width: 110 }]
+const orderColumns: ColumnsType<VerificationOrder> = [{ title: '人工核实状态', key: 'human', width: 200 }, { title: 'OTA订单号', dataIndex: 'ota_order_no', width: 200 }, { title: '平台', dataIndex: 'ota_code', width: 110 }, { title: '航司', key: 'airlines', width: 120 }, { title: '订单总利润（CNY）', key: 'profit', width: 170, sorter: true, sortDirections: ['ascend', 'descend'] }, { title: '航段数', key: 'segments', width: 100 }, { title: '盈亏原因分类', key: 'reason', width: 200 }, { title: '核查结果', key: 'status', width: 130 }, { title: '操作', key: 'action', width: 110 }]
 const drawerOpen = ref(false)
 const activeOrderId = ref('')
 const activeOrderNo = ref('')
@@ -191,7 +199,7 @@ async function loadOrders() {
   const reason = selectedReason.value; const status = selectedStatus.value; const currentPage = page.value; const size = pageSize.value
   ordersLoading.value = true; ordersError.value = ''; orders.value = undefined; selectedOrders.value = []; manual.value = {}; reviewError.value = ''
   try {
-    const result = await verificationOverview.orders(scope.start, scope.end, reason, status, currentPage, size)
+    const result = await verificationOverview.orders(scope.start, scope.end, reason, status, currentPage, size, { orderNo: appliedOrderFilters.value.orderNo || undefined, platform: appliedOrderFilters.value.platform || undefined, airline: appliedOrderFilters.value.airline || undefined, sort: profitSort.value })
     if (alive && request === orderRequest) {
       if (catalogVersion(result.dataFreshness) !== catalogVersion(overview.value?.dataFreshness)) throw new Error('同步批次已改变，请重新查询统计范围后再查看订单')
       orders.value = result
@@ -207,8 +215,8 @@ async function drill(reason: string | undefined, status: VerificationStatus | 'a
   await loadOrders()
   ordersPanel.value?.scrollIntoView({ behavior: 'auto', block: 'start' })
 }
-function filterOrders() { page.value = 1; void loadOrders() }
-function changePage(pagination: { current?: number; pageSize?: number }) { page.value = pagination.current || 1; pageSize.value = pagination.pageSize || 20; void loadOrders() }
+function filterOrders() { appliedOrderFilters.value = { orderNo: orderNoFilter.value.trim(), platform: platformFilter.value.trim(), airline: airlineFilter.value.trim() }; page.value = 1; void loadOrders() }
+function changePage(pagination: { current?: number; pageSize?: number }, _filters: unknown, sorter: SorterResult<VerificationOrder> | SorterResult<VerificationOrder>[]) { const activeSorter = Array.isArray(sorter) ? sorter[0] : sorter; const nextSort = activeSorter?.columnKey === 'profit' && activeSorter.order === 'descend' ? 'profit_desc' : 'profit_asc'; page.value = nextSort === profitSort.value ? pagination.current || 1 : 1; profitSort.value = nextSort; pageSize.value = pagination.pageSize || 20; void loadOrders() }
 function openOrder(row: Record<string, any>) { activeOrderId.value = String(row.id); activeOrderNo.value = String(row.ota_order_no || ''); activeReason.value = String(row.profit_reason_type); activeUpdatedAt.value = row.update_time || null; activeIssueDate.value = String(row.issue_date || '').slice(0, 10) || undefined; panelBusy.value = false; drawerOpen.value = true }
 function closeDrawer() {
   if (panelBusy.value) return

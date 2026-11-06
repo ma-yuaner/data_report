@@ -10,12 +10,16 @@ from .risk_child_loss import BET_REASONS, SUPPORTED_REASONS
 
 LOGGER = logging.getLogger(__name__)
 STATES = ("problem", "supported", "insufficient", "reviewing", "unchecked", "failed", "rule_pending", "outdated")
+METRIC_JOIN = """ LEFT JOIN bi_risk_order_metric_day m ON m.issue_date=o.issue_date AND m.order_id=o.order_id AND m.catalog_run_id=o.etl_run_id
+ LEFT JOIN bi_risk_order_metric_day_ready mr ON mr.issue_date=o.issue_date AND mr.catalog_run_id=o.etl_run_id"""
+METRIC_PROFIT = 'CASE WHEN mr.issue_date IS NOT NULL THEN m.total_profit ELSE NULL END'
+METRIC_FIELDS = f",{METRIC_PROFIT} AS total_profit,CASE WHEN mr.issue_date IS NOT NULL THEN m.segment_count ELSE NULL END AS segment_count,CASE WHEN mr.issue_date IS NOT NULL THEN m.body ELSE NULL END AS metric_body"
 FIELDS = "o.order_id AS id,o.order_no,o.ota_order_no,o.ota_code,o.profit_reason_type,o.create_time,o.update_time,o.etl_run_id AS catalog_run_id,o.issue_date"
 NOTES = [
     "读取中台ETL目录，不实时扫描ERP；按出票日期限定，跨日或多票均按内部订单ID去重。",
     "数据截止各日最近一次成功同步；查询、翻页和查看详情不触发ERP读取，只有独立清洗任务读取ERP，页面按钮加载已发布结果。",
-    "按每日成功发布的当前核实事实统计，不依赖账号加载任务；通过无须人工确认，个人抽查独立留痕。",
-    "清洗读取出票及适用证据，页面不查ERP；相同证据重复清洗保留抽查关联，规则或证据改变后旧结论只作历史参考。",
+    "按每日成功发布的当前核实事实统计，不依赖账号加载任务；自动通过可按需人工核实；问题进入案例认定，系统与人工结果分别留存。",
+    "清洗读取出票及适用证据，页面不查ERP；相同证据重复清洗保留核实关联，规则或证据改变后旧结论只作历史参考。",
     "未核查、核查中和证据不足不等于没有问题；尚无自动核查结论。",
 ]
 
@@ -119,13 +123,47 @@ class RiskVerificationOverview:
         finally:
             self.reader._close(cursor, connection)
 
-    def orders(self, owner, start, end, reason=None, status="all", page=1, page_size=50):
+    @staticmethod
+    def enrich_metric(row):
+        import json
+        raw = row.pop('metric_body', None)
+        body = json.loads(raw) if raw else {}
+        if not isinstance(body, dict):
+            raise EvidenceError('订单指标内容无效，请重新清洗', 503)
+        row['airlines'] = body.get('airlines', [])
+        row['departments'] = body.get('departments', [])
+        row['metricsReady'] = bool(raw)
+        row['total_profit'] = str(row['total_profit']) if row.get('total_profit') is not None else None
+        return row
+
+    def analytics(self, owner, start, end):
+        from .risk_workflow_analytics import analytics
+        return analytics(self, owner, start, end)
+
+    def orders(self, owner, start, end, reason=None, status="all", page=1, page_size=50, order_no=None, platform=None, airline=None, sort="profit_asc"):
         first, last = _period(start, end)
         page = _integer(page, "页码", 1000000)
         page_size = _integer(page_size, "每页条数", 100)
         if not isinstance(status, str) or status not in {"all", *STATES}:
             raise EvidenceError("不支持的核查状态")
         scope, values = self._scope(first, last, reason)
+        if sort not in ('profit_asc', 'profit_desc'):
+            raise EvidenceError('利润排序参数无效')
+        for field, value, limit in (('订单号', order_no, 128), ('平台', platform, 64), ('航司', airline, 16)):
+            if value is not None and (not isinstance(value, str) or len(value) > limit):
+                raise EvidenceError(field + '筛选值无效')
+        if order_no:
+            scope += ' AND o.ota_order_no=%s'
+            values.append(order_no.strip())
+        if platform:
+            scope += ' AND o.ota_code=%s'
+            values.append(platform.strip())
+        if airline:
+            scope += """ AND EXISTS (SELECT 1 FROM bi_risk_order_metric_day fm JOIN bi_risk_order_metric_day_ready fr
+                ON fr.issue_date=fm.issue_date AND fr.catalog_run_id=fm.catalog_run_id
+                WHERE fm.issue_date=o.issue_date AND fm.order_id=o.order_id AND fm.catalog_run_id=o.etl_run_id
+                AND JSON_CONTAINS(JSON_EXTRACT(fm.body,'$.airlines'),JSON_QUOTE(%s)))"""
+            values.append(airline.strip())
         connection = cursor = None
         try:
             connection = self.reader._connect()
@@ -154,9 +192,11 @@ class RiskVerificationOverview:
                     scope += " AND 1=0"
             cursor.execute(f"SELECT COUNT(*) AS order_count FROM bi_risk_order_day o WHERE {scope}", tuple(values))
             total = int(_rows(cursor)[0]["order_count"])
-            cursor.execute(f"SELECT {FIELDS} FROM bi_risk_order_day o WHERE {scope} ORDER BY o.order_id DESC LIMIT %s OFFSET %s", (*values, page_size, (page - 1) * page_size))
+            direction = 'ASC' if sort == 'profit_asc' else 'DESC'
+            cursor.execute(f"SELECT {FIELDS}{METRIC_FIELDS} FROM bi_risk_order_day o {METRIC_JOIN} WHERE {scope} ORDER BY ({METRIC_PROFIT}) IS NULL,({METRIC_PROFIT}) {direction},o.order_id DESC LIMIT %s OFFSET %s", (*values, page_size, (page - 1) * page_size))
             rows = _rows(cursor)
             for row in rows:
+                self.enrich_metric(row)
                 review = statuses.get(str(row["id"]), {})
                 row.update(verificationStatus=review.get("status", "unchecked" if row["profit_reason_type"] in SUPPORTED_REASONS else "rule_pending"), caseId=review.get("caseId"), profit_reason_name=labels.get(row["profit_reason_type"]))
             return {"items": rows, "total": total, "page": page, "pageSize": page_size,

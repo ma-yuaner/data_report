@@ -176,8 +176,8 @@ class RiskFollowup:
     def policy_create(self, actor, payload):
         def create(db):
             body = {key: text(payload.get(key), limit, label) for key, limit, label in (
-                ('name', 100, '策略名称'), ('policyVersion', 60, '策略版本'), ('scope', 1000, '适用范围'), ('basis', 2000, '策略依据'))}
-            body.update(id=uuid.uuid4().hex, start=day(payload.get('start')), end=day(payload.get('end')), actor=actor, at=now())
+                ('name', 100, '规则名称'), ('policyVersion', 60, '规则版本'), ('scope', 1000, '适用范围'), ('basis', 20000 if payload.get('ruleDocument') is True else 2000, '规则正文'))}
+            body.update(ruleDocument=payload.get('ruleDocument') is True, id=uuid.uuid4().hex, start=day(payload.get('start')), end=day(payload.get('end')), actor=actor, at=now())
             if body['start'] > body['end']:
                 raise FlowError('策略有效期起止不正确')
             db.execute('INSERT INTO bi_risk_review_policies (id,body) VALUES(?,?)', (body['id'], encoded(body)))
@@ -205,6 +205,9 @@ class RiskFollowup:
         db.execute('INSERT INTO bi_risk_followup_events (id,case_id,order_id,issue_date,body) VALUES(?,?,?,?,?)', (uuid.uuid4().hex, case_id, after.get('orderId'), after.get('issueDate'), encoded(body)))
 
     def review(self, actor, payload):
+        if payload.get('workflowVersion') == 3:
+            from .risk_workflow_v3 import review
+            return review(self, actor, payload)
         def save(db):
             items = payload.get('orders')
             if not isinstance(items, list) or not 1 <= len(items) <= 100 or any(not isinstance(item, dict) for item in items):
@@ -322,6 +325,11 @@ class RiskFollowup:
             return {**body, 'orders': orders, 'events': [json.loads(row['body']) for row in events[:500]], 'eventsTruncated': len(events) > 500}
 
     def update(self, actor, case_id, payload):
+        with self.store.db() as read_db:
+            current_case = self._case(read_db, case_id)
+        if payload.get('workflowVersion') == 3 or current_case.get('workflowVersion') == 3:
+            from .risk_workflow_v3 import update
+            return update(self, actor, case_id, payload)
         def save(db):
             before = self._case(db, case_id, True)
             if before['version'] != version(payload.get('version')):

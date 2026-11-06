@@ -43,11 +43,11 @@
             <template #icon><SafetyCertificateOutlined /></template>
             <template #title>风控分析</template>
             <template v-if="canSeeMenu('risk.verification') && (authStore.user?.isAdmin || authStore.user?.permissions?.includes('risk.verification.view'))">
-              <a-menu-item key="/risk-followup/workbench">风控工作台</a-menu-item>
+              <a-menu-item key="/risk-followup/workbench">风控分析看板</a-menu-item>
               <a-menu-item key="/risk-verification">风控核对</a-menu-item>
               <a-menu-item key="/risk-followup/cases">案例跟进</a-menu-item>
-              <a-menu-item key="/risk-followup/library">专题案例库</a-menu-item>
-              <a-menu-item key="/risk-followup/policies">类型与策略</a-menu-item>
+              <a-menu-item key="/risk-followup/library">专项案例库</a-menu-item>
+              <a-menu-item key="/risk-followup/policies">规章制度</a-menu-item>
             </template>
           </a-sub-menu>
           <a-sub-menu v-if="canSeeGroup('customer_service')" key="customer-service">

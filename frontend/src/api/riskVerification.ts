@@ -166,7 +166,9 @@ export const riskProblems = {
   saveTags: (orderId: string, typeIds: string[], reason: string) => flowPost<RiskProblemTag[]>(`orders/${orderId}/problem-tags`, { typeIds, reason }),
   configs: (platform: string, group: string, ruleId = '', airline = '', page = 1, pageSize = 20) => flowGet<{ items: RiskConfigCandidate[]; total: number; page: number; pageSize: number; notice: string; useForCalculation: false }>(`rule-configs?${new URLSearchParams({ platform, group, ruleId, airline, page: String(page), pageSize: String(pageSize) })}`),
 }
-export interface VerificationOrder extends EvidenceRow {
+export interface VerificationOrder {
+  issue_date?: string | null; ota_order_no?: string | null; ota_code?: string | null; order_no?: string | null; profit_reason_type: string | null; update_time?: string | null;
+  total_profit?: string | null; segment_count?: number | null; airlines?: string[]; departments?: string[]; metricsReady?: boolean
   id: string
   verificationStatus: VerificationStatus
   caseId: string | null
@@ -180,5 +182,5 @@ export interface VerificationOrders {
 }
 export const verificationOverview = {
   summary: (startDate: string, endDate: string) => http.get<ApiEnvelope<VerificationOverview>>('/v1/risk-verification/overview', { params: { startDate, endDate } }).then(response => response.data.data),
-  orders: (startDate: string, endDate: string, reason: string | undefined, status: VerificationStatus | 'all', page: number, pageSize: number) => http.get<ApiEnvelope<VerificationOrders>>('/v1/risk-verification/orders', { params: { startDate, endDate, reason, status, page, pageSize } }).then(response => response.data.data),
+  orders: (startDate: string, endDate: string, reason: string | undefined, status: VerificationStatus | 'all', page: number, pageSize: number, filters: { orderNo?: string; platform?: string; airline?: string; sort?: string } = {}) => http.get<ApiEnvelope<VerificationOrders>>('/v1/risk-verification/orders', { params: { startDate, endDate, reason, status, page, pageSize, ...filters } }).then(response => response.data.data),
 }
