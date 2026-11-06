@@ -2,7 +2,8 @@
   <details v-if="configuration?.ruleId" class="configuration-basis">
     <summary>查看采用依据</summary>
     <p><strong>采用规则 {{ configuration.ruleId }} · v{{ configuration.configurationVersion ?? '未记录' }}</strong></p>
-    <p>按出票时点 {{ formatDateTimeDisplay(configuration.asOf) }} 的配置核实。</p>
+    <p v-if="configuration.basis === 'issue_time_configuration' && configuration.asOf && configuration.historyProof">按出票时点 {{ formatDateTimeDisplay(configuration.asOf) }} 的配置核实。</p>
+    <p v-else class="muted">本快照未提供完整出票时历史证明，不能仅凭观察到的配置认定出票时有效。</p>
     <p v-if="selected?.updateTime">该配置版本更新时间：{{ formatDateTimeDisplay(selected.updateTime) }}</p>
     <h4>具体匹配条件</h4>
     <dl v-if="conditions.length">

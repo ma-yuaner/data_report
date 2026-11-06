@@ -26,6 +26,7 @@ migrate_auto=false
 archive_auto=false
 problem_tags=false
 followup_schema=false
+config_evidence=false
 case "${1:-}" in
   '') ;;
   --verify-only) verify_only=true ;;
@@ -33,7 +34,8 @@ case "${1:-}" in
   --archive-auto) archive_auto=true ;;
   --problem-tags) problem_tags=true ;;
   --followup-schema) followup_schema=true ;;
-  *) echo "Usage: bash scripts/deploy_risk_verification.sh [--verify-only|--migrate-auto|--archive-auto|--problem-tags|--followup-schema]" >&2; exit 1 ;;
+  --config-evidence) config_evidence=true ;;
+  *) echo "Usage: bash scripts/deploy_risk_verification.sh [--verify-only|--migrate-auto|--archive-auto|--problem-tags|--followup-schema|--config-evidence]" >&2; exit 1 ;;
 esac
 wait_for_url() {
   local url="$1" attempt
@@ -106,6 +108,12 @@ if [ "$followup_schema" = true ]; then
   echo "显式创建风控跟进五张专用表，保留既有数据；仅由已授权的数据库部署人使用此选项。"
   docker compose run -T --rm --no-deps --entrypoint python api -m data_report_api.services.risk_followup_schema --apply < docs/sql/risk-followup-v1.sql
 fi
+if [ "$config_evidence" = true ]; then
+  echo "显式创建配置原证据及观察历史两表，不覆盖原核对；仅由已授权部署人执行。"
+  docker compose run -T --rm --no-deps --entrypoint python api -m data_report_api.services.risk_config_evidence_schema --apply < docs/sql/risk-config-evidence-v1.sql
+fi
+echo "检查配置证据两表就绪（只读）"
+docker compose run -T --rm --no-deps --entrypoint python api -m data_report_api.services.risk_config_evidence_schema
 echo "检查风控跟进五表结构（只读；未就绪不切换服务）"
 docker compose run -T --rm --no-deps --entrypoint python api -m data_report_api.services.risk_followup_schema
 if [ "$problem_tags" = true ]; then

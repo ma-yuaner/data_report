@@ -19,6 +19,8 @@ def required_permission():
     if request.method in {"GET", "HEAD", "OPTIONS"}:
         return "risk.verification.view"
     path = request.path.rstrip("/")
+    if '/configuration-evidence/' in path:
+        return 'risk.verification.check' if path.endswith('/observe') else 'risk.verification.review'
     if "/followup/policies" in path:
         return "risk.verification.types.manage"
     if "/followup/" in path:
@@ -70,6 +72,20 @@ def _flow():
 
 
 def register_routes(api):
+    from ..services.risk_config_evidence import RiskConfigEvidence
+
+    @api.get('/v1/risk-verification/configuration-evidence/<identifier>')
+    def risk_config_evidence_get(identifier):
+        return _call(lambda actor: RiskConfigEvidence(current_app.config).get(identifier, request.args.get('issueDate')))
+
+    @api.post('/v1/risk-verification/configuration-evidence/<identifier>')
+    def risk_config_evidence_save(identifier):
+        return _call(lambda actor: RiskConfigEvidence(current_app.config).save(actor, identifier, _body()))
+
+    @api.post('/v1/risk-verification/configuration-evidence/<identifier>/observe')
+    def risk_config_evidence_observe(identifier):
+        return _call(lambda actor: RiskConfigEvidence(current_app.config).observe(actor, identifier, _body()))
+
     from ..services.risk_followup import RiskFollowup
 
     @api.get("/v1/risk-verification/followup/reviews")
@@ -143,7 +159,7 @@ def register_routes(api):
     @api.get("/v1/risk-verification/rule-configs")
     def risk_issue_rule_configs():
         from ..services.risk_issue_rule_configs import RiskIssueRuleConfigs
-        return _call(lambda owner: RiskIssueRuleConfigs(current_app.config).read(request.args.get('platform'), request.args.get('group')))
+        return _call(lambda owner: RiskIssueRuleConfigs(current_app.config).read(request.args.get('platform'), request.args.get('group'), request.args.get('ruleId'), request.args.get('airline'), request.args.get('page','1'), request.args.get('pageSize','20')))
 
     @api.post("/v1/risk-verification/automatic/jobs")
     def risk_automatic_submit():

@@ -21,8 +21,8 @@ def statements(sql):
     return parts[1:]
 
 
-def check(db):
-    for table, (columns, primary) in TABLES.items():
+def check(db, tables=None):
+    for table, (columns, primary) in (tables or TABLES).items():
         db.execute('SELECT ' + columns + ' FROM ' + table + ' LIMIT 0').fetchall()
         row = db.execute('SELECT ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?', (table,)).fetchone()
         if not row or str(row['engine']).upper() != 'INNODB':

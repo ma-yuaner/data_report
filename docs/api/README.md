@@ -22,7 +22,7 @@
 | [上传说明](../business/air_ticketing/risk-data-upload.md) / [行为监控](../product/user-behavior-monitoring-v1.md) | 上传队列和行为采集 |
 
 <!-- BEGIN:API_ROUTES -->
-共 **222个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
+共 **225个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
 
 <a id="auth"></a>
 
@@ -373,6 +373,9 @@
 | `GET` | `/api/v1/risk-verification/cases/<case_id>/preview` | [risk_verification_preview](../../backend/data_report_api/api/risk_verification.py) |
 | `POST` | `/api/v1/risk-verification/cases/<case_id>/recover` | [risk_verification_recover](../../backend/data_report_api/api/risk_verification.py) |
 | `POST` | `/api/v1/risk-verification/cases/<case_id>/review` | [risk_verification_review](../../backend/data_report_api/api/risk_verification.py) |
+| `GET` | `/api/v1/risk-verification/configuration-evidence/<identifier>` | [risk_config_evidence_get](../../backend/data_report_api/api/risk_verification.py) |
+| `POST` | `/api/v1/risk-verification/configuration-evidence/<identifier>` | [risk_config_evidence_save](../../backend/data_report_api/api/risk_verification.py) |
+| `POST` | `/api/v1/risk-verification/configuration-evidence/<identifier>/observe` | [risk_config_evidence_observe](../../backend/data_report_api/api/risk_verification.py) |
 | `GET` | `/api/v1/risk-verification/followup/cases` | [risk_followup_cases](../../backend/data_report_api/api/risk_verification.py) |
 | `GET` | `/api/v1/risk-verification/followup/cases/<case_id>` | [risk_followup_case](../../backend/data_report_api/api/risk_verification.py) |
 | `POST` | `/api/v1/risk-verification/followup/cases/<case_id>` | [risk_followup_update](../../backend/data_report_api/api/risk_verification.py) |
