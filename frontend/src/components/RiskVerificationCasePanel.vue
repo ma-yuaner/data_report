@@ -40,7 +40,6 @@
         <a-tag :color="evidence.candidate ? 'orange' : 'default'">{{ evidence.candidate ? '命中待核查条件' : '未命中当前条件' }}</a-tag>
         <p class="muted">分块顺序读取，不承诺同一数据库快照；关联单仅索引。状态编码原样展示，缺失字段不补0。</p>
         <a-descriptions title="订单基本信息" bordered size="small" :column="2">
-          <a-descriptions-item label="业务订单号">{{ evidence.order.order_no || '—' }}</a-descriptions-item>
           <a-descriptions-item label="OTA订单号">{{ evidence.order.ota_order_no || '—' }}</a-descriptions-item>
           <a-descriptions-item label="盈亏原因原值">{{ evidence.order.profit_reason_type || '—' }}</a-descriptions-item>
           <a-descriptions-item label="平台原值">{{ evidence.order.ota_code || '—' }}</a-descriptions-item>
@@ -171,7 +170,7 @@ const sectionOptions = [
 ]
 const statusLabel = { ready: '已读取', empty: '已读无记录', failed: '读取失败', truncated: '已截断', not_requested: '尚未读取', not_integrated: '尚未接入' }
 const columns = [
-  { title: '内部订单ID', dataIndex: 'id', width: 170 }, { title: '业务订单号', dataIndex: 'order_no', width: 180 },
+  { title: '内部订单ID', dataIndex: 'id', width: 170 },
   { title: 'OTA订单号', dataIndex: 'ota_order_no', width: 180 }, { title: '盈亏原因分类（原始值）', dataIndex: 'profit_reason_type', width: 190 },
   { title: '创建时间', dataIndex: 'create_time', width: 180, customRender: ({ text }: { text: unknown }) => formatDateTimeDisplay(text) }, { title: '操作', key: 'action', width: 100 },
 ]

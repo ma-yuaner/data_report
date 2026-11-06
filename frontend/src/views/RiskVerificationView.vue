@@ -1,6 +1,6 @@
 <template>
   <div class="page-wrap verification-overview">
-    <PageHeader eyebrow="RISK VERIFICATION" title="风控核对" description="按出票日期查看核实结果，重点处理有问题和证据不足的订单；人工核实与案例跟进独立留存。">
+    <PageHeader eyebrow="RISK VERIFICATION" title="风控核对" description="按出票日期查看核实结果，重点处理有问题和证据不足的订单；人工结论独立留存。">
       <a-space wrap><a-button @click="router.push('/risk-followup/workbench')">风控工作台</a-button><a-tag color="blue">订单去重 · 含各类盈亏原因</a-tag><a-button @click="configOpen = true">读取通用配置候选</a-button></a-space>
     </PageHeader>
     <FilterPanel stacked :instant="false" :show-reset="false" :loading="loading" :hint="hasPending ? '日期已改变，点击查询后生效' : '按出票时间筛选，结束日期包含当天；同一订单多张票只计1单'">
@@ -52,13 +52,13 @@
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'reason'">{{ categoryLabel(record.profit_reason_type) }}</template>
           <a-tag v-else-if="column.key === 'status'" :color="statusColors[record.verificationStatus as VerificationStatus]">{{ statusLabels[record.verificationStatus as VerificationStatus] }}</a-tag>
-          <template v-else-if="column.key === 'human'"><a-tag v-if="manual[record.id]?.stale" color="orange">待重新核实</a-tag><span v-else-if="manual[record.id]?.review">{{ conclusions[manual[record.id]?.review?.conclusion || ''] }}</span><span v-else>{{ reviewError ? '读取失败' : '尚未人工核实' }}</span><br /><a-button v-if="manual[record.id]?.review?.caseId" type="link" @click="router.push(`/risk-followup/cases?case=${manual[record.id]?.review?.caseId}`)">案例跟进</a-button></template>
+          <template v-else-if="column.key === 'human'"><a-tag v-if="manual[record.id]?.stale" color="orange">待重新核实</a-tag><span v-else-if="manual[record.id]?.review">{{ reviewStatus(manual[record.id]) }}</span><span v-else>{{ reviewError ? '读取失败' : '尚未人工核实' }}</span><br /><a-button v-if="manual[record.id]?.review?.caseId" type="link" @click="router.push(`/risk-followup/cases?case=${manual[record.id]?.review?.caseId}`)">案例跟进</a-button></template>
           <a-button v-else-if="column.key === 'action'" type="link" @click="openOrder(record)">{{ '查看核实详情' }}</a-button>
         </template>
       </a-table>
     </section>
     <RiskReviewForm :open="batchOpen" :orders="selectedOrders" @close="batchOpen = false" @saved="loadOrders" />
-    <a-drawer :open="drawerOpen" :title="`订单核查 · ${activeOrderNo || activeOrderId}`" :width="'min(1280px, 100vw)'" :destroy-on-close="true" :closable="!panelBusy" :keyboard="!panelBusy" :mask-closable="!panelBusy" @close="closeDrawer">
+    <a-drawer :open="drawerOpen" :title="`OTA订单核查 · ${activeOrderNo || 'OTA订单号缺失'}`" :width="'min(1280px, 100vw)'" :destroy-on-close="true" :closable="!panelBusy" :keyboard="!panelBusy" :mask-closable="!panelBusy" @close="closeDrawer">
       <RiskAutomaticDetail v-if="drawerOpen" :key="activeOrderId" ref="casePanel" :order-id="activeOrderId" :reason="activeReason" :source-updated-at="activeUpdatedAt" :issue-date="activeIssueDate" @changed="refreshResults" @busy-change="panelBusy = $event" />
     </a-drawer>
   </div>
@@ -70,7 +70,7 @@ import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
 import { useRouter } from 'vue-router'
 import RiskReviewForm from '@/components/RiskReviewForm.vue'
 import { useRiskPermissions } from '@/composables/useRiskPermissions'
-import { riskFollowup, conclusions, type ReviewContext } from '@/api/riskFollowup'
+import { riskFollowup, reviewStatus, type ReviewContext } from '@/api/riskFollowup'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import dayjs from 'dayjs'
 import { Alert as AAlert, Button as AButton, Drawer as ADrawer, Modal, Segmented as ASegmented, Select as ASelect, Table as ATable, Tag as ATag } from 'ant-design-vue'
@@ -132,7 +132,7 @@ const progressStates = [
 const reasonOptions = computed(() => (overview.value?.categories || []).map(item => ({ value: item.reasonCode, label: item.reasonLabel })))
 const selectedReasonLabel = computed(() => selectedReason.value ? categoryLabel(selectedReason.value) : '全部类型')
 const categoryColumns = [{ title: '盈亏原因分类', key: 'reason', width: 210 }, ...metricCards.map(item => ({ title: item.label, key: item.key, width: 105 })), { title: '核查进度', key: 'progress', width: 220 }, { title: '规则状态', key: 'rule', width: 220 }, { title: '操作', key: 'action', width: 110 }]
-const orderColumns = [{ title: '人工核实／跟进', key: 'human', width: 180 },{ title: '业务订单号', dataIndex: 'order_no', width: 220 }, { title: 'OTA订单号', dataIndex: 'ota_order_no', width: 200 }, { title: '盈亏原因分类', key: 'reason', width: 200 }, { title: '核查结果', key: 'status', width: 130 }, { title: '操作', key: 'action', width: 110 }]
+const orderColumns = [{ title: '人工核实状态', key: 'human', width: 200 }, { title: 'OTA订单号', dataIndex: 'ota_order_no', width: 200 }, { title: '盈亏原因分类', key: 'reason', width: 200 }, { title: '核查结果', key: 'status', width: 130 }, { title: '操作', key: 'action', width: 110 }]
 const drawerOpen = ref(false)
 const activeOrderId = ref('')
 const activeOrderNo = ref('')
@@ -209,7 +209,7 @@ async function drill(reason: string | undefined, status: VerificationStatus | 'a
 }
 function filterOrders() { page.value = 1; void loadOrders() }
 function changePage(pagination: { current?: number; pageSize?: number }) { page.value = pagination.current || 1; pageSize.value = pagination.pageSize || 20; void loadOrders() }
-function openOrder(row: Record<string, any>) { activeOrderId.value = String(row.id); activeOrderNo.value = String(row.order_no || row.ota_order_no || ''); activeReason.value = String(row.profit_reason_type); activeUpdatedAt.value = row.update_time || null; activeIssueDate.value = String(row.issue_date || '').slice(0, 10) || undefined; panelBusy.value = false; drawerOpen.value = true }
+function openOrder(row: Record<string, any>) { activeOrderId.value = String(row.id); activeOrderNo.value = String(row.ota_order_no || ''); activeReason.value = String(row.profit_reason_type); activeUpdatedAt.value = row.update_time || null; activeIssueDate.value = String(row.issue_date || '').slice(0, 10) || undefined; panelBusy.value = false; drawerOpen.value = true }
 function closeDrawer() {
   if (panelBusy.value) return
   if (casePanel.value?.hasUnsavedDrafts) { Modal.confirm({ title: '关闭当前核查？', content: '未保存的确认理由或知识草稿将丢失，已保存记录保留。', okText: '放弃未保存内容并关闭', cancelText: '继续核查', onOk: () => { drawerOpen.value = false } }); return }

@@ -315,3 +315,10 @@ V9接续：历史相关性排除证明仅用于平台/航司，不将独立挂�
 - 主表`adm_case`，明细表`adm_case_line`；附件、事件、责任流转、申诉、编码恢复历史、回款、审核和汇率快照分别使用`adm_case_attachment`、`adm_case_event`、`adm_case_assignment`、`adm_case_appeal`、`adm_case_recovery`、`adm_case_collection`、`adm_case_review`、`adm_case_fx_snapshot`。
 - 主单UUID和明细UUID继续作为隐藏技术主键；`internal_no`及`line_internal_no`为业务可读唯一编号。主单版本CAS及同一数据库事务保证主子表更新的一致性。
 - 新环境只执行`docs/sql/adm-normalized-v1.sql`。旧document表脚本全部停用；旧表不自动删除，须先只读确认无保留数据后另行审批处理。
+
+## 2026-11-06 风控人工核实收敛最小MVP（用户当前明确要求）
+
+- 详情与列表以OTA订单号展示，去除风控业务订单号展示；删人工抽查入口，详情底部居中“人工核实”打开简表单。
+- 人工结论仅核查无问题、无法判断、有问题；可标首次出现/特殊案例。单单不再要求跟进方式或创建/关联案例。保留核实依据、事件历史和证据版本校验。
+- 无问题/有问题完成本次人工判断；无法判断保留待补证再核实，证据变更为待重新核实。问题判断不等于已整改或正式财务差错认定。
+- 当前简版新记录不进旧案例池；历史已关联多单案例保留原入口，避免静默改变其他订单。说明见docs/development/risk-review-mvp-20261106.md。

@@ -2,7 +2,9 @@
 
 风控配置证据V1：[精确搜索、固定原核对与最新单票止损提醒](docs/development/risk-config-evidence-v1.md)。新增两表需显式DDL；原核算不被后续配置覆盖，最新观察不代表历史生效。实现/隔离及部分真实只读验证完成，DDL/部署/页面/业务未验。
 
-风控跟进V1：[人工核实、共享案例与三个认定池](docs/development/risk-followup-v1.md)。正式入口 `/risk-followup/workbench`；原风控分析入口已移归档。需五张专用表，普通发布仅检查、不自动DDL；本机类型/接口验证通过，生产构建遇Windows临时文件权限限制，247部署及业务验收未完成。
+风控人工核实最小MVP：[三结论、类型标签与状态闭环](docs/development/risk-review-mvp-20261106.md)。核对详情底部进入人工核实；新记录不强制创建案例，历史案例保留原入口。本机验证通过，247部署与业务验收未完成。
+
+历史风控跟进V1：[人工核实、共享案例与三个认定池](docs/development/risk-followup-v1.md)。正式入口 `/risk-followup/workbench`；原风控分析入口已移归档。需五张专用表，普通发布仅检查、不自动DDL；本机类型/接口验证通过，生产构建遇Windows临时文件权限限制，247部署及业务验收未完成。
 
 风控V11：[独立批量清洗与证据不足自查](docs/development/risk-prepared-v11.md)。页面加载清洗成功结果，不再在线逐单取证；上线前需两张新表及独立ETL首批成功，不能只更新API。代码完成不等于DDL/清洗/部署已执行。
 

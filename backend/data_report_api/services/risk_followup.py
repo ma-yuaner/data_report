@@ -213,6 +213,14 @@ class RiskFollowup:
             reason = text(payload.get('reason'), 2000, '核实依据')
             if len(items) > 1 and conclusion != 'no_issue':
                 raise FlowError('批量核实仅支持同策略确认无问题')
+            simple = payload.get('simpleReview') is True
+            markers = {}
+            if simple:
+                for field in ('firstSeen', 'special'):
+                    if not isinstance(payload.get(field, False), bool):
+                        raise FlowError('核实类型无效')
+                    markers[field] = payload.get(field, False)
+                markers['specialReason'] = text(payload.get('specialReason'), 1000, '类型说明') if any(markers.values()) else ''
             policy = None
             no_issue_reason = payload.get('noIssueReason', 'company_policy')
             if conclusion == 'no_issue':
@@ -227,6 +235,8 @@ class RiskFollowup:
             case = None
             case_id = payload.get('caseId')
             # Lock shared case before order rows consistently with case updates.
+            if simple and case_id:
+                raise FlowError('简版人工核实不关联案例')
             if case_id:
                 case = self._case(db, case_id, True)
                 if case['version'] != version(payload.get('caseVersion')) or case['state'] == 'done' or case['conclusion'] != conclusion:
@@ -247,7 +257,7 @@ class RiskFollowup:
                 if policy and not policy['start'] <= current['issueDate'] <= policy['end']:
                     raise FlowError('策略有效期不覆盖所选订单，未保存任何订单', 409)
                 checked.append((current, old))
-            if conclusion != 'no_issue' and not case:
+            if conclusion != 'no_issue' and not case and not simple:
                 fields = ('title', 'problemType', 'cause', 'responsibility', 'assignee', 'nextStep', 'nextAt', 'specialReason')
                 case = {key: payload.get(key) for key in fields}
                 case.update(id=uuid.uuid4().hex, version=1, conclusion=conclusion, disposition='pending', state='todo',
@@ -268,7 +278,7 @@ class RiskFollowup:
                 self._save_case(db, case)
             for current, old in checked:
                 body = {**current, 'version': (old['version'] if old else 0) + 1, 'conclusion': conclusion, 'reason': reason,
-                        'policy': policy, 'noIssueReason': no_issue_reason if conclusion == 'no_issue' else None,
+                        **markers, 'policy': policy, 'noIssueReason': no_issue_reason if conclusion == 'no_issue' else None,
                         'caseId': case['id'] if case else None, 'actor': actor, 'at': now()}
                 if old:
                     db.execute('UPDATE bi_risk_order_reviews SET version=?,case_id=?,body=? WHERE order_id=? AND issue_date=?',
