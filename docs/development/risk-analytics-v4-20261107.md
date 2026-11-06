@@ -1,6 +1,8 @@
 # 风控分析 V4：15分钟快照（2026-11-07）
 
-用户确认：每15分钟刷新；分析不要求逐次实时计算。主会话实现与自检，无独立代理验收。
+用户确认：每15分钟刷新；分析不要求逐次实时计算。
+
+**执行位置已更正为216独立ETL**：后续用户明确要求统一生产调度，替代最初247容器方案。旧shell入口现明确退出2，不再启动Docker；下文为当前交接。主会话实现与自检，无独立代理验收。
 
 ## 行为与口径
 
@@ -20,20 +22,20 @@
 
 目标MySQL、InnoDB、utf8mb4；实际服务器版本/排序规则未回读。先在隔离MySQL验证DDL及只读核验脚本，现有同名旧表需比对，CREATE IF NOT EXISTS不迁移不兼容列。部署次序：建表并核验→发布api/web→手动首轮→安装15分钟cron。未建表不回退ERP，接口报未就绪。失败可暂停该cron并保留表和旧快照；不提供自动删表回滚。
 
-在247现有应用部署目录执行（使用现有有Docker权限账号，保留项目配置和端口）：
+在216 DolphinScheduler以lywz、现有Python3.11.9配置独立Shell：
 
 ```bash
-# 先由数据库执行人执行 docs/sql/risk-analytics-snapshot-v4.sql
-# 再执行 docs/sql/risk-analytics-snapshot-v4-verify.sql 回读元数据
-# 拉取本次版本后按现有流程重建 api/web
-bash scripts/run_risk_analytics_snapshot.sh --preview
-bash scripts/run_risk_analytics_snapshot.sh --check-schema
-bash scripts/run_risk_analytics_snapshot.sh
-bash scripts/run_risk_analytics_snapshot.sh --print-cron
-# 将服务器生成的那一行添加到 crontab -e；保留既有任务，不复制本机Windows路径
+set -eu
+export TZ=Asia/Shanghai
+/opt/module/miniconda3/envs/python3.11/bin/python -B \
+/home/lywz/data-team-repo/etl_scripts/automation/risk_verification_analytics_etl.py
 ```
 
-脚本使用现有compose api镜像的python/依赖/配置；每次docker compose run --rm，需先重建镜像。216原ETL独立运行，无本次ETL仓库改动；源清洗缺失需先恢复源任务。上述命令未在247执行、cron未安装、DDL未执行、业务未验收。
+每15分钟一次，不再安装247 cron或依赖Docker。首次先分别加`--preview`、`--check-schema`；目标仍是sibebid的同两张分析表。原V4 DDL若已执行不用重复建表，先核验，不兼容结构不可依赖IF NOT EXISTS修复。应用保持只读快照，现有生命周期/订单指标清洗保持独立。
+
+216需更新ETL入口与risk_analytics_runtime全目录；详细部署/锁冲突诊断见ETL仓库docs/business/air_ticketing/risk-analytics-216.md。应用规则变更时按原流程导出清洗runtime，再执行`scripts/export_risk_analytics_runtime.py --target-repo <ETL仓库>`及`--check`，防止规则/事实身份漂移。分析runtime为应用权威源生成，ETL连接适配使用公共sibebid_config.get_connect/raw_connection，禁止另建凭据URL。
+
+原247任务如曾配置须停用，避免两种入口并列。上述新216任务/DDL均未在服务器执行。
 
 ## 验证证据
 
