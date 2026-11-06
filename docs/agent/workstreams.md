@@ -8,9 +8,11 @@
 
 本机69项后端/Flask/关系型SQL/ETL金额和原子发布测试通过；30状态映射/入口检查、TS/修改ESLint、Vite构建14.77秒通过；README/API索引53菜单/230方法路径。原始脚本/构建证据.test-artifacts/risk-workflow-v3，测试不上传。浏览器禁用未试；MySQL实库DDL/注释回读、源读/目标写、247/216解释器与部署/清洗串联/业务验收未验。详见[完整交付](../development/risk-workflow-v3-20261106.md)。
 
-状态：实现及本地自检完成；应用业务提交92aa412，ETL业务提交8cf6f29。只读核对应用origin/main与github/main均2169e37、ETL origin/main为dcb4099；三处正常快进推送被自动批准审查整体拒绝，理由为本版本及三个具体main目标未获用户明确批准，未实际推送，待批准后发布。未尝试旁路，未发送新版本通知、未执行DDL/清洗/部署。新页面依赖新两表及同目录批次指标清洗，不能仅更新Web/API。
+历史状态（本轮批准前）：实现及本地自检完成；应用业务提交92aa412，ETL业务提交8cf6f29。只读核对应用origin/main与github/main均2169e37、ETL origin/main为dcb4099；三处正常快进推送被自动批准审查整体拒绝，理由为本版本及三个具体main目标未获用户明确批准，未实际推送，待批准后发布。未尝试旁路，未发送新版本通知、未执行DDL/清洗/部署。新页面依赖新两表及同目录批次指标清洗，不能仅更新Web/API。
 
 本轮接续：用户明确“推送本次操作”后，应用6960749（功能92aa412）及ETL27054cd（功能8cf6f29）已分别正常快进推送应用GitLab/GitHub main、ETL GitLab main。新增只读SQL核验risk-order-metrics-v3-verify.sql并归档RISK-DDL-019-verify，校正body列注释，不修改存储逻辑。产品复盘保留企业项目，个人MYE仅纳入通用方法；代码推送、实际DDL/加工/部署/业务验收继续分开，本轮未执行后四项。
+
+当前交付：应用b97ad8f双端main、ETL27054cd main均已ls-remote核验；本轮只读SQL核验静态检查通过（两表11列注释，核验脚本仅USE/SELECT），没有执行数据库。2026-11-06 23:26:30至23:26:31（Asia/Shanghai），以本轮确认的马远尔发送V3唯一发版通知，HTTP200/errcode=0，0.222秒，脱敏回执.test-artifacts/risk-workflow-v3/receipts。个人库只合并通用方法，已推送并同步本机来源，原有笔记保留；不把源码更新冒充训练/宿主热加载。后续仅同步交付回执，不重复发送通知。实库DDL、清洗、部署与业务验收仍未执行。
 
 ## 风控MVP V2：自动证据历史与问题类型归位（2026-11-06）
 
