@@ -1,7 +1,7 @@
 <template>
   <div class="page-wrap verification-overview">
     <PageHeader eyebrow="RISK VERIFICATION" title="风控核对" description="独立清洗批量准备证据与核实结果；页面查询读取已保存结果，查询直接读取各日已成功发布结果；个人抽查独立留存，不再依赖整段日期加载到账号。">
-      <a-space wrap><a-tag color="blue">订单去重 · 含各类盈亏原因</a-tag><a-button :loading="configLoading" @click="configOpen = true; loadConfigs()">读取通用配置候选</a-button></a-space>
+      <a-space wrap><a-tag color="blue">订单去重 · 含各类盈亏原因</a-tag><a-button @click="configOpen = true">读取通用配置候选</a-button></a-space>
     </PageHeader>
     <FilterPanel stacked :instant="false" :show-reset="false" :loading="loading" :hint="hasPending ? '日期已改变，点击查询后生效' : '按出票时间筛选，结束日期包含当天；同一订单多张票只计1单'">
       <template #header><h2>统计范围</h2><span>默认今日 · 单次最多31天</span></template>
@@ -12,14 +12,7 @@
       <template #actions><a-button type="primary" :loading="loading" @click="queryOverview">查询最新清洗结果</a-button></template>
     </FilterPanel>
     <a-alert v-if="error" type="error" show-icon :message="error" />
-    <a-drawer v-model:open="configOpen" title="出票通用配置取证（候选）" :width="'min(1000px, 100vw)'">
-      <a-space wrap><a-input v-model:value="configPlatform" placeholder="平台编码，可留空" aria-label="配置平台编码" :disabled="configLoading" /><a-select v-model:value="configGroup" :options="[{ value: '', label: '两个规则大类' }, { value: '出票盈亏配置', label: '出票盈亏配置' }, { value: '出票规则配置', label: '出票规则配置' }]" :disabled="configLoading" aria-label="配置规则大类" /><a-button :loading="configLoading" @click="loadConfigs">读取候选</a-button></a-space>
-      <a-alert v-if="configError" type="error" show-icon :message="configError" />
-      <a-alert type="warning" show-icon :message="configNotice" />
-      <a-table :data-source="configItems" :columns="configColumns" row-key="id" :scroll="{ x: 1000 }" :pagination="{ pageSize: 10 }">
-        <template #expandedRowRender="{ record }"><p>配置说明：{{ record.rule_notes || '未配置' }}</p><pre class="config-content">{{ record.ext_json || '未配置' }}</pre><a-alert v-if="record.contentTruncated" type="warning" message="配置内容已截断，不能据此确定阈值" /></template>
-      </a-table>
-    </a-drawer>
+    <RiskRuleConfigDrawer :open="configOpen" @close="configOpen = false" />
     <a-alert v-if="catalogNotice" type="info" show-icon message="所选出票日期尚未同步" :description="`${catalogNotice}。请先运行所选日期的独立风控清洗任务，再查询最新清洗结果；缺少批次不表示零订单。`" />
     <a-alert v-if="overview?.dataFreshness" :type="['failed', 'running'].includes(overview.dataFreshness.latestAttempt?.status || '') ? 'warning' : 'info'" show-icon :message="`中台同步数据 · 最早同步 ${formatDateTimeDisplay(overview.dataFreshness.oldestSyncedAt)} · 最近同步 ${formatDateTimeDisplay(overview.dataFreshness.newestSyncedAt)}`" :description="syncDescription" />
     <a-alert type="info" show-icon message="系统自动核实，人工只抽查与处理异常" :description="`通过无须人工确认；证据不足、执行失败、规则未接入分别列示。${overview?.sampling ? `当前账号已抽查 ${overview.sampling.sampled} 单，其中发现问题 ${overview.sampling.disputed} 单。` : '当前抽查统计尚未读取，不能按0单解释。'}`" />
@@ -83,21 +76,11 @@ import FilterPanel from '@/components/FilterPanel.vue'
 import DateRangeField from '@/components/DateRangeField.vue'
 import RiskAutomaticDetail from '@/components/RiskAutomaticDetail.vue'
 import { ApiError } from '@/api/http'
-import { riskProblems } from '@/api/riskVerification'
+import RiskRuleConfigDrawer from '@/components/RiskRuleConfigDrawer.vue'
 import { verificationOverview, type RiskCatalogFreshness, type VerificationCategory, type VerificationMetrics, type VerificationOrder, type VerificationOrders, type VerificationOverview, type VerificationStatus } from '@/api/riskVerification'
 
 const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date())
-const configOpen = ref(false), configLoading = ref(false), configError = ref(''), configNotice = ref('')
-const configPlatform = ref('QUNAR'), configGroup = ref('出票盈亏配置')
-const configItems = ref<Record<string, unknown>[]>([])
-const configColumns = [{ title: '规则ID', dataIndex: 'id' }, { title: '规则名称', dataIndex: 'rule_name' }, { title: '平台', dataIndex: 'ota_code' }, { title: '站点', dataIndex: 'ota_site_code' }, ...[1, 2, 3, 4].map(segments => ({ title: `${segments}段阈值`, dataIndex: ['segmentThresholds', 'values', String(segments)], customRender: ({ text }: { text: unknown }) => text ?? '未识别/不适用' })), { title: '生效开始', dataIndex: 'start_time', customRender: ({ text }: { text: unknown }) => formatDateTimeDisplay(text) }, { title: '生效结束', dataIndex: 'end_time', customRender: ({ text }: { text: unknown }) => formatDateTimeDisplay(text) }, { title: '配置更新时间', dataIndex: 'update_time', customRender: ({ text }: { text: unknown }) => formatDateTimeDisplay(text) }]
-async function loadConfigs() {
-  if (configLoading.value) return
-  configLoading.value = true; configError.value = ''; configItems.value = []
-  try { const result = await riskProblems.configs(configPlatform.value.trim(), configGroup.value); if (alive) { configItems.value = result.items; configNotice.value = result.notice; configOpen.value = true } }
-  catch (failure) { if (alive) configError.value = failure instanceof Error ? failure.message : '通用配置读取失败' }
-  finally { if (alive) configLoading.value = false }
-}
+const configOpen = ref(false)
 const startDate = ref(today)
 const endDate = ref(today)
 const preset = ref('today')
@@ -158,7 +141,7 @@ let summaryRequest = 0
 let orderRequest = 0
 let alive = true
 let refreshTimer: ReturnType<typeof setInterval> | undefined
-const causeLabels: Record<string, string> = { HISTORY_RECONSTRUCTION: '历史配置无法还原', HISTORY_STATUS_BASELINE_MISSING: '历史状态缺修改前值', PARSER_REVIEW_REQUIRED: '解析能力待自查', HISTORY_LEDGER_INCOMPLETE: '历史记录不完整', SCOPE_INCOMPLETE: '关联范围不完整', PASSENGER_EVIDENCE: '乘机人证据不足', MONEY_EVIDENCE: '金额证据不足', THRESHOLD_EVIDENCE: '止损证据不足', UNCLASSIFIED_EVIDENCE: '待分析原因' }
+const causeLabels: Record<string, string> = { MATCH_FACTS_INCOMPLETE: '订单匹配条件不足', NO_APPLICABLE_RULE: '无适用配置', PRIORITY_EVIDENCE: '规则排序依据不足', HISTORY_RECONSTRUCTION: '历史配置无法还原', HISTORY_STATUS_BASELINE_MISSING: '历史状态缺修改前值', PARSER_REVIEW_REQUIRED: '解析能力待自查', HISTORY_LEDGER_INCOMPLETE: '历史记录不完整', SCOPE_INCOMPLETE: '关联范围不完整', PASSENGER_EVIDENCE: '乘机人证据不足', MONEY_EVIDENCE: '金额证据不足', THRESHOLD_EVIDENCE: '止损证据不足', UNCLASSIFIED_EVIDENCE: '待分析原因' }
 const coverageMissingDays = computed(() => [...new Set([...(overview.value?.dataFreshness.missingDays || []), ...(overview.value?.dataFreshness.preparation?.missingDays || [])])].sort())
 onBeforeUnmount(() => { alive = false; summaryRequest++; orderRequest++; if (refreshTimer) clearInterval(refreshTimer) })
 onMounted(() => {

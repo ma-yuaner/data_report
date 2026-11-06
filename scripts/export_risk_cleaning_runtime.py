@@ -4,7 +4,7 @@ from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
 SERVICES=ROOT/'backend/data_report_api/services'
-MODULES=('risk_commission_rule','risk_loss_threshold_config','risk_historical_threshold','risk_threshold_facts','risk_child_loss','risk_bet_loss','risk_evidence_batch')
+MODULES=('risk_rule_priority','risk_commission_rule','risk_loss_threshold_config','risk_historical_threshold','risk_threshold_facts','risk_child_loss','risk_bet_loss','risk_evidence_batch')
 
 
 def selected(path,names):

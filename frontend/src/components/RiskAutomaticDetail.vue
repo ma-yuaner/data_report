@@ -28,7 +28,7 @@
             <a-tag v-if="column.key === 'status'" :color="record.status === 'supported' ? 'green' : record.status === 'problem' ? 'red' : 'orange'">{{ labels[record.status] || record.status }}</a-tag>
             <template v-else-if="column.key === 'threshold'">{{ record.stopLoss != null ? `${record.stopLoss} 元` : '证据不足' }}</template>
             <template v-else-if="column.key === 'configuration'">
-              <template v-if="record.configuration?.ruleId">规则 {{ record.configuration.ruleId }} · v{{ record.configuration.configurationVersion }}<br />出票时点：{{ formatDateTimeDisplay(record.configuration.asOf) }}<br />{{ record.configuration.jsonPath }}：{{ record.configuration.baseAmount }} 元；超出 {{ record.configuration.extraSegments }} 段×{{ record.configuration.extraPerSegment }} 元</template>
+              <template v-if="record.configuration?.ruleId">规则 {{ record.configuration.ruleId }} · v{{ record.configuration.configurationVersion }}<br />权重：{{ record.configuration.weight ?? "旧结果未记录" }}<br />出票时点：{{ formatDateTimeDisplay(record.configuration.asOf) }}<br />{{ record.configuration.jsonPath }}：{{ record.configuration.baseAmount }} 元；超出 {{ record.configuration.extraSegments }} 段×{{ record.configuration.extraPerSegment }} 元</template>
               <template v-else>
                 未可靠匹配<span v-if="record.configuration?.issueWayLabel"> · {{ record.configuration.issueWayLabel }}（{{ record.configuration.issueWay || '缺失' }}）</span>
                 <details v-if="record.configuration?.diagnostics?.length">
@@ -36,6 +36,18 @@
                   <p v-for="item in record.configuration.diagnostics" :key="`${item.ruleId}-${item.stage}`">规则 {{ item.ruleId }} · {{ item.stage === 'history' ? '历史还原' : '条件匹配' }}：{{ item.reason }}</p>
                 </details>
               </template>
+              <details v-if="record.configuration?.candidateTrace?.length" class="match-trace">
+                <summary>查看订单条件与 {{ record.configuration.candidateTrace.length }} 条候选轨迹</summary>
+                <p>排序：{{ record.configuration.sortBasis || '权重、更新时间、规则ID降序；未知候选仍阻断' }}</p>
+                <dl class="fact-grid"><div v-for="(value, key) in record.configuration.matchingFacts" :key="key"><dt>{{ factLabels[key] || key }}</dt><dd>{{ value }}</dd></div></dl>
+                <p v-for="(problem, key) in record.configuration.matchingFactProblems" :key="key">{{ factLabels[key] || key }}：{{ problem }}</p>
+                <div v-for="item in record.configuration.candidateTrace" :key="item.ruleId" class="trace-item">
+                  <strong>规则 {{ item.ruleId }} · {{ traceLabels[item.outcome] || item.outcome }}<span v-if="item.weight != null"> · 权重 {{ item.weight }}</span></strong>
+                  <p v-if="item.reason">{{ item.reason }}</p>
+                  <p v-if="item.updateTime">配置更新时间：{{ formatDateTimeDisplay(item.updateTime) }}</p>
+                  <p v-for="condition in item.conditions || []" :key="condition.field">{{ condition.label }}：配置 {{ condition.value }} / 订单 {{ condition.actual ?? '缺少可靠事实' }} · {{ traceLabels[condition.outcome || ''] || condition.outcome }}</p>
+                </div>
+              </details>
             </template>
           </template>
         </a-table>
@@ -76,6 +88,8 @@ const error = ref('')
 const saved = ref('')
 const sampleOutcome = ref('confirmed')
 const sampleReason = ref('')
+const factLabels: Record<string, string> = { ota_code: '平台', ota_site_code: '站点', product_type: '产品类型', manual_flag: '人工标记', issue_supplier_code: '出票供应商', issue_gds: '出票GDS', issue_pcc: '出票PCC', airline: '航司', issue_way: '出票方式', cabin: '子舱位', cabin_grade: '舱等', flight_number: '航班号', origin: '主航段出发地', destination: '主航段目的地' }
+const traceLabels: Record<string, string> = { rank_only: '仅参与权重，不筛选该类规则', selected: '最终选中', matched: '条件符合（尚未最终选中）', lower_priority: '条件符合，优先级较低', excluded: '不适用', unknown: '证据不足' }
 const labels: Record<string, string> = { supported: '核实通过', problem: '有问题', insufficient: '证据不足', failed: '执行失败', rule_pending: '规则未接入' }
 const isBet = computed(() => ['RLA068', 'RLA047', 'RLA50', 'RLA046', 'RLA045', 'RLA069', 'RLA070', 'RLA067'].includes(props.reason))
 const supportedReason = computed(() => isBet.value || ['RLA013', 'RLA040'].includes(props.reason))
@@ -106,6 +120,12 @@ async function saveSample() {
 </script>
 <style scoped>
 .auto-detail, section { display: grid; gap: 16px; }
+.match-trace { margin-top: 10px; overflow-wrap: anywhere; }
+.fact-grid { display: grid; gap: 6px; margin: 12px 0; }
+.fact-grid dd { margin: 0; }
+.fact-grid dt { color: #69768a; }
+.trace-item { border-top: 1px solid #e5eaf0; padding: 10px 0; }
+.trace-item p { margin: 6px 0; }
 .muted { color: #69768a; font-size: 13px; }
 h3 { margin-bottom: 0; }
 </style>

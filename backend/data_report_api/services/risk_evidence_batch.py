@@ -117,6 +117,9 @@ def cause_code(result):
     if '未支持' in text or '不可解析' in text:return 'PARSER_REVIEW_REQUIRED'
     if '数量与配置版本不一致' in text or '时间链缺失' in text:return 'HISTORY_LEDGER_INCOMPLETE'
     if any(word in text for word in ('历史','版本链','变更')):return 'HISTORY_RECONSTRUCTION'
+    if '配置条件未可靠绑定' in text:return 'MATCH_FACTS_INCOMPLETE'
+    if '没有可靠匹配到' in text:return 'NO_APPLICABLE_RULE'
+    if '配置权重或排序字段' in text:return 'PRIORITY_EVIDENCE'
     missing=' '.join(result.get('missing',[]))
     if any(word in text for word in ('关联','范围不完整','截断')):return 'SCOPE_INCOMPLETE'
     if '年龄' in missing or '年龄类型' in text:return 'PASSENGER_EVIDENCE'

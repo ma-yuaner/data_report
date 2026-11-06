@@ -8,6 +8,7 @@ import html
 import json
 import re
 
+from .risk_rule_priority import priority, priority_key, conditions, LABELS
 from .risk_loss_threshold_config import LOSS_RULE_TYPE,ticket_threshold
 from .risk_order_evidence import _rows
 
@@ -150,7 +151,7 @@ def historical_exclusion(rule,logs,at,facts):
 
 
 def tokens(value):
-    return {item.casefold() for item in re.split(r'[,;/|]',str(value))} if value is not None and str(value).strip() else set()
+    return {item.strip().casefold() for item in re.split(r'[,;/|]',str(value)) if item.strip()} if value is not None and str(value).strip() else set()
 
 
 EXCLUSIONS={'airline_except':'airline','cabin_except':'cabin','cabin_grade_except':'cabin_grade',
@@ -194,6 +195,26 @@ def matches(rule,facts):
     return (None if unknown else True),unknown
 
 
+def explain_conditions(rule,facts):
+    rows=[]
+    try:configured=conditions(rule)
+    except (ValueError,TypeError,AttributeError):
+        return [{'field':'ext_json','label':'扩展配置','value':'不可解析','actual':None,'outcome':'unknown','missing':['ext_json']}]
+    for condition in configured:
+        key=condition['field']
+        if key.startswith('extFilter.'):
+            partial={'rule_group_type':rule.get('rule_group_type'),'ext_json':json.dumps({'extFilter':{key.split('.',1)[1]:json.loads(rule.get('ext_json') or '{}')['extFilter'][key.split('.',1)[1]]}})}
+            source='issue_way' if key=='extFilter.paramOne' else key
+        else:
+            partial={key:rule.get(key)}
+            source=EXCLUSIONS.get(key,key)
+        matched,missing=matches(partial,facts)
+        rows.append({**condition,'actual':str(facts[source]) if facts.get(source) is not None else None,
+                     'outcome':'rank_only' if key in ('reverse_flag','is_transfer') else 'matched' if matched is True else 'excluded' if matched is False else 'unknown',
+                     'missing':missing})
+    return rows
+
+
 class HistoricalThresholds:
     def __init__(self,cursor):
         # Include disabled/deleted historical rules, and rules previously logged as a loss-rule type.
@@ -234,18 +255,25 @@ class HistoricalThresholds:
                'manual_flag':order.get('manual_flag'),'issue_supplier_code':issue.get('supplier_code'),
                'issue_gds':issue.get('issue_gds_channel'),'issue_pcc':pcc,'airline':issue.get('marketing_airline'),'issue_way':order.get('issue_way')}
         facts.update(issue.get('matchingFacts') or {})
-        candidates=[];unknown=[];diagnostics=[];excluded=[];scope_exclusions=[]
+        candidates=[];unknown=[];diagnostics=[];excluded=[];scope_exclusions=[];trace=[]
+        context={'matchingFacts':{key:str(value) for key,value in facts.items() if value is not None},
+                 'matchingFactProblems':issue.get('matchingFactProblems') or {},'candidateTrace':trace}
         def unresolved(rule,stage,reason,fields=None):
             unknown.append(reason)
             diagnostics.append({'ruleId':str(rule['id']),'stage':stage,'reason':reason,'fields':fields or []})
+            trace.append({'ruleId':str(rule['id']),'outcome':'unknown','stage':stage,'reason':reason})
         for rule in self.rules:
             state,error,legacy,legacy_error=self._restore_cached(rule,at)
-            if state is False:continue
+            if state is False:
+                trace.append({'ruleId':str(rule['id']),'outcome':'excluded','reason':'出票时尚未创建'})
+                continue
             if state is None:
                 if legacy is not None:
                     proof=next(({'ruleId':str(rule['id']),'field':key,'historyReferences':legacy['historyReferences'],'basis':legacy['historyProof']} for key in ('ota_code','airline') if tokens(legacy.get(key)) and tokens(facts.get(key)) and not tokens(legacy[key])&tokens(facts[key])),None)
                     if proof:
-                        scope_exclusions.append(proof);continue
+                        scope_exclusions.append(proof)
+                        trace.append({'ruleId':str(rule['id']),'outcome':'excluded','reason':'完整历史链证明平台或航司不适用','historyReferences':proof['historyReferences']})
+                        continue
                     if legacy.get('status') is not None:state=legacy
                     else:
                         error='历史配置状态无法还原'
@@ -253,13 +281,20 @@ class HistoricalThresholds:
                 if state is None:
                     unresolved(rule,'history',error+'；'+legacy_error)
                     continue
-            if state.get('rule_type')!=LOSS_RULE_TYPE:continue
+            if state.get('rule_type')!=LOSS_RULE_TYPE:
+                trace.append({'ruleId':str(rule['id']),'outcome':'excluded','reason':'出票时不是亏损阈值规则'})
+                continue
             start,end=instant(state.get('start_time')),instant(state.get('end_time'))
-            if start and end and not start<=at<=end:continue
-            if str(state.get('status'))!='1':continue
+            if start and end and not start<=at<=end:
+                trace.append({'ruleId':str(rule['id']),'outcome':'excluded','reason':'出票时不在配置有效期'})
+                continue
+            if str(state.get('status'))!='1':
+                trace.append({'ruleId':str(rule['id']),'outcome':'excluded','reason':'出票时状态非启用'})
+                continue
             match,missing=matches(state,facts)
             if match is False:
                 excluded.append(str(rule['id']))
+                trace.append({'ruleId':str(rule['id']),'outcome':'excluded','reason':'订单条件不符合','conditions':explain_conditions(state,facts)})
                 continue
             if match is None:
                 detail='配置条件未可靠绑定：'+','.join(missing)
@@ -268,21 +303,31 @@ class HistoricalThresholds:
                 if explanations:detail+='；'+'；'.join(explanations)
                 unresolved(rule,'conditions',detail,missing)
                 continue
-            rank=sum(state.get(key) is not None and str(state[key]).strip()!='' for key in MATCH_FIELDS if key!='flight_number')
-            ext=json.loads(state.get('ext_json') or '{}')
-            rank+=sum(value is not None and str(value).strip()!='' for value in (ext.get('extFilter') or {}).values())
-            candidates.append((rank,instant(state['update_time']),int(state['id']),state))
-        if unknown:return {'status':'insufficient','reason':f'规则{diagnostics[0]["ruleId"]}：{unknown[0]}（共{len(unknown)}条未知候选，保留阻断）',
+            try:
+                ranked=priority(state)
+                key=priority_key(state)
+            except (ValueError,TypeError,AttributeError):
+                unresolved(rule,'priority','配置权重或排序字段无法可靠解析')
+                continue
+            candidates.append((*key,state))
+            trace.append({'ruleId':str(rule['id']),'outcome':'matched',**ranked,
+                          'updateTime':str(state['update_time']),'configurationVersion':state.get('version'),
+                          'conditions':explain_conditions(state,facts)})
+        if unknown:return {**context,'status':'insufficient','reason':f'规则{diagnostics[0]["ruleId"]}：{unknown[0]}（共{len(unknown)}条未知候选，保留阻断）',
                            'unresolvedCandidates':len(unknown),'diagnostics':diagnostics,'matchedCandidateIds':[str(row[3]['id']) for row in candidates],
                            'issueWay':order.get('issue_way'),'issueWayLabel':ISSUE_WAYS.get(order.get('issue_way'),'未知编码')}
-        if not candidates:return {'status':'insufficient','reason':'没有可靠匹配到出票时亏损阈值配置；出票方式：'+ISSUE_WAYS.get(order.get('issue_way'),'未知')+'（'+str(order.get('issue_way') or '缺失')+'），请核对兜底是否覆盖该方式',
+        if not candidates:return {**context,'status':'insufficient','reason':'没有可靠匹配到出票时亏损阈值配置；出票方式：'+ISSUE_WAYS.get(order.get('issue_way'),'未知')+'（'+str(order.get('issue_way') or '缺失')+'），请核对兜底是否覆盖该方式',
                                   'excludedCandidateIds':excluded,'issueWay':order.get('issue_way'),'issueWayLabel':ISSUE_WAYS.get(order.get('issue_way'),'未知编码')}
         state=max(candidates,key=lambda item:item[:3])[3]
         amount=ticket_threshold(state.get('ext_json'),issue.get('segmentCount'))
-        if amount['status']!='ready':return amount
+        if amount['status']!='ready':return {**context,**amount,'ruleId':str(state['id']),**priority(state)}
+        ordered=sorted(candidates,key=lambda item:item[:3],reverse=True)
+        context['matchedCandidateIds']=[str(row[3]['id']) for row in ordered]
+        for item in trace:
+            if item['outcome']=='matched':item['outcome']='selected' if item['ruleId']==str(state['id']) else 'lower_priority'
         snapshot=json.loads(json.dumps({key:state.get(key) for key in SAFE_FIELDS},default=str))
         snapshot['version']=state.get('version')
         digest=hashlib.sha256(json.dumps(snapshot,sort_keys=True,default=str,ensure_ascii=False).encode()).hexdigest()
-        return {**amount,'ruleId':str(state['id']),'configurationVersion':state.get('version'),'asOf':str(issue['issue_ticket_time']),
+        return {**context,**amount,**priority(state),'ruleId':str(state['id']),'configurationVersion':state.get('version'),'asOf':str(issue['issue_ticket_time']),
                 'configurationHash':digest,'configurationSnapshot':snapshot,'historyReferences':state.get('historyReferences',[]),
                 'source':'base_issue_match_rule.ext_json','basis':'issue_time_configuration','historyProof':state.get('historyProof','versioned_log_chain'),'excludedHistoricalCandidates':scope_exclusions}
