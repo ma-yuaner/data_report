@@ -22,7 +22,7 @@
 | [上传说明](../business/air_ticketing/risk-data-upload.md) / [行为监控](../product/user-behavior-monitoring-v1.md) | 上传队列和行为采集 |
 
 <!-- BEGIN:API_ROUTES -->
-共 **230个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
+共 **231个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
 
 <a id="auth"></a>
 
@@ -363,6 +363,7 @@
 | 方法 | 完整路径 | 处理函数 / 源码 |
 |---|---|---|
 | `GET` | `/api/v1/risk-verification/analytics` | [risk_workflow_analytics](../../backend/data_report_api/api/risk_verification.py) |
+| `POST` | `/api/v1/risk-verification/analytics/requests` | [risk_analytics_request](../../backend/data_report_api/api/risk_verification.py) |
 | `GET` | `/api/v1/risk-verification/automatic/job` | [risk_automatic_job](../../backend/data_report_api/api/risk_verification.py) |
 | `POST` | `/api/v1/risk-verification/automatic/jobs` | [risk_automatic_submit](../../backend/data_report_api/api/risk_verification.py) |
 | `GET` | `/api/v1/risk-verification/automatic/orders/<identifier>` | [risk_automatic_result](../../backend/data_report_api/api/risk_verification.py) |

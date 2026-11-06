@@ -1,9 +1,5 @@
 """Order-level analytics from current catalog + metric snapshots + human recognition."""
-import json
-from collections import defaultdict
 from decimal import Decimal
-from .risk_order_evidence import EvidenceError, _rows
-from .risk_verification_overview import _period, FIELDS, METRIC_FIELDS, METRIC_JOIN
 
 
 def aggregate(rows, statuses, reviews, labels):
@@ -47,19 +43,6 @@ def aggregate(rows, statuses, reviews, labels):
 
 
 def analytics(service, owner, start, end):
-    first,last=_period(start,end);scope,values=service._scope(first,last);connection=cursor=None
-    try:
-        connection=service.reader._connect();cursor=connection.cursor()
-        freshness=service.reader.coverage(cursor,first,last,require_complete=False)
-        labels,_=service.reader.reason_labels(cursor)
-        statuses=service._statuses(cursor,owner,scope,values)
-        cursor.execute(f'SELECT {FIELDS}{METRIC_FIELDS} FROM bi_risk_order_day o {METRIC_JOIN} WHERE {scope} LIMIT 20001',tuple(values))
-        rows=_rows(cursor)
-        if len(rows)>20000:raise EvidenceError('分析范围超过20000单，请缩小日期范围',413)
-        for row in rows:service.enrich_metric(row)
-        cursor.execute(f'''SELECT o.order_id,r.body,c.disposition FROM bi_risk_order_day o
-            JOIN bi_risk_order_reviews r ON r.order_id=o.order_id AND r.issue_date=o.issue_date
-            LEFT JOIN bi_risk_followup_cases c ON c.id=r.case_id WHERE {scope} LIMIT 20001''',tuple(values))
-        reviews={str(r['order_id']):{**json.loads(r['body']),'_disposition':r['disposition']} for r in _rows(cursor)}
-        return {**aggregate(rows,statuses,reviews,labels),'dataFreshness':freshness,'period':{'startDate':start,'endDate':end}}
-    finally:service.reader._close(cursor,connection)
+    # HTTP only reads published aggregates. It never scans catalog order facts.
+    from .risk_analytics_snapshot import read_snapshot
+    return read_snapshot(service.config, start, end)

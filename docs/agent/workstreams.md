@@ -1102,3 +1102,9 @@ SQL归档RISK-DDL-016/RISK-CHECK-017；正式DDL、真实MySQL并发/注释回�
 - API路径和前端调用契约保持不变；持久化改为主表版本CAS与同一事务内子表更新。主单和明细的可读内部编号均有唯一索引。
 - 新建DDL为`docs/sql/adm-normalized-v1.sql`；旧document表脚本已标记停用，不自动删除或迁移旧表数据。SQLite验收确认未创建`adm_case_document`。
 - 2026-11-06经用户明确要求，已在实际配置的`sibebid`执行规范化V1 DDL：10张新表全部创建成功，`uk_adm_case_internal_no`和`uk_adm_line_internal_no`为唯一索引，9个外键生效，应用`normalized_store.check()`通过。建表后10张新表均为0行；旧`adm_case_document`仍保留且为0行，未删除、未更新。
+
+## 风控分析15分钟快照（2026-11-07，RISK-ANALYTICS-V4）
+
+用户确认15分钟刷新。主会话完成：HTTP只读汇总快照、POST请求排队；应用容器调度仅使用sibebid，31日窗口每单最后出票日去重，跨日起日可变而不重复；失败留旧、来源/检查时间、代次门禁、未同步非零；核对订单筛选按钮底部对齐。无需新增216 ERP清洗任务。新SQL与30列中文字典、安装说明见docs/development/risk-analytics-v4-20261107.md；SQL资产RISK-DDL-022/CHECK-023/ETL-024。
+
+验证：21项定向及69项旧回归通过；25001合成单约2秒、HTTP两次快照查询，仅本机SQLite证据；vue-tsc -b、两组件ESLint、Vite build通过；Bash -n和生成cron通过。实际执行者为主会话（产品/界面/前后端/QA职责），无独立代理。浏览器沿用禁用，实库DDL/注释/性能、247 Docker/cron、部署与业务验收未执行。代码提交/两端推送待回执；当前未申请发版通知，不复用上次申请人确认。

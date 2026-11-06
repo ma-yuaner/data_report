@@ -14,6 +14,11 @@ class StoreUnavailable(RuntimeError):
     """Safe infrastructure error suitable for a 503 response."""
 
 
+class StoreCommittedCleanupError(StoreUnavailable):
+    """Commit was acknowledged; only resource finalization failed."""
+    committed = True
+
+
 UNAVAILABLE = "风控MySQL存储未就绪，请检查sibebid新表及读写权限"
 
 
@@ -75,6 +80,10 @@ class _Session:
         _operation(self.cursor.execute, mysql_sql(sql), params)
         return _Result(self.cursor)
 
+    def executemany(self, sql, rows):
+        _operation(self.cursor.executemany, mysql_sql(sql), rows)
+        return _Result(self.cursor)
+
 
 class RiskAutoStore:
     def __init__(self, config, source=None):
@@ -89,15 +98,22 @@ class RiskAutoStore:
             raise StoreUnavailable(UNAVAILABLE)
 
     @contextmanager
-    def db(self):
+    def db(self, consistent_snapshot=False):
         connection = _operation(self.source.connect)
         cursor = None
+        committed = False
         try:
             # DataSource's pooled connections default to autocommit=True.
-            _operation(connection.begin)
-            cursor = _operation(connection.cursor)
+            if consistent_snapshot:
+                cursor = _operation(connection.cursor)
+                _operation(cursor.execute, 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ')
+                _operation(cursor.execute, 'START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY')
+            else:
+                _operation(connection.begin)
+                cursor = _operation(connection.cursor)
             yield _Session(cursor)
             _operation(connection.commit)
+            committed = True
         except BaseException:
             try:
                 connection.rollback()
@@ -114,4 +130,6 @@ class RiskAutoStore:
                     except Exception as error:
                         close_error = error
             if close_error is not None and not original_failure:
+                if committed:
+                    raise StoreCommittedCleanupError(UNAVAILABLE) from close_error
                 raise StoreUnavailable(UNAVAILABLE) from close_error

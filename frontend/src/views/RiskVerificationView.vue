@@ -46,7 +46,7 @@
         <label>盈亏原因分类<a-select v-model:value="selectedReason" :options="reasonOptions" allow-clear placeholder="全部类型" :disabled="!applied || ordersLoading" @change="filterOrders" /></label>
         <label>OTA订单号<a-input v-model:value="orderNoFilter" placeholder="完整OTA订单号" allow-clear @press-enter="filterOrders" /></label><label>平台<a-input v-model:value="platformFilter" placeholder="平台编码" allow-clear @press-enter="filterOrders" /></label><label>航司<a-input v-model:value="airlineFilter" placeholder="航司编码" allow-clear @press-enter="filterOrders" /></label>
         <label>核查结果<a-select v-model:value="selectedStatus" :options="statusOptions" :disabled="!applied || ordersLoading" @change="filterOrders" /></label>
-        <a-button :disabled="!applied || ordersLoading" @click="filterOrders">筛选订单</a-button>
+        <div class="order-filter-action"><a-button type="primary" :disabled="!applied || ordersLoading" @click="filterOrders">筛选订单</a-button></div>
       </div>
         <p class="muted">已生效筛选：OTA订单号 {{ appliedOrderFilters.orderNo || '全部' }} · 平台 {{ appliedOrderFilters.platform || '全部' }} · 航司 {{ appliedOrderFilters.airline || '全部' }}</p>
         <p class="muted">利润为订单全部出票明细利润合计（CNY），不加佣金；默认按总利润由低到高，未同步或缺失排最后。</p>
@@ -261,7 +261,8 @@ h2 { margin: 0 0 6px; font-size: 18px; }
 .verification-progress > span { flex-shrink: 0; height: 100%; }
 .progress-supported { color: #237804; }
 .progress-problem { color: #cf1322; }
-.order-filters { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+.order-filters { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+.order-filter-action { display: flex; align-items: center; min-height: 32px; flex-shrink: 0; }
 .order-filters label { display: grid; gap: 6px; min-width: 240px; }
 .orders-panel { scroll-margin-top: 20px; }
 @media (max-width: 1280px) { .metrics-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }

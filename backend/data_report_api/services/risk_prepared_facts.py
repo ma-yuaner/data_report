@@ -25,9 +25,9 @@ def engine_hash():
 def stamp(value):return None if value is None else str(value).replace(' ','T')
 
 
-def fact(row):
+def fact(row, expected_engine_hash=None):
     if row.get('profit_reason_type') not in SUPPORTED_REASONS:return None
-    digest=engine_hash()
+    digest=expected_engine_hash or engine_hash()
     ready=(row.get('prepared_run_id')==row.get('catalog_run_id')==row.get('ready_run_id')
            and row.get('catalog_run_id') is not None
            and row.get('rule_version')==row.get('ready_version')==RULE_ID

@@ -19,6 +19,8 @@ def required_permission():
     if request.method in {"GET", "HEAD", "OPTIONS"}:
         return "risk.verification.view"
     path = request.path.rstrip("/")
+    if path.endswith('/analytics/requests'):
+        return 'risk.verification.view'
     if '/configuration-evidence/' in path:
         return 'risk.verification.check' if path.endswith('/observe') else 'risk.verification.review'
     if "/followup/policies" in path:
@@ -193,6 +195,14 @@ def register_routes(api):
     def risk_verification_overview():
         return _call(lambda owner: RiskVerificationOverview(current_app.config).summary(
             owner, request.args.get("startDate"), request.args.get("endDate")))
+
+    @api.post('/v1/risk-verification/analytics/requests')
+    def risk_analytics_request():
+        from ..services.risk_analytics_snapshot import request_snapshot
+        def queue(owner):
+            body = _body()
+            return request_snapshot(current_app.config, body.get('startDate'), body.get('endDate'))
+        return _call(queue)
 
     @api.get('/v1/risk-verification/analytics')
     def risk_workflow_analytics():
