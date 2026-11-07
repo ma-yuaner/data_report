@@ -1,5 +1,7 @@
 ## 风控ETL性能V3权威导出源同步（2026-11-07）
 
+发布接续：用户明确批准应用双端推送后，698ef45已正常快进至GitLab origin/main与GitHub github/main，ls-remote两端核验一致，替代下方待推送状态；ETL b447296及MYE b630726此前已发布。应用权威源与ETL运行副本导出一致性已验证，未重复未变源码测试；未服务器部署/生产运行或发送通知。
+
 用户授权优化、直接推送及MYE回执；ETL f566078已推送GitLab main。最终复核发现分析runtime为应用生成副本，已将相同日增量/集合指纹/计时实现同步risk_analytics_snapshot.py，防下次导出覆盖优化。CLI export_risk_analytics_runtime.py --check六文件内容全部一致；应用21项原快照/真实Flask鉴权CSRF回归通过（6.78秒）。无页面/路由/金额规则/新DDL/调度变更；应用源提交推送随后回执。ETL36项、十万级合成等价及细节见ETL docs/business/air_ticketing/risk-etl-performance-v3-20261107.md，SQL资产RISK-ETL-031。主会话自检，无独立代理；未部署/生产运行。MYE只迁移脱敏方法，不含企业材料。
 
 ## 风控明细取值与自动闭环展示（2026-11-07）
