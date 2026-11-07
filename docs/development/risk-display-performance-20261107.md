@@ -35,3 +35,6 @@
 本次无新增/修改SQL、DDL、ETL或调度，不增加SQL资产。已有指标两表和同目录批次加工仍为取值前提；源指标缺失继续明确提示，不回退ERP或补零。已有SQL资产RISK-DDL-019/RISK-ETL-020及对应核验脚本不重复创建。
 
 按用户授权直接正常推送GitLab/GitHub main，不等CI；服务器需在现有247部署目录拉取后运行bash scripts/deploy_risk_verification.sh，保持1818/5160。此为服务器操作交接，未实际执行。发版群申请人遵守项目逐次确认要求，待本轮答复不阻塞代码推送。
+
+
+发布回执：功能本地提交df58aad。正常推送origin HEAD:main及github HEAD:main在进程创建前被自动批准审查整体拒绝，理由为未明确授权具体两个目的地/main（并指出GitHub目的地未验证）。已核对git remote及两端ls-remote为25a1f16，项目AGENTS也约定两端main，但自动审查仍要求具体授权；无Git push退出码，未绕过、未推送、未发群、未服务器部署。待用户明确批准GitLab analytics/data_report main与GitHub ma-yuaner/data_report main。
