@@ -1,3 +1,7 @@
+## 风控ETL性能V3权威导出源同步（2026-11-07）
+
+用户授权优化、直接推送及MYE回执；ETL f566078已推送GitLab main。最终复核发现分析runtime为应用生成副本，已将相同日增量/集合指纹/计时实现同步risk_analytics_snapshot.py，防下次导出覆盖优化。CLI export_risk_analytics_runtime.py --check六文件内容全部一致；应用21项原快照/真实Flask鉴权CSRF回归通过（6.78秒）。无页面/路由/金额规则/新DDL/调度变更；应用源提交推送随后回执。ETL36项、十万级合成等价及细节见ETL docs/business/air_ticketing/risk-etl-performance-v3-20261107.md，SQL资产RISK-ETL-031。主会话自检，无独立代理；未部署/生产运行。MYE只迁移脱敏方法，不含企业材料。
+
 ## 风控明细取值与自动闭环展示（2026-11-07）
 
 发布接续：用户明确批准后，03f758b（含功能df58aad）已正常快进推送GitLab/GitHub main，两端ls-remote一致。申请人本轮确认马远尔；既有发版通知模板校验通过，但实际发送在进程创建前被自动批准审查拒绝，理由为具体配置群目的地及完整payload未明确批准，未发送、未产生接口回执。待具体通知授权；未服务器部署。本回执替代下方历史待推送状态。

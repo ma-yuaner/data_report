@@ -199,6 +199,10 @@ def source_metadata(db,first,last,digest):
     if any(counts.get(key,0)!=int(value['row_count']) for key,value in expected.items()):raise AnalyticsError('ANALYTICS_CATALOG_COUNT_MISMATCH')
     meta['reviewVersion']=dict(db.execute('SELECT COUNT(*) AS n,COALESCE(SUM(version),0) AS v FROM bi_risk_order_reviews WHERE issue_date>=? AND issue_date<=?',bounds).fetchone())
     meta['caseVersion']=dict(db.execute('SELECT COUNT(*) AS n,COALESCE(SUM(c.version),0) AS v FROM bi_risk_followup_cases c WHERE EXISTS (SELECT 1 FROM bi_risk_order_reviews r WHERE r.case_id=c.id AND r.issue_date>=? AND r.issue_date<=?)',bounds).fetchone())
+    # Per-day review/case generations allow unchanged bucket reuse. All reads
+    # belong to the same source snapshot as directory and fact metadata.
+    meta['reviewDays']=[dict(r) for r in db.execute('SELECT issue_date,COUNT(*) AS n,COALESCE(SUM(version),0) AS v FROM bi_risk_order_reviews WHERE issue_date>=? AND issue_date<=? GROUP BY issue_date ORDER BY issue_date',bounds).fetchall()]
+    meta['caseDays']=[dict(r) for r in db.execute('SELECT r.issue_date,COUNT(*) AS n,COALESCE(SUM(c.version),0) AS v FROM bi_risk_order_reviews r JOIN bi_risk_followup_cases c ON c.id=r.case_id WHERE r.issue_date>=? AND r.issue_date<=? GROUP BY r.issue_date ORDER BY r.issue_date',bounds).fetchall()]
     dictionary=db.execute('SELECT det_code,det_cname,etl_run_id FROM bi_risk_reason_dict WHERE parent_code=? ORDER BY det_code LIMIT 5001',('PRODUCT_PROFIT_REASON_TYPE',)).fetchall()
     labels={r['det_code']:r['det_cname'] for r in dictionary}
     if len(dictionary)>5000 or len(labels)!=len(dictionary) or any(not r['det_cname'] for r in dictionary) or len({r['etl_run_id'] for r in dictionary})>1:raise AnalyticsError('ANALYTICS_DICTIONARY_INVALID')
@@ -206,14 +210,73 @@ def source_metadata(db,first,last,digest):
     return meta,labels,hashlib.sha256(encoded(meta).encode()).hexdigest()
 
 
+def catalog_membership(db,meta,existing):
+    """Hash ordered IDs only, not evidence JSON, to validate cross-day deduplication.
+
+    A directory republish changes its run ID even when membership is identical.
+    Reuse the prior hash only for exactly unchanged directory metadata.
+    """
+    try:old=json.loads(existing.get('body') or '{}') if existing else {}
+    except (ValueError,TypeError):old={}
+    if not isinstance(old,dict):old={}
+    old_days={day(r['issue_date']):r for r in old.get('catalogDays',[])}
+    hashes={}
+    for covered in meta['catalogDays']:
+        key=day(covered['issue_date'])
+        prior=old.get('catalogMembership',{}).get(key)
+        if prior and encoded(old_days.get(key))==encoded(covered):
+            hashes[key]=prior;continue
+        digest=hashlib.sha256();after=0;count=0
+        while True:
+            rows=db.execute('SELECT order_id FROM bi_risk_order_day WHERE issue_date=? AND order_id>? ORDER BY order_id LIMIT ?',(key,after,1000)).fetchall()
+            ids=[int(r['order_id']) for r in rows]
+            if not ids:break
+            if ids!=sorted(set(ids)) or ids[0]<=after:raise AnalyticsError('ANALYTICS_CURSOR_NOT_MONOTONIC')
+            for identifier in ids:digest.update((str(identifier)+'\n').encode('ascii'))
+            count+=len(ids);after=ids[-1]
+            if len(ids)<1000:break
+        if count!=int(covered['row_count']):raise AnalyticsError('ANALYTICS_CATALOG_COUNT_MISMATCH')
+        hashes[key]={'rows':count,'sha256':digest.hexdigest()}
+    return hashes
+
+
+def day_signatures(meta):
+    result={day(r['issue_date']):{} for r in meta['catalogDays']}
+    for field in ('catalogDays','preparedDays','metricDays','reviewDays','caseDays'):
+        for row in meta.get(field,[]):
+            key=day(row['issue_date'])
+            if key in result:result[key][field]=row
+    return {key:hashlib.sha256(encoded(value).encode()).hexdigest() for key,value in result.items()}
+
+
+def reusable_days(existing,meta):
+    if not existing or not existing.get('snapshot_id') or existing.get('schema_version')!=VERSION:return set()
+    try:old=json.loads(existing.get('body') or '{}')
+    except (ValueError,TypeError):return set()
+    if not isinstance(old,dict) or old.get('reuseVersion')!=1 or not current_rules(existing.get('body')):return set()
+    # A directory change anywhere can move an order's canonical latest day.
+    # Rebuild all days in that case; never reuse a day with stale deduplication.
+    if any(encoded(old.get(k))!=encoded(meta.get(k)) for k in ('catalogMembership','dictionary','windowStart','windowEnd')):return set()
+    return {key for key,value in meta['daySignatures'].items() if old.get('daySignatures',{}).get(key)==value and key in old.get('dayOrderCounts',{}) and key in old.get('dayBucketCounts',{})}
+
+
 def build_snapshot(store,end,existing=None,batch_size=250,max_buckets=50000):
     first=end-timedelta(days=30);cutoff=now();digest=engine_hash()
     with store.db(consistent_snapshot=True) as db:
+        metadata_started=time.monotonic()
         meta,labels,signature=source_metadata(db,first,end,digest)
+        print(encoded({'phase':'analytics_metadata','seconds':round(time.monotonic()-metadata_started,3)}),flush=True)
         if not meta['catalogDays']:raise AnalyticsError('ANALYTICS_CATALOG_NOT_READY')
         if existing and existing.get('snapshot_id') and existing.get('source_signature')==signature and existing.get('schema_version')==VERSION and current_rules(existing.get('body')):
             return None,meta,signature,cutoff
+        membership_started=time.monotonic()
+        meta['catalogMembership']=catalog_membership(db,meta,existing)
+        print(encoded({'phase':'analytics_membership','seconds':round(time.monotonic()-membership_started,3),'days':len(meta['catalogMembership'])}),flush=True)
+        meta['daySignatures']=day_signatures(meta)
+        reusable=reusable_days(existing,meta)
         builder=Builder(end,labels,max_buckets)
+        reused_days=[];read_seconds=0.0;aggregate_seconds=0.0
+        meta['dayOrderCounts']={}
         projection=STATUS_PROJECTION+METRIC_FIELDS+',r.body AS review_body,c.disposition AS case_disposition'
         joins=JOINS+METRIC_JOIN+' LEFT JOIN bi_risk_order_reviews r ON r.order_id=o.order_id AND r.issue_date=o.issue_date LEFT JOIN bi_risk_followup_cases c ON c.id=r.case_id'
         # Use the date/order primary key first, then join only a bounded page.
@@ -223,6 +286,22 @@ def build_snapshot(store,end,existing=None,batch_size=250,max_buckets=50000):
           ORDER BY o.order_id LIMIT ?"""
         for covered in meta['catalogDays']:
             business_day=day(covered['issue_date']);after=0
+            if business_day in reusable:
+                cached=db.execute('SELECT * FROM '+BUCKET+' WHERE end_date=? AND snapshot_id=? AND issue_date=?',(end.isoformat(),existing['snapshot_id'],business_day)).fetchall()
+                totals=[r for r in cached if r['dimension']=='total']
+                previous_meta=json.loads(existing['body'])
+                expected=int(previous_meta['dayOrderCounts'][business_day])
+                if len(cached)!=int(previous_meta['dayBucketCounts'][business_day]) or len(totals)>1 or (cached and len(totals)!=1) or sum(int(r['orders']) for r in totals)!=expected:raise AnalyticsError('ANALYTICS_REUSE_BUCKET_INVALID')
+                meta['dayOrderCounts'][business_day]=expected
+                for item in cached:
+                    identity=(business_day,item['dimension'],item['group_key'])
+                    if identity in builder.groups or len(builder.groups)>=max_buckets:raise AnalyticsError('ANALYTICS_BUCKET_LIMIT')
+                    builder.groups[identity]={k:item[k] for k in ('issue_date','dimension','group_hash','group_key','group_label',*COUNTERS,'known_profit','known_loss')}
+                builder.orders+=sum(int(r['orders']) for r in totals)
+                reused_days.append(business_day)
+                print(encoded({'phase':'analytics_day_reused','day':business_day,'buckets':len(cached),'processedOrders':builder.orders}),flush=True)
+                continue
+            day_start_orders=builder.orders
             while True:
                 started=time.monotonic()
                 identifiers=[int(row['order_id']) for row in db.execute(page_sql,(business_day,after,end.isoformat(),batch_size)).fetchall()]
@@ -231,15 +310,23 @@ def build_snapshot(store,end,existing=None,batch_size=250,max_buckets=50000):
                 marks=','.join('?' for _ in identifiers)
                 rows=db.execute('SELECT '+projection+joins+' WHERE o.issue_date=? AND o.order_id IN ('+marks+') ORDER BY o.order_id',(business_day,*identifiers)).fetchall()
                 if [int(row['order_id']) for row in rows]!=identifiers or any(day(row['issue_date'])!=business_day for row in rows):raise AnalyticsError('ANALYTICS_PAGE_INCOMPLETE')
+                fetched=time.monotonic()
                 for row in rows:builder.add(row,fact(row,expected_engine_hash=digest))
+                aggregated=time.monotonic();read_seconds+=fetched-started;aggregate_seconds+=aggregated-fetched
                 after=identifiers[-1]
-                print(encoded({'phase':'analytics_page','day':business_day,'pageOrders':len(rows),'processedOrders':builder.orders,'seconds':round(time.monotonic()-started,3)}),flush=True)
+                print(encoded({'phase':'analytics_page','day':business_day,'pageOrders':len(rows),'processedOrders':builder.orders,'seconds':round(time.monotonic()-started,3),'readSeconds':round(fetched-started,3),'aggregateSeconds':round(aggregated-fetched,3)}),flush=True)
                 if len(identifiers)<batch_size:break
+            meta['dayOrderCounts'][business_day]=builder.orders-day_start_orders
+        meta['dayBucketCounts']={key:0 for key in meta['dayOrderCounts']}
+        for key in builder.groups:meta['dayBucketCounts'][key[0]]+=1
         meta['bucketCount']=len(builder.groups)
+        meta['reuseVersion']=1
+        print(encoded({'phase':'analytics_build_complete','orders':builder.orders,'reusedDays':reused_days,'readSeconds':round(read_seconds,3),'aggregateSeconds':round(aggregate_seconds,3),'buckets':len(builder.groups)}),flush=True)
         return builder,meta,signature,cutoff
 
 
 def publish(store,end,generation,builder,meta,signature,cutoff):
+    started=time.monotonic()
     finished=now();snapshot_id=uuid.uuid4().hex if builder is not None else None
     try:
         with store.db() as db:
@@ -261,6 +348,7 @@ def publish(store,end,generation,builder,meta,signature,cutoff):
                            (cutoff,generation,finished,end.isoformat()))
     except StoreCommittedCleanupError:
         return {'endDate':end.isoformat(),'status':'published' if builder is not None else 'unchanged','orders':builder.orders if builder is not None else None,'warning':'ANALYTICS_PUBLISH_CLEANUP_FAILED'}
+    print(encoded({'phase':'analytics_publication','endDate':end.isoformat(),'seconds':round(time.monotonic()-started,3),'rebuilt':builder is not None}),flush=True)
     return {'endDate':end.isoformat(),'status':'published' if builder is not None else 'unchanged','orders':builder.orders if builder is not None else None}
 
 
