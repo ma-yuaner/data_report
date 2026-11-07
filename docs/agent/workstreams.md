@@ -1148,3 +1148,7 @@ V4交付回执：功能提交13098d0已推送GitLab/GitHub main，并ls-remote�
 主会话磐石/明鉴职责实现与自检，无独立代理。94项合成通过（生命周期/历史/更新64＋分析30），旧容量契约测试按分轮设计替换，旧V12夹具更新当前版本；配置优先级返工保留近期优先与历史容量。公司SQL归档留资产库，MYE仅方法。完整Shell/时延/兼容/未验见ETL docs/business/air_ticketing/risk-refresh-performance-v2.md；本轮无DDL、未生产写库/调度/锁强杀/浏览器。目标MySQL计划及216效果待服务器新日志验证。
 
 性能V2回执：ETL b9666db、应用2b03414、MYE487f7e7已推送对应main（应用GitLab/GitHub、ETL GitLab、MYE GitHub）。94项定向/回归通过、11文件3.11 AST、两导出check及两个无DB preview通过；MYE文档检查及本地源同步完成，原3份草稿9行保留。申请人本轮确认马远尔，2026-11-07 02:12:13发版群HTTP200/errcode0，0.279秒；只证明接口接收，不是部署/实库性能或业务验收。SQL资产029/030，无新DDL；详细Shell及生效边界见ETL性能V2文档。
+
+## 2026-11-07 每日配置观察及分类查询
+
+用户已审核方案并授权三端推送。交付、运行边界与证据见[本轮交付](../development/risk-latest-config-delivery-20261107.md)。本地应用及ETL隔离验证完成。独立终审受额度中断，主会话已复核。待部署人执行本次增量DDL及只读预检，在现有DolphinScheduler配置北京时间06:00单实例任务。

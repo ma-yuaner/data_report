@@ -81,6 +81,7 @@ class RiskConfigEvidence:
                 raise FlowError('历史核查内容无效，请联系管理员核对清洗批次', 503)
             identity = [issue_date, order, row['rule_version'], row['engine_hash'], row['evidence_hash']]
             result.update(id=hashlib.sha256(json.dumps(identity).encode()).hexdigest()[:32],
+                          historyRunId=str(row['etl_run_id']),
                           orderId=order, issueDate=issue_date, reasonCode=row['reason_code'], checkedAt=str(row['prepared_at']),
                           sourceUpdatedAt=str(row['source_updated_at']) if row['source_updated_at'] is not None else None,
                           sourceMode='prepared_etl', isCurrent=False)

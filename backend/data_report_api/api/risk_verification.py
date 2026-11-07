@@ -76,6 +76,12 @@ def _flow():
 def register_routes(api):
     from ..services.risk_config_evidence import RiskConfigEvidence
 
+    @api.get('/v1/risk-verification/configuration-evidence/<identifier>/latest')
+    def risk_latest_config_get(identifier):
+        from ..services.risk_latest_config import RiskLatestConfig
+        return _call(lambda actor: RiskLatestConfig(current_app.config).get(
+            identifier, request.args.get('issueDate'), request.args.get('resultId'), request.args.get('historyRunId')))
+
     @api.get('/v1/risk-verification/configuration-evidence/<identifier>')
     def risk_config_evidence_get(identifier):
         return _call(lambda actor: RiskConfigEvidence(current_app.config).get(identifier, request.args.get('issueDate')))

@@ -1,8 +1,10 @@
 <template>
-  <template v-if="configuration?.ruleId">
+  <template v-if="configuration?.ruleId || observation">
     <a-button type="link" size="small" class="basis-trigger" @click="open = true">查看采用依据</a-button>
     <a-modal v-model:open="open" title="采用依据" :width="800" :footer="null" :destroy-on-close="true" :mask-closable="false" :style="{ maxWidth: 'calc(100vw - 32px)', top: '5vh' }" :body-style="{ maxHeight: '75vh', overflowY: 'auto' }">
     <div class="configuration-basis">
+    <template v-if="configuration?.ruleId">
+    <h4>出票时依据（保留）</h4>
     <div class="basis-heading"><span>出票明细 {{ ticket.id }}</span><strong>采用规则 {{ configuration.ruleId }} <span class="muted">· v{{ configuration.configurationVersion ?? '未记录' }}</span></strong></div>
     <a-alert v-if="configuration.basis === 'issue_time_configuration' && configuration.asOf && configuration.historyProof" type="info" show-icon :message="`按出票时点 ${formatDateTimeDisplay(configuration.asOf)} 的配置核实`" />
     <a-alert v-else type="warning" show-icon message="出票时历史证明不完整" description="本快照未提供完整出票时历史证明，不能仅凭观察到的配置认定出票时有效。" />
@@ -19,6 +21,9 @@
     <p v-if="configuration.extraSegments != null && configuration.extraSegments > 0">超出4段部分：{{ configuration.extraSegments }} 段 × {{ configuration.extraPerSegment ?? '未记录' }} 元。</p>
     <p v-if="configuration.baseAmount != null && configuration.extraSegments != null && configuration.extraSegments > 0 && configuration.extraPerSegment != null">最终阈值：{{ configuration.baseAmount }} ＋ {{ configuration.extraSegments }} × {{ configuration.extraPerSegment }} ＝ {{ ticket.stopLoss ?? '未记录' }} 元。</p>
     <div class="threshold-result"><span>最终采用阈值</span><strong>{{ ticket.stopLoss ?? '未记录' }} 元</strong></div>
+    </template>
+    <p v-else>原核查未可靠匹配出票时规则，不补造原配置依据。</p>
+    <RiskLatestConfigurationBasis :observation="observation" :run="observationRun" :previous-only="previousOnly" />
     </div>
     </a-modal>
   </template>
@@ -28,7 +33,9 @@ import { computed, ref, watch } from 'vue'
 import { Alert as AAlert, Button as AButton, Modal as AModal } from 'ant-design-vue'
 import { type AutoRiskResult } from '@/api/riskVerification'
 import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
-const props = defineProps<{ ticket: AutoRiskResult['tickets'][number] }>()
+import type { LatestConfigRun, LatestConfigTicket } from '@/api/riskLatestConfig'
+import RiskLatestConfigurationBasis from '@/components/RiskLatestConfigurationBasis.vue'
+const props = defineProps<{ ticket: AutoRiskResult['tickets'][number]; observation?: LatestConfigTicket; observationRun?: LatestConfigRun | null; previousOnly?: boolean }>()
 const open = ref(false)
 watch(() => props.ticket, () => { open.value = false })
 const configuration = computed(() => props.ticket.configuration)

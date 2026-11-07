@@ -172,7 +172,10 @@ class RiskVerificationOverview:
             from .risk_prepared_facts import coverage
             freshness['preparation']=coverage(cursor,first,last)
             labels, freshness["reasonDictionaryVersion"] = self.reader.reason_labels(cursor)
-            statuses = self._statuses(cursor, owner, scope, values)
+            # The ordinary reason drill-down needs statuses only for its page.
+            # Filtering by a status still happens across the complete scope,
+            # before COUNT/sorting/pagination, preserving the existing contract.
+            statuses = self._statuses(cursor, owner, scope, values) if status != 'all' else {}
             selected = [identifier for identifier, item in statuses.items() if item["status"] == status]
             if status != "all":
                 if status == "unchecked":
@@ -195,6 +198,10 @@ class RiskVerificationOverview:
             direction = 'ASC' if sort == 'profit_asc' else 'DESC'
             cursor.execute(f"SELECT {FIELDS}{METRIC_FIELDS} FROM bi_risk_order_day o {METRIC_JOIN} WHERE {scope} ORDER BY ({METRIC_PROFIT}) IS NULL,({METRIC_PROFIT}) {direction},o.order_id DESC LIMIT %s OFFSET %s", (*values, page_size, (page - 1) * page_size))
             rows = _rows(cursor)
+            if status == 'all' and rows:
+                ids = [str(row['id']) for row in rows]
+                page_scope = scope + ' AND o.order_id IN (' + ','.join(['%s'] * len(ids)) + ')'
+                statuses = self._statuses(cursor, owner, page_scope, [*values, *ids])
             for row in rows:
                 self.enrich_metric(row)
                 review = statuses.get(str(row["id"]), {})
