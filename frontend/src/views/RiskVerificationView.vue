@@ -12,7 +12,7 @@
       <template #actions><a-button type="primary" :loading="loading" @click="queryOverview">查询最新清洗结果</a-button></template>
     </FilterPanel>
     <a-alert v-if="error" type="error" show-icon :message="error" />
-    <RiskRuleConfigDrawer :open="configOpen" @close="configOpen = false" />
+    <RiskRuleConfigDrawer v-if="configOpen" :open="configOpen" @close="configOpen = false" />
     <a-alert v-if="catalogNotice" type="info" show-icon message="所选出票日期尚未同步" :description="`${catalogNotice}。请先运行所选日期的独立风控清洗任务，再查询最新清洗结果；缺少批次不表示零订单。`" />
     <RiskDataStatus v-if="overview?.dataFreshness" :freshness="overview.dataFreshness" :insufficient="overview.metrics.insufficient" :sampling="overview.sampling" @inspect-insufficient="drill(undefined, 'insufficient')" />
     <div v-if="applied" class="applied-scope"><strong>{{ applied.start }} 至 {{ applied.end }}</strong><span>出票日期 · 已生效范围</span></div>
@@ -26,8 +26,7 @@
       <div class="progress-legend" aria-label="核查进度颜色说明"><span v-for="state in progressStates" :key="state.key"><i :style="{ backgroundColor: state.color }" />{{ state.label }}</span><span><i class="progress-pending" />未完成</span></div>
       <a-table :columns="categoryColumns" :data-source="overview?.categories || []" row-key="reasonCode" :loading="loading" :pagination="{ pageSize: 10, showSizeChanger: true }" :scroll="{ x: 1180 }" size="middle" :locale="{ emptyText: overview ? '所选出票期间没有盈亏原因有值的订单' : '请查询统计范围；读取失败不显示为0' }">
         <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'airlines'">{{ record.airlines?.join('、') || '未同步' }}</template><template v-else-if="column.key === 'profit'">{{ record.total_profit ?? '未同步／缺失' }}</template><template v-else-if="column.key === 'segments'">{{ record.segment_count ?? '未同步／缺失' }}</template>
-          <template v-else-if="column.key === 'reason'"><strong>{{ record.reasonLabel }}</strong><small class="block-muted">{{ record.reasonCode }}</small></template>
+          <template v-if="column.key === 'reason'"><strong>{{ record.reasonLabel }}</strong><small class="block-muted">{{ record.reasonCode }}</small></template>
           <a-button v-else-if="isMetricKey(column.key)" type="link" :class="{ 'problem-link': column.key === 'problem' }" @click="drillMetric(record.reasonCode, column.key)">{{ count(metricValue(record, column.key)) }}</a-button>
           <template v-else-if="column.key === 'progress'">
             <div class="verification-progress" role="img" :aria-label="progressDescription(record)"><span v-for="segment in progressSegments(record)" :key="segment.key" :style="{ width: `${segment.percent}%`, backgroundColor: segment.color }" /></div>
@@ -53,16 +52,17 @@
         <div class="batch-actions"><a-button v-if="canReview" type="primary" :disabled="!selectedOrders.length || ordersLoading" @click="batchOpen = true">批量确认无问题（{{ selectedOrders.length }}）</a-button><span class="muted">仅本页选择，保存前逐单核对无问题依据。</span></div>
         <a-alert v-if="reviewError" type="warning" show-icon :message="reviewError" />
         <a-alert v-if="ordersError" type="error" show-icon :message="ordersError" />
-      <a-table :row-selection="canReview ? { selectedRowKeys: selectedOrders.map(o => o.orderId), onChange: selectOrders, getCheckboxProps: (record: VerificationOrder) => ({ disabled: !!manual[record.id]?.review?.caseId || !manual[record.id] }) } : undefined" :columns="orderColumns" :data-source="orders?.items || []" row-key="id" :loading="ordersLoading" :pagination="{ current: page, pageSize, total: orders?.total || 0, showSizeChanger: true, pageSizeOptions: ['20', '50', '100'], showTotal: (total: number) => `共 ${total} 单` }" :scroll="{ x: 1020, y: 420 }" size="middle" @change="changePage" :locale="{ emptyText: orders ? '当前类型和状态下没有订单' : '点击上方类型或数量查看明细' }">
+      <a-table :row-selection="canReview ? { selectedRowKeys: selectedOrders.map(o => o.orderId), onChange: selectOrders, getCheckboxProps: (record: VerificationOrder) => ({ disabled: !!manual[record.id]?.review?.caseId || !manual[record.id] }) } : undefined" :columns="orderColumns" :data-source="orders?.items || []" row-key="id" :loading="ordersLoading" :pagination="{ current: page, pageSize, total: orders?.total || 0, showSizeChanger: true, pageSizeOptions: ['20', '50', '100'], showTotal: (total: number) => `共 ${total} 单` }" :scroll="{ x: 1440, y: 420 }" size="middle" @change="changePage" :locale="{ emptyText: orders ? '当前类型和状态下没有订单' : '点击上方类型或数量查看明细' }">
         <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'reason'">{{ categoryLabel(record.profit_reason_type) }}</template>
-          <a-tag v-else-if="column.key === 'status'" :color="statusColors[record.verificationStatus as VerificationStatus]">{{ record.verificationStatus === 'supported' && NORMAL_REASON_CODES.includes(record.profit_reason_type) ? '自动通过（已闭环）' : statusLabels[record.verificationStatus as VerificationStatus] }}</a-tag>
-          <template v-else-if="column.key === 'human'"><a-tag v-if="manual[record.id]?.stale" color="orange">待重新核实</a-tag><span v-else-if="manual[record.id]?.review">{{ reviewStatus(manual[record.id]) }}</span><span v-else>{{ reviewError ? '读取失败' : record.verificationStatus === 'supported' && NORMAL_REASON_CODES.includes(record.profit_reason_type) ? '自动闭环，可人工抽查' : '尚未人工核实' }}</span><br /><a-button v-if="manual[record.id]?.review?.caseId" type="link" @click="router.push(`/risk-followup/cases?case=${manual[record.id]?.review?.caseId}`)">案例跟进</a-button></template>
+          <template v-if="column.key === 'airlines'">{{ record.airlines?.join('、') || '未同步' }}</template><template v-else-if="column.key === 'profit'">{{ record.total_profit ?? '未同步／缺失' }}</template><template v-else-if="column.key === 'segments'">{{ record.segment_count ?? '未同步／缺失' }}</template>
+          <template v-else-if="column.key === 'reason'">{{ categoryLabel(record.profit_reason_type) }}</template>
+          <a-tag v-else-if="column.key === 'status'" :color="statusColors[record.verificationStatus as VerificationStatus]">{{ record.verificationStatus === 'supported' ? '自动通过（已闭环）' : statusLabels[record.verificationStatus as VerificationStatus] }}</a-tag>
+          <template v-else-if="column.key === 'human'"><a-tag v-if="manual[record.id]?.stale" color="orange">待重新核实</a-tag><span v-else-if="manual[record.id]?.review">{{ reviewStatus(manual[record.id]) }}</span><span v-else>{{ reviewError ? '读取失败' : record.verificationStatus === 'supported' ? '自动闭环 · 可人工抽检' : '待人工核实' }}</span><br /><a-button v-if="manual[record.id]?.review?.caseId" type="link" @click="router.push(`/risk-followup/cases?case=${manual[record.id]?.review?.caseId}`)">案例跟进</a-button></template>
           <a-button v-else-if="column.key === 'action'" type="link" @click="openOrder(record)">{{ '查看核实详情' }}</a-button>
         </template>
       </a-table>
     </section>
-    <RiskReviewForm :open="batchOpen" :orders="selectedOrders" @close="batchOpen = false" @saved="loadOrders" />
+    <RiskReviewForm v-if="batchOpen" :open="batchOpen" :orders="selectedOrders" @close="batchOpen = false" @saved="loadOrders" />
     <a-drawer :open="drawerOpen" :title="`OTA订单核查 · ${activeOrderNo || 'OTA订单号缺失'}`" :width="'min(1280px, 100vw)'" :destroy-on-close="true" :closable="!panelBusy" :keyboard="!panelBusy" :mask-closable="!panelBusy" @close="closeDrawer">
       <RiskAutomaticDetail v-if="drawerOpen" :key="activeOrderId" ref="casePanel" :order-id="activeOrderId" :reason="activeReason" :source-updated-at="activeUpdatedAt" :issue-date="activeIssueDate" @changed="refreshResults" @busy-change="panelBusy = $event" />
     </a-drawer>
@@ -73,21 +73,22 @@
 import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
 
 import { useRouter } from 'vue-router'
-import RiskReviewForm from '@/components/RiskReviewForm.vue'
 import { useRiskPermissions } from '@/composables/useRiskPermissions'
 import { riskFollowup, reviewStatus, type ReviewContext } from '@/api/riskFollowup'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { defineAsyncComponent, computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import dayjs from 'dayjs'
 import type { ColumnsType, SorterResult } from 'ant-design-vue/es/table/interface'
 import { Alert as AAlert, Button as AButton, Drawer as ADrawer, Input as AInput, Modal, Segmented as ASegmented, Select as ASelect, Table as ATable, Tag as ATag } from 'ant-design-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import FilterPanel from '@/components/FilterPanel.vue'
 import DateRangeField from '@/components/DateRangeField.vue'
-import RiskAutomaticDetail from '@/components/RiskAutomaticDetail.vue'
 import { ApiError } from '@/api/http'
-import RiskRuleConfigDrawer from '@/components/RiskRuleConfigDrawer.vue'
 import RiskDataStatus from '@/components/RiskDataStatus.vue'
-import { verificationOverview, NORMAL_REASON_CODES, type RiskCatalogFreshness, type VerificationCategory, type VerificationMetrics, type VerificationOrder, type VerificationOrders, type VerificationOverview, type VerificationStatus } from '@/api/riskVerification'
+import { verificationOverview, type RiskCatalogFreshness, type VerificationCategory, type VerificationMetrics, type VerificationOrder, type VerificationOrders, type VerificationOverview, type VerificationStatus } from '@/api/riskVerification'
+
+const RiskReviewForm = defineAsyncComponent(() => import('@/components/RiskReviewForm.vue'))
+const RiskAutomaticDetail = defineAsyncComponent(() => import('@/components/RiskAutomaticDetail.vue'))
+const RiskRuleConfigDrawer = defineAsyncComponent(() => import('@/components/RiskRuleConfigDrawer.vue'))
 
 const router = useRouter()
 const { canReview } = useRiskPermissions()
@@ -140,7 +141,7 @@ const progressStates = [
 const reasonOptions = computed(() => (overview.value?.categories || []).map(item => ({ value: item.reasonCode, label: item.reasonLabel })))
 const selectedReasonLabel = computed(() => selectedReason.value ? categoryLabel(selectedReason.value) : '全部类型')
 const categoryColumns = [{ title: '盈亏原因分类', key: 'reason', width: 210 }, ...metricCards.map(item => ({ title: item.label, key: item.key, width: 105 })), { title: '核查进度', key: 'progress', width: 220 }, { title: '规则状态', key: 'rule', width: 220 }, { title: '操作', key: 'action', width: 110 }]
-const orderColumns: ColumnsType<VerificationOrder> = [{ title: '人工核实状态', key: 'human', width: 200 }, { title: 'OTA订单号', dataIndex: 'ota_order_no', width: 200 }, { title: '平台', dataIndex: 'ota_code', width: 110 }, { title: '航司', key: 'airlines', width: 120 }, { title: '订单总利润（CNY）', key: 'profit', width: 170, sorter: true, sortDirections: ['ascend', 'descend'] }, { title: '航段数', key: 'segments', width: 100 }, { title: '盈亏原因分类', key: 'reason', width: 200 }, { title: '核查结果', key: 'status', width: 130 }, { title: '操作', key: 'action', width: 110 }]
+const orderColumns: ColumnsType<VerificationOrder> = [{ title: '闭环／人工抽检', key: 'human', width: 200 }, { title: 'OTA订单号', dataIndex: 'ota_order_no', width: 200 }, { title: '平台', dataIndex: 'ota_code', width: 110 }, { title: '航司', key: 'airlines', width: 120 }, { title: '订单总利润（CNY）', key: 'profit', width: 170, align: 'right', sorter: true, sortDirections: ['ascend', 'descend'] }, { title: '航段数', key: 'segments', width: 100 }, { title: '盈亏原因分类', key: 'reason', width: 200 }, { title: '核查结果', key: 'status', width: 130 }, { title: '操作', key: 'action', width: 110 }]
 const drawerOpen = ref(false)
 const activeOrderId = ref('')
 const activeOrderNo = ref('')

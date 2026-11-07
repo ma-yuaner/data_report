@@ -60,8 +60,9 @@ def statuses(cursor,scope,parameters):
     rows=_rows(cursor)
     if len(rows)>20000:raise EvidenceError('已接规则订单超过当前汇总上限，请缩小日期范围',413)
     result={}
+    digest=engine_hash()
     for row in rows:
-        body=fact(row)
+        body=fact(row, digest)
         result[str(row['order_id'])]={'status':body['status'] if body else 'outdated' if row.get('prepared_run_id') else 'unchecked',
                                     'caseId':None,'resultId':body['id'] if body else None,'reasonCode':row['profit_reason_type']}
     return result
