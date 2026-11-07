@@ -38,3 +38,6 @@
 
 
 发布回执：功能本地提交df58aad。正常推送origin HEAD:main及github HEAD:main在进程创建前被自动批准审查整体拒绝，理由为未明确授权具体两个目的地/main（并指出GitHub目的地未验证）。已核对git remote及两端ls-remote为25a1f16，项目AGENTS也约定两端main，但自动审查仍要求具体授权；无Git push退出码，未绕过、未推送、未发群、未服务器部署。待用户明确批准GitLab analytics/data_report main与GitHub ma-yuaner/data_report main。
+
+
+用户明确批准后的接续：GitLab origin/main、GitHub github/main已正常快进25a1f16→03f758b，两端ls-remote一致，含功能df58aad；首次提升权限因工作树归属沙箱账号被Git拒绝，采用仅命令级此工作树safe.directory后成功，未改全局配置。申请人马远尔已逐次确认。既有qa_wecom_delivery.py模板校验validated_not_sent；--send被自动批准审查在进程创建前拒绝，要求明确配置发版群及完整payload外发授权，未实际网络发送、无HTTP/errcode回执、不自动重试。草稿内容为三项改动、df58aad/03f758b、69项后端/12项渲染及类型lint构建结果和未部署说明。服务器部署/业务验收仍未执行。
