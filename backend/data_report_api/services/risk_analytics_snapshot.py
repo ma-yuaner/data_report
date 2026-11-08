@@ -19,6 +19,7 @@ MANIFEST = 'bi_risk_analytics_snapshot'
 BUCKET = 'bi_risk_analytics_bucket'
 VERSION = 'risk-analytics-v4'
 INTERVAL_MINUTES = 60
+RETRY_MINUTES = 5
 COUNTERS = ('orders','auto_passed','auto_concluded','human_reviewed','human_problems','included_errors','profit_missing')
 LOCK = 'risk-analytics-snapshot-v4'
 
@@ -364,7 +365,7 @@ def publish(store,end,generation,builder,meta,signature,cutoff):
 
 
 def run(config,end=None,max_end_days=32,batch_size=250,max_buckets=50000,store=None,window_days=31,single_end=False):
-    store=store or RiskAutoStore(config);today=end or now().date();results=[];errors=[];already_running=False
+    store=store or RiskAutoStore(config);today=end or now().date();results=[];errors=[];already_running=False;deferred=None
     try:
         with store.db() as lock_db:
             locked=lock_db.execute('SELECT GET_LOCK(?,0) AS acquired',(LOCK,)).fetchone()
@@ -380,6 +381,12 @@ def run(config,end=None,max_end_days=32,batch_size=250,max_buckets=50000,store=N
                     if restrict_end:parameters.append(today.isoformat())
                     candidates=lock_db.execute('SELECT * FROM '+MANIFEST+' WHERE retry_after<=? AND (request_generation>processed_generation OR checked_at IS NULL OR checked_at<=? OR schema_version<>?)'+end_filter+' ORDER BY CASE WHEN end_date=? THEN 0 WHEN request_generation>processed_generation THEN 1 ELSE 2 END,requested_at DESC,checked_at ASC LIMIT ?',
                                                (*parameters,today.isoformat(),max_end_days)).fetchall()
+                    if not candidates:
+                        waiting=lock_db.execute('SELECT retry_after,last_error_code FROM '+MANIFEST+' WHERE end_date=?',(today.isoformat(),)).fetchone()
+                        deferred={'endDate':today.isoformat(),'reasonCode':'ANALYTICS_RETRY_DEFERRED' if waiting else 'ANALYTICS_REQUEST_NOT_VISIBLE',
+                                  'nextRetryAt':str(waiting['retry_after']) if waiting else None,
+                                  'lastErrorCode':waiting.get('last_error_code') if waiting else None}
+                        print(encoded({'phase':'analytics_deferred',**deferred}),flush=True)
                     for candidate in candidates:
                         target=date.fromisoformat(day(candidate['end_date']))
                         phase='source'
@@ -395,7 +402,7 @@ def run(config,end=None,max_end_days=32,batch_size=250,max_buckets=50000,store=N
                             code=safe_error(error)
                             try:
                                 with store.db() as db:
-                                    db.execute('UPDATE '+MANIFEST+' SET last_error_code=?,retry_after=? WHERE end_date=?',(code,now()+timedelta(minutes=INTERVAL_MINUTES),target.isoformat()))
+                                    db.execute('UPDATE '+MANIFEST+' SET last_error_code=?,retry_after=? WHERE end_date=?',(code,now()+timedelta(minutes=RETRY_MINUTES),target.isoformat()))
                             except Exception:pass
                             results.append({'endDate':target.isoformat(),'status':'failed','errorCode':code,'publicationState':'not_attempted' if phase=='source' else 'not_confirmed'})
                 finally:
@@ -404,7 +411,9 @@ def run(config,end=None,max_end_days=32,batch_size=250,max_buckets=50000,store=N
     except Exception:errors.append('ANALYTICS_JOB_DATABASE_FAILED')
     # Do not erase confirmed per-date publications if finalization fails.
     failed=bool(errors) or any(r['status']=='failed' or r.get('warning') for r in results)
-    return {'status':'partial_failure' if failed and results else 'failed' if failed else 'already_running' if already_running else 'success','days':results,'errors':errors}
+    result={'status':'partial_failure' if failed and results else 'failed' if failed else 'already_running' if already_running else 'deferred' if deferred else 'success','days':results,'errors':errors}
+    if deferred:result['deferred']=deferred
+    return result
 
 
 def check_schema(store):
@@ -444,6 +453,6 @@ def main(argv=None):
         store=RiskAutoStore(config);check_schema(store)
         result={'status':'schema_ready'} if args.check_schema else run(config,args.end_date or now().date(),args.max_end_days,args.batch_size,args.max_buckets,store,window_days=args.window_days,single_end=True)
     except Exception as error:result={'status':'failed','errorCode':safe_error(error),'days':[]}
-    print(encoded(result));return 1 if result['status'] in ('failed','partial_failure') else 0
+    print(encoded(result));return 1 if result['status'] in ('failed','partial_failure','deferred') else 0
 
 if __name__=='__main__':raise SystemExit(main())
