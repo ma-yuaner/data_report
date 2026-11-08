@@ -1162,3 +1162,7 @@ V4交付回执：功能提交13098d0已推送GitLab/GitHub main，并ls-remote�
 
 ## 小时分析仅当天（2026-11-08）
 主会话按用户明确范围更正默认CLI、读取覆盖门禁及页面默认日期/小时提示；保留显式历史窗口和既有事务/锁。24项本机隔离验证通过，生成运行时check及离线preview通过。日志读取1144.39秒、聚合2.753秒，不将本机结果当生产提速证据。实际命令和部署边界见docs/development/risk-analytics-today-20261108.md；三端推送回执另记，服务器/调度新周期/真实页面未验，无新增DDL。
+
+
+## 11:20分析就绪失败回执（2026-11-08）
+用户日志677597/1714668：ANALYTICS_CATALOG_NOT_READY，analytics_metadata 0.005秒，publicationState=not_attempted。代码对应当天bi_risk_sync_day无成功目录记录；不证明无订单或上游失败根因。更正先前“没有依赖”措辞：调度独立但有上游数据就绪依赖。目标库回读、上游成功日期及Worker版本未验，不绕门禁改成功。已在两项目AGENTS固化当天范围、覆盖门禁与部署分层约束。
