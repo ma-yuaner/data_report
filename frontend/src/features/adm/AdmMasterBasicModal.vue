@@ -1,0 +1,60 @@
+<template>
+  <a-modal :open="open" width="920px" :footer="null" wrap-class-name="v05-modal" @cancel="close">
+    <div v-if="detail" class="prototype-info-modal">
+      <header class="prototype-info-head">
+        <div><h2>{{ editable ? '编辑 ADM 主单基础信息' : 'ADM 主单基础信息' }}</h2><p>{{ detail.case.admNo }} · 系统记录 {{ detail.case.internalNo }}</p></div>
+      </header>
+      <div v-if="editable" class="v05-form-grid prototype-edit-grid">
+        <label>系统主单ID<a-input :value="detail.case.internalNo" readonly /></label>
+        <label>当前状态<a-input :value="label(detail.case.caseStatus)" readonly /></label>
+        <label>ADM单号 *<a-input v-model:value="form.admNo" /></label>
+        <label>下发方类型 *<a-select v-model:value="form.issuerType" :options="issuerTypes" @change="issuerChanged" /></label>
+        <label v-if="form.issuerType === 'AIRLINE'" class="wide">下发方名称 *<a-input v-model:value="form.issuerName" /></label>
+        <label v-else class="wide">下发方名称 *<a-select v-model:value="form.issuerCode" show-search :filter-option="filterOption" :options="issuerOptions" @change="issuerSelected" /></label>
+        <label>ADM负责人<a-input :value="detail.case.coordinatorName || '—'" readonly /></label>
+        <label>原币币种<a-input :value="detail.case.currency" readonly /></label>
+        <label>原币总金额<a-input :value="`${detail.case.currency} ${detail.case.originalAmount}`" readonly /></label>
+        <label>人民币总金额<a-input :value="`¥ ${detail.case.cnyAmount}`" readonly /></label>
+        <label>下发日期 *<a-input v-model:value="form.issuedDate" type="date" /></label>
+        <label>主单回复截止时间 *<a-input v-model:value="form.replyDeadline" type="datetime-local" /></label>
+        <label class="wide">主单备注<a-textarea v-model:value="form.remark" :rows="3" /></label>
+      </div>
+      <div v-else class="basic-info-grid">
+        <dl><dt>系统主单ID</dt><dd>{{ detail.case.internalNo }}</dd></dl><dl><dt>ADM单号</dt><dd>{{ detail.case.admNo }}</dd></dl>
+        <dl><dt>当前状态</dt><dd>{{ label(detail.case.caseStatus) }}</dd></dl><dl><dt>下发方类型</dt><dd>{{ label(detail.case.issuerType) }}</dd></dl>
+        <dl><dt>下发方名称</dt><dd>{{ detail.case.issuerName }}</dd></dl><dl><dt>ADM负责人</dt><dd>{{ detail.case.coordinatorName || '—' }}</dd></dl>
+        <dl><dt>原币币种</dt><dd>{{ detail.case.currency }}</dd></dl><dl><dt>原币总金额</dt><dd>{{ detail.case.currency }} {{ detail.case.originalAmount }}</dd></dl>
+        <dl><dt>人民币总金额</dt><dd>¥ {{ detail.case.cnyAmount }}</dd></dl><dl><dt>下发日期</dt><dd>{{ detail.case.issuedDate || '—' }}</dd></dl>
+        <dl><dt>主单回复截止时间</dt><dd>{{ detail.case.replyDeadline || '—' }}</dd></dl><dl><dt>汇率快照</dt><dd>{{ detail.fxSnapshot?.rateValue || '—' }} · {{ detail.fxSnapshot?.sourceUpdatedAt || detail.fxSnapshot?.rateDate || '—' }}</dd></dl>
+        <dl><dt>订单完成情况</dt><dd>{{ completed }} / {{ activeLines }}</dd></dl><dl><dt>最近更新</dt><dd>{{ detail.case.updatedAt || '—' }}</dd></dl>
+        <dl class="wide"><dt>主单备注</dt><dd>{{ detail.case.remark || '未填写' }}</dd></dl>
+        <dl class="wide"><dt>主单公共附件</dt><dd>{{ attachmentNames }}</dd></dl>
+      </div>
+      <a-alert v-if="editable" type="info" show-icon message="金额和币种涉及明细分配及冻结汇率，不在基础信息中直接修改。" class="block" />
+      <footer class="prototype-info-footer"><a-button @click="close">关闭</a-button><a-button v-if="editable" type="primary" :loading="saving" @click="save">保存基础信息</a-button></footer>
+    </div>
+    <div v-else class="prototype-info-loading"><a-spin size="large" tip="正在读取主单基础信息…" /></div>
+  </a-modal>
+</template>
+
+<script setup lang="ts">
+import { computed, reactive, ref, watch } from 'vue'
+import { message } from 'ant-design-vue'
+import { admApi, errorText, label, type AdmCaseDetail, type Fields, type Option } from './api'
+
+const props = defineProps<{ open: boolean; detail: AdmCaseDetail | null; editable: boolean }>()
+const emit = defineEmits<{ close: []; saved: [detail: AdmCaseDetail] }>()
+const saving = ref(false), masters = reactive<{ ota: Option[]; supplier: Option[] }>({ ota: [], supplier: [] }), form = reactive<Fields>({})
+const issuerTypes = [{ value: 'SUPPLIER', label: '供应商' }, { value: 'PLATFORM', label: '平台' }, { value: 'AIRLINE', label: '航司' }]
+const issuerOptions = computed(() => (form.issuerType === 'PLATFORM' ? masters.ota : masters.supplier).map(item => ({ value: item.code, label: `${item.name}（${item.code}）` })))
+const activeLines = computed(() => props.detail?.lines.filter(item => item.lineStatus !== 'VOIDED').length || 0)
+const completed = computed(() => props.detail?.lines.filter(item => item.lineStatus === 'COMPLETED').length || 0)
+const attachmentNames = computed(() => props.detail?.attachments?.filter(item => item.recordStatus === 'ACTIVE').map(item => item.originalFileName).join('、') || '无')
+const filterOption = (input: string, option: Fields) => String(option.label || '').toLowerCase().includes(input.toLowerCase())
+function reset() { const c = props.detail?.case; if (!c) return; Object.assign(form, { admNo: c.admNo, issuerType: c.issuerType, issuerCode: c.issuerCode || undefined, issuerName: c.issuerName, issuedDate: c.issuedDate, replyDeadline: String(c.replyDeadline || '').replace(' ', 'T').slice(0, 16), remark: c.remark || '' }) }
+function close() { emit('close') }
+function issuerChanged() { form.issuerCode = undefined; form.issuerName = '' }
+function issuerSelected(value?: string) { const source = form.issuerType === 'PLATFORM' ? masters.ota : masters.supplier; form.issuerName = source.find(item => item.code === value)?.name || '' }
+async function save() { if (!props.detail) return; saving.value = true; try { const detail = await admApi.updateCase(props.detail.case.id, form); emit('saved', detail); void message.success('主单基础信息已保存') } catch (error) { void message.error(errorText(error)) } finally { saving.value = false } }
+watch(() => [props.open, props.detail?.case.id], async ([open]) => { if (!open) return; reset(); if (props.editable && (!masters.ota.length || !masters.supplier.length)) { const [ota, supplier] = await Promise.allSettled([admApi.options('ota'), admApi.options('supplier')]); if (ota.status === 'fulfilled') masters.ota = ota.value; if (supplier.status === 'fulfilled') masters.supplier = supplier.value } }, { immediate: true })
+</script>

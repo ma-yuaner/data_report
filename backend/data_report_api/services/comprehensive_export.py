@@ -43,16 +43,14 @@ SMART_TREND_MONTHLY_KIND = "smart_trend_monthly"
 SMART_DIMENSIONS_KIND = "smart_dimensions"
 SMART_DETAILS_KIND = "smart_details"
 MISSED_ORDERS_KIND = "smart_missed_orders"
-ADM_CASES_KIND = "adm_cases"
-ADM_LINES_KIND = "adm_lines"
-ADM_OPERATOR_TASKS_KIND = "adm_operator_tasks"
 HR_MAIL_FILE_KIND = "hr_mail_file"
+ADM_OPERATOR_KIND = "adm_operator_excel"
+ADM_ATTACHMENT_KIND = "adm_attachment"
 BACKGROUND_EXPORT_KINDS = {
     MISSED_ORDERS_KIND,
-    ADM_CASES_KIND,
-    ADM_LINES_KIND,
-    ADM_OPERATOR_TASKS_KIND,
     HR_MAIL_FILE_KIND,
+    ADM_OPERATOR_KIND,
+    ADM_ATTACHMENT_KIND,
     GDS_ROUTE_KIND,
     RESOURCE_GDS_KIND,
     RESOURCE_OTA_KIND,
@@ -63,10 +61,9 @@ BACKGROUND_EXPORT_KINDS = {
 }
 TASK_LABELS = {
     MISSED_ORDERS_KIND: "漏处理订单",
-    ADM_CASES_KIND: "ADM主单",
-    ADM_LINES_KIND: "ADM订单明细",
-    ADM_OPERATOR_TASKS_KIND: "ADM操作人员34列任务",
     HR_MAIL_FILE_KIND: "HR邮件附件",
+    ADM_OPERATOR_KIND: "ADM接单处理表",
+    ADM_ATTACHMENT_KIND: "ADM附件原件",
     GDS_ROUTE_KIND: "GDS航线名单",
     RESOURCE_GDS_KIND: "GDS资源治理汇报",
     RESOURCE_OTA_KIND: "OTA渠道质量汇报",
@@ -115,10 +112,10 @@ def _require_kind(user: dict[str, Any], kind: str) -> None:
         if not (_is_admin(user) or "hr.mail" in menu_codes):
             raise PermissionError("当前账号没有HR报表邮件菜单权限")
         return
-    if kind in {ADM_CASES_KIND, ADM_LINES_KIND, ADM_OPERATOR_TASKS_KIND}:
-        permission = "adm.handle" if kind == ADM_OPERATOR_TASKS_KIND else "adm.export"
-        if not (_is_admin(user) or ("adm.center" in menu_codes and permission in permission_codes(user))):
-            raise PermissionError("当前账号没有ADM导出权限")
+    if kind in {ADM_OPERATOR_KIND, ADM_ATTACHMENT_KIND}:
+        required = "adm.handle" if kind == ADM_OPERATOR_KIND else "adm.view"
+        if not (_is_admin(user) or (required in permission_codes(user) and "adm.center" in menu_codes)):
+            raise PermissionError("当前账号没有该ADM导出任务权限")
         return
     if kind == "comprehensive" or kind in BUSINESSES:
         _require_export(user)
@@ -216,6 +213,13 @@ class ComprehensiveExportStore:
                 file_name = ""
             if file_name:
                 task_label = f"HR邮件附件 · {file_name[:120]}"
+        elif item["business_type"] == ADM_ATTACHMENT_KIND:
+            try:
+                file_name = str(json.loads(item["filters_json"]).get("fileName") or "").strip()
+            except (TypeError, ValueError):
+                file_name = ""
+            if file_name:
+                task_label = f"ADM附件 · {file_name[:120]}"
         business_label = task_label or BUSINESS_LABELS.get(item["business_type"], item["business_type"])
         return {
             "id": item["id"],
@@ -375,6 +379,33 @@ class ComprehensiveExportStore:
             result = dict(row)
             result.update(status="RUNNING", started_at=now, updated_at=now, message="正在生成文件")
             return result
+        finally:
+            connection.close()
+
+    def claim(self, user_id: int, task_id: str) -> dict[str, Any]:
+        """Claim one newly-created task for immediate generation in the request."""
+        connection = self.connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM comprehensive_export_jobs WHERE id=? AND user_id=?",
+                (task_id, user_id),
+            ).fetchone()
+            if row is None or row["status"] != "QUEUED":
+                raise ComprehensiveExportConflict("导出任务状态已变化")
+            now = _now_text()
+            connection.execute(
+                "UPDATE comprehensive_export_jobs SET status='RUNNING',started_at=?,updated_at=?,"
+                "message='正在生成文件' WHERE id=? AND status='QUEUED'",
+                (now, now, task_id),
+            )
+            connection.commit()
+            result = dict(row)
+            result.update(status="RUNNING", started_at=now, updated_at=now, message="正在生成文件")
+            return result
+        except Exception:
+            connection.rollback()
+            raise
         finally:
             connection.close()
 
@@ -564,13 +595,17 @@ class ComprehensiveExportService:
         if row is None:
             raise ValueError("导出任务不存在")
         _require_kind(user, row["business_type"])
-        if row["business_type"] in {ADM_CASES_KIND, ADM_LINES_KIND}:
-            self._validate_adm_export(user, json.loads(row["filters_json"])["_admSelection"])
-        elif row["business_type"] == MISSED_ORDERS_KIND:
+        if row["business_type"] == MISSED_ORDERS_KIND:
             self._missed_export_actor(int(user['id']), json.loads(row['filters_json']))
         elif row["business_type"] == HR_MAIL_FILE_KIND:
             values = json.loads(row["filters_json"])
             self._hr_mail_file(user, values)
+        elif row["business_type"] == ADM_ATTACHMENT_KIND:
+            values = json.loads(row["filters_json"])
+            from .admwf.service import AdmWorkflowService
+            AdmWorkflowService(self.config).authorize_attachment_download(
+                user, values["caseId"], values["attachmentId"], reason=values.get("reason"), audit=False,
+            )
         if row["status"] != "SUCCEEDED" or not row["file_path"]:
             raise ComprehensiveExportConflict("导出文件尚不可下载")
         path = Path(row["file_path"])
@@ -663,22 +698,29 @@ class ComprehensiveExportService:
             service, _, name = self._hr_mail_file(user, {"batchId": batch_id, "fileId": file_id})
             batch = service.get(batch_id)
             payload = {"batchId": batch_id, "fileId": file_id, "fileName": str(name)[:200]}
-        elif kind in {ADM_CASES_KIND, ADM_LINES_KIND}:
-            from .adm import AdmError
-            from .adm.exchange import select_export_cases
+        elif kind == ADM_OPERATOR_KIND:
+            raw_ids = payload.get("lineIds")
+            if not isinstance(raw_ids, list) or not raw_ids or len(raw_ids) > 1000:
+                raise ValueError("请选择1至1000条ADM明细")
             try:
-                _, selection = select_export_cases(self.config, user, payload)
-                payload["_admSelection"] = selection
-            except AdmError as error:
-                if error.status in {401, 403, 404}:
-                    raise PermissionError(str(error)) from error
-                raise ValueError(str(error)) from error
-        elif kind == ADM_OPERATOR_TASKS_KIND:
-            from .adm.operator_exchange import STATUS_LABELS
-            statuses = payload.get("statuses") or list(STATUS_LABELS)
-            if not isinstance(statuses, list) or not statuses or any(value not in STATUS_LABELS for value in statuses):
-                raise ValueError("操作人员导出任务类型无效")
-            payload = {"statuses": list(dict.fromkeys(statuses))}
+                payload = {"lineIds": list(dict.fromkeys(int(value) for value in raw_ids))}
+            except (TypeError, ValueError):
+                raise ValueError("ADM明细ID无效") from None
+            if any(value <= 0 for value in payload["lineIds"]):
+                raise ValueError("ADM明细ID无效")
+        elif kind == ADM_ATTACHMENT_KIND:
+            try:
+                case_id = int(payload.get("caseId"))
+                attachment_id = int(payload.get("attachmentId"))
+            except (TypeError, ValueError):
+                raise ValueError("ADM附件参数无效") from None
+            reason = str(payload.get("reason") or "").strip()[:1000]
+            from .admwf.service import AdmWorkflowService
+            _, metadata = AdmWorkflowService(self.config).authorize_attachment_download(
+                user, case_id, attachment_id, reason=reason, audit=False,
+            )
+            payload = {"caseId": case_id, "attachmentId": attachment_id,
+                       "fileName": str(metadata["original_file_name"])[:200], "reason": reason}
         if kind == HR_MAIL_FILE_KIND:
             start_date = end_date = str(batch.get("period") or batch.get("createdAt") or "")[:100]
         else:
@@ -689,8 +731,51 @@ class ComprehensiveExportService:
             user_id=_user_id(user), requested_by=_display_name(user), fingerprint=fingerprint,
             business=kind, start_date=start_date, end_date=end_date, filters=payload, total_rows=0,
         )
+        if not task.get("reused") and kind in {ADM_OPERATOR_KIND, ADM_ATTACHMENT_KIND}:
+            self._complete_adm_task(user, task, payload)
+            row = self.store.get(_user_id(user), str(task["id"]))
+            return self.store.public(row)
         self._start_worker()
         return task
+
+    def _complete_adm_task(self, user: dict[str, Any], task: dict[str, Any], values: dict[str, Any]) -> None:
+        """Generate ADM files into the common task store; browsers never receive them directly."""
+        from .admwf.policy import AdmError
+        from .admwf.service import AdmWorkflowService
+
+        task_id = str(task["id"])
+        self.store.claim(_user_id(user), task_id)
+        try:
+            service = AdmWorkflowService(self.config)
+            if task["businessType"] == ADM_OPERATOR_KIND:
+                result = service.claim_and_export(user, {"lineIds": values["lineIds"]})
+                output_path = self.store.files / f"{task_id}.xlsx"
+                content = result["content"]
+                try:
+                    content.seek(0)
+                    with output_path.open("wb") as target:
+                        shutil.copyfileobj(content, target)
+                finally:
+                    content.close()
+                processed = int(result["includedCount"])
+                self.store.set_total(task_id, processed)
+                self.store.finish(task_id, output_path, "ADM操作员待处理明细.xlsx", processed)
+            else:
+                source, metadata = service.authorize_attachment_download(
+                    user, values["caseId"], values["attachmentId"],
+                    reason=values.get("reason"), audit=True,
+                )
+                suffix = source.suffix.lower()
+                output_path = self.store.files / f"{task_id}{suffix}"
+                shutil.copyfile(source, output_path)
+                self.store.set_total(task_id, 1)
+                self.store.finish(task_id, output_path, metadata["original_file_name"], 1)
+        except (AdmError, PermissionError, ValueError) as error:
+            self.store.fail(task_id, str(error))
+            raise ValueError(str(error)) from error
+        except Exception:
+            self.store.fail(task_id, "导出失败，请稍后重试")
+            raise
 
     def _missed_export_actor(self, user_id: int, values=None):
         from .missed_orders import MissedOrdersService, MissedOrdersUnavailable
@@ -794,26 +879,6 @@ class ComprehensiveExportService:
                     cancelled=lambda: self.store.cancellation_requested(task_id))
             except MissedOrdersCancelled as error:
                 raise ComprehensiveExportCancelled() from error
-        elif kind in {ADM_CASES_KIND, ADM_LINES_KIND}:
-            from .adm.exchange import export_workbook
-            resolver = self.config.get("ADM_USER_RESOLVER")
-            if not callable(resolver):
-                raise PermissionError("ADM导出缺少可信账号解析器")
-            actor = resolver(int(task["user_id"]))
-            if not actor or not actor.get("is_enabled", True):
-                raise PermissionError("账号已停用或不存在")
-            _require_kind(actor, kind)
-            content, name = export_workbook(self._validate_adm_export(actor, values["_admSelection"]), kind)
-        elif kind == ADM_OPERATOR_TASKS_KIND:
-            from .adm.operator_exchange import AdmOperatorExchange
-            resolver = self.config.get("ADM_USER_RESOLVER")
-            if not callable(resolver):
-                raise PermissionError("ADM导出缺少可信账号解析器")
-            actor = resolver(int(task["user_id"]))
-            if not actor or not actor.get("is_enabled", True):
-                raise PermissionError("账号已停用或不存在")
-            _require_kind(actor, kind)
-            content, name = AdmOperatorExchange(self.config).export(actor, values.get("statuses"))
         elif kind in {RESOURCE_GDS_KIND, RESOURCE_OTA_KIND}:
             data_source = "gds" if kind == RESOURCE_GDS_KIND else "ota"
             content, name = ResourceGovernanceService(self.config).export_report(
@@ -875,20 +940,6 @@ class ComprehensiveExportService:
             self.store.finish(task_id, output_path, name, exported_rows)
         finally:
             content.close()
-
-    def _validate_adm_export(self, user: dict[str, Any], selection: list[dict]) -> list[dict]:
-        from .adm import AdmError
-        from .adm.exchange import validate_export_cases
-        resolver = self.config.get("ADM_USER_RESOLVER")
-        actor = resolver(int(user["id"])) if callable(resolver) else user
-        if not actor or not actor.get("is_enabled", True):
-            raise PermissionError("账号已停用或不存在")
-        try:
-            return validate_export_cases(self.config, actor, selection)
-        except AdmError as error:
-            if error.status in {401, 403, 404}:
-                raise PermissionError(str(error)) from error
-            raise ValueError(str(error)) from error
 
     def _write_xlsx(self, task: dict[str, Any], output_path: Path) -> None:
         import pymysql

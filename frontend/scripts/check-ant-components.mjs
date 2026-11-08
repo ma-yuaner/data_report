@@ -18,7 +18,7 @@ const componentByTag = {
   'a-input': 'Input', 'a-input-password': 'Input', 'a-input-search': 'Input',
   'a-textarea': 'Input', 'a-input-number': 'InputNumber',
   'a-layout': 'Layout', 'a-layout-content': 'Layout', 'a-layout-header': 'Layout',
-  'a-layout-sider': 'Layout', 'a-list': 'List', 'a-list-item': 'List',
+  'a-layout-sider': 'Layout', 'a-list': 'List', 'a-list-item': 'List', 'a-list-item-meta': 'List',
   'a-menu': 'Menu', 'a-menu-divider': 'Menu', 'a-menu-item': 'Menu', 'a-sub-menu': 'Menu',
   'a-modal': 'Modal', 'a-pagination': 'Pagination', 'a-popconfirm': 'Popconfirm', 'a-progress': 'Progress',
   'a-radio': 'Radio', 'a-radio-button': 'Radio', 'a-radio-group': 'Radio', 'a-result': 'Result',

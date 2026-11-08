@@ -17,6 +17,7 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 COPY --chown=appuser:appgroup app.py ./
 COPY --chown=appuser:appgroup data_report_api ./data_report_api
 RUN mkdir -p /app/var/risk-uploads /app/var/comprehensive-exports /app/var/data-workbench /app/var/hr-mail /app/var/risk-verification \
+        /app/var/adm/attachments /app/var/adm/imports \
     && chown -R appuser:appgroup /app/var
 
 USER appuser

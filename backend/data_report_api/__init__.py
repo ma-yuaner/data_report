@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from time import perf_counter
+from threading import Lock
+from time import monotonic, perf_counter
 
 from flask import Flask, g, jsonify, request
 from werkzeug.exceptions import RequestEntityTooLarge
@@ -9,7 +10,6 @@ from .auth_routes import auth_api
 from .config import Config
 from .routes import api
 from .services.auth import AuthError, AuthManager, MySqlAuthStore
-from .services.adm.attachments import verify_stored_attachment
 
 
 PUBLIC_AUTH_ENDPOINTS = {"api.health", "auth.login", "auth.status"}
@@ -23,7 +23,11 @@ def build_adm_workflow_user_options(users, employees, binding_resolver, departme
     account with the ADM menu and required permission remains assignable when it
     has no roster binding.
     """
-    purposes = {"handle": "adm.handle", "coordinate": "adm.assign", "owner": "adm.assign"}
+    purposes = {
+        "handle": {"adm.handle"},
+        "leader": {"adm.assign_operator"},
+        "coordinate": {"adm.create", "adm.review"},
+    }
     result = {purpose: [] for purpose in purposes}
     employee_by_id = {int(item["id"]): item for item in employees}
     for user in users:
@@ -46,8 +50,8 @@ def build_adm_workflow_user_options(users, employees, binding_resolver, departme
             "departmentCode": employee.get("departmentCode", "") if employee else "",
             "departmentName": employee.get("departmentName", "") if employee else "",
         }
-        for purpose, permission in purposes.items():
-            if admin or (permission in permissions and (purpose != "owner" or "adm.review" in permissions)):
+        for purpose, required in purposes.items():
+            if admin or required <= permissions or (purpose == "leader" and "adm.assign" in permissions):
                 result[purpose].append(person)
     result["departments"] = departments
     return result
@@ -133,7 +137,6 @@ def required_menu_code(path: str) -> str | None:
 def create_app(config: type[Config] = Config, auth_store=None) -> Flask:
     app = Flask(__name__)
     app.config.from_object(config)
-    app.config["ADM_ATTACHMENT_VERIFIER"] = lambda metadata: verify_stored_attachment(app.config, metadata)
     app.register_blueprint(api, url_prefix="/api")
     app.register_blueprint(auth_api, url_prefix="/api")
 
@@ -149,10 +152,7 @@ def create_app(config: type[Config] = Config, auth_store=None) -> Flask:
         app.config["HR_MAIL_USER_RESOLVER"] = resolve_hr_mail_user
         app.config["MISSED_ORDER_USER_RESOLVER"] = resolve_hr_mail_user
         def resolve_adm_user(user_id):
-            user = manager.store.get_user_by_id(int(user_id))
-            if user and "adm.scope.team" in set(user.get("permissions") or []):
-                user["managed_user_ids"] = manager.store.list_managed_member_ids(int(user_id), "adm")
-            return user
+            return manager.store.get_user_by_id(int(user_id))
 
         app.config["ADM_USER_RESOLVER"] = resolve_adm_user
         def adm_user_options():
@@ -160,37 +160,38 @@ def create_app(config: type[Config] = Config, auth_store=None) -> Flask:
                     for user in manager.store.list_users()
                     if user.get("is_enabled", True) and (user.get("is_admin") or ({"adm.view", "adm.handle"} <= set(user.get("permissions") or []) and "adm.center" in (user.get("menu_codes") or [])))]
         app.config["ADM_USER_OPTIONS"] = adm_user_options
+        adm_options_cache = {"expires_at": 0.0, "value": None}
+        adm_options_lock = Lock()
         def adm_workflow_user_options():
             from .services.target_management import TargetManagementService
 
-            try:
-                employees, departments = TargetManagementService(app.config)._roster_options()
-            except Exception as error:
-                # Account permissions are authoritative for ADM assignment.  A
-                # roster outage may remove optional labels/departments, but must
-                # not make otherwise valid login accounts unassignable.
-                app.logger.warning("ADM roster enrichment unavailable: %s", error)
-                employees, departments = [], []
-            database = str(app.config.get("ERP_ROSTER_DATABASE", "sibedb"))
-            table = str(app.config.get("ERP_ROSTER_TABLE", "system_user"))
-            return build_adm_workflow_user_options(
-                manager.store.list_users(),
-                employees,
-                lambda user_id: manager.store.get_employee_binding(user_id, database, table),
-                departments,
-            )
+            now = monotonic()
+            if adm_options_cache["value"] is not None and now < adm_options_cache["expires_at"]:
+                return adm_options_cache["value"]
+            with adm_options_lock:
+                now = monotonic()
+                if adm_options_cache["value"] is not None and now < adm_options_cache["expires_at"]:
+                    return adm_options_cache["value"]
+                try:
+                    employees, departments = TargetManagementService(app.config)._roster_options()
+                except Exception as error:
+                    # Account permissions are authoritative for ADM assignment.  A
+                    # roster outage may remove optional labels/departments, but must
+                    # not make otherwise valid login accounts unassignable.
+                    app.logger.warning("ADM roster enrichment unavailable: %s", error)
+                    employees, departments = [], []
+                database = str(app.config.get("ERP_ROSTER_DATABASE", "sibedb"))
+                table = str(app.config.get("ERP_ROSTER_TABLE", "system_user"))
+                value = build_adm_workflow_user_options(
+                    manager.store.list_users(),
+                    employees,
+                    lambda user_id: manager.store.get_employee_binding(user_id, database, table),
+                    departments,
+                )
+                ttl = max(0, int(app.config.get("ADM_WORKFLOW_OPTIONS_CACHE_TTL", 300)))
+                adm_options_cache.update(value=value, expires_at=monotonic() + ttl)
+                return value
         app.config["ADM_WORKFLOW_USER_OPTIONS"] = adm_workflow_user_options
-        from .services.adm.reference_data import AdmReferenceData
-        adm_reference_data = AdmReferenceData(app.config)
-        from .services.adm.business_reference import AdmBusinessReference
-        adm_business_reference = AdmBusinessReference(app.config)
-        def adm_reference_options():
-            return {**adm_reference_data.options(), **adm_business_reference.options()}
-        app.config["ADM_REFERENCE_OPTIONS"] = adm_reference_options
-        app.config["ADM_EXCHANGE_RATE_LOOKUP"] = adm_reference_data.rate_snapshot
-        app.config["ADM_DIFFERENCE_MATCH_LOOKUP"] = adm_business_reference.matched_difference_keys
-        from .services.adm.providers import configure_providers
-        configure_providers(app.config, manager)
         if not configured:
             app.logger.warning(
                 "认证表中没有账号；请配置AUTH_BOOTSTRAP_ADMIN_USERNAME和"
@@ -244,9 +245,6 @@ def create_app(config: type[Config] = Config, auth_store=None) -> Flask:
                 "success": False, "message": "当前账号没有该模块的菜单权限",
                 "data": None, "code": "MENU_FORBIDDEN",
             }), 403
-        if request.path.startswith("/api/v1/adm") and "adm.scope.team" in set(user.get("permissions") or []):
-            # Team membership is server-owned, not a front-end person/scope parameter.
-            user["managed_user_ids"] = manager.store.list_managed_member_ids(int(user["id"]), "adm")
         return None
 
     @app.after_request

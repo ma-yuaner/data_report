@@ -1,6 +1,6 @@
 // Idempotency keys are not credentials. Keep them random and stable per draft,
 // including on internal HTTP where randomUUID is unavailable.
-export function createAdmKey(): string {
+export function createOperationIdentifier(): string {
   const source = globalThis.crypto
   if (typeof source?.randomUUID === 'function') return source.randomUUID()
   if (typeof source?.getRandomValues !== 'function') {

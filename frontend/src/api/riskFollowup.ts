@@ -1,8 +1,8 @@
 import { http, type ApiEnvelope } from './http'
-import { createAdmKey } from '@/features/adm/identifier'
+import { createOperationIdentifier } from '@/utils/operationIdentifier'
 
 // Same stable-per-draft, internal-HTTP-safe operation identifier as existing forms.
-export const reviewKey = createAdmKey
+export const reviewKey = createOperationIdentifier
 export const conclusions: Record<string, string> = { no_issue: '核查无问题', problem: '有问题' }
 export const dispositions: Record<string, string> = { pending: '待认定', included: '计入差错', excluded: '不计入差错' }
 export const followStates: Record<string, string> = { todo: '待跟进', following: '跟进中', waiting: '等待反馈', done: '已完成' }

@@ -1,7 +1,7 @@
 """Register domain adapters on one blueprint to preserve endpoint names."""
 from flask import Blueprint
 
-from .api import adm, adm_exchange, adm_files, adm_operations
+from .api import admwf
 from .api import data_workbench
 from .api import hr_mail
 from .api import risk_verification
@@ -15,10 +15,7 @@ missed_orders.register_routes(api)
 placement_import.register_routes(api)
 placement_diagnosis.register_routes(api)
 
-adm.register_routes(api)
-adm_exchange.register_routes(api)
-adm_files.register_routes(api)
-adm_operations.register_routes(api)
+admwf.register_routes(api)
 
 targets.register_routes(api)
 core.register_routes(api)
