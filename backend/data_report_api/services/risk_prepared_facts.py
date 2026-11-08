@@ -87,7 +87,7 @@ def coverage(cursor,first,last):
     rows=_rows(cursor);ready={str(r['issue_date'])[:10] for r in rows};reports=[]
     for row in rows:
         report=json.loads(row['diagnostics_json'])
-        reports.append({key:report.get(key) for key in ('day','orders','statuses','insufficientCauses','seconds')})
+        reports.append({key:report.get(key) for key in ('day','orders','statuses','insufficientCauses','seconds','summaryVersion','categoryStatuses')})
     from datetime import timedelta
     days=[(first+timedelta(days=n)).isoformat() for n in range((last-first).days+1)]
     return {'readyDays':sorted(ready),'missingDays':[d for d in days if d not in ready],'reports':sorted(reports,key=lambda r:r['day']),

@@ -29,6 +29,26 @@ def _metrics(total=0):
     return {"total": total, **{status: 0 for status in STATES}}
 
 
+def published_category_counts(preparation, categories, first, last):
+    """Single-day atomic ETL projection; old/multi-day results retain the existing reader."""
+    reports=preparation.get('reports',[])
+    if first!=last or len(reports)!=1 or str(reports[0].get('day'))!=first.isoformat():return None
+    report=reports[0]
+    if report.get('summaryVersion')!=1:return None
+    counts=report.get('categoryStatuses');allowed={'supported','problem','insufficient','failed'}
+    if not isinstance(counts,dict):raise EvidenceError('清洗分类汇总内容无效，请重新清洗',503)
+    expected={key:row['total'] for key,row in categories.items() if key in SUPPORTED_REASONS and row['total']}
+    if set(counts)!=set(expected):raise EvidenceError('清洗分类汇总与目录数量不一致，请重新清洗',503)
+    totals={key:0 for key in allowed}
+    for reason,values in counts.items():
+        if not isinstance(values,dict) or set(values)-allowed or any(type(v) is not int or v<0 for v in values.values()) or sum(values.values())!=expected[reason]:
+            raise EvidenceError('清洗分类汇总与目录数量不一致，请重新清洗',503)
+        for key,value in values.items():totals[key]+=value
+    if sum(totals.values())!=report.get('orders') or any(totals[key]!=report.get('statuses',{}).get(key,0) for key in allowed):
+        raise EvidenceError('清洗分类汇总与日汇总不一致，请重新清洗',503)
+    return counts
+
+
 class RiskVerificationOverview:
     def __init__(self, config, source=None):
         self.config = config
@@ -74,7 +94,13 @@ class RiskVerificationOverview:
                     "reasonLabel": labels.get(reason) or f"{reason}（字典名称缺失）",
                     "ruleStatus": ("正常业务逐票出票利润对照出票时通用配置止损值，不加佣金；自动通过即闭环，可人工抽查" if reason in NORMAL_REASONS else "逐票原始出票利润对照出票时单票止损值，不加佣金或预期收益" if reason in BET_REASONS else "儿童/婴儿前提＋综合平均单票出票利润对照当前单止损配置（不加佣金）" if reason=="RLA040" else "去哪儿出票利润加回销售佣金，对照出票时配置止损值") if known else "规则未接入，不自动放行",
                     **_metrics(total), "unchecked": total if known else 0, "rule_pending": 0 if known else total}
-            statuses = self._statuses(cursor, owner, scope, values)
+            samples = RiskAutoVerification(self.config).sampling(owner)
+            compact = published_category_counts(freshness['preparation'],categories,first,last) if not samples else None
+            statuses = {} if compact is not None else self._statuses(cursor, owner, scope, values)
+            if compact is not None:
+                for reason,counts in compact.items():
+                    categories[reason]['unchecked']=0
+                    for key,value in counts.items():categories[reason][key]=value
             for item in statuses.values():
                 if item["status"] != "unchecked":
                     initial = "unchecked" if item["reasonCode"] in SUPPORTED_REASONS else "rule_pending"
@@ -87,7 +113,6 @@ class RiskVerificationOverview:
             for item in categories.values():
                 for key in metrics:
                     metrics[key] += item[key]
-            samples = RiskAutoVerification(self.config).sampling(owner)
             sampled = [samples[item["resultId"]] for item in statuses.values() if item["status"] != "outdated" and item["resultId"] in samples]
             return {"period": {"startDate": first.isoformat(), "endDate": last.isoformat()}, "sampling": {"sampled": len(sampled), "disputed": sampled.count("disputed")},
                     "dateBasis": "issue_ticket_time", "metrics": metrics,

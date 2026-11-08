@@ -139,11 +139,35 @@ class RiskFollowup:
     def summaries(self, items):
         if not isinstance(items, list) or len(items) > 100 or any(not isinstance(item, dict) for item in items):
             raise FlowError('最多读取100笔订单人工状态')
+        if not items:
+            return []
+        from .risk_prepared_facts import STATUS_PROJECTION, JOINS, fact
+        keys = [(str(order_id(item.get('orderId'))), day(item.get('issueDate'))) for item in items]
+        unique = list(dict.fromkeys(keys))
+        scope = ' OR '.join('(o.order_id=? AND o.issue_date=?)' for _ in unique)
+        parameters = tuple(value for key in unique for value in key)
         result = []
         with self.store.db() as db:
-            for item in items:
-                current = self._snapshot(db, item.get('orderId'), item.get('issueDate'))
-                review = self._review(db, current['orderId'], current['issueDate'])
+            rows = db.execute('SELECT '+STATUS_PROJECTION+',r.body AS review_body'+JOINS+
+                              ' LEFT JOIN bi_risk_order_reviews r ON r.order_id=o.order_id AND r.issue_date=o.issue_date WHERE '+scope,
+                              parameters).fetchall()
+            indexed = {(str(row['order_id']), str(row['issue_date'])[:10]): row for row in rows}
+            digest = engine_hash()
+            for identifier, issue_date in keys:
+                row = indexed.get((identifier, issue_date))
+                if row is None:
+                    raise FlowError('订单不在该出票日已同步目录中', 409)
+                body = fact(row, digest)
+                if body:
+                    current = {'orderId': identifier, 'issueDate': issue_date, 'resultId': body['id'], 'systemStatus': body['status'],
+                               'snapshotKind': 'prepared', 'evidenceHash': body['evidenceHash'], 'ruleVersion': body['ruleVersion'], 'engineHash': body['engineHash']}
+                else:
+                    original = {'order_id': row['order_id'], 'profit_reason_type': row['profit_reason_type'],
+                                'update_time': row['update_time'], 'etl_run_id': row['catalog_run_id']}
+                    current = {'orderId': identifier, 'issueDate': issue_date,
+                               'resultId': 'catalog-' + hashlib.sha256(encoded(original).encode()).hexdigest()[:32],
+                               'systemStatus': 'unchecked', 'snapshotKind': 'catalog', 'catalogRunId': row['catalog_run_id']}
+                review = json.loads(row['review_body']) if row.get('review_body') else None
                 result.append({**current, 'review': review, 'stale': bool(review and review['resultId'] != current['resultId']), 'version': review['version'] if review else 0})
         return result
 
