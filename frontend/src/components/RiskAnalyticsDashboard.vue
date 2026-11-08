@@ -1,8 +1,8 @@
 <template>
  <div class="analytics">
-  <FilterPanel :instant="false" :show-reset="false" :loading="loading" hint="每15分钟生成分析快照；查询只读汇总，尚未生成时排队处理；单次最多31天。"><template #period><DateRangeField v-model:start="start" v-model:end="end" /></template><template #actions><a-button type="primary" :loading="loading" @click="load">查询分析</a-button></template></FilterPanel>
+  <FilterPanel :instant="false" :show-reset="false" :loading="loading" hint="每小时刷新当天分析；查询只读汇总，历史范围需单独加工，单次最多31天。"><template #period><DateRangeField v-model:start="start" v-model:end="end" /></template><template #actions><a-button type="primary" :loading="loading" @click="load">查询分析</a-button></template></FilterPanel>
   <a-alert v-if="error" type="error" show-icon :message="error" /><a-alert v-if="data && !data.dataFreshness.complete" type="warning" show-icon message="所选期间部分日期未同步，当前分析仅含已发布数据" />
-  <a-alert v-if="pendingMessage" type="info" show-icon :message="pendingMessage" description="尚未生成的分析等待15分钟调度；若目录未同步，须先完成对应日期清洗。页面会自动检查结果，不实时逐单计算。" />
+  <a-alert v-if="pendingMessage" type="info" show-icon :message="pendingMessage" description="当天分析等待小时任务刷新；历史范围需单独加工。若目录未同步，须先完成对应日期清洗。页面只检查结果，不实时逐单计算。" />
   <a-alert v-if="data?.lastErrorCode" type="warning" show-icon message="本次刷新未确认成功，展示最近可读取的成功快照" :description="data.lastErrorCode" />
   <a-alert v-else-if="snapshotLate" type="warning" show-icon message="分析快照最近30分钟尚未核对，请检查调度运行状态" />
   <p v-if="data" class="muted">已查询：{{ data.period.startDate }} 至 {{ data.period.endDate }}（出票日期）<br />分析源快照：{{ formatDateTimeDisplay(data.sourceCutoff) }}；最近核对：{{ formatDateTimeDisplay(data.checkedAt) }}；目录最近同步：{{ formatDateTimeDisplay(data.dataFreshness.newestSyncedAt) }}。{{ data.refreshPending ? '已请求刷新，先展示上次成功结果。' : '人工认定将在下一次成功刷新后反映。' }}</p>
@@ -26,7 +26,7 @@ import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
 interface Group {key:string;label:string;orders:number;problemOrders:number;includedErrors:number;profitMissing:number;totalProfit:string|null;lossProfit:string|null}
 interface Analytics {status:'ready';sourceCutoff:string;generatedAt:string;checkedAt:string;refreshPending:boolean;lastErrorCode:string|null;period:{startDate:string;endDate:string};metrics:{orders:number;autoPassed:number;autoConcluded:number;humanReviewed:number;humanProblems:number;includedErrors:number;profitMissing:number};categories:Group[];departments:Group[];notes:string[];dataFreshness:RiskCatalogFreshness}
 const today=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai'}).format(new Date())
-const start=ref(dayjs(today).subtract(6,'day').format('YYYY-MM-DD')),end=ref(today),loading=ref(false),error=ref(''),data=ref<Analytics>(),pendingMessage=ref('')
+const start=ref(today),end=ref(today),loading=ref(false),error=ref(''),data=ref<Analytics>(),pendingMessage=ref('')
 interface PendingSnapshot {status:'pending';message:string;lastErrorCode?:string|null}
 let epoch=0,alive=true,timer:ReturnType<typeof setTimeout>|undefined
 let applied={startDate:start.value,endDate:end.value}

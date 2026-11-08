@@ -18,7 +18,7 @@ from .risk_query_contract import period as _period, METRIC_JOIN, METRIC_FIELDS
 MANIFEST = 'bi_risk_analytics_snapshot'
 BUCKET = 'bi_risk_analytics_bucket'
 VERSION = 'risk-analytics-v4'
-INTERVAL_MINUTES = 15
+INTERVAL_MINUTES = 60
 COUNTERS = ('orders','auto_passed','auto_concluded','human_reviewed','human_problems','included_errors','profit_missing')
 LOCK = 'risk-analytics-snapshot-v4'
 
@@ -61,7 +61,7 @@ def current_rules(raw):
 
 
 def request_snapshot(config, start, end, store=None, force=False):
-    _, last = _period(start, end)
+    first, last = _period(start, end)
     if last < date.min + timedelta(days=30):raise EvidenceError('分析结束日期过早')
     store = store or RiskAutoStore(config)
     at = now()
@@ -69,7 +69,10 @@ def request_snapshot(config, start, end, store=None, force=False):
         previous = db.execute('SELECT snapshot_id,schema_version,checked_at,last_error_code,body FROM '+MANIFEST+' WHERE end_date=?',(last.isoformat(),)).fetchone()
         if previous and previous.get('checked_at') and not force:
             checked = datetime.fromisoformat(str(previous['checked_at']))
-            if previous['snapshot_id'] and previous['schema_version'] == VERSION and current_rules(previous.get('body')) and not previous['last_error_code'] and checked >= at - timedelta(minutes=INTERVAL_MINUTES):
+            try:previous_meta=json.loads(previous.get('body') or '{}')
+            except (ValueError,TypeError):previous_meta={}
+            covers_requested=isinstance(previous_meta,dict) and previous_meta.get('windowStart','9999-12-31')<=first.isoformat() and previous_meta.get('windowEnd','')>=last.isoformat()
+            if covers_requested and previous['snapshot_id'] and previous['schema_version'] == VERSION and current_rules(previous.get('body')) and not previous['last_error_code'] and checked >= at - timedelta(minutes=INTERVAL_MINUTES):
                 return {'status':'ready','endDate':last.isoformat(),'refreshMinutes':INTERVAL_MINUTES}
         db.execute('INSERT INTO '+MANIFEST+' (end_date,schema_version,requested_at,request_generation,processed_generation,retry_after) VALUES(?,?,?,1,0,?) ON DUPLICATE KEY UPDATE requested_at=VALUES(requested_at),request_generation=request_generation+1',
                    (last.isoformat(), VERSION, at, at))
@@ -117,6 +120,13 @@ def read_snapshot(config, start, end, store=None):
             return {'status':'pending','period':{'startDate':start,'endDate':end},'refreshMinutes':INTERVAL_MINUTES,
                     'lastErrorCode':row.get('last_error_code') if row else None,
                     'message':'所选结束日期的分析快照尚未生成，请等待定时分析任务；不会按实时逐单计算回退'}
+        meta = json.loads(row['body'])
+        if not isinstance(meta,dict) or meta.get('version') != VERSION:
+            raise EvidenceError('分析快照内容无效，请联系管理员检查定时任务',503)
+        if meta.get('windowStart','9999-12-31')>first.isoformat() or meta.get('windowEnd','')<last.isoformat():
+            return {'status':'pending','period':{'startDate':start,'endDate':end},'refreshMinutes':INTERVAL_MINUTES,
+                    'lastErrorCode':'ANALYTICS_RANGE_NOT_PREPARED',
+                    'message':'小时任务仅加工当天数据；所选历史范围需显式运行对应日期范围的分析加工'}
         fields = ','.join('SUM('+key+') AS '+key for key in (*COUNTERS,'known_profit','known_loss'))
         rows = db.execute('SELECT dimension,group_key,group_label,'+fields+' FROM '+BUCKET+' WHERE end_date=? AND snapshot_id=? AND issue_date>=? AND issue_date<=? GROUP BY dimension,group_key,group_label',
                           (last.isoformat(),row['snapshot_id'],first.isoformat(),last.isoformat())).fetchall()
@@ -136,7 +146,7 @@ def read_snapshot(config, start, end, store=None):
             'sourceCutoff':str(row['source_cutoff']),'checkedAt':str(row['checked_at']),
             'refreshPending':row['request_generation']>row['processed_generation'],
             'lastErrorCode':row['last_error_code'],'refreshMinutes':INTERVAL_MINUTES,
-            'notes':['读取每15分钟调度发布的分析快照，人工认定在下一次成功刷新后体现；实时案例跟进不受影响。',
+            'notes':['读取小时调度发布的分析快照，人工认定在下一次成功刷新后体现；实时案例跟进不受影响。',
                      '按查询结束日预先选择每单最后出票日，再按起日汇总，跨日订单不重复相加。',
                      '自动形成结论占比=(自动通过+疑似问题)/目录订单数；任一利润缺失则该分类利润合计为空。',
                      '业务部门归属不代表责任认定；一单多部门分别展示，部门行不可相加为去重总量。']}
@@ -260,8 +270,9 @@ def reusable_days(existing,meta):
     return {key for key,value in meta['daySignatures'].items() if old.get('daySignatures',{}).get(key)==value and key in old.get('dayOrderCounts',{}) and key in old.get('dayBucketCounts',{})}
 
 
-def build_snapshot(store,end,existing=None,batch_size=250,max_buckets=50000):
-    first=end-timedelta(days=30);cutoff=now();digest=engine_hash()
+def build_snapshot(store,end,existing=None,batch_size=250,max_buckets=50000,window_days=31):
+    if not 1<=window_days<=31:raise AnalyticsError('ANALYTICS_WINDOW_INVALID')
+    first=end-timedelta(days=window_days-1);cutoff=now();digest=engine_hash()
     with store.db(consistent_snapshot=True) as db:
         metadata_started=time.monotonic()
         meta,labels,signature=source_metadata(db,first,end,digest)
@@ -352,7 +363,7 @@ def publish(store,end,generation,builder,meta,signature,cutoff):
     return {'endDate':end.isoformat(),'status':'published' if builder is not None else 'unchanged','orders':builder.orders if builder is not None else None}
 
 
-def run(config,end=None,max_end_days=32,batch_size=250,max_buckets=50000,store=None):
+def run(config,end=None,max_end_days=32,batch_size=250,max_buckets=50000,store=None,window_days=31,single_end=False):
     store=store or RiskAutoStore(config);today=end or now().date();results=[];errors=[];already_running=False
     try:
         with store.db() as lock_db:
@@ -361,15 +372,22 @@ def run(config,end=None,max_end_days=32,batch_size=250,max_buckets=50000,store=N
                 already_running=True
             else:
                 try:
-                    request_snapshot(config,(today-timedelta(days=30)).isoformat(),today.isoformat(),store,force=True)
+                    request_snapshot(config,(today-timedelta(days=window_days-1)).isoformat(),today.isoformat(),store,force=True)
                     at=now();due=at-timedelta(minutes=INTERVAL_MINUTES)
-                    candidates=lock_db.execute('SELECT * FROM '+MANIFEST+' WHERE retry_after<=? AND (request_generation>processed_generation OR checked_at IS NULL OR checked_at<=? OR schema_version<>?) ORDER BY CASE WHEN end_date=? THEN 0 WHEN request_generation>processed_generation THEN 1 ELSE 2 END,requested_at DESC,checked_at ASC LIMIT ?',
-                                               (at,due,VERSION,today.isoformat(),max_end_days)).fetchall()
+                    restrict_end=single_end or window_days==1
+                    end_filter=' AND end_date=?' if restrict_end else ''
+                    parameters=[at,due,VERSION]
+                    if restrict_end:parameters.append(today.isoformat())
+                    candidates=lock_db.execute('SELECT * FROM '+MANIFEST+' WHERE retry_after<=? AND (request_generation>processed_generation OR checked_at IS NULL OR checked_at<=? OR schema_version<>?)'+end_filter+' ORDER BY CASE WHEN end_date=? THEN 0 WHEN request_generation>processed_generation THEN 1 ELSE 2 END,requested_at DESC,checked_at ASC LIMIT ?',
+                                               (*parameters,today.isoformat(),max_end_days)).fetchall()
                     for candidate in candidates:
                         target=date.fromisoformat(day(candidate['end_date']))
                         phase='source'
                         try:
-                            builder,meta,signature,cutoff=build_snapshot(store,target,candidate,batch_size,max_buckets)
+                            if window_days==31:
+                                builder,meta,signature,cutoff=build_snapshot(store,target,candidate,batch_size,max_buckets)
+                            else:
+                                builder,meta,signature,cutoff=build_snapshot(store,target,candidate,batch_size,max_buckets,window_days=window_days)
                             phase='publish'
                             results.append(publish(store,target,candidate['request_generation'],builder,meta,signature,cutoff))
                         except Exception as error:
@@ -412,16 +430,19 @@ def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     modes=parser.add_mutually_exclusive_group();modes.add_argument('--preview',action='store_true');modes.add_argument('--check-schema',action='store_true')
     parser.add_argument('--end-date',type=date.fromisoformat)
-    parser.add_argument('--max-end-days',type=int,default=32);parser.add_argument('--batch-size',type=int,default=250);parser.add_argument('--max-buckets',type=int,default=50000)
+    parser.add_argument('--max-end-days',type=int,default=1);parser.add_argument('--batch-size',type=int,default=250);parser.add_argument('--max-buckets',type=int,default=50000)
+    parser.add_argument('--window-days',type=int,default=1)
     args=parser.parse_args(argv)
     if not 1<=args.max_end_days<=128 or not 1<=args.batch_size<=5000 or not 1<=args.max_buckets<=1000000:parser.error('invalid bounded workload')
+    if not 1<=args.window_days<=31:parser.error('window-days must be 1 to 31')
     if args.preview:
-        print(encoded({'status':'offline_preview','refreshMinutes':INTERVAL_MINUTES,'tables':[MANIFEST,BUCKET],'source':'sibebid_only','sourceQueriesExecuted':False}));return 0
+        end=args.end_date or now().date()
+        print(encoded({'status':'offline_preview','refreshMinutes':INTERVAL_MINUTES,'startDate':(end-timedelta(days=args.window_days-1)).isoformat(),'endDate':end.isoformat(),'windowDays':args.window_days,'maxEndDays':args.max_end_days,'tables':[MANIFEST,BUCKET],'source':'sibebid_only','sourceQueriesExecuted':False}));return 0
     try:
         from ..config import Config
         config={key:getattr(Config,key) for key in dir(Config) if key.isupper()}
         store=RiskAutoStore(config);check_schema(store)
-        result={'status':'schema_ready'} if args.check_schema else run(config,args.end_date,args.max_end_days,args.batch_size,args.max_buckets,store)
+        result={'status':'schema_ready'} if args.check_schema else run(config,args.end_date or now().date(),args.max_end_days,args.batch_size,args.max_buckets,store,window_days=args.window_days,single_end=True)
     except Exception as error:result={'status':'failed','errorCode':safe_error(error),'days':[]}
     print(encoded(result));return 1 if result['status'] in ('failed','partial_failure') else 0
 
