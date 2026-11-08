@@ -6,8 +6,7 @@ from flask import request
 from ..services.adm.operations import OperationsService, unavailable
 from ..services.adm.reports import ReportService
 from ..services.adm.store import Conflict, StoreUnavailable
-from .adm import adm_response
-from .common import json_body
+from .common import adm_response, json_body
 
 
 def operational(function):

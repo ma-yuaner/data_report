@@ -95,7 +95,7 @@ onMounted(() => {
       import('@/views/OverviewView.vue'),
       import('@/views/ComprehensiveAnalysisLiveView.vue'),
       import('@/views/RiskMonthlyAnalysisView.vue'),
-      import('@/views/ResourceGovernanceView.vue'),
+      import('@/features/resource-governance/ResourceGovernancePage.vue'),
     ])
   }, 800)
 })

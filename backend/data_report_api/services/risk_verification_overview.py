@@ -7,13 +7,10 @@ from .risk_verification_catalog import RiskVerificationCatalog
 from .risk_verification_flow import FlowError
 from .risk_auto_verification import RiskAutoVerification
 from .risk_child_loss import BET_REASONS, NORMAL_REASONS, SUPPORTED_REASONS
+from .risk_query_contract import METRIC_JOIN, METRIC_FIELDS, METRIC_PROFIT, period as _period, positive_integer as _integer
 
 LOGGER = logging.getLogger(__name__)
 STATES = ("problem", "supported", "insufficient", "reviewing", "unchecked", "failed", "rule_pending", "outdated")
-METRIC_JOIN = """ LEFT JOIN bi_risk_order_metric_day m ON m.issue_date=o.issue_date AND m.order_id=o.order_id AND m.catalog_run_id=o.etl_run_id
- LEFT JOIN bi_risk_order_metric_day_ready mr ON mr.issue_date=o.issue_date AND mr.catalog_run_id=o.etl_run_id"""
-METRIC_PROFIT = 'CASE WHEN mr.issue_date IS NOT NULL THEN m.total_profit ELSE NULL END'
-METRIC_FIELDS = f",{METRIC_PROFIT} AS total_profit,CASE WHEN mr.issue_date IS NOT NULL THEN m.segment_count ELSE NULL END AS segment_count,CASE WHEN mr.issue_date IS NOT NULL THEN m.body ELSE NULL END AS metric_body"
 FIELDS = "o.order_id AS id,o.order_no,o.ota_order_no,o.ota_code,o.profit_reason_type,o.create_time,o.update_time,o.etl_run_id AS catalog_run_id,o.issue_date"
 NOTES = [
     "读取中台ETL目录，不实时扫描ERP；按出票日期限定，跨日或多票均按内部订单ID去重。",
@@ -22,25 +19,6 @@ NOTES = [
     "清洗读取出票及适用证据，页面不查ERP；相同证据重复清洗保留核实关联，规则或证据改变后旧结论只作历史参考。",
     "未核查、核查中和证据不足不等于没有问题；尚无自动核查结论。",
 ]
-
-
-def _period(start, end):
-    try:
-        first, last = date.fromisoformat(start), date.fromisoformat(end)
-    except (TypeError, ValueError):
-        raise EvidenceError("请提供YYYY-MM-DD格式的起止日期") from None
-    if first > last or (last - first).days > 30 or last == date.max:
-        raise EvidenceError("按出票日期查询，范围须为1至31天")
-    return first, last
-
-
-def _integer(value, name, maximum):
-    if isinstance(value, bool) or not isinstance(value, (str, int)) or not str(value).isdigit():
-        raise EvidenceError(f"{name}必须为正整数")
-    value = int(value)
-    if not 1 <= value <= maximum:
-        raise EvidenceError(f"{name}超出允许范围")
-    return value
 
 
 def _stamp(value):

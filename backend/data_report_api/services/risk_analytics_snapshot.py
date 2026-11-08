@@ -13,7 +13,7 @@ from .risk_auto_store import RiskAutoStore, StoreUnavailable, StoreCommittedClea
 from .risk_order_evidence import EvidenceError
 from .risk_prepared_facts import STATUS_PROJECTION, JOINS, fact, engine_hash
 from .risk_commission_rule import RULE_ID
-from .risk_verification_overview import _period, METRIC_JOIN, METRIC_FIELDS
+from .risk_query_contract import period as _period, METRIC_JOIN, METRIC_FIELDS
 
 MANIFEST = 'bi_risk_analytics_snapshot'
 BUCKET = 'bi_risk_analytics_bucket'

@@ -289,7 +289,7 @@ class RiskAutoVerification:
         return body
 
     def submit(self, owner, start, end, reason=None, force=False):
-        from .risk_verification_overview import _period
+        from .risk_query_contract import period as _period
         _period(start, end)
         if reason is not None and (not isinstance(reason, str) or not reason or len(reason) > 120):
             raise FlowError("盈亏原因参数无效")

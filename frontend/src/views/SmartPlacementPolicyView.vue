@@ -469,13 +469,14 @@ import PlacementLocationSelect from '@/components/PlacementLocationSelect.vue'
 import { placementLocationName, placementRouteName } from '@/utils/placementLocation'
 import PlacedPolicyChangeDialog from '@/components/PlacedPolicyChangeDialog.vue'
 import { useAuthStore } from '@/stores/auth'
+import { usePlacementDimensions } from '@/composables/usePlacementDimensions'
 import OpportunityImportDialog from '@/components/OpportunityImportDialog.vue'
 import PlacementRouteDiagnosis from '@/components/PlacementRouteDiagnosis.vue'
 import {
   batchReviewPlacementTasks, cancelPlacementTask, claimPlacementTask, createPlacementEffectReview, createPlacementTask, deletePlacementTask, executePlacementTask, fetchPlacementTask, fetchPlacementTaskMonitoring,
   fetchPlacementDimensions, fetchPlacementTasks, reviewPlacementTask, updatePlacementTask,
   stopPlacementMonitoring, withdrawPlacementTask,
-  type PlacementDimensionOption, type PlacementDimensionOptions, type PlacementPriority,
+  type PlacementDimensionOptions, type PlacementPriority,
   type PlacementTaskDetail, type PlacementTaskInput, type PlacementTaskList, type PlacementTaskMonitoring,
   type PlacementTaskRow, type PlacementTaskStatus,
 } from '@/api/smartPlacement'
@@ -663,32 +664,22 @@ function blankTask(): PlacementTaskInput {
 const taskForm = ref<PlacementTaskInput>(blankTask())
 
 type SelectOption = { value: string; label: string }
-function selectOptions(items: PlacementDimensionOption[] | undefined, selected?: string): SelectOption[] {
-  const values = new Map<string, string>()
-  for (const item of items || []) if (item.value) values.set(item.value, item.label || item.value)
-  if (selected && !values.has(selected)) values.set(selected, selected)
-  return Array.from(values, ([value, label]) => ({ value, label }))
-}
-const platformSelectOptions = computed(() => selectOptions(dimensions.value?.platforms, taskForm.value.platformName))
-const siteSelectOptions = computed(() => selectOptions(
-  dimensions.value?.sites.filter(item => !taskForm.value.platformName || item.platformName === taskForm.value.platformName),
-  taskForm.value.siteName,
-))
-const productSelectOptions = computed(() => selectOptions(
-  dimensions.value?.products.filter(item => !taskForm.value.platformName || item.platformName === taskForm.value.platformName),
-  taskForm.value.productType,
-))
-const airlineSelectOptions = computed(() => selectOptions(dimensions.value?.airlines, taskForm.value.airlineCode))
-const executionPlatformOptions = computed(() => selectOptions(dimensions.value?.platforms, String(executionForm.value.platformName || '')))
-const executionSiteOptions = computed(() => selectOptions(
-  dimensions.value?.sites.filter(item => !executionForm.value.platformName || item.platformName === executionForm.value.platformName),
-  String(executionForm.value.siteName || ''),
-))
-const executionProductOptions = computed(() => selectOptions(
-  dimensions.value?.products.filter(item => !executionForm.value.platformName || item.platformName === executionForm.value.platformName),
-  String(executionForm.value.productType || ''),
-))
-const executionAirlineOptions = computed(() => selectOptions(dimensions.value?.airlines, String(executionForm.value.airlineCode || '')))
+const {
+  platformOptions: platformSelectOptions,
+  siteOptions: siteSelectOptions,
+  productOptions: productSelectOptions,
+  airlineOptions: airlineSelectOptions,
+  selectPlatform,
+  selectSite,
+} = usePlacementDimensions(dimensions, taskForm)
+const {
+  platformOptions: executionPlatformOptions,
+  siteOptions: executionSiteOptions,
+  productOptions: executionProductOptions,
+  airlineOptions: executionAirlineOptions,
+  selectPlatform: selectExecutionPlatform,
+  selectSite: selectExecutionSite,
+} = usePlacementDimensions(dimensions, executionForm)
 
 async function loadDimensions() {
   if (dimensions.value || dimensionsLoading.value) return
@@ -698,29 +689,6 @@ async function loadDimensions() {
   catch (failure) { dimensionsError.value = failure instanceof Error ? failure.message : '业务维度加载失败' }
   finally { dimensionsLoading.value = false }
 }
-function selectPlatform(value?: string) {
-  const platform = dimensions.value?.platforms.find(item => item.value === value)
-  taskForm.value.platformCode = platform?.code || ''
-  if (!value) { taskForm.value.siteName = ''; taskForm.value.siteCode = ''; taskForm.value.productType = ''; return }
-  if (!dimensions.value?.sites.some(item => item.value === taskForm.value.siteName && item.platformName === value)) { taskForm.value.siteName = ''; taskForm.value.siteCode = '' }
-  if (!dimensions.value?.products.some(item => item.value === taskForm.value.productType && item.platformName === value)) taskForm.value.productType = ''
-}
-function selectSite(value?: string) {
-  const site = dimensions.value?.sites.find(item => item.value === value && (!taskForm.value.platformName || item.platformName === taskForm.value.platformName))
-  taskForm.value.siteCode = site?.code || ''
-}
-function selectExecutionPlatform(value?: string) {
-  const platform = dimensions.value?.platforms.find(item => item.value === value)
-  executionForm.value.platformCode = platform?.code || ''
-  if (!value) { executionForm.value.siteName = ''; executionForm.value.siteCode = ''; executionForm.value.productType = ''; return }
-  if (!dimensions.value?.sites.some(item => item.value === executionForm.value.siteName && item.platformName === value)) { executionForm.value.siteName = ''; executionForm.value.siteCode = '' }
-  if (!dimensions.value?.products.some(item => item.value === executionForm.value.productType && item.platformName === value)) executionForm.value.productType = ''
-}
-function selectExecutionSite(value?: string) {
-  const site = dimensions.value?.sites.find(item => item.value === value && (!executionForm.value.platformName || item.platformName === executionForm.value.platformName))
-  executionForm.value.siteCode = site?.code || ''
-}
-
 function optionalNumber(value: unknown) {
   return value === null || value === undefined || value === '' ? undefined : Number(value)
 }

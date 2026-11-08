@@ -26,10 +26,12 @@ def outputs(target_repo):
     facts += select(SERVICES/'risk_prepared_facts.py', {'PROJECTION','JOINS','STATUS_PROJECTION','stamp','fact'})
     facts += '\ndef engine_hash():\n    return json.loads((Path(__file__).parent.parent/"risk_cleaning_runtime/manifest.json").read_text(encoding="utf-8"))["sha256"]\n'
     contract = 'from datetime import date\nfrom risk_cleaning_runtime.risk_order_evidence import EvidenceError\n'
-    contract += select(SERVICES/'risk_verification_overview.py', {'_period','METRIC_JOIN','METRIC_PROFIT','METRIC_FIELDS'})
+    contract += select(SERVICES/'risk_query_contract.py', {'period','METRIC_JOIN','METRIC_PROFIT','METRIC_FIELDS'}).replace('def period(', 'def _period(')
     snapshot = (SERVICES/'risk_analytics_snapshot.py').read_text(encoding='utf-8')
-    for before, after in [('.risk_auto_store','.store'),('.risk_order_evidence','risk_cleaning_runtime.risk_order_evidence'),('.risk_prepared_facts','.facts'),('.risk_commission_rule','risk_cleaning_runtime.risk_commission_rule'),('.risk_verification_overview','.contract')]:
+    for before, after in [('.risk_auto_store','.store'),('.risk_order_evidence','risk_cleaning_runtime.risk_order_evidence'),('.risk_prepared_facts','.facts'),('.risk_commission_rule','risk_cleaning_runtime.risk_commission_rule'),('.risk_query_contract','.contract')]:
         snapshot = snapshot.replace('from '+before+' import', 'from '+after+' import')
+    # Preserve the standalone runtime's existing private date-validator name.
+    snapshot = snapshot.replace('from .contract import period as _period', 'from .contract import _period')
     snapshot = snapshot.replace('        from ..config import Config\n        config={key:getattr(Config,key) for key in dir(Config) if key.isupper()}','        config={}')
     store = (SERVICES/'risk_auto_store.py').read_text(encoding='utf-8')
     store = store.replace('from .data_source import DataSource', 'from .connection import DataSource')

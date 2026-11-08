@@ -1,25 +1,9 @@
 """ADM HTTP adapter; rules live in the public application service."""
 
-from functools import wraps
+from flask import Blueprint, request
 
-from flask import Blueprint, current_app, g, jsonify, request
-
-from ..services.adm import AdmError, AdmService
 from ..services.adm.workflow import WorkflowService
-from .common import json_body, ok
-
-
-def adm_response(function):
-    @wraps(function)
-    def wrapped(*args, **kwargs):
-        try:
-            return ok(function(AdmService(current_app.config), g.current_user, *args, **kwargs))
-        except AdmError as error:
-            return jsonify({"success": False, "message": error.message, "code": error.code, "data": None}), error.status
-        except ValueError as error:
-            return jsonify({"success": False, "message": str(error), "code": "ADM_INVALID", "data": None}), 400
-
-    return wrapped
+from .common import adm_response, json_body
 
 
 def register_routes(api: Blueprint) -> None:

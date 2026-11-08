@@ -6,7 +6,7 @@ import re
 
 from .policy import AdmError, identity, now, require
 from .store import Conflict, StoreUnavailable
-from .workflow import WorkflowService
+from .workflow import WorkflowService, valid_notice
 
 DEFAULTS = dict(notificationsEnabled=False, endpointIds=[], leadMinutes=None, repeatMinutes=None,
                 escalationMinutes=None, snapshotsEnabled=False, snapshotAt="", rankingEnabled=False,
@@ -167,8 +167,7 @@ class OperationsService:
                 items = self.tasks(actor)
             else:
                 items = WorkflowService(self.service).overview(user, {"scope": "mine"}, unpaginated=True)["items"]
-            from .notifications import NotificationWorker
-            return NotificationWorker(self.service)._valid(user, record, {item["id"]: item for item in items})
+            return valid_notice(self.service, user, record, {item["id"]: item for item in items})
         except AdmError:
             return False
         return False
