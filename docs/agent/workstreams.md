@@ -1162,6 +1162,8 @@ V4交付回执：功能提交13098d0已推送GitLab/GitHub main，并ls-remote�
 
 ## 小时分析仅当天（2026-11-08）
 
+20:10回执：lifecycle_prepare/BatchEvidence源2013，未到指标阶段，不能归因于重建sibebid核对表。外部只读受限250单两次成功，关联订单读取约5.1秒，EXPLAIN平台/站点ref却估计180万行；源order_info估计740万行且缺关联OTA单号索引。ETL补固定query-family诊断及已关闭连接重复invalidate保护，规则runtime/SHA不变，23项相关检查通过。ERP索引方案已提供，须ERP DBA评审，未执行源DDL/目标写入，不能称原断连解决。详见ETL docs/business/air_ticketing/risk-evidence-interruption-20261108.md，SQL资产047/048及源码049。
+
 16:10运行回执：当天范围已生效、目录1887行发布，因METRIC_DEPARTMENT_ORDER_INDEX_MISSING部分失败。真实只读确认目标5.7.44核对表缺order_no索引，已交幂等检测的在线新增索引SQL及中文字段/迁移说明，未生产DDL。见[指标索引修复](../development/risk-order-metrics-department-index-20261108.md)，执行后需指标与分析再次验收，不能把partial_failure说当天目录回滚。
 
 首屏读取性能接续：真实只读测量汇总状态JSON查询14.07秒，20单人工状态41次查询。已加ETL同批分类计数和API单日轻量读取、人工状态一次批量关联；39项定向/既有快照权限/发布回归通过。真实人工状态结果hash等价，汇总0.048秒为真实数据的进程内投影回放，不是新版生产或浏览器效果。见[读取性能修复](../development/risk-verification-read-performance-20261108.md)；旧报告/多日/个人抽样保留原路径，部署后需原ETL成功发布一轮，无新DDL/调度。
