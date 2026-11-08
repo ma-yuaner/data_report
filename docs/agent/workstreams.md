@@ -1110,3 +1110,9 @@ SQL归档RISK-DDL-016/RISK-CHECK-017；正式DDL、真实MySQL并发/注释回�
 验证：21项定向及69项旧回归通过；25001合成单约2秒、HTTP两次快照查询，仅本机SQLite证据；vue-tsc -b、两组件ESLint、Vite build通过；Bash -n和生成cron通过。实际执行者为主会话（产品/界面/前后端/QA职责），无独立代理。浏览器沿用禁用，实库DDL/注释/性能、247 Docker/cron、部署与业务验收未执行。代码提交/两端推送待回执；当前未申请发版通知，不复用上次申请人确认。
 
 V4交付回执：功能提交13098d0已推送GitLab/GitHub main，并ls-remote确认完整SHA一致。申请人本轮确认马远尔；2026-11-07 00:16:45 Asia/Shanghai发版群接口HTTP200/errcode=0，耗时0.200秒，仅证明接口接收。脱敏回执保留.test-artifacts/risk-analytics-v4/receipts；未部署/未建表/未安装cron，未查询CI。
+
+## 代码臃肿优化（2026-11-08，CODE-SIMPLIFY-20261108）
+
+用户授权按审计方案优化。主会话执行与自检，L4保留行为/权限/事务和失败验证，裁剪独立委派。风控/ADM共5条循环和跨HTTP依赖解除；监控通知职责拆分；投放维度联动共用；资源治理兼容视图调用全部迁移；三份利润报表合并FI取数及发送步骤，保留各自600/1200秒配置。
+
+130项后端、9项提取等价、17项报表离线、6项资源交互及6个投放联动场景通过；类型、定向ESLint、原型类型、README、生产构建通过。25处私有导入、ADM组件登记映射及旧风控生成运行时漂移仍为存量项，未全仓报通过。SQL迁移归档RISK-CHECK-036/MONITOR-SQL-001。真实浏览器、MySQL、服务器和业务验收未验。详见docs/development/code-simplification-20261108.md，本地证据.test-artifacts/code-simplification-20261108/。提交、推送及通知状态按实际回执另补。

@@ -24,7 +24,7 @@ class RiskIssueRuleConfigs:
             from .risk_order_evidence import order_id
             try:rule_id = str(order_id(rule_id))
             except EvidenceError:raise EvidenceError('规则ID须为有效的正整数标识，不支持名称或模糊匹配') from None
-        from .risk_verification_overview import _integer
+        from .risk_query_contract import positive_integer as _integer
         number = _integer(page, '页码', 100000) if page is not None else None
         size = _integer(page_size, '每页数量', 100)
         clauses = ''

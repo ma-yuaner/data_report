@@ -1,7 +1,7 @@
 """Version 3 review-to-case workflow. All writes share the existing receipt transaction."""
 import json
 import uuid
-from .risk_followup import choice, encoded, now, version
+from .risk_review_contract import choice, encoded, now, version
 from .risk_problem_tags import text
 from .risk_verification_flow import FlowError
 

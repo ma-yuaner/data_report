@@ -421,3 +421,22 @@ class WorkflowService:
                 "收件箱与定时提醒需运营策略和worker；站外投递还需部署开关，旧表数据不混算",
             ],
         }
+
+
+def valid_notice(service, user, row, tasks):
+    task = tasks.get(row["taskId"])
+    if not task or task["status"] != row["taskStatus"] or task["dueAt"] != row.get("dueAt") or task["round"] != row["round"] or task["ownerId"] != row["sourceOwnerId"]:
+        return False
+    try:
+        case = service._read(user, row["caseId"])
+        line = service._line(case, row["lineId"])
+        service._line_access(user, case, line)
+        if row.get("escalation"):
+            return has(user, "adm.assign") and service._full(user, case) and str(case.get("coordinatorId", case["createdBy"])) == identity(user)
+        permission = {
+            "ASSIGN_OPERATOR": "adm.assign",
+            "REVIEW": "adm.review", "COLLECTION": "adm.review",
+        }.get(task["kind"], "adm.handle")
+        return has(user, permission) and identity(user) == task["ownerId"]
+    except AdmError:
+        return False

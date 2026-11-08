@@ -5,7 +5,8 @@ from datetime import datetime, timedelta
 from urllib import request
 
 from .operations import OperationsService, digest
-from .policy import AdmError, has, identity, now
+from .policy import AdmError, identity, now
+from .workflow import valid_notice
 from .reports import ReportService
 from .store import Conflict
 
@@ -103,22 +104,7 @@ class NotificationWorker(OperationsService):
         return {"enabled": policy["notificationsEnabled"], "created": created}
 
     def _valid(self, user, row, tasks):
-        task = tasks.get(row["taskId"])
-        if not task or task["status"] != row["taskStatus"] or task["dueAt"] != row.get("dueAt") or task["round"] != row["round"] or task["ownerId"] != row["sourceOwnerId"]:
-            return False
-        try:
-            case = self.service._read(user, row["caseId"])
-            line = self.service._line(case, row["lineId"])
-            self.service._line_access(user, case, line)
-            if row.get("escalation"):
-                return has(user, "adm.assign") and self.service._full(user, case) and str(case.get("coordinatorId", case["createdBy"])) == identity(user)
-            permission = {
-                "ASSIGN_OPERATOR": "adm.assign",
-                "REVIEW": "adm.review", "COLLECTION": "adm.review",
-            }.get(task["kind"], "adm.handle")
-            return has(user, permission) and identity(user) == task["ownerId"]
-        except AdmError:
-            return False
+        return valid_notice(self.service, user, row, tasks)
 
     def deliver(self, actor, policy, tasks):
         # Bounded queue. No silent retry of uncertain deliveries or process interruption.

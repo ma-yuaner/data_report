@@ -12,26 +12,13 @@ from .risk_prepared_facts import one, engine_hash
 from .risk_commission_rule import RULE_ID
 from .risk_child_loss import SUPPORTED_REASONS
 from .risk_problem_tags import text
-from .risk_verification_overview import _integer
+from .risk_query_contract import positive_integer as _integer
 from .risk_order_evidence import order_id
+from .risk_review_contract import choice, encoded, now, version
 
 CONCLUSIONS = ('no_issue', 'problem', 'unknown')
 DISPOSITIONS = ('pending', 'included', 'excluded')
 STATES = ('todo', 'following', 'waiting', 'done')
-
-
-def encoded(value):
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
-
-
-def now():
-    return datetime.now(ZoneInfo('Asia/Shanghai')).isoformat(timespec='seconds')
-
-
-def choice(value, options, label):
-    if value not in options:
-        raise FlowError(label + '无效')
-    return value
 
 
 def day(value):
@@ -39,12 +26,6 @@ def day(value):
         return date.fromisoformat(str(value)).isoformat()
     except (TypeError, ValueError):
         raise FlowError('出票日期无效') from None
-
-
-def version(value):
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        raise FlowError('请提供记录版本')
-    return value
 
 
 def planning(body):
