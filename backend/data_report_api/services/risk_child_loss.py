@@ -4,6 +4,7 @@ import re
 from .risk_order_evidence import _rows
 
 CHILD_REASON='RLA040'
+ANCILLARY_REASON='RLA041'
 # Both codes map exactly to 正常业务 in the published PRODUCT_PROFIT_REASON_TYPE dictionary.
 NORMAL_REASONS=('R001','RPA000')
 BET_REASONS={
@@ -12,7 +13,7 @@ BET_REASONS={
     'RLA045':'对赌亏损-退改','RLA069':'对赌亏损-私有',
     'RLA070':'对赌亏损-青年票','RLA067':'对赌亏损-降舱',
 }
-SUPPORTED_REASONS=('RLA013',CHILD_REASON,*BET_REASONS,*NORMAL_REASONS)
+SUPPORTED_REASONS=('RLA013',CHILD_REASON,ANCILLARY_REASON,*BET_REASONS,*NORMAL_REASONS)
 ORDER_FIELDS='id,ota_code,ota_site_code,product_type,manual_flag,issue_way,dep_city,arr_city,ota_order_no,relation_ota_order_no,profit_reason_type,update_time'
 RELATED_SQL="SELECT "+ORDER_FIELDS+" FROM order_info WHERE ota_code=%s AND ota_site_code <=> %s AND (ota_order_no IN ({marks}) OR relation_ota_order_no IN ({marks})) ORDER BY id LIMIT 101"
 AGE_SQL="SELECT i.id,p.age_type FROM order_info_issue i LEFT JOIN order_info_passenger p ON p.id=i.passenger_id AND p.order_id=i.order_id WHERE i.order_id=%s ORDER BY i.id LIMIT 201"

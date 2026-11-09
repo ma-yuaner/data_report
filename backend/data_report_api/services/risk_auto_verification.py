@@ -8,8 +8,9 @@ import time
 import uuid
 
 from .risk_commission_rule import RULE_ID, evaluate_commission_loss
-from .risk_child_loss import CHILD_REASON, BET_REASONS, NORMAL_REASONS, SUPPORTED_REASONS, ORDER_FIELDS, read_child_evidence, evaluate_child
+from .risk_child_loss import CHILD_REASON, ANCILLARY_REASON, BET_REASONS, NORMAL_REASONS, SUPPORTED_REASONS, ORDER_FIELDS, read_child_evidence, evaluate_child
 from .risk_bet_loss import evaluate_bet, evaluate_normal
+from .risk_ancillary_loss import ANCILLARY_SQL, MAX_ANCILLARY_ROWS, evaluate_ancillary
 from .risk_historical_threshold import HistoricalThresholds
 from .risk_order_evidence import RiskOrderEvidenceService, _rows, order_id
 from .risk_verification_flow import FlowError, _owner
@@ -35,6 +36,7 @@ def evaluate(evidence):
     if order.get("profit_reason_type") in NORMAL_REASONS:return evaluate_normal(evidence,RULE_ID)
     if order.get("profit_reason_type")==CHILD_REASON:return evaluate_child(evidence,RULE_ID)
     if order.get("profit_reason_type") in BET_REASONS:return evaluate_bet(evidence,RULE_ID)
+    if order.get("profit_reason_type") == ANCILLARY_REASON:return evaluate_ancillary(evidence,RULE_ID)
     base = {"ruleVersion": RULE_ID, "status": "insufficient", "summary": "证据不足", "tickets": [],
             "platform": order.get("ota_code"), "stopLoss": None, "logReferences": [], "missing": []}
     if order.get("profit_reason_type") != "RLA013":
@@ -109,6 +111,7 @@ def read_evidence_cursor(cursor, identifier, configuration_cache=None, _basic=Fa
         return read_child_evidence(cursor,orders[0],configuration_cache if configuration_cache is not None else {},read_evidence_cursor)
     if not _basic and orders[0].get("profit_reason_type") == "RLA013" and orders[0].get("ota_code") != "QUNAR":
         return {"order": orders[0], "issues": [], "logs": [], "complete": True}
+    ancillary = not _basic and orders[0].get('profit_reason_type') == ANCILLARY_REASON
     if not _basic and orders[0].get('profit_reason_type') not in SUPPORTED_REASONS:
         return {'order': orders[0], 'issues': [], 'logs': [], 'complete': True}
     cursor.execute("""SELECT id,order_id,issue_profit,sale_commission_amount,sale_currency,issue_ticket_time,
@@ -133,7 +136,14 @@ def read_evidence_cursor(cursor, identifier, configuration_cache=None, _basic=Fa
             from .risk_threshold_facts import enrich_matching_facts
             enrich_matching_facts(cursor, issue, orders[0], cache)
             issue['thresholdConfiguration'] = cache['reader'].resolve(issue, orders[0])
-    return {"order": orders[0], "issues": issues[:200], "logs": [], "complete": len(issues) <= 200}
+    result = {"order": orders[0], "issues": issues[:200], "logs": [], "complete": len(issues) <= 200}
+    if ancillary:
+        result['ancillaryPurchases'] = []
+        if orders[0].get('ota_order_no'):
+            cursor.execute(ANCILLARY_SQL.format(marks='%s', limit=MAX_ANCILLARY_ROWS + 1),
+                           (orders[0]['ota_order_no'],))
+            result['ancillaryPurchases'] = _rows(cursor)
+    return result
 
 
 class RiskAutoVerification:

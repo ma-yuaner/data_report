@@ -3,7 +3,8 @@ from collections import defaultdict
 from copy import deepcopy
 import time
 from .risk_order_evidence import _rows
-from .risk_child_loss import CHILD_REASON, ORDER_FIELDS
+from .risk_child_loss import ANCILLARY_REASON, CHILD_REASON, ORDER_FIELDS
+from .risk_ancillary_loss import ANCILLARY_SQL, MAX_ANCILLARY_ROWS
 from .risk_historical_threshold import HistoricalThresholds
 
 ISSUE_FIELDS='id,order_id,passenger_id,issue_profit,sale_commission_amount,sale_currency,issue_ticket_time,supplier_code,marketing_airline,issue_gds_channel,issue_office_no,issue_ticketing_office_no'
@@ -16,6 +17,17 @@ class BatchEvidence:
         self.orders={};self.issues=defaultdict(list);self.links=defaultdict(list);self.ages=defaultdict(list);self.airports=defaultdict(list)
         self.history=history if history is not None else HistoricalThresholds(cursor)
         self._orders(identifiers)
+        self.ancillary_purchases = defaultdict(list)
+        ancillary_numbers = sorted({row['ota_order_no'] for row in self.orders.values()
+                                    if row.get('profit_reason_type') == ANCILLARY_REASON
+                                    and row.get('ota_order_no')})
+        for chunk in self.chunks(ancillary_numbers):
+            marks = ','.join(['%s'] * len(chunk))
+            rows = self.query(ANCILLARY_SQL.format(marks=marks, limit=10001), tuple(chunk))
+            if len(rows) > 10000:
+                raise ValueError('BATCH_ANCILLARY_LIMIT')
+            for row in rows:
+                self.ancillary_purchases[row['ota_order_no']].append(row)
         child_nodes={key for key,row in self.orders.items() if row.get('profit_reason_type')==CHILD_REASON}
         seen=set()
         for _ in range(100):
@@ -94,6 +106,8 @@ class ReplayCursor:
             codes=set(params[2:]);self.result=sorted([r for r in b.orders.values() if r.get('ota_code')==params[0] and r.get('ota_site_code')==params[1] and (r.get('ota_order_no') in codes or r.get('relation_ota_order_no') in codes)],key=lambda r:int(r['id']))[:101]
         elif 'LEFT JOIN order_info_passenger' in sql:
             self.result=b.ages.get(str(params[0]),[])[:201]
+        elif 'FROM order_auxiliary a' in sql:
+            self.result = b.ancillary_purchases.get(params[0], [])[:MAX_ANCILLARY_ROWS + 1]
         elif 'FROM order_info_issue WHERE order_id=%s' in sql:
             self.result=b.issues.get(str(params[0]),[])[:201]
         elif 'AS link_count' in sql:
@@ -123,7 +137,7 @@ def cause_code(result):
     missing=' '.join(result.get('missing',[]))
     if any(word in text for word in ('关联','范围不完整','截断')):return 'SCOPE_INCOMPLETE'
     if '年龄' in missing or '年龄类型' in text:return 'PASSENGER_EVIDENCE'
-    if '出票利润' in missing or '佣金' in missing or '币种' in text:return 'MONEY_EVIDENCE'
+    if '出票利润' in missing or '增值利润' in missing or '佣金' in missing or '币种' in text:return 'MONEY_EVIDENCE'
     if '止损值缺失或无效' in missing:return 'THRESHOLD_EVIDENCE'
     if any(r.get('configuration',{}).get('status')!='ready' for r in result.get('tickets',[])):return 'THRESHOLD_EVIDENCE'
     return 'UNCLASSIFIED_EVIDENCE'
