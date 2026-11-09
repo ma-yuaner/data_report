@@ -187,3 +187,7 @@ export const verificationOverview = {
 
 // Exact 正常业务 codes verified against the published reason dictionary.
 export const NORMAL_REASON_CODES: string[] = ['R001', 'RPA000']
+export const PROFIT_REASON_CODES: string[] = [
+  'RPA006', 'RPA005', 'RPA007', 'RPA009', 'RPA002', 'R026',
+  'RPB007', 'RPA001', 'RPA013', 'RPA011', 'RPA012',
+]

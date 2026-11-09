@@ -1,19 +1,20 @@
 {
   "files": {
     "__init__.py": "01b3cfad27f9866c0e3220f76b8462258c576912dd1db51e622fb54911dd37e3",
-    "engine.py": "1287beb417d20f2d60c650420afe0de29b5f3eaf7acf36a764bf9edff9de5fee",
+    "engine.py": "c833a2fc329cba3de3b2dbb0ddf974fe871abb3bb716ec539f1ed6d154c7b688",
     "risk_ancillary_loss.py": "1b55e45649fbfde24c6c8bd9382f792a7184924d4dbe218501d3ce5342f8616c",
     "risk_bet_loss.py": "219877b1551ae0a3026ee3a8686b68afe96f4f7184033d5dc59264152dbd9212",
-    "risk_child_loss.py": "9bccbf4695da4f2c7ac529de9fcb2debd9776bb67fa8907fc0719362d2bc0dbe",
-    "risk_commission_rule.py": "2e07102b225bf403e0e9c6d08cf42ad50a7957444b55e0f5f3487975763ed5b6",
-    "risk_evidence_batch.py": "bbe038312171a43e74117545af0be2f283ceb12d081c83514d9679166a4a88de",
+    "risk_child_loss.py": "47c71ff3654d026dfdfaeaeb3202b26ec48be26e3f79b28849e3d3b6bcd5100e",
+    "risk_commission_rule.py": "3915b0db165dbe7f28a370b7ac988305181b0a2d323843b74b11368eb148803e",
+    "risk_evidence_batch.py": "6e69f13e364f368803fd9ba3b3ac9e0eea18a6ca4b74320ab962da9670e20965",
     "risk_historical_threshold.py": "7407d7a109629fff60e73be0c5e2fb3a63d5ade6cc74dad97716e8e5df9b14ea",
     "risk_loss_threshold_config.py": "a40c4339b6c12e62459235de98cccbe0a7b8684c44db31555952d0d2077a767d",
     "risk_order_evidence.py": "32661d38a79f4fd80ec5bd7b00f051bade479e3c9f702c5762d6bdcab6d3a467",
+    "risk_order_profit.py": "c0bd7477a371bc9fa32ed20e384d7ab445b70c6b321bcceda0f228fca71437dc",
     "risk_rule_priority.py": "a8cc926ee31eab8d060b8c54709f69816da5be86218992d4a5a9abed2f55f1a1",
     "risk_threshold_facts.py": "54d371a1711220c0052bb3578f4dcfdd38a085797e831383ba868cdeaa19f760",
     "risk_verification_flow.py": "33e04bd8f7722a98dbee651b4bfda9b27e7bd73d46bb89f1f05b195f9964f3a3"
   },
-  "ruleVersion": "qunar-commission-loss-config-v15",
-  "sha256": "1f9a6783813374736a9b51d200b2d75f432d1ffb7168616943be91e205f33d62"
+  "ruleVersion": "qunar-commission-loss-config-v16",
+  "sha256": "45e7059c33fa682f913047fe22a3a0b1b9e905606faed2b7bd9e031b99f5f834"
 }

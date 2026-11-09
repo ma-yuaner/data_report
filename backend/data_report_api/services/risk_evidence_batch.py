@@ -3,7 +3,7 @@ from collections import defaultdict
 from copy import deepcopy
 import time
 from .risk_order_evidence import _rows
-from .risk_child_loss import ANCILLARY_REASON, CHILD_REASON, ORDER_FIELDS
+from .risk_child_loss import ANCILLARY_REASON, CHILD_REASON, ORDER_FIELDS, PROFIT_REASONS
 from .risk_ancillary_loss import ANCILLARY_SQL, MAX_ANCILLARY_ROWS
 from .risk_historical_threshold import HistoricalThresholds
 
@@ -15,8 +15,10 @@ class BatchEvidence:
     def __init__(self,cursor,identifiers,history=None,check_plans=False):
         self.cursor=cursor;self.query_count=0;self.started=time.monotonic();self.check_plans=check_plans
         self.orders={};self.issues=defaultdict(list);self.links=defaultdict(list);self.ages=defaultdict(list);self.airports=defaultdict(list)
-        self.history=history if history is not None else HistoricalThresholds(cursor)
         self._orders(identifiers)
+        self.history = history
+        if self.history is None and any(row.get('profit_reason_type') not in PROFIT_REASONS for row in self.orders.values()):
+            self.history = HistoricalThresholds(cursor)
         self.ancillary_purchases = defaultdict(list)
         ancillary_numbers = sorted({row['ota_order_no'] for row in self.orders.values()
                                     if row.get('profit_reason_type') == ANCILLARY_REASON
@@ -48,6 +50,8 @@ class BatchEvidence:
                     self.orders.update((str(row['id']),row) for row in rows)
             if len(self.orders)>10000:raise ValueError('BATCH_RELATED_ORDER_LIMIT')
         else:raise ValueError('BATCH_RELATION_DEPTH_LIMIT')
+        threshold_orders = {key for key, row in self.orders.items()
+                            if key in child_nodes or row.get('profit_reason_type') not in PROFIT_REASONS}
         ticket_count=0
         for chunk in self.chunks(list(self.orders)):
             marks=','.join(['%s']*len(chunk))
@@ -55,10 +59,12 @@ class BatchEvidence:
             ticket_count+=len(rows)
             if len(rows)>100000 or ticket_count>100000:raise ValueError('BATCH_TICKET_LIMIT')
             for row in rows:self.issues[str(row['order_id'])].append(row)
+            if not threshold_orders.intersection(chunk):
+                continue
             ages=self.query('SELECT i.id,i.order_id,p.age_type FROM order_info_issue i LEFT JOIN order_info_passenger p ON p.id=i.passenger_id AND p.order_id=i.order_id WHERE i.order_id IN ('+marks+') ORDER BY i.id LIMIT 100001',tuple(chunk))
             if len(ages)>100000:raise ValueError('BATCH_AGE_LIMIT')
             for row in ages:self.ages[str(row['order_id'])].append(row)
-        ids=[str(row['id']) for group in self.issues.values() for row in group]
+        ids=[str(row['id']) for key, group in self.issues.items() if key in threshold_orders for row in group]
         if len(ids)>100000:raise ValueError('BATCH_TICKET_LIMIT')
         link_count=0
         for chunk in self.chunks(ids):
@@ -67,7 +73,8 @@ class BatchEvidence:
             link_count+=len(rows)
             if len(rows)>100000 or link_count>500000:raise ValueError('BATCH_SEGMENT_LIMIT')
             for row in rows:self.links[str(row['issue_id'])].append(row)
-        airports=sorted({r.get(k) for r in self.orders.values() for k in ('dep_city','arr_city') if r.get(k)})
+        airports=sorted({self.orders[key].get(k) for key in threshold_orders
+                         for k in ('dep_city','arr_city') if self.orders[key].get(k)})
         for chunk in self.chunks(airports):
             marks=','.join(['%s']*len(chunk))
             rows=self.query('SELECT airport_code,city_code,country_code,zone_code,area_code,update_time FROM base_airport WHERE airport_code IN ('+marks+') AND status=1 LIMIT 2001',tuple(chunk))

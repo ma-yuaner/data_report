@@ -11,7 +11,7 @@ from ..services.risk_verification_overview import RiskVerificationOverview
 from ..services.risk_auto_verification import RiskAutoVerification
 from ..services.risk_auto_store import StoreUnavailable
 from ..services.risk_commission_rule import RULE_ID
-from ..services.risk_child_loss import BET_REASONS
+from ..services.risk_child_loss import BET_REASONS, PROFIT_REASONS
 from ..shared.permissions import permission_codes
 
 
@@ -238,7 +238,11 @@ def register_routes(api):
                                              *[{"id": RULE_ID+":"+code, "label": label,
                                                 "formula": "逐票出票利润≥－出票时单票止损值（含等号），不加佣金或预期收益；任一票突破即有问题",
                                                 "status": "自动规则已接入；利润、历史阈值或出票范围不完整时保留证据不足"}
-                                               for code,label in BET_REASONS.items()]],
+                                               for code,label in BET_REASONS.items()],
+                                             *[{"id": RULE_ID+":"+code, "label": label,
+                                                "formula": "整单出票利润合计大于 0 自动通过，小于或等于 0 判为有问题",
+                                                "status": "出票明细或利润不完整时保留证据不足"}
+                                               for code,label in PROFIT_REASONS.items()]],
                                    "sourceConfigured": all(bool(current_app.config.get(f"MYSQL_{key}")) for key in ("HOST", "DATABASE", "USER", "PASSWORD")),
                                    "erpEvidenceConfigured": current_app.config.get("RISK_VERIFICATION_ERP_EXPLICIT") is True and all(bool(current_app.config.get(f"ERP_MYSQL_{key}")) for key in ("HOST", "DATABASE", "USER", "PASSWORD"))})
 

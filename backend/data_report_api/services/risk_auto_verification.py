@@ -8,7 +8,8 @@ import time
 import uuid
 
 from .risk_commission_rule import RULE_ID, evaluate_commission_loss
-from .risk_child_loss import CHILD_REASON, ANCILLARY_REASON, BET_REASONS, NORMAL_REASONS, SUPPORTED_REASONS, ORDER_FIELDS, read_child_evidence, evaluate_child
+from .risk_child_loss import CHILD_REASON, ANCILLARY_REASON, BET_REASONS, NORMAL_REASONS, PROFIT_REASONS, SUPPORTED_REASONS, ORDER_FIELDS, read_child_evidence, evaluate_child
+from .risk_order_profit import evaluate_order_profit
 from .risk_bet_loss import evaluate_bet, evaluate_normal
 from .risk_ancillary_loss import ANCILLARY_SQL, MAX_ANCILLARY_ROWS, evaluate_ancillary
 from .risk_historical_threshold import HistoricalThresholds
@@ -33,6 +34,8 @@ def now():
 def evaluate(evidence):
     """Only selected source fields, never raw logs or passenger information in results."""
     order = evidence["order"]
+    if order.get("profit_reason_type") in PROFIT_REASONS:
+        return evaluate_order_profit(evidence, RULE_ID)
     if order.get("profit_reason_type") in NORMAL_REASONS:return evaluate_normal(evidence,RULE_ID)
     if order.get("profit_reason_type")==CHILD_REASON:return evaluate_child(evidence,RULE_ID)
     if order.get("profit_reason_type") in BET_REASONS:return evaluate_bet(evidence,RULE_ID)
@@ -120,7 +123,7 @@ def read_evidence_cursor(cursor, identifier, configuration_cache=None, _basic=Fa
     issues = _rows(cursor)
     if any(str(row["order_id"]) != str(identifier) for row in issues):
         raise FlowError("取证订单关联不一致", 409)
-    if issues:
+    if issues and (_basic or orders[0].get('profit_reason_type') not in PROFIT_REASONS):
         cache = configuration_cache if configuration_cache is not None else {}
         if 'reader' not in cache:
             cache['reader'] = HistoricalThresholds(cursor)
