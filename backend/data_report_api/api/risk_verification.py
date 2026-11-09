@@ -11,7 +11,7 @@ from ..services.risk_verification_overview import RiskVerificationOverview
 from ..services.risk_auto_verification import RiskAutoVerification
 from ..services.risk_auto_store import StoreUnavailable
 from ..services.risk_commission_rule import RULE_ID
-from ..services.risk_child_loss import BET_REASONS, PROFIT_REASONS
+from ..services.risk_child_loss import BET_REASONS, PNR_LOSS_REASON, PROFIT_REASONS
 from ..shared.permissions import permission_codes
 
 
@@ -235,6 +235,9 @@ def register_routes(api):
                                              {"id": RULE_ID+":RLA041", "label": "综合无亏损-增值",
                                               "formula": "整单出票利润＋同OTA订单号的增值利润≥－出票时通用配置止损值",
                                               "status": "利润、关联或配置证据不完整时保留证据不足"},
+                                             {"id": RULE_ID+":"+PNR_LOSS_REASON, "label": "外放无位原编码出票亏损",
+                                              "formula": "逐票原大编码与出票大编码一致，且出票利润≥－出票时通用止损值",
+                                              "status": "任一票编码不一致或超止损即有问题；证据缺失时保留证据不足"},
                                              *[{"id": RULE_ID+":"+code, "label": label,
                                                 "formula": "逐票出票利润≥－出票时单票止损值（含等号），不加佣金或预期收益；任一票突破即有问题",
                                                 "status": "自动规则已接入；利润、历史阈值或出票范围不完整时保留证据不足"}

@@ -8,9 +8,9 @@ import time
 import uuid
 
 from .risk_commission_rule import RULE_ID, evaluate_commission_loss
-from .risk_child_loss import CHILD_REASON, ANCILLARY_REASON, BET_REASONS, NORMAL_REASONS, PROFIT_REASONS, SUPPORTED_REASONS, ORDER_FIELDS, read_child_evidence, evaluate_child
+from .risk_child_loss import CHILD_REASON, ANCILLARY_REASON, PNR_LOSS_REASON, BET_REASONS, NORMAL_REASONS, PROFIT_REASONS, SUPPORTED_REASONS, ORDER_FIELDS, read_child_evidence, evaluate_child
 from .risk_order_profit import evaluate_order_profit
-from .risk_bet_loss import evaluate_bet, evaluate_normal
+from .risk_bet_loss import AIRLINE_PNR_MATCH_SQL, evaluate_bet, evaluate_normal, evaluate_original_pnr_loss
 from .risk_ancillary_loss import ANCILLARY_SQL, MAX_ANCILLARY_ROWS, evaluate_ancillary
 from .risk_historical_threshold import HistoricalThresholds
 from .risk_order_evidence import RiskOrderEvidenceService, _rows, order_id
@@ -36,6 +36,8 @@ def evaluate(evidence):
     order = evidence["order"]
     if order.get("profit_reason_type") in PROFIT_REASONS:
         return evaluate_order_profit(evidence, RULE_ID)
+    if order.get("profit_reason_type") == PNR_LOSS_REASON:
+        return evaluate_original_pnr_loss(evidence, RULE_ID)
     if order.get("profit_reason_type") in NORMAL_REASONS:return evaluate_normal(evidence,RULE_ID)
     if order.get("profit_reason_type")==CHILD_REASON:return evaluate_child(evidence,RULE_ID)
     if order.get("profit_reason_type") in BET_REASONS:return evaluate_bet(evidence,RULE_ID)
@@ -118,7 +120,7 @@ def read_evidence_cursor(cursor, identifier, configuration_cache=None, _basic=Fa
     if not _basic and orders[0].get('profit_reason_type') not in SUPPORTED_REASONS:
         return {'order': orders[0], 'issues': [], 'logs': [], 'complete': True}
     cursor.execute("""SELECT id,order_id,issue_profit,sale_commission_amount,sale_currency,issue_ticket_time,
-      supplier_code,marketing_airline,issue_gds_channel,issue_office_no,issue_ticketing_office_no
+      supplier_code,marketing_airline,issue_gds_channel,issue_office_no,issue_ticketing_office_no,""" + AIRLINE_PNR_MATCH_SQL + """
       FROM order_info_issue WHERE order_id=%s ORDER BY id LIMIT 201""", (order_id(identifier),))
     issues = _rows(cursor)
     if any(str(row["order_id"]) != str(identifier) for row in issues):

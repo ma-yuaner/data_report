@@ -5,9 +5,10 @@ import time
 from .risk_order_evidence import _rows
 from .risk_child_loss import ANCILLARY_REASON, CHILD_REASON, ORDER_FIELDS, PROFIT_REASONS
 from .risk_ancillary_loss import ANCILLARY_SQL, MAX_ANCILLARY_ROWS
+from .risk_bet_loss import AIRLINE_PNR_MATCH_SQL
 from .risk_historical_threshold import HistoricalThresholds
 
-ISSUE_FIELDS='id,order_id,passenger_id,issue_profit,sale_commission_amount,sale_currency,issue_ticket_time,supplier_code,marketing_airline,issue_gds_channel,issue_office_no,issue_ticketing_office_no'
+ISSUE_FIELDS='id,order_id,passenger_id,issue_profit,sale_commission_amount,sale_currency,issue_ticket_time,supplier_code,marketing_airline,issue_gds_channel,issue_office_no,issue_ticketing_office_no,'+AIRLINE_PNR_MATCH_SQL
 SEGMENT_FIELDS='i.issue_id,i.segment_id,s.id,s.order_id,s.airlift_flag,s.cabin,s.cabin_grade,s.flight_number,s.dep_airport,s.arr_airport,s.journey_sequence,s.segment_sequence'
 
 
@@ -144,6 +145,7 @@ def cause_code(result):
     missing=' '.join(result.get('missing',[]))
     if any(word in text for word in ('关联','范围不完整','截断')):return 'SCOPE_INCOMPLETE'
     if '年龄' in missing or '年龄类型' in text:return 'PASSENGER_EVIDENCE'
+    if '大编码' in missing:return 'AIRLINE_PNR_EVIDENCE'
     if '出票利润' in missing or '增值利润' in missing or '佣金' in missing or '币种' in text:return 'MONEY_EVIDENCE'
     if '止损值缺失或无效' in missing:return 'THRESHOLD_EVIDENCE'
     if any(r.get('configuration',{}).get('status')!='ready' for r in result.get('tickets',[])):return 'THRESHOLD_EVIDENCE'

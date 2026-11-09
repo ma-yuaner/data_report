@@ -17,8 +17,9 @@
           <a-descriptions-item v-if="!isProfit" label="止损值来源">{{ usesConfiguration ? '原取证配置（逐票查看历史证明）' : '历史日志结果，需更新并核实' }}</a-descriptions-item>
           <a-descriptions-item :label="result.sourceMode === 'prepared_etl' ? '清洗核实时间' : '核实时间'">{{ formatDateTimeDisplay(result.checkedAt) }}</a-descriptions-item>
           <a-descriptions-item label="规则版本">{{ result.ruleVersion }}</a-descriptions-item>
-          <a-descriptions-item v-if="!isChild && !isBet && !isNormal && !isAncillary && !isProfit" label="核实依据" :span="2">非去哪儿平台优先判为选因有问题；去哪儿且有正佣金时，出票利润＋销售佣金 ≥ －单票止损值；金额为CNY。超过4段按4段配置＋超出段数×25元。</a-descriptions-item>
+          <a-descriptions-item v-if="!isChild && !isBet && !isNormal && !isAncillary && !isProfit && !isPnrLoss" label="核实依据" :span="2">非去哪儿平台优先判为选因有问题；去哪儿且有正佣金时，出票利润＋销售佣金 ≥ －单票止损值；金额为CNY。超过4段按4段配置＋超出段数×25元。</a-descriptions-item>
           <a-descriptions-item v-if="isBet || isNormal" label="核实依据" :span="2">逐票出票利润 ≥ －出票时单票止损值（含等号），不加佣金或预期收益；任一票突破则整单有问题。原始利润为CNY，不合并关联单平均利润。</a-descriptions-item>
+          <a-descriptions-item v-if="isPnrLoss" label="核实依据" :span="2">逐票核对原大编码和出票大编码，并检查出票利润是否达到出票时通用配置的止损下界。两项均满足才通过。</a-descriptions-item>
           <a-descriptions-item v-if="isChild" label="核实依据" :span="2">必须有儿童或婴儿；携程同OTA订单与关联单汇总出票利润÷总票数，不加佣金；平均利润须满足当前单逐票止损阈值；平均值展示四位小数，判定不按展示值舍入。</a-descriptions-item>
           <template v-if="isChild && result.aggregate">
             <a-descriptions-item label="核算范围">{{ result.aggregate.orderCount }} 单 · {{ result.aggregate.ticketCount }} 票</a-descriptions-item>
@@ -43,6 +44,7 @@
         <a-table v-if="!isProfit" :data-source="result.tickets" :columns="columns" row-key="id" :pagination="false" :scroll="{ x: 1550 }" size="small">
           <template #bodyCell="{ column, record }">
             <a-tag v-if="column.key === 'status'" :color="record.status === 'supported' ? 'green' : record.status === 'problem' ? 'red' : 'orange'">{{ labels[record.status] || record.status }}</a-tag>
+            <template v-else-if="column.key === 'airlinePnrMatch'">{{ record.airlinePnrMatch == null ? '证据不足' : record.airlinePnrMatch ? '一致' : '不一致' }}</template>
             <template v-else-if="column.key === 'threshold'">{{ record.stopLoss != null ? `${record.stopLoss} 元` : '证据不足' }}</template>
             <template v-else-if="column.key === 'latestThreshold'">{{ latestTicket(record.id)?.latestStopLoss != null ? `${latestTicket(record.id)?.latestStopLoss} 元${previousObservationOnly ? '（上次成功）' : ''}` : latestTicket(record.id)?.lastSuccessful?.latestStopLoss != null ? `${latestTicket(record.id)?.lastSuccessful?.latestStopLoss} 元（上次成功，本次未取得）` : latestReadError ? '读取失败' : latestLoading ? '读取中' : '—' }}</template>
             <template v-else-if="column.key === 'observationStatus'">{{ latestReadError ? '读取失败' : latestLoading ? '读取中' : latestConfigStatus(latestTicket(record.id)?.status) }}<small v-if="previousObservationOnly" class="muted"> · 上次成功，本次未更新</small><small v-if="latestConfig?.publishedRun?.sourceChangedAfterSnapshot" class="muted"> · 后续配置待刷新</small></template>
@@ -54,7 +56,7 @@
           </template>
         </a-table>
         <a-alert v-if="result.missing?.length" type="warning" show-icon :message="`待补证据：${result.missing.join('；')}`" />
-        <p v-if="!isAncillary && !isProfit" class="muted">{{ isBet || isNormal ? '来源：order_info_issue.issue_profit（CNY）与出票时通用配置单票止损值；逐票比较，不加佣金或预期收益。' : isChild ? '来源：范围内各独立订单出票利润（CNY）与票数、乘机人年龄类型；不加佣金，不去重独立出票。阈值沿用当前单出票时配置。' : usesConfiguration ? '来源：出票明细的利润、销售佣金和单票航段关联；止损值取出票时的通用配置。保留配置版本、快照哈希及必要的配置变更引用，不从订单止损日志取值。' : '此为旧版日志核实结果，仅供历史参考；请先完成所选日期清洗，再在列表查询最新结果。' }}</p>
+        <p v-if="!isAncillary && !isProfit && !isPnrLoss" class="muted">{{ isBet || isNormal ? '来源：order_info_issue.issue_profit（CNY）与出票时通用配置单票止损值；逐票比较，不加佣金或预期收益。' : isChild ? '来源：范围内各独立订单出票利润（CNY）与票数、乘机人年龄类型；不加佣金，不去重独立出票。阈值沿用当前单出票时配置。' : usesConfiguration ? '来源：出票明细的利润、销售佣金和单票航段关联；止损值取出票时的通用配置。保留配置版本、快照哈希及必要的配置变更引用，不从订单止损日志取值。' : '此为旧版日志核实结果，仅供历史参考；请先完成所选日期清洗，再在列表查询最新结果。' }}</p>
       </template>
       <RiskReviewPanel v-if="issueDate" :order-id="orderId" :issue-date="issueDate" :normal-business="NORMAL_REASON_CODES.includes(reason) || PROFIT_REASON_CODES.includes(reason || currentResult?.reasonCode || '')" @changed="emit('changed')" @busy-change="reviewBusy = $event" />
     </div>
@@ -97,11 +99,12 @@ const effectiveReason = computed(() => (pinned.value ? result.value?.reasonCode 
 const isBet = computed(() => ['RLA068', 'RLA047', 'RLA50', 'RLA046', 'RLA045', 'RLA069', 'RLA070', 'RLA067'].includes(effectiveReason.value))
 const isNormal = computed(() => NORMAL_REASON_CODES.includes(effectiveReason.value))
 const isProfit = computed(() => PROFIT_REASON_CODES.includes(effectiveReason.value))
+const isPnrLoss = computed(() => effectiveReason.value === 'RLA006')
 const isAncillary = computed(() => effectiveReason.value === 'RLA041')
-const supportedReason = computed(() => isProfit.value || isAncillary.value || isNormal.value || isBet.value || ['RLA013', 'RLA040'].includes(effectiveReason.value))
+const supportedReason = computed(() => isPnrLoss.value || isProfit.value || isAncillary.value || isNormal.value || isBet.value || ['RLA013', 'RLA040'].includes(effectiveReason.value))
 const profitText = (amount?: string) => amount == null ? '证据不足' : `${amount} 元`
 const isChild = computed(() => effectiveReason.value === 'RLA040')
-const columns = computed(() => [{ title: '出票明细ID', dataIndex: 'id', width: 150 }, { title: '出票利润', dataIndex: 'profit', width: 100 }, ...(!isBet.value && !isNormal.value && !isAncillary.value ? [{ title: '销售佣金', dataIndex: 'commission', width: 100 }] : []), { title: isBet.value || isNormal.value ? '用于比较的原始利润' : isChild.value ? '平均单票利润' : isAncillary.value ? '整单综合利润' : '调整后利润', dataIndex: 'adjustedProfit', width: 130 }, { title: '票段数', dataIndex: 'segmentCount', width: 80 }, { title: '原单票止损值', key: 'threshold', width: 110 }, { title: '最新单票止损值', key: 'latestThreshold', width: 140 }, { title: '观察状态', key: 'observationStatus', width: 150 }, { title: '原采用配置', key: 'configuration', width: 300 }, { title: '结果', key: 'status', width: 110 }, { title: '计算及原因', dataIndex: 'explanation', width: 300 }])
+const columns = computed(() => [{ title: '出票明细ID', dataIndex: 'id', width: 150 }, { title: '出票利润', dataIndex: 'profit', width: 100 }, ...(isPnrLoss.value ? [{ title: '大编码核对', key: 'airlinePnrMatch', width: 110 }] : []), ...(!isBet.value && !isNormal.value && !isAncillary.value && !isPnrLoss.value ? [{ title: '销售佣金', dataIndex: 'commission', width: 100 }] : []), { title: isBet.value || isNormal.value || isPnrLoss.value ? '用于比较的原始利润' : isChild.value ? '平均单票利润' : isAncillary.value ? '整单综合利润' : '调整后利润', dataIndex: 'adjustedProfit', width: 130 }, { title: '票段数', dataIndex: 'segmentCount', width: 80 }, { title: '原单票止损值', key: 'threshold', width: 110 }, { title: '最新单票止损值', key: 'latestThreshold', width: 140 }, { title: '观察状态', key: 'observationStatus', width: 150 }, { title: '原采用配置', key: 'configuration', width: 300 }, { title: '结果', key: 'status', width: 110 }, { title: '计算及原因', dataIndex: 'explanation', width: 300 }])
 const usesConfiguration = computed(() => result.value?.ruleVersion?.startsWith('qunar-commission-loss-config-v'))
 const normalize = (value: string | null) => value?.replace(' ', 'T') || null
 const outdated = computed(() => Boolean(result.value && (result.value.isCurrent === false || (props.sourceUpdatedAt !== null && normalize(result.value.sourceUpdatedAt) !== normalize(props.sourceUpdatedAt)) || (!!props.reason && result.value.reasonCode !== props.reason))))

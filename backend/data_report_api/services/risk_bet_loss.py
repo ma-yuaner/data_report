@@ -3,6 +3,14 @@ from decimal import localcontext
 from .risk_child_loss import number
 
 
+AIRLINE_PNR_MATCH_SQL = """CASE
+    WHEN NULLIF(TRIM(book_airline_pnr_no), '') IS NULL
+      OR NULLIF(TRIM(issue_airline_pnr_no), '') IS NULL THEN NULL
+    ELSE CAST(UPPER(TRIM(book_airline_pnr_no)) AS BINARY)
+       = CAST(UPPER(TRIM(issue_airline_pnr_no)) AS BINARY)
+END AS airline_pnr_match"""
+
+
 def evaluate_bet(evidence, version):
     order = evidence['order']
     base = {'ruleVersion': version, 'status': 'insufficient', 'summary': '证据不足',
@@ -66,4 +74,36 @@ def evaluate_normal(evidence, version):
         'problem': '正常业务至少一张票的出票利润突破单票止损值，需人工核实',
         'insufficient': '正常业务取证不完整或缺少出票利润、出票时止损证据，不能判为通过',
     }[result['status']]
+    return result
+
+
+def evaluate_original_pnr_loss(evidence, version):
+    """Require matching airline PNRs and the existing per-ticket stop loss."""
+    result = evaluate_bet(evidence, version)
+    result['formula'] = 'airline_pnr_match AND issue_profit >= -stop_loss'
+    if not result['tickets']:
+        return result
+
+    for issue, ticket in zip(evidence['issues'], result['tickets']):
+        match = issue.get('airline_pnr_match')
+        if match not in (0, 1):
+            ticket['airlinePnrMatch'] = None
+            result['missing'].append('原大编码或出票大编码')
+            ticket['explanation'] += '；原大编码或出票大编码缺失'
+            if ticket['status'] == 'supported':
+                ticket['status'] = 'insufficient'
+        else:
+            ticket['airlinePnrMatch'] = bool(match)
+            ticket['explanation'] += '；原大编码与出票大编码一致' if match else '；原大编码与出票大编码不一致'
+            if not match:
+                ticket['status'] = 'problem'
+
+    statuses = {ticket['status'] for ticket in result['tickets']}
+    result['status'] = 'problem' if 'problem' in statuses else 'insufficient' if 'insufficient' in statuses else 'supported'
+    result['summary'] = {
+        'supported': '所有出票明细的大编码一致，且满足出票时通用止损配置',
+        'problem': '至少一张票的大编码不一致或突破出票时通用止损配置',
+        'insufficient': '大编码、出票利润或通用止损配置证据不足',
+    }[result['status']]
+    result['missing'] = sorted(set(result['missing']))
     return result

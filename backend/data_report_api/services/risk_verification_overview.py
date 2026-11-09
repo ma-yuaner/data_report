@@ -6,7 +6,7 @@ from .risk_order_evidence import EvidenceError, _rows
 from .risk_verification_catalog import RiskVerificationCatalog
 from .risk_verification_flow import FlowError
 from .risk_auto_verification import RiskAutoVerification
-from .risk_child_loss import ANCILLARY_REASON, BET_REASONS, NORMAL_REASONS, PROFIT_REASONS, SUPPORTED_REASONS
+from .risk_child_loss import ANCILLARY_REASON, BET_REASONS, NORMAL_REASONS, PROFIT_REASONS, PNR_LOSS_REASON, SUPPORTED_REASONS
 from .risk_query_contract import METRIC_JOIN, METRIC_FIELDS, METRIC_PROFIT, period as _period, positive_integer as _integer
 
 LOGGER = logging.getLogger(__name__)
@@ -92,7 +92,7 @@ class RiskVerificationOverview:
                 known = reason in SUPPORTED_REASONS
                 categories[reason] = {"reasonCode": reason,
                     "reasonLabel": labels.get(reason) or f"{reason}（字典名称缺失）",
-                    "ruleStatus": ("整单出票利润大于 0 自动通过，小于或等于 0 判为有问题" if reason in PROFIT_REASONS else "整单出票利润加同OTA订单号增值利润，对照出票时通用配置止损值" if reason == ANCILLARY_REASON else "正常业务逐票出票利润对照出票时通用配置止损值，不加佣金；自动通过即闭环，可人工抽查" if reason in NORMAL_REASONS else "逐票原始出票利润对照出票时单票止损值，不加佣金或预期收益" if reason in BET_REASONS else "儿童/婴儿前提＋综合平均单票出票利润对照当前单止损配置（不加佣金）" if reason=="RLA040" else "去哪儿出票利润加回销售佣金，对照出票时配置止损值") if known else "规则未接入，不自动放行",
+                    "ruleStatus": ("逐票核对原大编码与出票大编码一致，且出票利润未突破出票时通用止损值" if reason == PNR_LOSS_REASON else "整单出票利润大于 0 自动通过，小于或等于 0 判为有问题" if reason in PROFIT_REASONS else "整单出票利润加同OTA订单号增值利润，对照出票时通用配置止损值" if reason == ANCILLARY_REASON else "正常业务逐票出票利润对照出票时通用配置止损值，不加佣金；自动通过即闭环，可人工抽查" if reason in NORMAL_REASONS else "逐票原始出票利润对照出票时单票止损值，不加佣金或预期收益" if reason in BET_REASONS else "儿童/婴儿前提＋综合平均单票出票利润对照当前单止损配置（不加佣金）" if reason=="RLA040" else "去哪儿出票利润加回销售佣金，对照出票时配置止损值") if known else "规则未接入，不自动放行",
                     **_metrics(total), "unchecked": total if known else 0, "rule_pending": 0 if known else total}
             samples = RiskAutoVerification(self.config).sampling(owner)
             compact = published_category_counts(freshness['preparation'],categories,first,last) if not samples else None
