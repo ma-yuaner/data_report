@@ -239,7 +239,11 @@
         </div>
       </a-layout-header>
 
-      <a-layout-content class="app-content"><router-view /></a-layout-content>
+      <a-layout-content class="app-content">
+        <router-view v-slot="{ Component, route: viewRoute }">
+          <component :is="Component" :key="viewRoute.meta.admDetail ? viewRoute.fullPath : undefined" />
+        </router-view>
+      </a-layout-content>
     </a-layout>
     <ComprehensiveExportDrawer v-if="canExport" />
     <div v-if="loggingOut" class="logout-mask"><a-spin size="large" tip="正在安全退出..." /></div>

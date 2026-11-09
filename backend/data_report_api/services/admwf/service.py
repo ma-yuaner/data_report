@@ -432,19 +432,33 @@ class AdmWorkflowService:
         code = text(currency, "币种", 3).upper()
         return _json_value(self.catalog.fx(code))
 
-    def list_cases(self, user, query):
-        require(user, "adm.view")
+    @staticmethod
+    def _ledger_query(query, default_metric):
         try:
             page = max(1, int(query.get("page", 1)))
             page_size = min(100, max(1, int(query.get("pageSize", 20))))
         except (TypeError, ValueError):
             raise AdmError("分页参数无效") from None
+        metric = str(query.get("metric") or default_metric)
+        if metric not in {default_metric, "pending", "open", "soon", "late"}:
+            raise AdmError("台账指标参数无效")
         filters = {
             "status": str(query.get("status") or "").strip() or None,
             "search": str(query.get("search") or "").strip() or None,
             "activeOnly": str(query.get("activeOnly") or "").lower() == "true",
+            "metric": metric,
         }
+        return filters, page, page_size
+
+    def list_cases(self, user, query):
+        require(user, "adm.view")
+        filters, page, page_size = self._ledger_query(query, "range")
         return _json_value(self.repository.list_cases(filters, page, page_size))
+
+    def list_ledger_lines(self, user, query):
+        require(user, "adm.view")
+        filters, page, page_size = self._ledger_query(query, "all")
+        return _json_value(self.repository.list_ledger_lines(filters, page, page_size))
 
     def workbench(self, user):
         require(user, "adm.view")

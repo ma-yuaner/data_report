@@ -4,6 +4,7 @@
       <section class="v05-page v05-detail">
         <button class="back" @click="router.push('/adm/cases')">← 返回台账</button>
         <a-alert v-if="error" type="error" show-icon :message="error" style="margin-bottom: 16px" />
+        <a-alert v-if="configError" type="warning" show-icon :message="configError" />
         <a-alert
           v-if="loading && !hasRecord"
           type="info"
@@ -11,7 +12,12 @@
           message="正在读取 ADM 主单详情…"
           style="margin-bottom: 16px"
         />
-        <template v-if="record">
+        <div v-if="!caseId" class="v05-card v05-empty">
+          <h1>ADM 详情</h1>
+          <p>请从 ADM 台账或我的工作台选择要查看的单据。</p>
+        </div>
+        <button v-else-if="!loading && !hasRecord" @click="() => load()">重试读取详情</button>
+        <template v-if="hasRecord">
           <div class="detail-page-actions">
             <button :disabled="!canAddLine" class="primary" @click="openAddLine">＋ 新增订单明细</button>
           </div>
@@ -583,7 +589,7 @@ const route = useRoute(),
   router = useRouter(),
   auth = useAuthStore(),
   exportTasks = useComprehensiveExportStore()
-let caseId = Number(route.params.caseId || route.query.admId || 0)
+const caseId = Number(route.params.caseId || route.query.admId || 0)
 const emptyRecord = (): AdmCaseDetail => ({
   case: {
     id: 0,
@@ -619,7 +625,8 @@ const record = ref<AdmCaseDetail>(emptyRecord()),
   config = ref<AdmConfig | null>(null),
   loading = ref(false),
   saving = ref(false),
-  error = ref('')
+  error = ref(''),
+  configError = ref('')
 const hasRecord = computed(() => Number(record.value.case.id) > 0)
 const selectedLineId = ref<number | null>(Number(route.query.lineId) || null),
   selectedIds = ref<number[]>([]),
@@ -792,6 +799,7 @@ function selectFirstBlocker() {
 }
 async function openLineDrawer(line: AdmLine) {
   if (!fullDetailLoaded.value) await load(true)
+  if (!hasRecord.value || error.value) return
   selectedLineId.value = line.id
   drawerTab.value = canReview.value && line.lineStatus === 'PENDING_REVIEW' ? '审核处理' : '处理决定与结果'
   drawerOpen.value = true
@@ -952,8 +960,8 @@ async function submitAddLine() {
     addLineOpen.value = false
     void message.success('订单已新增，明细金额已同步调整')
     if (targetCaseId !== caseId) {
-      caseId = targetCaseId
       await router.push(`/adm/cases/${targetCaseId}`)
+      return
     }
     await load()
   } catch (e) {
@@ -963,18 +971,10 @@ async function submitAddLine() {
   }
 }
 async function load(full = fullDetailLoaded.value) {
+  if (!caseId) return
   loading.value = true
   error.value = ''
   try {
-    if (!caseId) {
-      const list = await admApi.list({ page: 1, pageSize: 1 })
-      caseId = Number(list.items[0]?.id || 0)
-      if (!caseId) {
-        record.value = emptyRecord()
-        selectedLineId.value = null
-        return
-      }
-    }
     record.value = full ? await admApi.detail(caseId) : await admApi.summary(caseId)
     fullDetailLoaded.value = full
     if (!selectedLineId.value || !record.value.lines.some((line) => line.id === selectedLineId.value))
@@ -1291,9 +1291,10 @@ const eventLabel = (value: string) =>
     }) as Fields
   )[value] || value
 onMounted(async () => {
+  if (!caseId) return
   const configRequest = admApi.config()
     .then((value) => { config.value = value })
-    .catch((e) => { error.value = `人员与权限配置加载失败：${errorText(e)}` })
+    .catch((e) => { configError.value = `人员与权限配置加载失败：${errorText(e)}` })
   await load()
   await configRequest
 })

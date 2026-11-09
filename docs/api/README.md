@@ -22,7 +22,7 @@
 | [上传说明](../business/air_ticketing/risk-data-upload.md) / [行为监控](../product/user-behavior-monitoring-v1.md) | 上传队列和行为采集 |
 
 <!-- BEGIN:API_ROUTES -->
-共 **232个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
+共 **241个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
 
 <a id="auth"></a>
 
@@ -265,67 +265,55 @@
 | `POST` | `/api/v1/telemetry/visits` | [start_telemetry_visit](../../backend/data_report_api/api/telemetry.py) |
 | `PATCH` | `/api/v1/telemetry/visits/<visit_id>` | [update_telemetry_visit](../../backend/data_report_api/api/telemetry.py) |
 
-<a id="adm"></a>
+<a id="admwf"></a>
 
-## adm（adm）
-
-| 方法 | 完整路径 | 处理函数 / 源码 |
-|---|---|---|
-| `GET` | `/api/v1/adm/cases` | [adm_cases](../../backend/data_report_api/api/adm.py) |
-| `POST` | `/api/v1/adm/cases` | [adm_create](../../backend/data_report_api/api/adm.py) |
-| `GET` | `/api/v1/adm/cases/<case_id>` | [adm_detail](../../backend/data_report_api/api/adm.py) |
-| `PATCH` | `/api/v1/adm/cases/<case_id>` | [adm_update](../../backend/data_report_api/api/adm.py) |
-| `POST` | `/api/v1/adm/cases/<case_id>/actions` | [adm_case_action](../../backend/data_report_api/api/adm.py) |
-| `GET` | `/api/v1/adm/cases/<case_id>/closure-check` | [adm_closure_check](../../backend/data_report_api/api/adm.py) |
-| `POST` | `/api/v1/adm/cases/<case_id>/copy` | [adm_copy](../../backend/data_report_api/api/adm.py) |
-| `POST` | `/api/v1/adm/cases/<case_id>/lines` | [adm_add_line](../../backend/data_report_api/api/adm.py) |
-| `PATCH` | `/api/v1/adm/cases/<case_id>/lines/<line_id>` | [adm_update_line](../../backend/data_report_api/api/adm.py) |
-| `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/actions` | [adm_line_action](../../backend/data_report_api/api/adm.py) |
-| `POST` | `/api/v1/adm/cases/<case_id>/lines/bulk-assign` | [adm_bulk_assign](../../backend/data_report_api/api/adm.py) |
-| `GET` | `/api/v1/adm/cases/<case_id>/timeline` | [adm_timeline](../../backend/data_report_api/api/adm.py) |
-| `GET` | `/api/v1/adm/config` | [adm_config](../../backend/data_report_api/api/adm.py) |
-| `GET` | `/api/v1/adm/workflow/overview` | [adm_workflow_overview](../../backend/data_report_api/api/adm.py) |
-
-<a id="adm_exchange"></a>
-
-## adm_exchange（adm_exchange）
+## admwf（admwf）
 
 | 方法 | 完整路径 | 处理函数 / 源码 |
 |---|---|---|
-| `POST` | `/api/v1/adm/imports/<preview_id>/commit` | [adm_import_commit](../../backend/data_report_api/api/adm_exchange.py) |
-| `POST` | `/api/v1/adm/imports/preview` | [adm_import_preview](../../backend/data_report_api/api/adm_exchange.py) |
-| `POST` | `/api/v1/adm/operator-imports/<preview_id>/commit` | [adm_operator_import_commit](../../backend/data_report_api/api/adm_exchange.py) |
-| `POST` | `/api/v1/adm/operator-imports/preview` | [adm_operator_import_preview](../../backend/data_report_api/api/adm_exchange.py) |
-| `GET` | `/api/v1/adm/operator-workbook` | [adm_operator_workbook](../../backend/data_report_api/api/adm_exchange.py) |
-| `GET` | `/api/v1/adm/templates` | [adm_template_download](../../backend/data_report_api/api/adm_exchange.py) |
-
-<a id="adm_files"></a>
-
-## adm_files（adm_files）
-
-| 方法 | 完整路径 | 处理函数 / 源码 |
-|---|---|---|
-| `GET` | `/api/v1/adm/cases/<case_id>/attachments` | [adm_attachment_list](../../backend/data_report_api/api/adm_files.py) |
-| `POST` | `/api/v1/adm/cases/<case_id>/attachments` | [adm_attachment_upload](../../backend/data_report_api/api/adm_files.py) |
-| `GET` | `/api/v1/adm/cases/<case_id>/attachments/<attachment_id>/download` | [adm_attachment_download](../../backend/data_report_api/api/adm_files.py) |
-| `GET` | `/api/v1/adm/cases/<case_id>/attachments/<attachment_id>/preview` | [adm_attachment_preview](../../backend/data_report_api/api/adm_files.py) |
-
-<a id="adm_operations"></a>
-
-## adm_operations（adm_operations）
-
-| 方法 | 完整路径 | 处理函数 / 源码 |
-|---|---|---|
-| `GET` | `/api/v1/adm/operations/config` | [adm_operation_config](../../backend/data_report_api/api/adm_operations.py) |
-| `PUT` | `/api/v1/adm/operations/config` | [adm_operation_config_save](../../backend/data_report_api/api/adm_operations.py) |
-| `GET` | `/api/v1/adm/operations/deliveries` | [adm_operation_deliveries](../../backend/data_report_api/api/adm_operations.py) |
-| `GET` | `/api/v1/adm/operations/inbox` | [adm_operation_inbox](../../backend/data_report_api/api/adm_operations.py) |
-| `POST` | `/api/v1/adm/operations/inbox/<record_id>/read` | [adm_operation_read](../../backend/data_report_api/api/adm_operations.py) |
-| `POST` | `/api/v1/adm/operations/preview` | [adm_operation_preview](../../backend/data_report_api/api/adm_operations.py) |
-| `GET` | `/api/v1/adm/reports` | [adm_reports](../../backend/data_report_api/api/adm_operations.py) |
-| `GET` | `/api/v1/adm/reports/<record_id>` | [adm_report_detail](../../backend/data_report_api/api/adm_operations.py) |
-| `POST` | `/api/v1/adm/reports/<record_id>/publish` | [adm_report_publish](../../backend/data_report_api/api/adm_operations.py) |
-| `POST` | `/api/v1/adm/reports/capture` | [adm_report_capture](../../backend/data_report_api/api/adm_operations.py) |
+| `GET` | `/api/v1/adm/cases` | [admwf_cases](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/cases` | [admwf_create](../../backend/data_report_api/api/admwf.py) |
+| `GET` | `/api/v1/adm/cases/<case_id>` | [admwf_detail](../../backend/data_report_api/api/admwf.py) |
+| `PATCH` | `/api/v1/adm/cases/<case_id>` | [admwf_update_case](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/attachments` | [admwf_upload_attachment](../../backend/data_report_api/api/admwf.py) |
+| `GET` | `/api/v1/adm/cases/<case_id>/attachments/<attachment_id>/preview` | [admwf_preview_attachment](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/attachments/<attachment_id>/void` | [admwf_void_attachment](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/close` | [admwf_close_case](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/delete-draft` | [admwf_delete_draft](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/lines` | [admwf_add_line](../../backend/data_report_api/api/admwf.py) |
+| `PATCH` | `/api/v1/adm/cases/<case_id>/lines/<line_id>` | [admwf_update_line](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/accept` | [admwf_accept](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/appeals` | [admwf_start_appeal](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/appeals/result` | [admwf_finish_appeal](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/assign-operator` | [admwf_assign_operator](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/change-leader` | [admwf_change_leader](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/check-difference-order` | [admwf_check_difference_order](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/collections` | [admwf_record_collection](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/collections/<collection_id>/void` | [admwf_void_collection](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/investigation-note` | [admwf_investigation_note](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/no-appeal` | [admwf_no_appeal](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/recovery-confirm` | [admwf_recovery_confirm](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/recovery-decision` | [admwf_recovery_decision](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/review` | [admwf_review](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/submit-review` | [admwf_submit_review](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/transfers` | [admwf_request_transfer](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/transfers/<transfer_id>/accept` | [admwf_accept_transfer](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/transfers/<transfer_id>/reject` | [admwf_reject_transfer](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/void` | [admwf_void_line](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/withdraw-review` | [admwf_withdraw_review](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/publish` | [admwf_publish_draft](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/rebalance-lines` | [admwf_rebalance_lines](../../backend/data_report_api/api/admwf.py) |
+| `GET` | `/api/v1/adm/cases/<case_id>/summary` | [admwf_case_summary](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/void` | [admwf_void_case](../../backend/data_report_api/api/admwf.py) |
+| `GET` | `/api/v1/adm/config` | [admwf_config](../../backend/data_report_api/api/admwf.py) |
+| `GET` | `/api/v1/adm/exchange-rate` | [admwf_exchange_rate](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/imports/<batch_no>/commit` | [admwf_import_commit](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/imports/preview` | [admwf_import_preview](../../backend/data_report_api/api/admwf.py) |
+| `GET` | `/api/v1/adm/imports/template` | [admwf_import_template](../../backend/data_report_api/api/admwf.py) |
+| `GET` | `/api/v1/adm/ledger-lines` | [admwf_ledger_lines](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/operator-imports` | [admwf_operator_import](../../backend/data_report_api/api/admwf.py) |
+| `GET` | `/api/v1/adm/reference-options/<kind>` | [admwf_reference_options](../../backend/data_report_api/api/admwf.py) |
+| `GET` | `/api/v1/adm/workbench` | [admwf_workbench](../../backend/data_report_api/api/admwf.py) |
 
 <a id="missed_orders"></a>
 

@@ -502,7 +502,8 @@ class AdmWorkflowRepository:
             )
             return self.get_case(case_id, connection=connection)
 
-    def list_cases(self, filters, page, page_size):
+    @staticmethod
+    def _ledger_scope(filters):
         where, values = ["1=1"], []
         if filters.get("status"):
             where.append("c.case_status=%s")
@@ -518,10 +519,38 @@ class AdmWorkflowRepository:
             term = str(filters["search"]).strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             where.append("(c.internal_no LIKE %s ESCAPE '\\\\' OR c.adm_no LIKE %s ESCAPE '\\\\' OR c.issuer_name LIKE %s ESCAPE '\\\\')")
             values.extend([f"%{term}%"] * 3)
-        clause = " AND ".join(where)
+        return " AND ".join(where), values
+
+    @staticmethod
+    def _ledger_metrics(current):
+        active = "c.case_status IN ('DRAFT','ACTIVE')"
+        pending = "l.line_status IN ('PENDING_LEADER','PENDING_OPERATOR','PENDING_ACCEPT')"
+        open_line = "l.line_status NOT IN ('COMPLETED','VOIDED','HISTORICAL')"
+        soon = f"{active} AND c.reply_deadline>=%s AND c.reply_deadline<%s"
+        late = f"{active} AND c.reply_deadline<%s"
+        window = (current, current + timedelta(days=1))
+        return {
+            "pending": (
+                ("c.case_status='DRAFT' OR EXISTS (SELECT 1 FROM admwf_case_line l WHERE l.case_id=c.id AND " + pending + ")", ()),
+                (pending, ()),
+            ),
+            "open": ((active, ()), (open_line, ())),
+            "soon": ((soon, window), (f"{soon} AND {open_line}", window)),
+            "late": ((late, (current,)), (f"{late} AND {open_line}", (current,))),
+        }
+
+    def list_cases(self, filters, page, page_size):
+        clause, values = self._ledger_scope(filters)
+        metrics = self._ledger_metrics(business_now())
+        metric = filters.get("metric")
+        page_clause, page_values = clause, tuple(values)
+        if metric in metrics:
+            predicate, params = metrics[metric][0]
+            page_clause += f" AND ({predicate})"
+            page_values += params
         with self.transaction() as connection, connection.cursor() as cursor:
             cursor.execute(
-                "SELECT c.*,totals.total_count,COUNT(l.id) AS line_count,"
+                "SELECT c.*,COUNT(l.id) AS line_count,"
                 "SUM(CASE WHEN l.line_status='COMPLETED' THEN 1 ELSE 0 END) AS completed_line_count,"
                 "SUM(CASE WHEN l.line_status='VOIDED' THEN 1 ELSE 0 END) AS voided_line_count,"
                 "SUM(CASE WHEN l.line_status='HISTORICAL' THEN 1 ELSE 0 END) AS historical_line_count,"
@@ -532,41 +561,59 @@ class AdmWorkflowRepository:
                 "SUM(CASE WHEN l.line_status='PENDING_REVIEW' THEN 1 ELSE 0 END) AS pending_review_count,"
                 "SUM(CASE WHEN l.line_status='WAITING_DIFF' THEN 1 ELSE 0 END) AS waiting_diff_count,"
                 "SUM(CASE WHEN l.line_status='WAITING_COLLECTION' THEN 1 ELSE 0 END) AS waiting_collection_count "
-                "FROM admwf_case c CROSS JOIN (SELECT COUNT(*) AS total_count FROM admwf_case c WHERE " + clause + ") totals "
-                "LEFT JOIN admwf_case_line l ON l.case_id=c.id WHERE " + clause + " "
-                "GROUP BY c.id,totals.total_count ORDER BY c.updated_at DESC,c.id DESC LIMIT %s OFFSET %s",
-                (*values, *values, page_size, (page - 1) * page_size),
+                "FROM (SELECT c.id FROM admwf_case c WHERE " + page_clause + " "
+                "ORDER BY c.updated_at DESC,c.id DESC LIMIT %s OFFSET %s) page_ids "
+                "JOIN admwf_case c ON c.id=page_ids.id "
+                "LEFT JOIN admwf_case_line l ON l.case_id=c.id "
+                "GROUP BY c.id ORDER BY c.updated_at DESC,c.id DESC",
+                (*page_values, page_size, (page - 1) * page_size),
             )
             items = cursor.fetchall()
-            if items:
-                total = int(items[0].pop("total_count"))
-                for item in items[1:]:
-                    item.pop("total_count", None)
-            else:
-                cursor.execute("SELECT COUNT(*) AS total FROM admwf_case c WHERE " + clause, values)
-                total = int(cursor.fetchone()["total"])
-            current = business_now()
-            soon = current + timedelta(days=1)
+            columns = ["COUNT(DISTINCT c.id) AS case_count", "COUNT(l.id) AS line_count"]
+            params = []
+            for key, ((case_predicate, case_params), (line_predicate, line_params)) in metrics.items():
+                name = "overdue" if key == "late" else key
+                if key == "pending":
+                    case_predicate = f"c.case_status='DRAFT' OR {line_predicate}"
+                columns.extend([
+                    f"COUNT(DISTINCT CASE WHEN {case_predicate} THEN c.id END) AS {name}_case_count",
+                    f"COUNT(CASE WHEN {line_predicate} THEN l.id END) AS {name}_line_count",
+                ])
+                params.extend((*case_params, *line_params))
             cursor.execute(
-                "SELECT COUNT(DISTINCT c.id) AS case_count,"
-                "COUNT(DISTINCT CASE WHEN c.case_status='DRAFT' OR l.line_status IN ('PENDING_LEADER','PENDING_OPERATOR','PENDING_ACCEPT') THEN c.id END) AS pending_case_count,"
-                "COUNT(DISTINCT CASE WHEN c.case_status IN ('DRAFT','ACTIVE') THEN c.id END) AS open_case_count,"
-                "COUNT(DISTINCT CASE WHEN c.case_status IN ('DRAFT','ACTIVE') AND c.reply_deadline>=%s AND c.reply_deadline<%s THEN c.id END) AS soon_case_count,"
-                "COUNT(DISTINCT CASE WHEN c.case_status IN ('DRAFT','ACTIVE') AND c.reply_deadline<%s THEN c.id END) AS overdue_case_count,"
-                "COUNT(l.id) AS line_count,"
-                "SUM(CASE WHEN l.line_status IN ('PENDING_LEADER','PENDING_OPERATOR','PENDING_ACCEPT') THEN 1 ELSE 0 END) AS pending_line_count,"
-                "SUM(CASE WHEN l.line_status NOT IN ('COMPLETED','VOIDED','HISTORICAL') THEN 1 ELSE 0 END) AS open_line_count,"
-                "SUM(CASE WHEN c.case_status IN ('DRAFT','ACTIVE') AND c.reply_deadline>=%s AND c.reply_deadline<%s AND l.line_status NOT IN ('COMPLETED','VOIDED','HISTORICAL') THEN 1 ELSE 0 END) AS soon_line_count,"
-                "SUM(CASE WHEN c.case_status IN ('DRAFT','ACTIVE') AND c.reply_deadline<%s AND l.line_status NOT IN ('COMPLETED','VOIDED','HISTORICAL') THEN 1 ELSE 0 END) AS overdue_line_count "
-                "FROM admwf_case c LEFT JOIN admwf_case_line l ON l.case_id=c.id WHERE " + clause,
-                (current, soon, current, current, soon, current, *values),
+                "SELECT " + ",".join(columns) +
+                " FROM admwf_case c LEFT JOIN admwf_case_line l ON l.case_id=c.id WHERE " + clause,
+                (*params, *values),
             )
             summary = cursor.fetchone() or {}
+        count_prefix = ("overdue" if metric == "late" else metric) if metric in metrics else None
+        total_key = f"{count_prefix}_case_count" if count_prefix else "case_count"
         return {
             "items": items,
-            "pagination": {"page": page, "pageSize": page_size, "total": total},
+            "pagination": {"page": page, "pageSize": page_size, "total": int(summary.get(total_key, 0))},
             "summary": summary,
         }
+
+    def list_ledger_lines(self, filters, page, page_size):
+        clause, values = self._ledger_scope(filters)
+        metrics = self._ledger_metrics(business_now())
+        metric = filters.get("metric")
+        if metric in metrics:
+            predicate, params = metrics[metric][1]
+            clause += f" AND ({predicate})"
+            values.extend(params)
+        source = " FROM admwf_case c JOIN admwf_case_line l ON l.case_id=c.id WHERE " + clause
+        with self.transaction() as connection, connection.cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) AS total" + source, values)
+            total = int(cursor.fetchone()["total"])
+            cursor.execute(
+                "SELECT c.id AS case_id,c.adm_no,l.id,l.line_internal_no,l.ticket_no,l.ota_order_no,"
+                "l.pnr,l.department_name,l.leader_name,l.operator_name,l.line_status" + source +
+                " ORDER BY c.updated_at DESC,c.id DESC,l.line_no,l.id LIMIT %s OFFSET %s",
+                (*values, page_size, (page - 1) * page_size),
+            )
+            items = cursor.fetchall()
+        return {"items": items, "pagination": {"page": page, "pageSize": page_size, "total": total}}
 
     def list_workbench(self, actor_id, capabilities, is_admin=False, limit=1000):
         task_statuses = (

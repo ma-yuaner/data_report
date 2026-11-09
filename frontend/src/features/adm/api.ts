@@ -32,6 +32,10 @@ export interface AdmCaseDetail extends Fields {
   responsibilitySegments: Fields[]; recoveries: Fields[]; appeals: Fields[]; reviews: Fields[]
   diffMatches: Fields[]; collections: Fields[]; transfers: Fields[]; operationLogs: Fields[]
 }
+export type AdmLedgerLine = Pick<AdmLine, 'id' | 'caseId' | 'lineInternalNo' | 'lineStatus' |
+  'departmentName' | 'leaderName' | 'operatorName'> & {
+  admNo: string; ticketNo: string | null; otaOrderNo: string | null; pnr: string | null
+}
 
 async function data<T>(promise: Promise<{ data: ApiEnvelope<T> }>): Promise<T> {
   const response = await promise
@@ -47,6 +51,10 @@ export const admApi = {
   options: (kind: string, search = '', limit = 100) => data<Option[]>(http.get(`${base}/reference-options/${encodeURIComponent(kind)}`, { params: { search, limit } })),
   exchangeRate: (currency: string) => data<FxSnapshot>(http.get(`${base}/exchange-rate`, { params: { currency } })),
   list: (params: Fields) => data<{ items: AdmCaseRow[]; pagination: Fields; summary?: Fields }>(http.get(`${base}/cases`, { params })),
+  ledgerLines: (params: Fields) =>
+    data<{ items: AdmLedgerLine[]; pagination: Fields }>(
+      http.get(`${base}/ledger-lines`, { params }),
+    ),
   workbench: () => data<{ items: Fields[]; summary: Fields }>(http.get(`${base}/workbench`)),
   detail: (caseId: number | string) => data<AdmCaseDetail>(http.get(casePath(caseId))),
   summary: (caseId: number | string) => data<AdmCaseDetail>(http.get(`${casePath(caseId)}/summary`)),

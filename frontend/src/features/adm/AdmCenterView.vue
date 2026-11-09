@@ -14,20 +14,24 @@
             ><button :disabled="loading" @click="load">刷新任务</button>
           </div>
         </header>
-        <div class="v05-metrics">
+        <div v-if="workbenchReady" class="v05-metrics">
           <button
             v-for="item in workMetrics"
             :key="item.key"
             :class="{ selected: workMetric === item.key }"
-            @click="workMetric = workMetric === item.key ? '' : item.key"
+            @click="selectWorkMetric(item.key)"
           >
             <span>{{ item.title }}</span
             ><strong>{{ item.value }}</strong>
           </button>
         </div>
         <a-alert v-if="error" type="error" show-icon :message="error" style="margin-top: 16px" />
+        <a-alert v-if="configError" type="warning" show-icon :message="configError" />
+        <a-alert v-if="workbenchSummary.truncated" type="warning" show-icon
+          :message="`当前显示前 ${workbenchItems.length} 条任务，共 ${workbenchSummary.total} 条；分类数仅统计已加载任务。`" />
         <div class="v05-work-list">
-          <article v-for="task in visibleTasks" :key="`${task.caseId}-${task.lineId}-${task.kind}`">
+          <p v-if="loading" class="v05-card v05-empty" role="status">正在读取 ADM 任务…</p>
+          <article v-for="task in pagedTasks" :key="`${task.caseId}-${task.lineId}-${task.kind}`">
             <div>
               <b>{{ task.internalNo }} / {{ task.lineInternalNo }}</b
               ><span>{{ task.role }}任务：{{ task.title }}</span>
@@ -47,9 +51,13 @@
               ><button class="primary" @click="openTask(task)">去处理 →</button>
             </div>
           </article>
-          <div v-if="!loading && !visibleTasks.length" class="v05-card v05-empty">
+          <div v-if="workbenchReady && !loading && !error && !visibleTasks.length" class="v05-card v05-empty">
             {{ workMetric ? '当前筛选下没有待办任务' : '当前账号暂无需要处理的ADM任务' }}
           </div>
+        </div>
+        <div v-if="visibleTasks.length > workPageSize" class="v05-pager">
+          <a-pagination v-model:current="workPage" :page-size="workPageSize" :total="visibleTasks.length"
+            :show-size-changer="false" />
         </div>
       </section>
 
@@ -65,7 +73,7 @@
           </div>
         </header>
         <p class="v05-label">主单指标 · 点击筛选台账</p>
-        <div class="v05-metrics">
+        <div v-if="ledgerReady" class="v05-metrics">
           <button
             v-for="item in masterMetrics"
             :key="item.key"
@@ -77,10 +85,11 @@
           </button>
         </div>
         <p class="v05-label">订单指标 · 点击查看订单清单</p>
-        <div class="v05-metrics">
+        <div v-if="ledgerReady" class="v05-metrics">
           <button
             v-for="item in orderMetrics"
             :key="item.key"
+            :disabled="loading || !!error"
             :class="{ selected: orderMetric === item.key }"
             @click="openGlobalOrders(item.key)"
           >
@@ -89,6 +98,7 @@
           </button>
         </div>
         <a-alert v-if="error" type="error" show-icon :message="error" style="margin-top: 16px" />
+        <a-alert v-if="configError" type="warning" show-icon :message="configError" />
         <div class="v05-card">
           <div class="v05-toolbar">
             <label
@@ -120,7 +130,7 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="record in visibleRows" :key="record.id">
+                <tr v-for="record in shownRows" :key="record.id">
                   <td>
                     <button class="link" @click="openCase(record.id)">{{ record.admNo }}</button
                     ><small>{{ label(record.issuerType) }} · {{ record.issuerName }}</small
@@ -161,7 +171,9 @@
                 </tr>
               </tbody>
             </table>
-            <div v-if="!loading && !visibleRows.length" class="empty">暂无符合条件的 ADM 主单</div>
+            <div v-if="loading" class="empty" role="status">正在读取 ADM 台账…</div>
+            <div v-else-if="error" class="empty"><button @click="load">重试读取台账</button></div>
+            <div v-else-if="ledgerReady && !rows.length" class="empty">暂无符合条件的 ADM 主单</div>
           </div>
           <div class="v05-pager">
             <a-pagination
@@ -198,30 +210,38 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="item in globalOrders" :key="item.line.id">
+            <tr v-for="item in globalOrders" :key="item.id">
               <td>
-                <b>{{ item.detail.case.admNo }}</b
-                ><small>{{ item.line.lineInternalNo }}</small>
+                <b>{{ item.admNo }}</b
+                ><small>{{ item.lineInternalNo }}</small>
               </td>
               <td>
-                {{ item.line.ticketNo || '未填写票号'
-                }}<small>OTA：{{ item.line.otaOrderNo || '未填写' }} · PNR：{{ item.line.pnr || '未填写' }}</small>
+                {{ item.ticketNo || '未填写票号'
+                }}<small>OTA：{{ item.otaOrderNo || '未填写' }} · PNR：{{ item.pnr || '未填写' }}</small>
               </td>
               <td>
-                {{ item.line.departmentName }}<small>组长：{{ item.line.leaderName || '未分配' }}</small>
+                {{ item.departmentName }}<small>组长：{{ item.leaderName || '未分配' }}</small>
               </td>
-              <td>{{ item.line.operatorName || '未分配' }}</td>
+              <td>{{ item.operatorName || '未分配' }}</td>
               <td>
-                <span :class="['pill', lineStatusTone(item.line.lineStatus)]">{{ label(item.line.lineStatus) }}</span>
+                <span :class="['pill', lineStatusTone(item.lineStatus)]">{{ label(item.lineStatus) }}</span>
               </td>
-              <td>{{ lineTask(item.line.lineStatus) }}</td>
+              <td>{{ lineTask(item.lineStatus) }}</td>
               <td>
-                <button class="primary" @click="openGlobalLine(item.detail.case.id, item.line.id)">查看详情</button>
+                <button class="primary" @click="openGlobalLine(item.caseId, item.id)">查看详情</button>
               </td>
             </tr>
           </tbody>
         </table>
-        <p v-if="!globalOrders.length" class="empty">当前指标下没有订单明细</p>
+        <p v-if="ordersLoading" class="empty" role="status">正在读取订单明细…</p>
+        <a-alert v-else-if="ordersError" type="error" show-icon :message="ordersError" />
+        <p v-else-if="!globalOrders.length" class="empty">当前指标下没有订单明细</p>
+      </div>
+      <div class="v05-pager">
+        <a-pagination v-model:current="ordersPage" :page-size="pageSize" :total="ordersTotal"
+          :show-size-changer="false" :disabled="ordersLoading" @change="loadGlobalOrders" />
+        <small v-if="ordersError"><button @click="loadGlobalOrders">重试</button></small>
+        <small v-else-if="ordersTotal">共 {{ ordersTotal }} 条</small>
       </div></a-modal
     >
     <a-modal v-model:open="operatorImportOpen" title="导入处理结果" :footer="null" wrap-class-name="v05-modal"
@@ -462,7 +482,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { useAuthStore } from '@/stores/auth'
@@ -477,6 +497,7 @@ import {
   type AdmCaseDetail,
   type AdmCaseRow,
   type AdmConfig,
+  type AdmLedgerLine,
   type Fields,
   type FxSnapshot,
   type Option,
@@ -490,12 +511,14 @@ const route = useRoute(),
   isWorkbench = computed(() => route.meta.admView === 'workbench')
 const config = ref<AdmConfig | null>(null),
   rows = ref<AdmCaseRow[]>([]),
-  details = ref<AdmCaseDetail[]>([]),
   ledgerSummary = ref<Fields>({}),
   workbenchItems = ref<Fields[]>([]),
   workbenchSummary = ref<Fields>({}),
+  ledgerReady = ref(false),
+  workbenchReady = ref(false),
   loading = ref(false),
   error = ref(''),
+  configError = ref(''),
   page = ref(1),
   pageSize = ref(20),
   total = ref(0),
@@ -506,36 +529,52 @@ const masterInfoOpen = ref(false),
   selectedMasterDetail = ref<AdmCaseDetail | null>(null),
   selectedMasterEditable = ref(false)
 const filters = reactive({ search: '', status: '' })
+const appliedFilters = ref({ ...filters })
+const shownRows = computed(() => loading.value || error.value ? [] : rows.value)
+let request = 0
+let configRequest: Promise<void> | undefined
+function loadConfig() {
+  if (config.value) return Promise.resolve()
+  configRequest ??= admApi.config().then(
+    (value) => { config.value = value; configError.value = '' },
+    (e) => { configError.value = `人员与权限配置加载失败：${errorText(e)}` },
+  ).finally(() => { configRequest = undefined })
+  return configRequest
+}
 async function load() {
+  const seq = ++request
   loading.value = true
   error.value = ''
+  void loadConfig()
   try {
     if (isWorkbench.value) {
       const result = await admApi.workbench()
+      if (seq !== request) return
       workbenchItems.value = result.items
       workbenchSummary.value = result.summary || {}
-      rows.value = []
-      details.value = []
-      total.value = Number(result.summary?.total || result.items.length)
+      workbenchReady.value = true
+      workPage.value = Math.min(workPage.value, Math.max(1, Math.ceil(visibleTasks.value.length / workPageSize)))
       return
     }
     const result = await admApi.list({
-      search: filters.search,
-      status: filters.status,
+      ...appliedFilters.value,
+      metric: metric.value,
       page: page.value,
       pageSize: pageSize.value,
     })
+    if (seq !== request) return
     rows.value = result.items
     total.value = result.pagination.total
     ledgerSummary.value = result.summary || {}
-    details.value = []
+    ledgerReady.value = true
   } catch (e) {
-    error.value = errorText(e)
+    if (seq === request) error.value = errorText(e)
   } finally {
-    loading.value = false
+    if (seq === request) loading.value = false
   }
 }
 function query() {
+  appliedFilters.value = { ...filters }
   page.value = 1
   void load()
 }
@@ -615,7 +654,9 @@ const dueKind = (t: Fields) => {
   return d < 0 ? 'late' : d < 86400000 ? 'soon' : 'normal'
 }
 const roleHint = computed(() =>
-  availableRoles.value.length
+  !config.value
+    ? '按当前账号的权限展示 ADM 任务。'
+    : availableRoles.value.length
     ? '合并展示当前账号需要处理的全部ADM任务，每笔任务标明本次办理职责。'
     : '当前账号仅有查看权限，可前往ADM台账查看数据。',
 )
@@ -671,6 +712,15 @@ const visibleTasks = computed(() => {
   const aliases: Fields = { close: 'close' }
   return tasks.value.filter((t) => t.kind === (aliases[workMetric.value] || workMetric.value))
 })
+const workPageSize = 20
+const workPage = ref(1)
+const pagedTasks = computed(() =>
+  visibleTasks.value.slice((workPage.value - 1) * workPageSize, workPage.value * workPageSize),
+)
+function selectWorkMetric(key: string) {
+  workMetric.value = workMetric.value === key ? '' : key
+  workPage.value = 1
+}
 function openTask(t: Fields) {
   void router.push({ path: `/adm/cases/${t.caseId}`, query: { lineId: t.lineId } })
 }
@@ -776,35 +826,36 @@ const orderMetrics = computed(() => [
   },
 ])
 const globalOrdersOpen = ref(false),
-  globalOrders = computed(() =>
-    details.value.flatMap((detail) =>
-      detail.lines
-        .filter(
-          (line) =>
-            orderMetric.value === 'all' ||
-            (orderMetric.value === 'pending' && ['PENDING_OPERATOR', 'PENDING_ACCEPT'].includes(line.lineStatus)) ||
-            (orderMetric.value === 'open' && !['COMPLETED', 'VOIDED', 'HISTORICAL'].includes(line.lineStatus)) ||
-            (orderMetric.value === 'soon' &&
-              riskText(detail.case) === '即将超时' &&
-              !['COMPLETED', 'VOIDED', 'HISTORICAL'].includes(line.lineStatus)) ||
-            (orderMetric.value === 'late' &&
-              riskText(detail.case) === '已超时' &&
-              !['COMPLETED', 'VOIDED', 'HISTORICAL'].includes(line.lineStatus)),
-        )
-        .map((line) => ({ detail, line })),
-    ),
-  )
-async function openGlobalOrders(key: string) {
-  orderMetric.value = key
-  if (!details.value.length && rows.value.length) {
-    try {
-      details.value = await Promise.all(rows.value.map((item) => admApi.detail(item.id)))
-    } catch (e) {
-      void message.error(errorText(e))
-      return
-    }
+  globalOrders = ref<AdmLedgerLine[]>([]),
+  ordersPage = ref(1),
+  ordersTotal = ref(0),
+  ordersLoading = ref(false),
+  ordersError = ref('')
+let ordersRequest = 0
+async function loadGlobalOrders() {
+  const seq = ++ordersRequest
+  ordersLoading.value = true
+  ordersError.value = ''
+  globalOrders.value = []
+  try {
+    const result = await admApi.ledgerLines({
+      ...appliedFilters.value, metric: orderMetric.value, page: ordersPage.value, pageSize: pageSize.value,
+    })
+    if (seq !== ordersRequest) return
+    globalOrders.value = result.items
+    ordersTotal.value = result.pagination.total
+  } catch (e) {
+    if (seq === ordersRequest) ordersError.value = errorText(e)
+  } finally {
+    if (seq === ordersRequest) ordersLoading.value = false
   }
+}
+function openGlobalOrders(key: string) {
+  orderMetric.value = key
+  ordersPage.value = 1
+  ordersTotal.value = 0
   globalOrdersOpen.value = true
+  void loadGlobalOrders()
 }
 function openGlobalLine(caseId: number, lineId: number) {
   globalOrdersOpen.value = false
@@ -836,22 +887,12 @@ function lineTask(status: string) {
 }
 function selectMetric(k: string) {
   metric.value = metric.value === k ? '' : k
+  page.value = 1
+  void load()
 }
-const detailFor = (id: number) => details.value.find((d) => Number(d.case.id) === Number(id)),
-  activeLineCount = (r: AdmCaseRow) => Math.max(0, Number(r.lineCount || 0) - Number(r.voidedLineCount || 0)),
+const activeLineCount = (r: AdmCaseRow) => Math.max(0, Number(r.lineCount || 0) - Number(r.voidedLineCount || 0)),
   progressWidth = (r: AdmCaseRow) =>
     `${activeLineCount(r) ? Math.min(100, (Number(r.completedLineCount || 0) / activeLineCount(r)) * 100) : 100}%`
-const visibleRows = computed(() =>
-  rows.value.filter(
-    (r) =>
-      !metric.value ||
-      metric.value === 'range' ||
-      (metric.value === 'pending' && isPendingCase(r)) ||
-      (metric.value === 'open' && isOpenCase(r)) ||
-      (metric.value === 'soon' && riskText(r) === '即将超时') ||
-      (metric.value === 'late' && riskText(r) === '已超时'),
-  ),
-)
 function stageSummary(id: number) {
   const row = rows.value.find((item) => Number(item.id) === Number(id))
   if (!row) return []
@@ -1125,16 +1166,23 @@ async function commitImport() {
     importBusy.value = false
   }
 }
-onMounted(async () => {
-  try {
-    config.value = await admApi.config()
-  } catch (e) {
-    error.value = errorText(e)
-  }
-  await load()
-  if (route.query.create === '1' && config.value?.permissions.create) {
+watch(() => route.name, (name) => {
+  if (name !== 'adm-workbench' && name !== 'adm-cases') return
+  ordersRequest++
+  globalOrdersOpen.value = false
+  orderMetric.value = ''
+  void load()
+}, { immediate: true })
+watch(() => route.name === 'adm-cases' && route.query.create === '1', async (create) => {
+  if (!create) return
+  await loadConfig()
+  if (route.name === 'adm-cases' && route.query.create === '1' && config.value?.permissions.create) {
     await router.replace({ path: '/adm/cases' })
     await openCreate()
   }
+}, { immediate: true })
+onBeforeUnmount(() => {
+  request++
+  ordersRequest++
 })
 </script>
