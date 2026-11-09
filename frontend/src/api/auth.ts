@@ -61,6 +61,8 @@ export interface AuthUser {
   legacyMenuCodes?: string[]
 }
 
+export type DeletableAccount = Pick<AuthUser, 'id' | 'username' | 'displayName' | 'isEnabled'>
+
 export interface AuthAudit {
   id: number
   userId?: number | null
@@ -96,6 +98,8 @@ export const authApi = {
   logout: () => http.post<ApiEnvelope<null>>('/auth/logout').then(response => response.data.data),
   changePassword: (currentPassword: string, newPassword: string) => http.post<ApiEnvelope<{ csrfToken: string }>>('/auth/change-password', { currentPassword, newPassword }).then(response => response.data.data),
   users: () => http.get<ApiEnvelope<AuthUser[]>>('/admin/users').then(response => response.data.data),
+  deletableAccounts: () => http.get<ApiEnvelope<DeletableAccount[]>>('/admin/users/deletable').then(response => response.data.data),
+  deleteUser: (id: number) => http.delete<ApiEnvelope<null>>(`/admin/users/${id}`),
   businessRoles: () => http.get<ApiEnvelope<BusinessRole[]>>('/admin/business-roles').then(response => response.data.data),
   roles: () => http.get<ApiEnvelope<BusinessRole[]>>('/admin/roles').then(response => response.data.data),
   permissionCatalog: () => http.get<ApiEnvelope<FunctionPermission[]>>('/admin/permission-catalog').then(response => response.data.data),

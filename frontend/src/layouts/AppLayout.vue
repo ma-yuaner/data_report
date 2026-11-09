@@ -182,10 +182,10 @@
           <a-menu-item v-if="canSeeMenu('hr.mail')" key="/hr-mail"
             ><template #icon><MailOutlined /></template>HR报表邮件</a-menu-item
           >
-          <a-sub-menu v-if="authStore.user?.isAdmin" key="system">
+          <a-sub-menu v-if="authStore.canDeleteAccounts" key="system">
             <template #icon><MonitorOutlined /></template>
             <template #title>系统管理</template>
-            <a-menu-item key="/admin/behavior">用户行为监控</a-menu-item>
+            <a-menu-item v-if="authStore.user?.isAdmin" key="/admin/behavior">用户行为监控</a-menu-item>
             <a-menu-item key="/admin/users">账号管理</a-menu-item>
           </a-sub-menu>
         </a-menu>
@@ -229,7 +229,7 @@
             </div>
             <template #overlay>
               <a-menu @click="handleUserMenu">
-                <a-menu-item v-if="authStore.user?.isAdmin" key="admin"><TeamOutlined />账号管理</a-menu-item>
+                <a-menu-item v-if="authStore.canDeleteAccounts" key="admin"><TeamOutlined />账号管理</a-menu-item>
                 <a-menu-item key="password"><LockOutlined />修改密码</a-menu-item>
                 <a-menu-divider />
                 <a-menu-item key="logout"><LogoutOutlined />退出登录</a-menu-item>

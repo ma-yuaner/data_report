@@ -140,6 +140,18 @@ def list_users():
     return ok(manager().users(g.current_user))
 
 
+@auth_api.get("/admin/users/deletable")
+def list_deletable_users():
+    return ok(manager().deletable_users(g.current_user))
+
+
+@auth_api.delete("/admin/users/<int:user_id>")
+def delete_user(user_id: int):
+    ip_address, user_agent = request_context()
+    manager().delete_user(g.current_user, user_id, ip_address, user_agent)
+    return ok(None, "账号已删除")
+
+
 @auth_api.get("/admin/employees")
 def list_employees():
     try:

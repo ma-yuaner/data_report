@@ -8,6 +8,9 @@ export const useAuthStore = defineStore('auth', {
     initialized: false,
     lastFetchedAt: 0,
   }),
+  getters: {
+    canDeleteAccounts: state => Boolean(state.user?.isAdmin || state.user?.permissions?.includes('system.accounts.delete')),
+  },
   actions: {
     apply(user: AuthUser | null, csrfToken = '') {
       this.user = user

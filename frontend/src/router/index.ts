@@ -82,7 +82,7 @@ const router = createRouter({
         { path: 'data-workbench', name: 'data-workbench', component: () => import('@/features/data-workbench/DataWorkbenchView.vue'), meta: { title: '数据加工工作台', section: '归档功能', menuCode: 'data_workbench' } },
         { path: 'hr-mail', name: 'hr-mail', component: () => import('@/features/hr-mail/HrMailView.vue'), meta: { title: 'HR报表邮件', section: 'HR报表邮件', menuCode: 'hr.mail' } },
         { path: 'admin/behavior', name: 'admin-behavior', component: () => import('@/views/UserBehaviorMonitorView.vue'), meta: { title: '用户行为监控', section: '系统管理', requiresAdmin: true } },
-        { path: 'admin/users', name: 'admin-users', component: () => import('@/views/AdminUsersView.vue'), meta: { title: '账号管理', section: '系统管理', requiresAdmin: true } },
+        { path: 'admin/users', name: 'admin-users', component: () => import('@/views/AdminUsersView.vue'), meta: { title: '账号管理', section: '系统管理' } },
       ],
     },
     { path: '/:pathMatch(.*)*', name: 'not-found', component: () => import('@/views/NotFoundView.vue'), meta: { title: '页面不存在' } },
@@ -105,6 +105,7 @@ router.beforeEach(async (to) => {
     return { name: 'change-password', query: { first: '1' } }
   }
   if (to.meta.requiresAdmin && !authStore.user.isAdmin) return '/home'
+  if (to.name === 'admin-users' && !authStore.canDeleteAccounts) return '/home'
   if (to.meta.menuCode && !authStore.user.isAdmin && !authStore.user.menuCodes?.includes(String(to.meta.menuCode))) return '/home'
   if (to.meta.permission && !authStore.user.isAdmin && !authStore.user.permissions?.includes(String(to.meta.permission))) return '/monitoring/overview'
   return true
