@@ -1,11 +1,11 @@
 <template>
   <div class="page-wrap account-page">
     <div class="page-header access-header">
-      <div><div class="page-eyebrow">ACCESS CONTROL</div><h1>账号与权限</h1><p>用角色定义稳定职责，用个人权限处理少量例外。</p></div>
-      <a-space><a-button @click="load" :loading="loading"><ReloadOutlined />刷新</a-button><a-button type="primary" @click="openCreateAccount"><PlusOutlined />新增账号</a-button></a-space>
+      <div><div class="page-eyebrow">ACCESS CONTROL</div><h1>{{ isAdmin ? '账号与权限' : '账号管理' }}</h1><p>{{ isAdmin ? '用角色定义稳定职责，用个人权限处理少量例外。' : '你可以删除列表中的普通账号。删除后，账号无法登录。' }}</p></div>
+      <a-space><a-button @click="load" :loading="loading"><ReloadOutlined />刷新</a-button><a-button v-if="isAdmin" type="primary" @click="openCreateAccount"><PlusOutlined />新增账号</a-button></a-space>
     </div>
 
-    <div class="model-row">
+    <div v-if="isAdmin" class="model-row">
       <div class="model-card"><SafetyCertificateOutlined class="model-icon" /><div><strong>权限分配原则</strong><p>先给账号分配岗位角色，再对个人做少量开启或关闭，避免每个账号从零配置。</p></div><div class="model-flow"><span>账号</span><i>→</i><span>岗位角色</span><i>→</i><span>个人微调</span></div></div>
       <div class="summary-strip"><div><strong>{{ users.length }}</strong><span>账号总数</span></div><div><strong>{{ activeRoles.length }}</strong><span>启用角色</span></div><div><strong>{{ adminCount }}</strong><span>系统管理员</span></div></div>
     </div>
@@ -13,16 +13,16 @@
     <a-tabs v-model:active-key="activeTab" class="access-tabs">
       <a-tab-pane key="accounts" tab="账号管理">
         <a-card class="panel-card toolbar-card"><div class="account-toolbar">
-          <a-input v-model:value="filters.keyword" allow-clear placeholder="搜索姓名、账号或邮箱" class="search-input"><template #prefix><SearchOutlined /></template></a-input>
-          <a-select v-model:value="filters.role" allow-clear placeholder="全部角色" class="filter-select" :options="roleFilterOptions" />
+          <a-input v-model:value="filters.keyword" allow-clear :placeholder="isAdmin ? '搜索姓名、账号或邮箱' : '搜索姓名或账号'" class="search-input"><template #prefix><SearchOutlined /></template></a-input>
+          <a-select v-if="isAdmin" v-model:value="filters.role" allow-clear placeholder="全部角色" class="filter-select" :options="roleFilterOptions" />
           <a-select v-model:value="filters.status" allow-clear placeholder="全部状态" class="filter-select" :options="statusOptions" />
-          <span class="toolbar-count">共 {{ filteredUsers.length }} 个账号</span><a-button type="primary" @click="openCreateAccount"><PlusOutlined />新增账号</a-button>
+          <span class="toolbar-count">共 {{ filteredUsers.length }} 个账号</span><a-button v-if="isAdmin" type="primary" @click="openCreateAccount"><PlusOutlined />新增账号</a-button>
         </div></a-card>
 
         <a-card class="panel-card section-gap account-list-card" :body-style="{ padding: 0 }">
-          <a-table :columns="userColumns" :data-source="filteredUsers" :loading="loading" row-key="id" :pagination="{ pageSize: 15 }" :scroll="{ x: 1280 }">
+          <a-table :columns="userColumns" :data-source="filteredUsers" :loading="loading" row-key="id" :pagination="{ pageSize: 15 }" :scroll="isAdmin ? { x: 1310 } : { x: 470 }">
             <template #bodyCell="{ column, record }">
-              <template v-if="column.key === 'identity'"><div class="account-identity"><span class="account-avatar">{{ record.displayName.slice(0, 1) }}</span><span><strong>{{ record.displayName }}</strong><code>{{ record.username }} · {{ record.email }}</code></span></div></template>
+              <template v-if="column.key === 'identity'"><div class="account-identity"><span class="account-avatar">{{ record.displayName.slice(0, 1) }}</span><span><strong>{{ record.displayName }}</strong><code>{{ record.username }}<template v-if="record.email"> · {{ record.email }}</template></code></span></div></template>
               <template v-else-if="column.key === 'roles'"><a-space v-if="record.businessRoles?.length" :size="[4, 4]" wrap><a-tag v-for="role in record.businessRoles" :key="role.code" color="blue">{{ role.name }}</a-tag></a-space><span v-else class="role-empty">未分配岗位角色</span></template>
               <template v-else-if="column.key === 'access'">
                 <div class="access-summary" v-if="record.isAdmin"><a-tag color="purple">全部菜单与功能</a-tag></div>
@@ -31,15 +31,24 @@
               <template v-else-if="column.key === 'status'"><span class="status-dot" :class="{ off: !record.isEnabled }">{{ record.isEnabled ? '已启用' : '已禁用' }}</span></template>
               <template v-else-if="column.key === 'password'"><a-tag v-if="record.mustChangePassword" color="orange">待首次改密</a-tag><span v-else>正常</span></template>
               <template v-else-if="column.key === 'actions'"><a-space :size="2" wrap>
-                <a-button type="link" size="small" @click="openRoles(record)">分配角色</a-button><a-button type="link" size="small" @click="openManagedMembers(record)">管理成员</a-button><a-button type="link" size="small" @click="openPersonalPermissions(record)">个人权限</a-button><a-button type="link" size="small" @click="openEmployeeBinding(record)">通知身份</a-button>
-                <a-dropdown><a-button type="link" size="small">更多<DownOutlined /></a-button><template #overlay><a-menu><a-menu-item @click="openEdit(record)">编辑资料</a-menu-item><a-menu-item @click="openReset(record)">重置密码</a-menu-item><a-menu-item @click="toggleEnabled(record)">{{ record.isEnabled ? '禁用账号' : '启用账号' }}</a-menu-item><a-menu-item @click="toggleAdmin(record)">{{ record.isAdmin ? '取消系统管理员' : '设为系统管理员' }}</a-menu-item><a-menu-item v-if="record.legacyMenuCodes?.length" danger @click="clearLegacyMenus(record)">清除历史直授权</a-menu-item></a-menu></template></a-dropdown>
+                <template v-if="isAdmin">
+                  <a-button type="link" size="small" @click="openEdit(record)">编辑</a-button>
+                  <a-button type="link" size="small" @click="openRoles(record)">分配角色</a-button>
+                  <a-button type="link" size="small" @click="openPersonalPermissions(record)">个人权限</a-button>
+                  <a-dropdown><a-button type="link" size="small">更多<DownOutlined /></a-button><template #overlay><a-menu>
+                    <a-menu-item @click="openManagedMembers(record)">管理成员</a-menu-item><a-menu-item @click="openEmployeeBinding(record)">通知身份</a-menu-item>
+                    <a-menu-item @click="openReset(record)">重置密码</a-menu-item>
+                    <a-menu-item v-if="record.legacyMenuCodes?.length" danger @click="clearLegacyMenus(record)">清除历史直授权</a-menu-item>
+                  </a-menu></template></a-dropdown>
+                </template>
+                <a-button v-if="authStore.canDeleteAccounts && !record.isAdmin && record.id !== authStore.user?.id" type="link" size="small" danger @click="confirmDelete(record)">删除</a-button>
               </a-space></template>
             </template>
           </a-table>
         </a-card>
       </a-tab-pane>
 
-      <a-tab-pane key="roles" tab="角色与功能">
+      <a-tab-pane v-if="isAdmin" key="roles" tab="角色与功能">
         <a-card class="panel-card toolbar-card"><div class="role-toolbar"><div><strong>岗位角色模板</strong><p>一个角色对应一组稳定菜单和功能，修改后会同步影响已分配人员。</p></div><a-button type="primary" @click="openCreateRole"><PlusOutlined />新增角色</a-button></div></a-card>
         <div class="role-card-grid section-gap">
           <a-card v-for="role in roles" :key="role.code" class="role-card" :class="{ disabled: !role.isActive }">
@@ -52,7 +61,7 @@
         </div>
       </a-tab-pane>
 
-      <a-tab-pane key="audit" tab="操作审计"><a-card title="登录与权限操作审计" class="panel-card"><a-table :columns="auditColumns" :data-source="audits" row-key="id" size="small" :pagination="{ pageSize: 20 }" :scroll="{ x: 860 }"><template #bodyCell="{ column, record }"><template v-if="column.key === 'success'"><a-tag :color="record.success ? 'green' : 'red'">{{ record.success ? '成功' : '失败' }}</a-tag></template><template v-else-if="column.key === 'createdAt'">{{ formatTime(record.createdAt) }}</template><template v-else-if="column.key === 'detail'"><code>{{ detailText(record.detail) }}</code></template></template></a-table></a-card></a-tab-pane>
+      <a-tab-pane v-if="isAdmin" key="audit" tab="操作审计"><a-card title="登录与权限操作审计" class="panel-card"><a-table :columns="auditColumns" :data-source="audits" row-key="id" size="small" :pagination="{ pageSize: 20 }" :scroll="{ x: 860 }"><template #bodyCell="{ column, record }"><template v-if="column.key === 'success'"><a-tag :color="record.success ? 'green' : 'red'">{{ record.success ? '成功' : '失败' }}</a-tag></template><template v-else-if="column.key === 'createdAt'">{{ formatTime(record.createdAt) }}</template><template v-else-if="column.key === 'detail'"><code>{{ detailText(record.detail) }}</code></template></template></a-table></a-card></a-tab-pane>
     </a-tabs>
 
     <a-modal v-model:open="createVisible" title="新增账号" width="760px" ok-text="创建账号" cancel-text="取消" :confirm-loading="creating" @ok="createAccount">
@@ -142,7 +151,7 @@
       </div>
     </a-modal>
 
-    <a-modal v-model:open="permissionVisible" title="个人权限微调" width="880px" ok-text="保存个人权限" cancel-text="取消" :confirm-loading="permissionSaving" @ok="savePersonalPermissions">
+    <a-modal v-model:open="permissionVisible" title="个人权限微调" width="880px" ok-text="保存个人权限" cancel-text="取消" :body-style="{ maxHeight: 'calc(100dvh - 210px)', overflowY: 'auto' }" :confirm-loading="permissionSaving" @ok="savePersonalPermissions">
       <p class="modal-lead">账号：{{ permissionTarget?.displayName }}。有效权限 = 角色固定权限 ＋ 个人额外开启 － 个人单独关闭。</p><div class="personal-role-summary"><span><strong>岗位角色</strong><small>{{ permissionTarget?.businessRoles?.map(item => item.name).join('、') || '未分配角色' }}</small></span><a-tag color="blue">角色继承 {{ permissionTarget?.rolePermissions?.length || 0 }} 项</a-tag></div>
       <div class="permission-table"><div class="permission-row permission-head"><span>功能</span><span>角色状态</span><span>个人设置</span></div><div v-for="item in permissionCatalog" :key="item.code" class="permission-row"><span><strong>{{ item.name }}</strong><small>{{ item.description }}</small></span><span><a-tag :color="permissionTarget?.rolePermissions?.includes(item.code) ? 'green' : 'default'">{{ permissionTarget?.rolePermissions?.includes(item.code) ? '角色已开启' : '角色未开启' }}</a-tag></span><a-radio-group v-model:value="personalOverrides[item.code]" button-style="solid" size="small"><a-radio-button value="INHERIT">继承</a-radio-button><a-radio-button value="ALLOW">开启</a-radio-button><a-radio-button value="DENY">关闭</a-radio-button></a-radio-group></div></div>
     </a-modal>
@@ -161,7 +170,28 @@
     </a-modal>
 
     <a-modal v-model:open="resetVisible" title="重置密码" ok-text="确认重置" cancel-text="取消" :confirm-loading="resetting" @ok="resetPassword"><p>账号：{{ resetTarget?.displayName }}（{{ resetTarget?.username }}）</p><a-input-password v-model:value="resetPasswordValue" placeholder="新初始密码（至少8位，含字母和数字）" /><p class="modal-lead">重置后现有会话立即失效，下次登录必须再次修改密码。</p></a-modal>
-    <a-modal v-model:open="editVisible" title="修改账号资料" ok-text="保存" cancel-text="取消" :confirm-loading="editing" @ok="saveEdit"><a-form layout="vertical"><a-form-item label="姓名"><a-input v-model:value="editForm.displayName" /></a-form-item><a-form-item label="邮箱"><a-input v-model:value="editForm.email" /></a-form-item></a-form></a-modal>
+    <FormDialog v-model:open="editVisible" title="编辑账号" :width="760" :busy="editing" :dirty="editDirty" :error="editError" :submit-disabled="!editDirty" @submit="saveEdit">
+      <a-form v-if="editTarget" layout="vertical" class="two-column-form">
+        <a-form-item label="登录账号"><a-input :value="editTarget.username" readonly /></a-form-item>
+        <a-form-item label="姓名" required><a-input v-model:value="editForm.displayName" :maxlength="100" /></a-form-item>
+        <a-form-item label="邮箱"><a-input v-model:value="editForm.email" :maxlength="100" /></a-form-item>
+        <a-form-item label="密码状态"><a-tag :color="editTarget.mustChangePassword ? 'orange' : 'default'">{{ editTarget.mustChangePassword ? '待改密' : '正常' }}</a-tag></a-form-item>
+        <a-form-item label="账号状态" :extra="editSelf ? '不能禁用自己的账号。' : '禁用后，该账号的登录会话立即失效。'"><a-switch v-model:checked="editForm.isEnabled" :disabled="editSelf" checked-children="启用" un-checked-children="禁用" /></a-form-item>
+        <a-form-item label="系统管理员" :extra="editSelf ? '不能取消自己的管理员身份。' : '开启后拥有全部菜单和功能。'"><a-switch v-model:checked="editForm.isAdmin" :disabled="editSelf" checked-children="是" un-checked-children="否" /></a-form-item>
+        <a-form-item label="岗位角色" class="span-2">
+          <a-tag v-for="role in editTarget.businessRoles" :key="role.code" color="blue">{{ role.name }}</a-tag>
+          <span v-if="!editTarget.businessRoles?.length" class="role-empty">未分配岗位角色</span>
+        </a-form-item>
+      </a-form>
+      <a-space wrap>
+        <a-button :disabled="editDirty || editing" @click="openFromEdit(openRoles)">分配角色</a-button>
+        <a-button :disabled="editDirty || editing" @click="openFromEdit(openPersonalPermissions)">个人权限</a-button>
+        <a-button :disabled="editDirty || editing" @click="openFromEdit(openManagedMembers)">管理成员</a-button>
+        <a-button :disabled="editDirty || editing" @click="openFromEdit(openEmployeeBinding)">通知身份</a-button>
+        <a-button :disabled="editDirty || editing" @click="openFromEdit(openReset)">重置密码</a-button>
+      </a-space>
+      <p v-if="editDirty" class="role-empty">请先保存资料修改，再处理账号权限或密码。</p>
+    </FormDialog>
   </div>
 </template>
 
@@ -169,7 +199,8 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { DownOutlined, PlusOutlined, ReloadOutlined, SafetyCertificateOutlined, SearchOutlined } from '@ant-design/icons-vue'
-import { authApi, type AuthAudit, type AuthUser, type BusinessRole, type DataScopeResource, type DataScopeType, type EmployeeBinding, type FunctionPermission, type MenuPermission, type RolePayload, type RosterEmployee } from '@/api/auth'
+import { authApi, type AuthAudit, type AuthUser, type BusinessRole, type DataScopeResource, type DataScopeType, type DeletableAccount, type EmployeeBinding, type FunctionPermission, type MenuPermission, type RolePayload, type RosterEmployee } from '@/api/auth'
+import FormDialog from '@/components/FormDialog.vue'
 import { useAuthStore } from '@/stores/auth'
 
 type OverrideState = 'INHERIT' | 'ALLOW' | 'DENY'
@@ -202,6 +233,8 @@ const dataScopeDescriptions: Record<DataScopeType, string> = {
 
 const activeTab = ref('accounts')
 const authStore = useAuthStore()
+const isAdmin = computed(() => Boolean(authStore.user?.isAdmin))
+const deletableAccounts = ref<DeletableAccount[]>([])
 const users = ref<AuthUser[]>([]); const audits = ref<AuthAudit[]>([]); const roles = ref<BusinessRole[]>([]); const menuCatalog = ref<MenuPermission[]>([]); const permissionCatalog = ref<FunctionPermission[]>([])
 const loading = ref(false); const creating = ref(false); const resetting = ref(false); const editing = ref(false); const roleSaving = ref(false); const roleEditorSaving = ref(false); const permissionSaving = ref(false); const managedSaving = ref(false)
 const createVisible = ref(false); const resetVisible = ref(false); const editVisible = ref(false); const roleVisible = ref(false); const roleEditorVisible = ref(false); const permissionVisible = ref(false); const managedVisible = ref(false); const employeeBindingVisible = ref(false)
@@ -212,16 +245,44 @@ const employeeBindingTarget = ref<AuthUser | null>(null); const currentEmployeeB
 const returnToRoleAssignment = ref(false)
 const filters = reactive({ keyword: '', role: undefined as string | undefined, status: undefined as string | undefined })
 const createForm = reactive({ username: '', displayName: '', email: '', initialPassword: '', isAdmin: false, roleCodes: [] as string[] })
-const editForm = reactive({ displayName: '', email: '' })
+const editForm = reactive({ displayName: '', email: '', isEnabled: true, isAdmin: false })
+const editError = ref('')
+const editSelf = computed(() => editTarget.value?.id === authStore.user?.id)
+const editChanges = computed(() => {
+  const target = editTarget.value
+  if (!target) return {}
+  return {
+    ...(editForm.displayName.trim() !== target.displayName && { displayName: editForm.displayName.trim() }),
+    ...(editForm.email.trim() !== target.email && { email: editForm.email.trim() }),
+    ...(editForm.isEnabled !== target.isEnabled && { isEnabled: editForm.isEnabled }),
+    ...(editForm.isAdmin !== target.isAdmin && { isAdmin: editForm.isAdmin }),
+  }
+})
+const editDirty = computed(() => Object.keys(editChanges.value).length > 0)
 const roleForm = reactive<RolePayload>({ roleCode: '', name: '', description: '', isActive: true, menuCodes: [], permissions: [], dataScopes: defaultDataScopes() })
 const originalRole = ref<RolePayload>({ roleCode: '', name: '', description: '', isActive: true, menuCodes: [], permissions: [], dataScopes: defaultDataScopes() })
 const personalOverrides = reactive<Record<string, OverrideState>>({})
 const activeRoles = computed(() => roles.value.filter(role => role.isActive)); const adminCount = computed(() => users.value.filter(user => user.isAdmin).length)
 const editingRole = computed(() => roles.value.find(role => role.code === editingRoleCode.value))
 const roleFilterOptions = computed(() => activeRoles.value.map(role => ({ value: role.code, label: role.name }))); const statusOptions = [{ value: 'enabled', label: '已启用' }, { value: 'disabled', label: '已禁用' }]
-const filteredUsers = computed(() => users.value.filter(user => { const keyword = filters.keyword.trim().toLowerCase(); return (!keyword || [user.displayName, user.username, user.email].some(value => value.toLowerCase().includes(keyword))) && (!filters.role || user.businessRoles?.some(role => role.code === filters.role)) && (!filters.status || (filters.status === 'enabled' ? user.isEnabled : !user.isEnabled)) }))
+const filterableUsers = computed<(DeletableAccount & Partial<Pick<AuthUser, 'email' | 'businessRoles'>>)[]>(
+  () => isAdmin.value ? users.value : deletableAccounts.value,
+)
+const filteredUsers = computed(() => filterableUsers.value.filter(user => {
+  const keyword = filters.keyword.trim().toLowerCase()
+  const fields = [user.displayName, user.username, user.email || '']
+  return (!keyword || fields.some(value => value.toLowerCase().includes(keyword)))
+    && (!isAdmin.value || !filters.role || user.businessRoles?.some(role => role.code === filters.role))
+    && (!filters.status || (filters.status === 'enabled' ? user.isEnabled : !user.isEnabled))
+}))
 const managedCandidates = computed(() => users.value.filter(user => user.isEnabled && user.id !== managedTarget.value?.id))
-const userColumns = [{ title: '账号', key: 'identity', width: 245 }, { title: '岗位角色', key: 'roles', width: 240 }, { title: '有效权限', key: 'access', width: 240 }, { title: '状态', key: 'status', width: 95 }, { title: '密码状态', key: 'password', width: 110 }, { title: '操作', key: 'actions', width: 270 }]
+const userColumns = computed(() => [
+  { title: '账号', key: 'identity', width: 245 },
+  ...(isAdmin.value ? [{ title: '岗位角色', key: 'roles', width: 240 }, { title: '有效权限', key: 'access', width: 240 }] : []),
+  { title: '状态', key: 'status', width: 95 },
+  ...(isAdmin.value ? [{ title: '密码状态', key: 'password', width: 110 }] : []),
+  { title: '操作', key: 'actions', width: isAdmin.value ? 360 : 100 },
+])
 const auditColumns = [{ title: '时间', key: 'createdAt', width: 170 }, { title: '账号', dataIndex: 'username', width: 120 }, { title: '动作', dataIndex: 'action', width: 180 }, { title: '结果', key: 'success', width: 80 }, { title: 'IP', dataIndex: 'ipAddress', width: 140 }, { title: '详情', key: 'detail', width: 360 }]
 type MenuGroup = { code: string; name: string; items: MenuPermission[] }
 const menuGroups = computed<MenuGroup[]>(() => {
@@ -234,14 +295,52 @@ const menuGroups = computed<MenuGroup[]>(() => {
   return [...groups.values()]
 })
 
-const load = async () => { loading.value = true; try { ;[users.value, audits.value, roles.value, menuCatalog.value, permissionCatalog.value] = await Promise.all([authApi.users(), authApi.audits(), authApi.roles(), authApi.menuCatalog(), authApi.permissionCatalog()]) } catch (error) { message.error(error instanceof Error ? error.message : '账号与权限数据加载失败') } finally { loading.value = false } }
+const load = async () => {
+  loading.value = true
+  try {
+    if (isAdmin.value) {
+      ;[users.value, audits.value, roles.value, menuCatalog.value, permissionCatalog.value] = await Promise.all([authApi.users(), authApi.audits(), authApi.roles(), authApi.menuCatalog(), authApi.permissionCatalog()])
+    } else {
+      deletableAccounts.value = await authApi.deletableAccounts()
+    }
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '账号与权限数据加载失败')
+  } finally { loading.value = false }
+}
 const openCreateAccount = () => { Object.assign(createForm, { username: '', displayName: '', email: '', initialPassword: '', isAdmin: false, roleCodes: [] }); createVisible.value = true }
 const createAccount = async () => { creating.value = true; try { await authApi.createUser({ ...createForm, roleCodes: [...createForm.roleCodes] }); message.success('账号创建成功，角色权限已生效'); createVisible.value = false; await load() } catch (error) { message.error(error instanceof Error ? error.message : '创建失败') } finally { creating.value = false } }
-const update = async (record: AuthUser, payload: { displayName?: string; email?: string; isEnabled?: boolean; isAdmin?: boolean }) => { try { await authApi.updateUser(record.id, payload); message.success('账号已更新'); await load() } catch (error) { message.error(error instanceof Error ? error.message : '更新失败') } }
-const toggleEnabled = (record: AuthUser) => Modal.confirm({ title: `${record.isEnabled ? '禁用' : '启用'}账号`, content: record.isEnabled ? '禁用后该账号现有会话将立即失效。' : '确认恢复该账号登录？', onOk: () => update(record, { isEnabled: !record.isEnabled }) })
-const toggleAdmin = (record: AuthUser) => Modal.confirm({ title: '调整系统管理员', content: `确认${record.isAdmin ? '取消' : '授予'}该账号系统管理员权限？`, onOk: () => update(record, { isAdmin: !record.isAdmin }) })
+const confirmDelete = (record: DeletableAccount) => {
+  const dialog = Modal.confirm({
+    title: '删除账号',
+    content: `确认删除“${record.displayName}（${record.username}）”？删除后，该账号将从列表移除，现有会话立即失效，历史业务和审计记录保留。`,
+    okType: 'danger', okText: '删除', cancelText: '取消',
+    async onOk() {
+      try { await authApi.deleteUser(record.id) }
+      catch (error) {
+        message.error(error instanceof Error ? error.message : '删除失败')
+        throw error
+      }
+      users.value = users.value.filter(user => user.id !== record.id)
+      deletableAccounts.value = deletableAccounts.value.filter(user => user.id !== record.id)
+      message.success('账号已删除')
+      dialog.destroy()
+      await load()
+    },
+  })
+}
 const clearLegacyMenus = (record: AuthUser) => Modal.confirm({ title: '清除历史菜单直授权', content: '清除后，该账号只保留角色和个人功能产生的菜单。', onOk: async () => { await authApi.updateMenus(record.id, []); message.success('历史直授权已清除'); await load() } })
-const openReset = (record: AuthUser) => { resetTarget.value = record; resetPasswordValue.value = ''; resetVisible.value = true }; const openEdit = (record: AuthUser) => { editTarget.value = record; Object.assign(editForm, { displayName: record.displayName, email: record.email }); editVisible.value = true }
+const openReset = (record: AuthUser) => { resetTarget.value = record; resetPasswordValue.value = ''; resetVisible.value = true }
+const openEdit = (record: AuthUser) => {
+  editTarget.value = record
+  Object.assign(editForm, { displayName: record.displayName, email: record.email, isEnabled: record.isEnabled, isAdmin: record.isAdmin })
+  editError.value = ''
+  editVisible.value = true
+}
+const openFromEdit = (open: (record: AuthUser) => void) => {
+  if (!editTarget.value || editDirty.value || editing.value) return
+  editVisible.value = false
+  open(editTarget.value)
+}
 const openRoles = (record: AuthUser) => { roleTarget.value = record; selectedRoleCodes.value = (record.businessRoles || []).map(role => role.code); roleVisible.value = true }
 const managedResource = ref<'smart_placement' | 'adm'>('smart_placement')
 let managedRequest = 0
@@ -258,7 +357,19 @@ const toggleAssignedRole = (roleCode: string, event: { target?: { checked?: bool
 }
 const openPersonalPermissions = (record: AuthUser) => { permissionTarget.value = record; for (const item of permissionCatalog.value) personalOverrides[item.code] = record.permissionOverrides?.[item.code] || 'INHERIT'; permissionVisible.value = true }
 const savePersonalPermissions = async () => { if (!permissionTarget.value) return; permissionSaving.value = true; try { const overrides: Record<string, 'ALLOW' | 'DENY'> = {}; for (const [code, state] of Object.entries(personalOverrides)) if (state === 'ALLOW' || state === 'DENY') overrides[code] = state; await authApi.updateUserPermissions(permissionTarget.value.id, overrides); message.success('个人权限已更新'); permissionVisible.value = false; await load() } catch (error) { message.error(error instanceof Error ? error.message : '个人权限更新失败') } finally { permissionSaving.value = false } }
-const saveEdit = async () => { if (!editTarget.value) return; editing.value = true; try { await authApi.updateUser(editTarget.value.id, { ...editForm }); message.success('账号资料已更新'); editVisible.value = false; await load() } catch (error) { message.error(error instanceof Error ? error.message : '更新失败') } finally { editing.value = false } }
+const saveEdit = async () => {
+  if (!editTarget.value || editing.value || !editDirty.value) return
+  editError.value = ''
+  if (!editForm.displayName.trim()) { editError.value = '请输入姓名'; return }
+  editing.value = true
+  try {
+    const updated = await authApi.updateUser(editTarget.value.id, editChanges.value)
+    users.value = users.value.map(user => user.id === updated.id ? updated : user)
+    message.success('账号资料已更新')
+    editVisible.value = false
+  } catch (error) { editError.value = error instanceof Error ? error.message : '更新失败' }
+  finally { editing.value = false }
+}
 const resetPassword = async () => { if (!resetTarget.value) return; resetting.value = true; try { await authApi.resetPassword(resetTarget.value.id, resetPasswordValue.value); message.success('密码已重置'); resetVisible.value = false; await load() } catch (error) { message.error(error instanceof Error ? error.message : '重置失败') } finally { resetting.value = false } }
 const resetRoleForm = () => Object.assign(roleForm, { roleCode: '', name: '', description: '', isActive: true, menuCodes: [], permissions: [], dataScopes: defaultDataScopes() })
 const applyRoleTemplate = (template: RoleTemplate) => { selectedTemplate.value = template.key; Object.assign(roleForm, { roleCode: template.code, name: template.name.replace('类', ''), description: template.description, isActive: true, menuCodes: [...template.menuCodes], permissions: [...template.permissions], dataScopes: { ...template.dataScopes } }) }

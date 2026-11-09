@@ -20,6 +20,7 @@ from ..time_utils import business_now_naive
 USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]{3,64}$")
 EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 ROLE_CODE_RE = re.compile(r"^[A-Z][A-Z0-9_]{2,63}$")
+ACCOUNT_DELETE_PERMISSION = "system.accounts.delete"
 
 DATA_SCOPE_RESOURCES = {
     "smart_placement.task": "投放政策",
@@ -68,6 +69,7 @@ BUSINESS_ROLE_CATALOG = (
     {"code": "POLICY_OPERATOR", "name": "智能业务执行员", "description": "认领已审核任务并登记投放结果"},
 )
 PERMISSION_CATALOG = (
+    {"code": ACCOUNT_DELETE_PERMISSION, "name": "删除账号", "description": "查看普通账号的删除列表并删除普通账号，不能删除自己或管理员", "menuCode": "system.accounts"},
     {"code": "risk.verification.view", "name": "查看风控核对", "description": "查看订单、证据、核实结果及团队共享案例", "menuCode": "risk.verification"},
     {"code": "risk.verification.check", "name": "执行风控核对", "description": "加载清洗结果、新建核查及执行AI审核分析", "menuCode": "risk.verification"},
     {"code": "risk.verification.review", "name": "人工复核风控", "description": "保存人工核实、共享案例跟进与差错认定、抽查及知识草稿", "menuCode": "risk.verification"},
@@ -111,6 +113,7 @@ PERMISSION_CATALOG = (
     {"code": "business_config.target_progress.view", "name": "查看目标进度", "description": "查看月度目标完成、利润、亏损与趋势", "menuCode": "business_config.target_progress"},
 )
 MENU_CATALOG = (
+    {"code": "system.accounts", "name": "账号管理", "description": "系统管理员管理账号；受托人员仅可删除普通账号", "groupCode": "system", "groupName": "系统管理"},
     {"code": "risk.verification", "name": "风控核对", "description": "出票盈亏原因核实、人工复核与问题标签", "groupCode": "risk", "groupName": "风控分析"},
     {"code": "adm.center", "name": "ADM管理", "description": "ADM主单、多订单、材料及审核闭环", "groupCode": "adm", "groupName": "ADM管理"},
     {"code": "governance.gds", "name": "GDS资源治理", "description": "GDS、PCC查询量、航段数与查定比分析", "groupCode": "governance", "groupName": "资源治理"},
@@ -219,7 +222,20 @@ class AuthError(Exception):
 
 
 class MySqlAuthStore:
+    AUDIT_INSERT = """
+        INSERT INTO auth_audit_log (
+            user_id, username, action, success, ip_address, user_agent, detail_json, created_at
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+    """
     TABLE_STATEMENTS = (
+        """
+        CREATE TABLE IF NOT EXISTS auth_deleted_account (
+            user_id BIGINT UNSIGNED NOT NULL COMMENT '已删除的中台账号ID，对应sys_user.id',
+            deleted_by BIGINT UNSIGNED NOT NULL COMMENT '执行删除的中台账号ID，对应sys_user.id',
+            deleted_at DATETIME NOT NULL COMMENT '删除生效时间，业务时区北京时间',
+            PRIMARY KEY (user_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='中台账号逻辑删除标记，保留历史业务关联'
+        """,
         """
         CREATE TABLE IF NOT EXISTS auth_user_security (
             user_id INT NOT NULL,
@@ -295,13 +311,14 @@ class MySqlAuthStore:
                coalesce(nullif(u.full_name, ''), u.username) AS display_name,
                u.hashed_password AS password_hash,
                (u.role = 'admin') AS is_admin,
-               u.is_active AS is_enabled,
+               (u.is_active = 1 AND d.user_id IS NULL) AS is_enabled,
                coalesce(sec.must_change_password, 0) AS must_change_password,
                coalesce(sec.failed_attempts, 0) AS failed_attempts,
                sec.locked_until, sec.password_changed_at,
                u.created_at, u.updated_at
         FROM sys_user u
         LEFT JOIN auth_user_security sec ON sec.user_id = u.id
+        LEFT JOIN auth_deleted_account d ON d.user_id = u.id
     """
 
     def __init__(self, config: dict[str, Any]):
@@ -544,7 +561,7 @@ class MySqlAuthStore:
         return self._with_access(self._fetchone(f"{self.USER_SELECT} WHERE u.username = %s", (username,)))
 
     def get_user_by_id(self, user_id: int) -> dict[str, Any] | None:
-        return self._with_access(self._fetchone(f"{self.USER_SELECT} WHERE u.id = %s", (user_id,)))
+        return self._with_access(self._fetchone(f"{self.USER_SELECT} WHERE u.id = %s AND d.user_id IS NULL", (user_id,)))
 
     def get_user_by_email(self, email: str) -> dict[str, Any] | None:
         return self._with_access(self._fetchone(f"{self.USER_SELECT} WHERE u.email = %s", (email,)))
@@ -678,11 +695,58 @@ class MySqlAuthStore:
         assignments.append("updated_at = %s")
         params.extend((now, user_id))
         self._execute(
-            f"UPDATE sys_user SET {', '.join(assignments)} WHERE id = %s", tuple(params)
+            f"UPDATE sys_user u LEFT JOIN auth_deleted_account d ON d.user_id = u.id "
+            f"SET {', '.join('u.' + assignment for assignment in assignments)} "
+            "WHERE u.id = %s AND d.user_id IS NULL", tuple(params)
         )
 
     def list_users(self) -> list[dict[str, Any]]:
-        return [self._with_access(row) or row for row in self._fetchall(f"{self.USER_SELECT} ORDER BY u.id")]
+        rows = self._fetchall(f"{self.USER_SELECT} WHERE d.user_id IS NULL ORDER BY u.id")
+        return [self._with_access(row) or row for row in rows]
+
+    def list_deletable_users(self, actor_id: int) -> list[dict[str, Any]]:
+        return self._fetchall(
+            """
+            SELECT u.id, u.username, coalesce(nullif(u.full_name, ''), u.username) AS display_name,
+                   u.is_active AS is_enabled
+            FROM sys_user u LEFT JOIN auth_deleted_account d ON d.user_id = u.id
+            WHERE u.id <> %s AND coalesce(u.role, '') <> 'admin' AND d.user_id IS NULL
+            ORDER BY u.id
+            """,
+            (actor_id,),
+        )
+
+    def delete_user(self, user_id: int, revoked_at: datetime, audit: dict[str, Any]) -> None:
+        deleted_at = audit["created_at"]
+        connection = self.source.connect()
+        try:
+            connection.begin()
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT (role = 'admin') AS is_admin FROM sys_user WHERE id = %s FOR UPDATE", (user_id,))
+                target = cursor.fetchone()
+                if target is None:
+                    raise AuthError("账号不存在", 404, "USER_NOT_FOUND")
+                if target[0]:
+                    raise AuthError("不能删除系统管理员账号", 403, "ADMIN_DELETE_FORBIDDEN")
+                cursor.execute("SELECT user_id FROM auth_deleted_account WHERE user_id = %s", (user_id,))
+                if cursor.fetchone():
+                    raise AuthError("账号不存在或已删除", 404, "USER_NOT_FOUND")
+                cursor.execute(
+                    "INSERT INTO auth_deleted_account (user_id, deleted_by, deleted_at) VALUES (%s, %s, %s)",
+                    (user_id, audit["user_id"], deleted_at),
+                )
+                cursor.execute("UPDATE sys_user SET is_active = 0, updated_at = %s WHERE id = %s", (deleted_at, user_id))
+                cursor.execute(
+                    "UPDATE auth_session SET revoked_at = %s WHERE user_id = %s AND revoked_at IS NULL",
+                    (revoked_at, user_id),
+                )
+                cursor.execute(self.AUDIT_INSERT, self._audit_params(audit))
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
 
     @staticmethod
     def _roster_table(database: str, table: str) -> str:
@@ -815,9 +879,10 @@ class MySqlAuthStore:
                 cursor.execute(
                     """
                     SELECT r.role_code, r.role_name, r.description, r.is_active,
-                           count(distinct ur.user_id) AS user_count
+                           count(distinct CASE WHEN d.user_id IS NULL THEN ur.user_id END) AS user_count
                     FROM sys_role r
                     LEFT JOIN sys_user_role ur ON ur.role_id = r.id
+                    LEFT JOIN auth_deleted_account d ON d.user_id = ur.user_id
                     GROUP BY r.id, r.role_code, r.role_name, r.description, r.is_active
                     ORDER BY r.id
                     """
@@ -1114,7 +1179,8 @@ class MySqlAuthStore:
             FROM auth_session s
             JOIN sys_user u ON u.id = s.user_id
             LEFT JOIN auth_user_security sec ON sec.user_id = u.id
-            WHERE s.token_hash = %s
+            LEFT JOIN auth_deleted_account d ON d.user_id = u.id
+            WHERE s.token_hash = %s AND d.user_id IS NULL
             """,
             (hashed_token,),
         ))
@@ -1137,20 +1203,16 @@ class MySqlAuthStore:
             (now, user_id),
         )
 
-    def write_audit(self, values: dict[str, Any]) -> None:
-        self._execute(
-            """
-            INSERT INTO auth_audit_log (
-                user_id, username, action, success, ip_address, user_agent,
-                detail_json, created_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                values.get("user_id"), values.get("username"), values["action"],
-                int(values["success"]), values.get("ip_address"), values.get("user_agent"),
-                json.dumps(values.get("detail") or {}, ensure_ascii=False), values["created_at"],
-            ),
+    @staticmethod
+    def _audit_params(values: dict[str, Any]) -> tuple[Any, ...]:
+        return (
+            values.get("user_id"), values.get("username"), values["action"],
+            int(values["success"]), values.get("ip_address"), values.get("user_agent"),
+            json.dumps(values.get("detail") or {}, ensure_ascii=False), values["created_at"],
         )
+
+    def write_audit(self, values: dict[str, Any]) -> None:
+        self._execute(self.AUDIT_INSERT, self._audit_params(values))
 
     def list_audits(self, limit: int = 200) -> list[dict[str, Any]]:
         return self._fetchall(
@@ -1242,7 +1304,8 @@ class MemoryAuthStore:
 
     def get_user_by_id(self, user_id: int) -> dict[str, Any] | None:
         with self._lock:
-            return deepcopy(self.users.get(user_id))
+            user = self.users.get(user_id)
+            return deepcopy(user) if user and not user.get("deleted_at") else None
 
     def get_user_by_email(self, email: str) -> dict[str, Any] | None:
         with self._lock:
@@ -1280,11 +1343,28 @@ class MemoryAuthStore:
 
     def update_user(self, user_id: int, values: dict[str, Any], now: datetime) -> None:
         with self._lock:
+            if self.users[user_id].get("deleted_at"):
+                return
             self.users[user_id].update(**deepcopy(values), updated_at=now)
 
     def list_users(self) -> list[dict[str, Any]]:
         with self._lock:
-            return [deepcopy(self.users[key]) for key in sorted(self.users)]
+            return [deepcopy(row) for _, row in sorted(self.users.items()) if not row.get("deleted_at")]
+
+    def list_deletable_users(self, actor_id: int) -> list[dict[str, Any]]:
+        return [row for row in self.list_users() if row["id"] != actor_id and not row["is_admin"]]
+
+    def delete_user(self, user_id: int, revoked_at: datetime, audit: dict[str, Any]) -> None:
+        with self._lock:
+            target = self.get_user_by_id(user_id)
+            if not target:
+                raise AuthError("账号不存在或已删除", 404, "USER_NOT_FOUND")
+            if target["is_admin"]:
+                raise AuthError("不能删除系统管理员账号", 403, "ADMIN_DELETE_FORBIDDEN")
+            deleted_at = audit["created_at"]
+            self.users[user_id].update(is_enabled=False, deleted_at=deleted_at, deleted_by=audit["user_id"], updated_at=deleted_at)
+            self.revoke_user_sessions(user_id, revoked_at)
+            self.write_audit(audit)
 
     def search_employees(
         self, database: str, table: str, keyword: str, limit: int = 30,
@@ -1338,7 +1418,7 @@ class MemoryAuthStore:
     def list_roles(self) -> list[dict[str, Any]]:
         with self._lock:
             counts = {
-                code: sum(code in row.get("role_codes", []) for row in self.users.values())
+                code: sum(code in row.get("role_codes", []) for row in self.users.values() if not row.get("deleted_at"))
                 for code in self.roles
             }
             return [
@@ -1421,7 +1501,7 @@ class MemoryAuthStore:
             if not session:
                 return None
             user = self.users.get(int(session["user_id"]))
-            return deepcopy({**session, **(user or {})}) if user else None
+            return deepcopy({**session, **user}) if user and not user.get("deleted_at") else None
 
     def touch_session(self, session_id: int, now: datetime) -> None:
         with self._lock:
@@ -1528,18 +1608,29 @@ class AuthManager:
     def iso(value: Any) -> str | None:
         return value.isoformat(timespec="seconds") if isinstance(value, datetime) else None
 
-    def audit(
-        self, action: str, success: bool, *, user: dict[str, Any] | None = None,
+    @staticmethod
+    def _audit_values(
+        action: str, success: bool, *, user: dict[str, Any] | None = None,
         username: str | None = None, ip_address: str | None = None,
         user_agent: str | None = None, detail: dict[str, Any] | None = None,
-    ) -> None:
-        self.store.write_audit({
+    ) -> dict[str, Any]:
+        return {
             "user_id": user.get("id") if user else None,
             "username": user.get("username") if user else username,
             "action": action, "success": success, "ip_address": ip_address,
             "user_agent": (user_agent or "")[:500] or None,
             "detail": detail or {}, "created_at": business_now_naive(),
-        })
+        }
+
+    def audit(
+        self, action: str, success: bool, *, user: dict[str, Any] | None = None,
+        username: str | None = None, ip_address: str | None = None,
+        user_agent: str | None = None, detail: dict[str, Any] | None = None,
+    ) -> None:
+        self.store.write_audit(self._audit_values(
+            action, success, user=user, username=username, ip_address=ip_address,
+            user_agent=user_agent, detail=detail,
+        ))
 
     def login(self, username_value: str, password: str, ip_address: str, user_agent: str) -> dict[str, Any]:
         try:
@@ -1709,7 +1800,9 @@ class AuthManager:
         self.store.update_user(target_id, cleaned, business_now_naive())
         if cleaned.get("is_enabled") is False:
             self.store.revoke_user_sessions(target_id, self.now_fn())
-        updated = self.store.get_user_by_id(target_id) or target
+        updated = self.store.get_user_by_id(target_id)
+        if not updated:
+            raise AuthError("账号不存在或已删除", 404, "USER_NOT_FOUND")
         self.audit("update_user", True, user=actor, ip_address=ip_address, user_agent=user_agent, detail={"targetUserId": target_id, "changes": cleaned})
         return self.public_user(updated)
 
@@ -1730,6 +1823,29 @@ class AuthManager:
     def users(self, actor: dict[str, Any]) -> list[dict[str, Any]]:
         self.require_admin(actor)
         return [self.public_user(row) for row in self.store.list_users()]
+
+    @staticmethod
+    def require_account_delete(actor: dict[str, Any]) -> None:
+        if not actor.get("is_admin") and ACCOUNT_DELETE_PERMISSION not in (actor.get("permissions") or ()):
+            raise AuthError("没有删除账号权限", 403, "ACCOUNT_DELETE_FORBIDDEN")
+
+    def deletable_users(self, actor: dict[str, Any]) -> list[dict[str, Any]]:
+        self.require_account_delete(actor)
+        return [
+            {"id": row["id"], "username": row["username"], "displayName": row["display_name"], "isEnabled": bool(row["is_enabled"])}
+            for row in self.store.list_deletable_users(int(actor["id"]))
+        ]
+
+    def delete_user(self, actor: dict[str, Any], target_id: int, ip_address: str, user_agent: str) -> None:
+        self.require_account_delete(actor)
+        actor_id = int(actor["id"])
+        if actor_id == target_id:
+            raise AuthError("不能删除自己的账号", 403, "SELF_DELETE_FORBIDDEN")
+        audit = self._audit_values(
+            "delete_user", True, user=actor, ip_address=ip_address, user_agent=user_agent,
+            detail={"targetUserId": target_id},
+        )
+        self.store.delete_user(target_id, self.now_fn(), audit)
 
     def _roster_location(self) -> tuple[str, str]:
         return (
