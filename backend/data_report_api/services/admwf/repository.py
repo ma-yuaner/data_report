@@ -545,7 +545,108 @@ class AdmWorkflowRepository:
             else:
                 cursor.execute("SELECT COUNT(*) AS total FROM admwf_case c WHERE " + clause, values)
                 total = int(cursor.fetchone()["total"])
-        return {"items": items, "pagination": {"page": page, "pageSize": page_size, "total": total}}
+            current = business_now()
+            soon = current + timedelta(days=1)
+            cursor.execute(
+                "SELECT COUNT(DISTINCT c.id) AS case_count,"
+                "COUNT(DISTINCT CASE WHEN c.case_status='DRAFT' OR l.line_status IN ('PENDING_LEADER','PENDING_OPERATOR','PENDING_ACCEPT') THEN c.id END) AS pending_case_count,"
+                "COUNT(DISTINCT CASE WHEN c.case_status IN ('DRAFT','ACTIVE') THEN c.id END) AS open_case_count,"
+                "COUNT(DISTINCT CASE WHEN c.case_status IN ('DRAFT','ACTIVE') AND c.reply_deadline>=%s AND c.reply_deadline<%s THEN c.id END) AS soon_case_count,"
+                "COUNT(DISTINCT CASE WHEN c.case_status IN ('DRAFT','ACTIVE') AND c.reply_deadline<%s THEN c.id END) AS overdue_case_count,"
+                "COUNT(l.id) AS line_count,"
+                "SUM(CASE WHEN l.line_status IN ('PENDING_LEADER','PENDING_OPERATOR','PENDING_ACCEPT') THEN 1 ELSE 0 END) AS pending_line_count,"
+                "SUM(CASE WHEN l.line_status NOT IN ('COMPLETED','VOIDED','HISTORICAL') THEN 1 ELSE 0 END) AS open_line_count,"
+                "SUM(CASE WHEN c.case_status IN ('DRAFT','ACTIVE') AND c.reply_deadline>=%s AND c.reply_deadline<%s AND l.line_status NOT IN ('COMPLETED','VOIDED','HISTORICAL') THEN 1 ELSE 0 END) AS soon_line_count,"
+                "SUM(CASE WHEN c.case_status IN ('DRAFT','ACTIVE') AND c.reply_deadline<%s AND l.line_status NOT IN ('COMPLETED','VOIDED','HISTORICAL') THEN 1 ELSE 0 END) AS overdue_line_count "
+                "FROM admwf_case c LEFT JOIN admwf_case_line l ON l.case_id=c.id WHERE " + clause,
+                (current, soon, current, current, soon, current, *values),
+            )
+            summary = cursor.fetchone() or {}
+        return {
+            "items": items,
+            "pagination": {"page": page, "pageSize": page_size, "total": total},
+            "summary": summary,
+        }
+
+    def list_workbench(self, actor_id, capabilities, is_admin=False, limit=1000):
+        task_statuses = (
+            "PENDING_LEADER", "PENDING_OPERATOR", "PENDING_ACCEPT", "PROCESSING",
+            "PENDING_REVIEW", "WAITING_DIFF", "WAITING_COLLECTION",
+        )
+        conditions, values = [], []
+        if is_admin:
+            conditions.append("l.line_status IN (" + ",".join(["%s"] * len(task_statuses)) + ")")
+            values.extend(task_statuses)
+        else:
+            owner_statuses = []
+            if capabilities.get("assignLeader"):
+                owner_statuses.append("PENDING_LEADER")
+            if capabilities.get("review"):
+                owner_statuses.append("PENDING_REVIEW")
+            if capabilities.get("diffMatch"):
+                owner_statuses.append("WAITING_DIFF")
+            if capabilities.get("collection"):
+                owner_statuses.append("WAITING_COLLECTION")
+            if owner_statuses:
+                conditions.append(
+                    "(c.coordinator_id=%s AND l.line_status IN (" + ",".join(["%s"] * len(owner_statuses)) + "))"
+                )
+                values.extend([actor_id, *owner_statuses])
+            if capabilities.get("assignOperator"):
+                conditions.append("(l.leader_id=%s AND l.line_status='PENDING_OPERATOR')")
+                values.append(actor_id)
+            if capabilities.get("handle"):
+                conditions.append("(l.operator_id=%s AND l.line_status IN ('PENDING_ACCEPT','PROCESSING'))")
+                values.append(actor_id)
+        if not conditions:
+            return {"items": [], "summary": {"total": 0, "closableCaseCount": 0, "pendingTransferCount": 0}}
+        task_clause = "c.case_status='ACTIVE' AND (" + " OR ".join(conditions) + ")"
+        with self.transaction() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT c.id AS case_id,l.id AS line_id,l.operator_id,c.internal_no,l.line_internal_no,"
+                "l.line_status,l.recovery_status,l.appeal_status,l.department_name,l.leader_name,l.operator_name,"
+                "c.reply_deadline,c.coordinator_id "
+                "FROM admwf_case c JOIN admwf_case_line l ON l.case_id=c.id WHERE " + task_clause + " "
+                "ORDER BY CASE WHEN c.reply_deadline IS NULL THEN 1 ELSE 0 END,c.reply_deadline,c.id,l.id LIMIT %s",
+                (*values, max(1, min(int(limit), 1000))),
+            )
+            items = cursor.fetchall()
+            cursor.execute(
+                "SELECT COUNT(*) AS total FROM admwf_case c JOIN admwf_case_line l ON l.case_id=c.id WHERE " + task_clause,
+                values,
+            )
+            total = int(cursor.fetchone()["total"])
+            closable = 0
+            if is_admin or capabilities.get("close"):
+                close_owner = "1=1" if is_admin else "c.coordinator_id=%s"
+                close_values = () if is_admin else (actor_id,)
+                cursor.execute(
+                    "SELECT COUNT(*) AS total FROM admwf_case c WHERE c.case_status='ACTIVE' AND " + close_owner + " "
+                    "AND EXISTS (SELECT 1 FROM admwf_case_line l WHERE l.case_id=c.id) "
+                    "AND NOT EXISTS (SELECT 1 FROM admwf_case_line l WHERE l.case_id=c.id AND l.line_status NOT IN ('COMPLETED','VOIDED'))",
+                    close_values,
+                )
+                closable = int(cursor.fetchone()["total"])
+            pending_transfers = 0
+            if is_admin:
+                cursor.execute("SELECT COUNT(*) AS total FROM admwf_transfer WHERE status='PENDING'")
+                pending_transfers = int(cursor.fetchone()["total"])
+            elif capabilities.get("assignOperator") or capabilities.get("handle"):
+                cursor.execute(
+                    "SELECT COUNT(*) AS total FROM admwf_transfer WHERE status='PENDING' "
+                    "AND (requested_by_id=%s OR from_operator_id=%s OR to_operator_id=%s)",
+                    (actor_id, actor_id, actor_id),
+                )
+                pending_transfers = int(cursor.fetchone()["total"])
+        return {
+            "items": items,
+            "summary": {
+                "total": total,
+                "closableCaseCount": closable,
+                "pendingTransferCount": pending_transfers,
+                "truncated": total > len(items),
+            },
+        }
 
     @staticmethod
     def _lock_case_and_line(connection, case_id, line_id):

@@ -183,7 +183,7 @@
       :title="`订单清单 · ${orderMetrics.find((item) => item.key === orderMetric)?.title || '全部订单明细'}`"
       width="1180px"
       :footer="null"
-      wrap-class-name="v05-modal"
+      wrap-class-name="v05-modal global-orders-modal"
       ><div class="v05-table-wrap global-order-table">
         <table>
           <thead>
@@ -491,6 +491,9 @@ const route = useRoute(),
 const config = ref<AdmConfig | null>(null),
   rows = ref<AdmCaseRow[]>([]),
   details = ref<AdmCaseDetail[]>([]),
+  ledgerSummary = ref<Fields>({}),
+  workbenchItems = ref<Fields[]>([]),
+  workbenchSummary = ref<Fields>({}),
   loading = ref(false),
   error = ref(''),
   page = ref(1),
@@ -507,18 +510,25 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
+    if (isWorkbench.value) {
+      const result = await admApi.workbench()
+      workbenchItems.value = result.items
+      workbenchSummary.value = result.summary || {}
+      rows.value = []
+      details.value = []
+      total.value = Number(result.summary?.total || result.items.length)
+      return
+    }
     const result = await admApi.list({
       search: filters.search,
       status: filters.status,
-      activeOnly: isWorkbench.value,
       page: page.value,
-      pageSize: isWorkbench.value ? 100 : pageSize.value,
+      pageSize: pageSize.value,
     })
     rows.value = result.items
     total.value = result.pagination.total
-    details.value = isWorkbench.value
-      ? await Promise.all(rows.value.map((item) => admApi.detail(item.id)))
-      : []
+    ledgerSummary.value = result.summary || {}
+    details.value = []
   } catch (e) {
     error.value = errorText(e)
   } finally {
@@ -559,70 +569,45 @@ const availableRoles = computed(() => {
   if (p?.handle) roles.push('操作人员')
   return roles
 })
-const tasks = computed(() =>
-  details.value.flatMap((detail) =>
-    detail.lines
-      .filter((line) => {
-        const admin = !!auth.user?.isAdmin,
-          p = config.value?.permissions || {},
-          mineCoordinator = admin || Number(detail.case.coordinatorId) === myId.value,
-          mineLeader = admin || Number(line.leaderId) === myId.value,
-          mineOperator = admin || Number(line.operatorId) === myId.value
-        return (
-          ((admin || p.review || p.collection || p.close || p.assignLeader) &&
-            mineCoordinator &&
-            ['PENDING_LEADER', 'PENDING_REVIEW', 'WAITING_DIFF', 'WAITING_COLLECTION'].includes(line.lineStatus)) ||
-          ((admin || p.assign || p.assignOperator) && mineLeader && line.lineStatus === 'PENDING_OPERATOR') ||
-          ((admin || p.handle) && mineOperator && ['PENDING_ACCEPT', 'PROCESSING'].includes(line.lineStatus))
-        )
-      })
-      .map((line) => {
-        const role = ['PENDING_LEADER', 'PENDING_REVIEW', 'WAITING_DIFF', 'WAITING_COLLECTION'].includes(
-          line.lineStatus,
-        )
-          ? 'ADM负责人'
-          : line.lineStatus === 'PENDING_OPERATOR'
-            ? '组长'
-            : '操作人员'
-        return {
-          caseId: detail.case.id,
-          lineId: line.id,
-          operatorId: line.operatorId,
-          internalNo: detail.case.internalNo,
-          lineInternalNo: line.lineInternalNo,
-          status: line.lineStatus,
-          recoveryStatus: line.recoveryStatus,
-          appealStatus: line.appealStatus,
-          role,
-          kind: taskKind(line.lineStatus),
-          title: (
-            {
-              PENDING_LEADER: '分配负责组长',
-              PENDING_OPERATOR: '分配操作人员',
-              PENDING_ACCEPT: '确认接单',
-              PROCESSING: '办理订单',
-              PENDING_REVIEW: 'ADM负责人审核',
-              WAITING_DIFF: '匹配差异单',
-              WAITING_COLLECTION: '登记回款',
-            } as Fields
-          )[line.lineStatus],
-          previous: `${line.departmentName} · ${line.leaderName || '未分配组长'} · ${line.operatorName || '未分配操作员'}`,
-          next: (
-            {
-              PENDING_LEADER: '组长分配操作人员',
-              PENDING_OPERATOR: '操作员接单',
-              PENDING_ACCEPT: '进入订单办理',
-              PROCESSING: '提交ADM负责人审核',
-              PENDING_REVIEW: '通过或退回原操作员',
-              WAITING_DIFF: '匹配后进入回款或完成',
-              WAITING_COLLECTION: '累计回款完成',
-            } as Fields
-          )[line.lineStatus],
-          deadline: detail.case.replyDeadline,
-          overdue: !!detail.case.replyDeadline && new Date(detail.case.replyDeadline).getTime() < now(),
-        }
-      }),
-  ),
+const tasks = computed<Fields[]>(() =>
+  workbenchItems.value.map((line): Fields => {
+    const role = ['PENDING_LEADER', 'PENDING_REVIEW', 'WAITING_DIFF', 'WAITING_COLLECTION'].includes(line.lineStatus)
+      ? 'ADM负责人'
+      : line.lineStatus === 'PENDING_OPERATOR'
+        ? '组长'
+        : '操作人员'
+    return {
+      ...line,
+      status: line.lineStatus,
+      role,
+      kind: taskKind(line.lineStatus),
+      title: (
+        {
+          PENDING_LEADER: '分配负责组长',
+          PENDING_OPERATOR: '分配操作人员',
+          PENDING_ACCEPT: '确认接单',
+          PROCESSING: '办理订单',
+          PENDING_REVIEW: 'ADM负责人审核',
+          WAITING_DIFF: '匹配差异单',
+          WAITING_COLLECTION: '登记回款',
+        } as Fields
+      )[line.lineStatus],
+      previous: `${line.departmentName} · ${line.leaderName || '未分配组长'} · ${line.operatorName || '未分配操作员'}`,
+      next: (
+        {
+          PENDING_LEADER: '组长分配操作人员',
+          PENDING_OPERATOR: '操作员接单',
+          PENDING_ACCEPT: '进入订单办理',
+          PROCESSING: '提交ADM负责人审核',
+          PENDING_REVIEW: '通过或退回原操作员',
+          WAITING_DIFF: '匹配后进入回款或完成',
+          WAITING_COLLECTION: '累计回款完成',
+        } as Fields
+      )[line.lineStatus],
+      deadline: line.replyDeadline,
+      overdue: !!line.replyDeadline && new Date(line.replyDeadline).getTime() < now(),
+    }
+  }),
 )
 const dueKind = (t: Fields) => {
   if (!t.deadline) return 'normal'
@@ -645,9 +630,7 @@ const workMetrics = computed(() => {
       {
         key: 'close',
         title: '可以结案',
-        value: details.value.filter(
-          (d) => d.case.caseStatus === 'ACTIVE' && d.lines.every((l) => ['COMPLETED', 'VOIDED'].includes(l.lineStatus)),
-        ).length,
+        value: Number(workbenchSummary.value.closableCaseCount || 0),
       },
     )
   if (availableRoles.value.includes('组长'))
@@ -656,7 +639,7 @@ const workMetrics = computed(() => {
       {
         key: 'transfer',
         title: '转派申请',
-        value: details.value.flatMap((d) => d.transfers || []).filter((t) => t.status === 'PENDING').length,
+        value: Number(workbenchSummary.value.pendingTransferCount || 0),
       },
     )
   if (availableRoles.value.includes('操作人员'))
@@ -666,14 +649,12 @@ const workMetrics = computed(() => {
       {
         key: 'codeReminder',
         title: '编码恢复提醒',
-        value: allLines.value.filter((l) => l.recoveryStatus === 'REMINDER_DUE' && Number(l.operatorId) === myId.value)
-          .length,
+        value: tasks.value.filter((item) => item.recoveryStatus === 'REMINDER_DUE').length,
       },
       {
         key: 'appeal',
         title: '申诉中',
-        value: allLines.value.filter((l) => l.appealStatus === 'IN_PROGRESS' && Number(l.operatorId) === myId.value)
-          .length,
+        value: tasks.value.filter((item) => item.appealStatus === 'IN_PROGRESS').length,
       },
     )
   items.push(
@@ -753,17 +734,16 @@ async function commitOperatorImport() {
     operatorImportBusy.value = false
   }
 }
-const allLines = computed(() => details.value.flatMap((x) => x.lines)),
-  isPendingCase = (r: AdmCaseRow) =>
+const isPendingCase = (r: AdmCaseRow) =>
     ['DRAFT', 'PENDING'].includes(r.caseStatus) ||
     Number(r.pendingOperatorCount || 0) + Number(r.pendingAcceptCount || 0) > 0,
   isOpenCase = (r: AdmCaseRow) => !['CLOSED', 'VOIDED'].includes(r.caseStatus)
 const masterMetrics = computed(() => [
-  { key: 'range', title: '范围内主单', value: total.value },
-  { key: 'pending', title: '待处理主单', value: rows.value.filter(isPendingCase).length },
-  { key: 'open', title: '未结案主单', value: rows.value.filter(isOpenCase).length },
-  { key: 'soon', title: '即将超时主单', value: rows.value.filter((r) => riskText(r) === '即将超时').length },
-  { key: 'late', title: '已超时主单', value: rows.value.filter((r) => riskText(r) === '已超时').length },
+  { key: 'range', title: '范围内主单', value: Number(ledgerSummary.value.caseCount ?? total.value) },
+  { key: 'pending', title: '待处理主单', value: Number(ledgerSummary.value.pendingCaseCount ?? rows.value.filter(isPendingCase).length) },
+  { key: 'open', title: '未结案主单', value: Number(ledgerSummary.value.openCaseCount ?? rows.value.filter(isOpenCase).length) },
+  { key: 'soon', title: '即将超时主单', value: Number(ledgerSummary.value.soonCaseCount ?? rows.value.filter((r) => riskText(r) === '即将超时').length) },
+  { key: 'late', title: '已超时主单', value: Number(ledgerSummary.value.overdueCaseCount ?? rows.value.filter((r) => riskText(r) === '已超时').length) },
 ])
 const openLineCount = (r: AdmCaseRow) =>
   Math.max(
@@ -773,26 +753,26 @@ const openLineCount = (r: AdmCaseRow) =>
   )
 const sumRows = (selector: (row: AdmCaseRow) => number) => rows.value.reduce((sum, row) => sum + selector(row), 0)
 const orderMetrics = computed(() => [
-  { key: 'all', title: '订单明细', value: sumRows((r) => Number(r.lineCount || 0)) },
+  { key: 'all', title: '订单明细', value: Number(ledgerSummary.value.lineCount ?? sumRows((r) => Number(r.lineCount || 0))) },
   {
     key: 'pending',
     title: '待处理订单明细',
-    value: sumRows((r) => Number(r.pendingOperatorCount || 0) + Number(r.pendingAcceptCount || 0)),
+    value: Number(ledgerSummary.value.pendingLineCount ?? sumRows((r) => Number(r.pendingLeaderCount || 0) + Number(r.pendingOperatorCount || 0) + Number(r.pendingAcceptCount || 0))),
   },
   {
     key: 'open',
     title: '未完成订单明细',
-    value: sumRows(openLineCount),
+    value: Number(ledgerSummary.value.openLineCount ?? sumRows(openLineCount)),
   },
   {
     key: 'soon',
     title: '即将超时订单明细',
-    value: sumRows((r) => (riskText(r) === '即将超时' ? openLineCount(r) : 0)),
+    value: Number(ledgerSummary.value.soonLineCount ?? sumRows((r) => (riskText(r) === '即将超时' ? openLineCount(r) : 0))),
   },
   {
     key: 'late',
     title: '已超时订单明细',
-    value: sumRows((r) => (riskText(r) === '已超时' ? openLineCount(r) : 0)),
+    value: Number(ledgerSummary.value.overdueLineCount ?? sumRows((r) => (riskText(r) === '已超时' ? openLineCount(r) : 0))),
   },
 ])
 const globalOrdersOpen = ref(false),

@@ -46,7 +46,8 @@ export const admApi = {
   config: () => data<AdmConfig>(http.get(`${base}/config`)),
   options: (kind: string, search = '', limit = 100) => data<Option[]>(http.get(`${base}/reference-options/${encodeURIComponent(kind)}`, { params: { search, limit } })),
   exchangeRate: (currency: string) => data<FxSnapshot>(http.get(`${base}/exchange-rate`, { params: { currency } })),
-  list: (params: Fields) => data<{ items: AdmCaseRow[]; pagination: Fields }>(http.get(`${base}/cases`, { params })),
+  list: (params: Fields) => data<{ items: AdmCaseRow[]; pagination: Fields; summary?: Fields }>(http.get(`${base}/cases`, { params })),
+  workbench: () => data<{ items: Fields[]; summary: Fields }>(http.get(`${base}/workbench`)),
   detail: (caseId: number | string) => data<AdmCaseDetail>(http.get(casePath(caseId))),
   summary: (caseId: number | string) => data<AdmCaseDetail>(http.get(`${casePath(caseId)}/summary`)),
   updateCase: (caseId: number | string, body: Fields) => data<AdmCaseDetail>(http.patch(casePath(caseId), body)),
@@ -96,7 +97,19 @@ export const statusLabel: Record<string, string> = {
   UNDECIDED: '待判断', NOT_REQUIRED: '无需恢复', WAITING: '等待恢复', REMINDER_DUE: '恢复待查看', CONFIRMED: '已恢复并查看',
   IN_PROGRESS: '申诉中', SUCCEEDED: '申诉成功', FAILED: '申诉失败', NO_APPEAL: '不申诉', RETURNED: '审核退回', WITHDRAWN: '已撤回',
   SUPPLIER: '供应商', PLATFORM: '平台', AIRLINE: '航司', HUMAN: '人为问题', SYSTEM: '系统问题',
-  MATCHED: '已录入', UNMATCHED: '未录入', PENDING: '待匹配', APPROVED: '审核通过', VALID: '有效', VOID: '已作废',
+  NOT_MATCHED: '未录入', QUERY_FAILED: '查询失败', NOT_CONNECTED: '未连接',
+  MATCHED: '已录入', MATCHED_OTA_ORDER: '已录入', MATCHED_LEGACY_ADM_NO: '已录入', MATCHED_LINE_INTERNAL_NO: '已录入',
+  UNMATCHED: '未录入', PENDING: '待匹配', APPROVED: '审核通过', VALID: '有效', VOID: '已作废',
 }
 export const label = (value: unknown) => statusLabel[String(value)] || String(value ?? '—')
+export const diffMatchLabel = (value: unknown) => {
+  const status = String(value || 'NOT_REQUIRED')
+  if (status === 'NOT_REQUIRED') return '无需匹配'
+  if (status.startsWith('MATCHED_')) return '已录入'
+  return statusLabel[status] || status
+}
+export const diffMatchTone = (value: unknown) => {
+  const status = String(value || 'NOT_REQUIRED')
+  return status.startsWith('MATCHED_') || status === 'MATCHED' ? 'green' : status === 'NOT_REQUIRED' ? 'blue' : 'red'
+}
 export const errorText = (error: unknown) => (error as { message?: string })?.message || '请求失败，请重试'

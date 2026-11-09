@@ -67,6 +67,11 @@ def register_routes(api: Blueprint) -> None:
     def admwf_cases(service, user):
         return service.list_cases(user, request.args)
 
+    @api.get("/v1/adm/workbench")
+    @admwf_response
+    def admwf_workbench(service, user):
+        return service.workbench(user)
+
     @api.post("/v1/adm/cases")
     @admwf_response
     def admwf_create(service, user):

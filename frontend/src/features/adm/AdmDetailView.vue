@@ -12,6 +12,9 @@
           style="margin-bottom: 16px"
         />
         <template v-if="record">
+          <div class="detail-page-actions">
+            <button :disabled="!canAddLine" class="primary" @click="openAddLine">＋ 新增订单明细</button>
+          </div>
           <div class="v05-summary">
             <div>
               <span :class="['pill', statusTone]">● {{ hasRecord ? label(record.case.caseStatus) : '暂无数据' }}</span>
@@ -48,12 +51,6 @@
             <div class="summary-actions">
               <button @click="masterInfoOpen = true">{{ canEditMasterBasic ? '编辑基础信息' : '查看基础信息' }}</button
               ><button :disabled="loading" @click="() => load()">刷新</button
-              ><button
-                :disabled="!canAddLine"
-                class="primary"
-                @click="openAddLine"
-              >
-                ＋ 新增订单明细</button
               ><button v-if="canCreate && record.case.caseStatus === 'DRAFT'" class="primary" @click="publishDraft">
                 发布草稿</button
               ><button
@@ -170,9 +167,9 @@
                           ><span v-if="line.appealStatus && line.appealStatus !== 'UNDECIDED'" class="pill amber"
                             >申诉：{{ label(line.appealStatus) }}</span
                           ><span
-                            v-if="line.diffMatchStatus && line.diffMatchStatus !== 'NOT_REQUIRED'"
-                            :class="['pill', line.diffMatchStatus === 'MATCHED' ? 'green' : 'red']"
-                            >差异订单{{ label(line.diffMatchStatus) }}</span
+                            v-if="line.diffMatchStatus"
+                            :class="['pill', diffMatchTone(line.diffMatchStatus)]"
+                            >差异单：{{ diffMatchLabel(line.diffMatchStatus) }}</span
                           >
                         </div>
                       </td>
@@ -237,7 +234,7 @@
                   <p>处理决定：{{ appealTitle }} · 结果：{{ appealCopy }}</p>
                   <p v-if="selectedLine.investigationNote">订单情况说明：{{ selectedLine.investigationNote }}</p>
                   <p v-if="selectedLine.problemAttribution">问题归因：{{ label(selectedLine.problemAttribution) }}</p>
-                  <p v-if="['NO_APPEAL', 'FAILED'].includes(selectedLine.appealStatus)">差异订单匹配：{{ label(selectedLine.diffMatchStatus) }} · {{ selectedLine.otaOrderNo || selectedLine.lineInternalNo }}</p>
+                  <p>是否匹配到差异单：{{ diffMatchLabel(selectedLine.diffMatchStatus) }} · {{ selectedLine.otaOrderNo || selectedLine.lineInternalNo }}</p>
                   <p>本单可用附件：{{ activeAttachments.length }} 份</p>
                 </section>
 
@@ -569,6 +566,8 @@ import AdmLineBasicModal from './AdmLineBasicModal.vue'
 import AdmMasterBasicModal from './AdmMasterBasicModal.vue'
 import {
   admApi,
+  diffMatchLabel,
+  diffMatchTone,
   errorText,
   label,
   type AdmCaseDetail,

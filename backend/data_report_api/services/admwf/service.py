@@ -446,6 +446,22 @@ class AdmWorkflowService:
         }
         return _json_value(self.repository.list_cases(filters, page, page_size))
 
+    def workbench(self, user):
+        require(user, "adm.view")
+        capabilities = {
+            "assignLeader": has(user, "adm.assign_leader") or has(user, "adm.review"),
+            "assignOperator": has(user, "adm.assign_operator") or has(user, "adm.assign"),
+            "handle": has(user, "adm.handle"),
+            "review": has(user, "adm.review"),
+            "diffMatch": has(user, "adm.diff_match") or has(user, "adm.review"),
+            "collection": has(user, "adm.collection") or has(user, "adm.review"),
+            "close": has(user, "adm.close") or has(user, "adm.review"),
+        }
+        actor = self._actor(user)
+        return _json_value(self.repository.list_workbench(
+            actor["id"], capabilities, is_admin=bool(user.get("is_admin")),
+        ))
+
     def assign_operator(self, user, case_id, line_id, body):
         require_any(user, "adm.assign_operator", "adm.assign")
         result = self.repository.get_case(int(case_id))
