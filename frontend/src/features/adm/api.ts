@@ -14,6 +14,7 @@ export interface FxSnapshot extends Fields {
 }
 export interface AdmConfig extends Fields {
   caseStatuses: string[]; lineStatuses: string[]; issuerTypes: string[]
+  sourceTypes: string[]
   appealResults: string[]; problemAttributions: string[]; attachmentCategories: string[]
   people: { handle: Person[]; leader: Person[]; coordinate: Person[] }
   permissions: Record<string, boolean>
@@ -31,6 +32,7 @@ export interface AdmCaseDetail extends Fields {
   case: AdmCaseRow; lines: AdmLine[]; attachments: Fields[]; assignments: Fields[]
   responsibilitySegments: Fields[]; recoveries: Fields[]; appeals: Fields[]; reviews: Fields[]
   diffMatches: Fields[]; collections: Fields[]; transfers: Fields[]; operationLogs: Fields[]
+  legacySource: Fields | null
 }
 export type AdmLedgerLine = Pick<AdmLine, 'id' | 'caseId' | 'lineInternalNo' | 'lineStatus' |
   'departmentName' | 'leaderName' | 'operatorName'> & {
@@ -89,7 +91,7 @@ export const admApi = {
   close: (caseId: number) => data<Fields>(http.post(`${casePath(caseId)}/close`, {})),
   voidCase: (caseId: number, reason: string) => data<Fields>(http.post(`${casePath(caseId)}/void`, { reason })),
   operatorImport: (file: File, dryRun: boolean) => { const form = new FormData(); form.append('file', file); form.append('dryRun', String(dryRun)); return data<Fields>(http.post(`${base}/operator-imports`, form)) },
-  upload: (caseId: number, file: File, category: string) => { const form = new FormData(); form.append('file', file); form.append('category', category); return data<Fields>(http.post(`${casePath(caseId)}/attachments`, form)) },
+  upload: (caseId: number, file: File, category: string, lineId?: number) => { const form = new FormData(); form.append('file', file); form.append('category', category); if (lineId) form.append('lineId', String(lineId)); return data<AdmCaseDetail>(http.post(`${casePath(caseId)}/attachments`, form)) },
   file: (caseId: number, attachmentId: number, mode: 'preview') => http.get<Blob>(`${casePath(caseId)}/attachments/${attachmentId}/${mode}`, { responseType: 'blob' }),
   voidAttachment: (caseId: number, attachmentId: number, reason: string) => data<Fields>(http.post(`${casePath(caseId)}/attachments/${attachmentId}/void`, { reason })),
 }
@@ -102,12 +104,13 @@ export const statusLabel: Record<string, string> = {
   DRAFT: '草稿', ACTIVE: '处理中', CLOSED: '已结案', HISTORICAL: '历史只读', VOIDED: '已作废', DELETED: '已删除',
   PENDING_LEADER: '待分配组长', PENDING_OPERATOR: '待分配操作员', PENDING_ACCEPT: '待接单', PROCESSING: '办理中',
   PENDING_REVIEW: '待负责人审核', WAITING_DIFF: '待匹配差异单', WAITING_COLLECTION: '待回款', COMPLETED: '已完成',
-  UNDECIDED: '待判断', NOT_REQUIRED: '无需恢复', WAITING: '等待恢复', REMINDER_DUE: '恢复待查看', CONFIRMED: '已恢复并查看',
+  UNDECIDED: '待判断', NOT_REQUIRED: '无需恢复', WAITING: '等待中', REMINDER_DUE: '待确认', CONFIRMED: '已确认',
   IN_PROGRESS: '申诉中', SUCCEEDED: '申诉成功', FAILED: '申诉失败', NO_APPEAL: '不申诉', RETURNED: '审核退回', WITHDRAWN: '已撤回',
   SUPPLIER: '供应商', PLATFORM: '平台', AIRLINE: '航司', HUMAN: '人为问题', SYSTEM: '系统问题',
   NOT_MATCHED: '未录入', QUERY_FAILED: '查询失败', NOT_CONNECTED: '未连接',
   MATCHED: '已录入', MATCHED_OTA_ORDER: '已录入', MATCHED_LEGACY_ADM_NO: '已录入', MATCHED_LINE_INTERNAL_NO: '已录入',
   UNMATCHED: '未录入', PENDING: '待匹配', APPROVED: '审核通过', VALID: '有效', VOID: '已作废',
+  TEST: '测试数据', LEGACY: '旧系统数据', MANUAL: '新系统人工数据', EXCEL: '新系统导入数据',
 }
 export const label = (value: unknown) => statusLabel[String(value)] || String(value ?? '—')
 export const diffMatchLabel = (value: unknown) => {

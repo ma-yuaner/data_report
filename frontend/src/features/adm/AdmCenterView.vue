@@ -8,8 +8,8 @@
             <p>{{ roleHint }}</p>
           </div>
           <div class="v05-actions">
-            <button :disabled="!canOperatorWork" @click="claimAndExport">
-              接单并导出（{{ exportableIds.length }}）</button
+            <button :disabled="!canOperatorWork || !exportCandidates.length" @click="openExportSelection">
+              接单并导出（可选 {{ exportCandidates.length }}）</button
             ><button v-if="canOperatorWork" @click="operatorImportOpen = true">导入处理结果</button
             ><button :disabled="loading" @click="load">刷新任务</button>
           </div>
@@ -31,26 +31,19 @@
           :message="`当前显示前 ${workbenchItems.length} 条任务，共 ${workbenchSummary.total} 条；分类数仅统计已加载任务。`" />
         <div class="v05-work-list">
           <p v-if="loading" class="v05-card v05-empty" role="status">正在读取 ADM 任务…</p>
-          <article v-for="task in pagedTasks" :key="`${task.caseId}-${task.lineId}-${task.kind}`">
-            <div>
-              <b>{{ task.internalNo }} / {{ task.lineInternalNo }}</b
-              ><span>{{ task.role }}任务：{{ task.title }}</span>
+          <div v-else-if="pagedTasks.length" class="work-task-table">
+            <div class="work-task-row work-task-head" aria-hidden="true">
+              <span>ADM / 内部明细</span><span>任务类型</span><span>当前责任分配</span><span>当前需要处理</span><span>处理截止</span><span>操作</span>
             </div>
-            <dl>
-              <div>
-                <dt>任务来源</dt>
-                <dd>{{ task.previous }}</dd>
-              </div>
-              <div>
-                <dt>下一步</dt>
-                <dd>{{ task.next }}</dd>
-              </div>
-            </dl>
-            <div class="v05-due">
-              <small>处理截止</small><b :class="{ danger: task.overdue }">{{ task.deadline || '未设置' }}</b
-              ><button class="primary" @click="openTask(task)">去处理 →</button>
+            <div v-for="task in pagedTasks" :key="`${task.caseId}-${task.lineId}-${task.kind}`" class="work-task-row">
+              <div><b>{{ task.admNo || task.internalNo }}</b><small>{{ task.lineInternalNo }}</small></div>
+              <span class="work-task-type">{{ task.role }}任务：{{ task.title }}</span>
+              <span>{{ task.assignment }}</span>
+              <span>{{ task.requiredAction }}</span>
+              <b :class="{ danger: task.overdue }">{{ dateText(task.deadline) }}</b>
+              <button class="primary" @click="openTask(task)">去处理 →</button>
             </div>
-          </article>
+          </div>
           <div v-if="workbenchReady && !loading && !error && !visibleTasks.length" class="v05-card v05-empty">
             {{ workMetric ? '当前筛选下没有待办任务' : '当前账号暂无需要处理的ADM任务' }}
           </div>
@@ -132,9 +125,10 @@
               <tbody>
                 <tr v-for="record in shownRows" :key="record.id">
                   <td>
-                    <button class="link" @click="openCase(record.id)">{{ record.admNo }}</button
+                    <button class="link" @click="openMasterInfo(record)">{{ record.admNo }}</button
                     ><small>{{ label(record.issuerType) }} · {{ record.issuerName }}</small
                     ><small>系统记录：{{ record.internalNo }}</small>
+                    <span :class="['source-badge', sourceTone(record.sourceType)]">{{ sourceText(record.sourceType) }}</span>
                   </td>
                   <td>
                     <b>{{ record.currency }} {{ record.originalAmount }}</b
@@ -164,8 +158,7 @@
                   <td>{{ dateText(record.updatedAt) }}</td>
                   <td>
                     <div class="record-actions master-record-actions">
-                      <button class="primary" @click="openCase(record.id)">{{ canEditMasterRow(record) ? '编辑完整处理记录' : '查看完整处理记录' }}</button>
-                      <button @click="openMasterInfo(record)">{{ canEditMasterRow(record) ? '编辑基础信息' : '查看基础信息' }}</button>
+                      <button class="primary" @click="openCase(record)">{{ canEditMasterRow(record) ? '编辑完整处理记录' : '查看完整处理记录' }}</button>
                     </div>
                   </td>
                 </tr>
@@ -190,6 +183,52 @@
 
     <AdmMasterBasicModal :open="masterInfoOpen" :detail="selectedMasterDetail" :editable="selectedMasterEditable" @close="masterInfoOpen = false" @saved="masterInfoSaved" />
 
+    <a-modal v-model:open="exportSelectionOpen" title="导出本人待处理订单" width="min(1600px, 96vw)" :footer="null" wrap-class-name="v05-modal operator-export-modal">
+      <p class="context">按任务类型、筛选范围和具体订单确定本次 Excel 内容；待接单订单会在导出时自动接单。</p>
+      <section class="operator-export-section">
+        <h3>1. 选择任务类型</h3>
+        <div class="export-task-types">
+          <a-checkbox :checked="allExportTypesSelected" @change="toggleAllExportTypes">全选 <b>{{ exportCandidates.length }}</b></a-checkbox>
+          <a-checkbox v-for="item in exportTaskTypes" :key="item.name" :checked="selectedExportTypes.includes(item.name)" @change="toggleExportType(item.name)">
+            {{ item.name }} <b>{{ item.count }}</b>
+          </a-checkbox>
+        </div>
+      </section>
+      <section class="operator-export-section">
+        <h3>2. 继续筛选</h3>
+        <div class="export-filters">
+          <a-input v-model:value="exportFilters.adm" allow-clear placeholder="ADM 单号" />
+          <a-select v-model:value="exportFilters.leader" allow-clear placeholder="全部组长" :options="exportFilterOptions.leader" />
+          <a-select v-model:value="exportFilters.deadline" allow-clear placeholder="全部截止时间" :options="exportFilterOptions.deadline" />
+        </div>
+      </section>
+      <section class="operator-export-section">
+        <h3>3. 确定导出范围</h3>
+        <div class="export-scope">
+          <a-radio-group v-model:value="exportScope">
+            <a-radio value="all">当前筛选全部订单（{{ filteredExportCandidates.length }}）</a-radio>
+            <a-radio value="selected">仅勾选订单（{{ selectedFilteredExportCount }}）</a-radio>
+          </a-radio-group>
+          <strong>最终导出 {{ finalExportCandidates.length }} 笔</strong>
+        </div>
+      <div class="v05-table-wrap export-selection-table">
+        <table>
+          <thead><tr><th><a-checkbox :checked="allFilteredSelected" @change="toggleAllExport">全选</a-checkbox></th><th>任务类型</th><th>ADM / 内部明细</th><th>部门 / 组长</th><th>操作人员</th><th>截止时间</th></tr></thead>
+          <tbody>
+            <tr v-for="item in filteredExportCandidates" :key="item.lineId">
+              <td><a-checkbox :checked="selectedExportIds.includes(item.lineId)" @change="toggleExportItem(item.lineId)" /></td>
+              <td>{{ exportTaskType(item) }}</td>
+              <td><b>{{ item.admNo || item.internalNo }}</b><small>{{ item.lineInternalNo }}</small></td>
+              <td>{{ item.departmentName }}<small>{{ item.leaderName || '未分配组长' }}</small></td>
+              <td>{{ item.operatorName || '未分配' }}</td><td>{{ dateText(item.deadline) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      </section>
+      <div class="v05-modal-actions"><button @click="exportSelectionOpen = false">取消</button><button class="primary" :disabled="!finalExportCandidates.length" @click="claimAndExport">4. 导出 Excel（{{ finalExportCandidates.length }}）</button></div>
+    </a-modal>
+
     <a-modal
       v-model:open="globalOrdersOpen"
       :title="`订单清单 · ${orderMetrics.find((item) => item.key === orderMetric)?.title || '全部订单明细'}`"
@@ -211,16 +250,29 @@
           </thead>
           <tbody>
             <tr v-for="item in globalOrders" :key="item.id">
-              <td>
-                <b>{{ item.admNo }}</b
-                ><small>{{ item.lineInternalNo }}</small>
+              <td class="order-identity-cell">
+                <div class="order-cell-stack">
+                  <span class="order-cell-label">ADM单号</span>
+                  <b class="order-cell-primary">{{ item.admNo || '未填写' }}</b>
+                  <span class="order-cell-label">内部明细</span>
+                  <small class="order-cell-code">{{ item.lineInternalNo }}</small>
+                </div>
               </td>
-              <td>
-                {{ item.ticketNo || '未填写票号'
-                }}<small>OTA：{{ item.otaOrderNo || '未填写' }} · PNR：{{ item.pnr || '未填写' }}</small>
+              <td class="order-reference-cell">
+                <div class="order-cell-stack">
+                  <span class="order-cell-label">票号</span>
+                  <b class="order-cell-primary">{{ item.ticketNo || '未填写' }}</b>
+                  <div class="order-cell-pairs">
+                    <small><span>OTA订单号</span><b>{{ item.otaOrderNo || '未填写' }}</b></small>
+                    <small><span>PNR</span><b>{{ item.pnr || '未填写' }}</b></small>
+                  </div>
+                </div>
               </td>
-              <td>
-                {{ item.departmentName }}<small>组长：{{ item.leaderName || '未分配' }}</small>
+              <td class="order-owner-cell">
+                <div class="order-cell-pairs owner-pairs">
+                  <small><span>业务部门</span><b>{{ item.departmentName || '未分配' }}</b></small>
+                  <small><span>负责组长</span><b>{{ item.leaderName || '未分配' }}</b></small>
+                </div>
               </td>
               <td>{{ item.operatorName || '未分配' }}</td>
               <td>
@@ -250,8 +302,9 @@
       </p>
       <div class="import-zone">
         <b>⇧<br />上传操作人员处理结果</b>
-        <p>支持 .xlsx；导入前先预检，存在错误时不会写入业务数据。</p>
+        <p>待编码处理完成后才进入待决定；审核退回会明确区分“补充材料”或“重新申诉”，并只提供对应处理动作。</p>
         <input type="file" accept=".xlsx" @change="selectOperatorImport" />
+        <small>恢复编码决定和处理确认只在对应阶段的单元格中解锁；已恢复待确认时，可同一行确认处理并提交最终结果。</small>
       </div>
       <a-alert
         v-if="operatorImportNotice"
@@ -261,6 +314,12 @@
         style="margin-top: 14px"
       />
       <div v-if="operatorImportPreview?.rows?.length" class="v05-table-wrap">
+        <div class="import-summary">
+          <span>共 {{ operatorImportPreview.totalRows }} 行</span>
+          <span class="ok">可提交 {{ operatorImportPreview.validRows }} 行</span>
+          <span>跳过 {{ operatorImportPreview.skippedRows }} 行</span>
+          <span class="bad">错误 {{ operatorImportPreview.failedRows }} 行</span>
+        </div>
         <table>
           <thead>
             <tr>
@@ -268,6 +327,7 @@
               <th>内部明细</th>
               <th>处理动作</th>
               <th>预检状态</th>
+              <th>预检说明</th>
             </tr>
           </thead>
           <tbody>
@@ -276,6 +336,7 @@
               <td>{{ item.lineInternalNo }}</td>
               <td>{{ item.action }}</td>
               <td>{{ item.status }}</td>
+              <td>{{ item.reason }}</td>
             </tr>
           </tbody>
         </table>
@@ -457,7 +518,9 @@
       :ok-button-props="{ disabled: !preview?.canCommit }"
       @ok="commitImport"
       wrap-class-name="v05-modal"
-      ><p>一行一笔订单；同号但不同主单请拆成两次上传。系统先预检，通过后再正式建单。</p>
+      ><p>一行就是一条明细；同一ADM主单的多笔明细请分多行填写，并重复相同ADM单号及一致的主单字段。系统会为每行自动生成不同的内部明细ID。</p>
+      <p class="hint">模板自带两行同主单示例；ADM单号以“【示例】”开头的行会在预检时自动忽略。同号但不同主单请拆成两次上传。</p>
+      <p class="hint">当前19列模板只导入主单和明细，不导入附件；建单后请在ADM详情中分别上传主单公共附件或明细附件。</p>
       <div class="v05-actions">
         <button @click="downloadTemplate">下载 Excel 模板</button
         ><input type="file" accept=".xlsx" @change="selectImport" /><button
@@ -474,7 +537,8 @@
         :message="`共 ${preview.totalRows} 行，有效 ${preview.validRows} 行，错误 ${preview.failedRows} 行`"
         style="margin-top: 14px" />
       <p v-for="item in preview?.groups || []" :key="item.firstRow">
-        第 {{ item.firstRow }} 行 · {{ item.admNo || '未识别' }} · {{ item.status }} {{ item.message || '' }}
+        第 {{ item.firstRow }} 行起 · {{ item.admNo || '未识别' }} · {{ item.rowCount }} 条明细 ·
+        {{ item.status === 'VALID' ? '校验通过' : '校验失败' }} {{ item.message || '' }}
       </p>
       <a-alert v-if="importError" type="error" show-icon :message="importError"
     /></a-modal>
@@ -493,7 +557,6 @@ import {
   admApi,
   errorText,
   label,
-  saveBlob,
   type AdmCaseDetail,
   type AdmCaseRow,
   type AdmConfig,
@@ -524,7 +587,7 @@ const config = ref<AdmConfig | null>(null),
   total = ref(0),
   metric = ref(''),
   orderMetric = ref(''),
-  workMetric = ref('')
+  workMetric = ref(isWorkbench.value ? String(route.query.workMetric || '') : '')
 const masterInfoOpen = ref(false),
   selectedMasterDetail = ref<AdmCaseDetail | null>(null),
   selectedMasterEditable = ref(false)
@@ -587,6 +650,18 @@ function resetFilters() {
 const myId = computed(() => Number(auth.user?.id)),
   now = () => Date.now(),
   dateText = (v: unknown) => (v ? String(v).replace('T', ' ').slice(0, 16) : '—')
+const sourceText = (value: unknown) => ({
+    TEST: '测试数据', LEGACY: '旧系统数据 / 历史只读',
+    MANUAL: '新系统人工数据', EXCEL: '新系统导入数据',
+  } as Fields)[String(value || '')] || '来源未标记',
+  sourceTone = (value: unknown) => String(value || '').toLowerCase()
+const taskReturnMode = (item: Fields) => {
+  const reason = String(item.latestReviewReturnReason || '')
+  if (reason.startsWith('【驳回补充材料】')) return 'SUPPLEMENT'
+  if (reason.startsWith('【驳回重新申诉】')) return 'REAPPEAL'
+  if (item.latestReviewStatus === 'RETURNED' || item.reviewStatus === 'RETURNED') return 'SUPPLEMENT'
+  return ''
+}
 const taskKind = (s: string) =>
   (
     ({
@@ -610,7 +685,12 @@ const availableRoles = computed(() => {
 })
 const tasks = computed<Fields[]>(() =>
   workbenchItems.value.map((line): Fields => {
-    const role = ['PENDING_LEADER', 'PENDING_REVIEW', 'WAITING_DIFF', 'WAITING_COLLECTION'].includes(line.lineStatus)
+    const transferTask = line.taskType === 'TRANSFER_ACCEPT'
+    const returnMode = taskReturnMode(line)
+    const reviewWithdrawn = line.reviewStatus === 'WITHDRAWN' || line.latestReviewStatus === 'WITHDRAWN'
+    const role = transferTask
+      ? '操作人员'
+      : ['PENDING_LEADER', 'PENDING_REVIEW', 'WAITING_DIFF', 'WAITING_COLLECTION'].includes(line.lineStatus)
       ? 'ADM负责人'
       : line.lineStatus === 'PENDING_OPERATOR'
         ? '组长'
@@ -619,28 +699,36 @@ const tasks = computed<Fields[]>(() =>
       ...line,
       status: line.lineStatus,
       role,
-      kind: taskKind(line.lineStatus),
-      title: (
+      kind: transferTask ? 'transferAccept' : taskKind(line.lineStatus),
+      title: transferTask ? '确认是否接受转派' : (
         {
           PENDING_LEADER: '分配负责组长',
           PENDING_OPERATOR: '分配操作人员',
           PENDING_ACCEPT: '确认接单',
-          PROCESSING: '办理订单',
+          PROCESSING: reviewWithdrawn ? '审核撤回待重提' : returnMode === 'SUPPLEMENT' ? '驳回补充材料' : returnMode === 'REAPPEAL' ? '驳回重新申诉' : '办理订单',
           PENDING_REVIEW: 'ADM负责人审核',
           WAITING_DIFF: '匹配差异单',
           WAITING_COLLECTION: '登记回款',
         } as Fields
       )[line.lineStatus],
-      previous: `${line.departmentName} · ${line.leaderName || '未分配组长'} · ${line.operatorName || '未分配操作员'}`,
-      next: (
+      assignment: transferTask
+        ? `${line.fromOperatorName || line.operatorName || '原操作员'} → ${line.toOperatorName || '当前账号'}`
+        : `${line.departmentName} · ${line.leaderName || '未分配组长'} · ${line.operatorName || '未分配操作员'}`,
+      requiredAction: transferTask ? '确认接受转派，或填写原因拒绝转派' : (
         {
-          PENDING_LEADER: '组长分配操作人员',
-          PENDING_OPERATOR: '操作员接单',
-          PENDING_ACCEPT: '进入订单办理',
-          PROCESSING: '提交ADM负责人审核',
-          PENDING_REVIEW: '通过或退回原操作员',
-          WAITING_DIFF: '匹配后进入回款或完成',
-          WAITING_COLLECTION: '累计回款完成',
+          PENDING_LEADER: '选择并分配负责组长',
+          PENDING_OPERATOR: '选择并分配操作人员',
+          PENDING_ACCEPT: '确认是否接单',
+          PROCESSING: reviewWithdrawn
+            ? '按撤回原因更正资料后重新提交审核'
+            : returnMode === 'SUPPLEMENT'
+            ? '补充订单资料、问题说明或附件后重新提交审核'
+            : returnMode === 'REAPPEAL'
+              ? '重新选择申诉或不申诉，并提交新的处理结果'
+              : '完成编码恢复判断和处理决定，并提交审核',
+          PENDING_REVIEW: '审核处理结果，选择通过或退回',
+          WAITING_DIFF: '核验是否已匹配差异单',
+          WAITING_COLLECTION: '登记本次回款信息及凭证',
         } as Fields
       )[line.lineStatus],
       deadline: line.replyDeadline,
@@ -685,6 +773,7 @@ const workMetrics = computed(() => {
     )
   if (availableRoles.value.includes('操作人员'))
     items.push(
+      { key: 'transferAccept', title: '待确认转派', value: tasks.value.filter((t) => t.kind === 'transferAccept').length },
       { key: 'accept', title: '待接单', value: tasks.value.filter((t) => t.kind === 'accept').length },
       { key: 'process', title: '本人待办理', value: tasks.value.filter((t) => t.kind === 'process').length },
       {
@@ -713,7 +802,7 @@ const visibleTasks = computed(() => {
   return tasks.value.filter((t) => t.kind === (aliases[workMetric.value] || workMetric.value))
 })
 const workPageSize = 20
-const workPage = ref(1)
+const workPage = ref(Math.max(1, Number(route.query.page || 1)))
 const pagedTasks = computed(() =>
   visibleTasks.value.slice((workPage.value - 1) * workPageSize, workPage.value * workPageSize),
 )
@@ -722,22 +811,100 @@ function selectWorkMetric(key: string) {
   workPage.value = 1
 }
 function openTask(t: Fields) {
-  void router.push({ path: `/adm/cases/${t.caseId}`, query: { lineId: t.lineId } })
+  void router.push({
+    path: `/adm/cases/${t.caseId}`,
+    query: {
+      lineId: t.lineId,
+      taskAction: t.kind,
+      returnPage: String(workPage.value),
+      ...(workMetric.value ? { returnMetric: workMetric.value } : {}),
+    },
+  })
 }
 const canCreate = computed(() => !!auth.user?.isAdmin || !!config.value?.permissions.create),
   canOperatorWork = computed(() => !!auth.user?.isAdmin || !!config.value?.permissions.handle),
-  exportableIds = computed(() =>
+  exportCandidates = computed(() => {
+    const unique = new Map<number, Fields>()
     tasks.value
       .filter((t) => ['PENDING_ACCEPT', 'PROCESSING'].includes(t.status) && Number(t.operatorId) === myId.value)
-      .map((t) => t.lineId),
-  )
+      .forEach((item) => unique.set(Number(item.lineId), item))
+    return [...unique.values()]
+  })
+const exportSelectionOpen = ref(false),
+  selectedExportIds = ref<number[]>([]),
+  selectedExportTypes = ref<string[]>([]),
+  exportScope = ref<'all' | 'selected'>('all'),
+  exportFilters = reactive({ adm: '', leader: undefined as string | undefined, deadline: undefined as string | undefined })
+function exportTaskType(item: Fields) {
+  if (item.reviewStatus === 'WITHDRAWN' || item.latestReviewStatus === 'WITHDRAWN') return '审核撤回待重提'
+  const returnMode = taskReturnMode(item)
+  if (returnMode === 'SUPPLEMENT') return '驳回补充材料'
+  if (returnMode === 'REAPPEAL') return '驳回重新申诉'
+  if (['UNDECIDED', 'WAITING', 'REMINDER_DUE'].includes(String(item.recoveryStatus || 'UNDECIDED'))) return '待编码处理'
+  if (item.appealStatus === 'IN_PROGRESS') return '申诉中'
+  return '待决定'
+}
+const exportTaskTypes = computed(() =>
+    ['待编码处理', '待决定', '申诉中', '驳回补充材料', '驳回重新申诉', '审核撤回待重提'].map((name) => ({
+      name,
+      count: exportCandidates.value.filter((item) => exportTaskType(item) === name).length,
+    })),
+  ),
+  allExportTypesSelected = computed(() =>
+    !!exportTaskTypes.value.length && exportTaskTypes.value.every((item) => selectedExportTypes.value.includes(item.name)),
+  ),
+  exportFilterOptions = computed(() => {
+    const options = (key: string) => [...new Set(exportCandidates.value.map((item) => String(item[key] || '')).filter(Boolean))]
+      .map((value) => ({ label: value, value }))
+    return { leader: options('leaderName'), deadline: options('deadline') }
+  }),
+  filteredExportCandidates = computed(() => exportCandidates.value.filter((item) =>
+    selectedExportTypes.value.includes(exportTaskType(item)) &&
+    (!exportFilters.adm || `${item.admNo || ''}${item.internalNo || ''}${item.lineInternalNo || ''}`.toLowerCase().includes(exportFilters.adm.toLowerCase())) &&
+    (!exportFilters.leader || item.leaderName === exportFilters.leader) &&
+    (!exportFilters.deadline || item.deadline === exportFilters.deadline),
+  )),
+  selectedFilteredExportCount = computed(() => filteredExportCandidates.value.filter((item) => selectedExportIds.value.includes(Number(item.lineId))).length),
+  allFilteredSelected = computed(() => !!filteredExportCandidates.value.length && selectedFilteredExportCount.value === filteredExportCandidates.value.length),
+  finalExportCandidates = computed(() => exportScope.value === 'all'
+    ? filteredExportCandidates.value
+    : filteredExportCandidates.value.filter((item) => selectedExportIds.value.includes(Number(item.lineId))))
+function openExportSelection() {
+  selectedExportIds.value = []
+  selectedExportTypes.value = exportTaskTypes.value.map((item) => item.name)
+  exportScope.value = 'all'
+  Object.assign(exportFilters, { adm: '', leader: undefined, deadline: undefined })
+  exportSelectionOpen.value = true
+}
+function toggleExportType(name: string) {
+  selectedExportTypes.value = selectedExportTypes.value.includes(name)
+    ? selectedExportTypes.value.filter((item) => item !== name)
+    : [...selectedExportTypes.value, name]
+}
+function toggleAllExportTypes() {
+  selectedExportTypes.value = allExportTypesSelected.value ? [] : exportTaskTypes.value.map((item) => item.name)
+}
+function toggleExportItem(id: number) {
+  selectedExportIds.value = selectedExportIds.value.includes(id)
+    ? selectedExportIds.value.filter((item) => item !== id)
+    : [...selectedExportIds.value, id]
+}
+function toggleAllExport() {
+  const filteredIds = new Set(filteredExportCandidates.value.map((item) => Number(item.lineId)))
+  selectedExportIds.value = allFilteredSelected.value
+    ? selectedExportIds.value.filter((id) => !filteredIds.has(id))
+    : [...new Set([...selectedExportIds.value, ...filteredIds])]
+}
 async function claimAndExport() {
-  if (!exportableIds.value.length) {
-    void message.info('当前没有可接单或导出的本人订单')
+  const lineIds = finalExportCandidates.value.map((item) => Number(item.lineId))
+  if (!lineIds.length) {
+    void message.info('请先选择要接单并导出的订单')
     return
   }
   try {
-    const task = await exportTasks.createBackground('adm_operator_excel', { lineIds: exportableIds.value })
+    const task = await exportTasks.createBackground('adm_operator_excel', { lineIds })
+    exportSelectionOpen.value = false
+    selectedExportIds.value = []
     void message.success(
       task.reused ? '相同ADM导出任务正在进行，已打开导出任务' : '已接单并生成导出任务，请在页头“导出任务”下载',
     )
@@ -761,7 +928,9 @@ async function previewOperatorImport() {
   operatorImportBusy.value = true
   try {
     operatorImportPreview.value = await admApi.operatorImport(operatorImportFile.value, true)
-    operatorImportNotice.value = `预检通过，共 ${operatorImportPreview.value.totalRows} 行可提交`
+    operatorImportNotice.value = operatorImportPreview.value.canCommit
+      ? `预检通过，可提交 ${operatorImportPreview.value.validRows} 行`
+      : `预检发现 ${operatorImportPreview.value.failedRows} 行错误，请修正后重新上传`
   } catch (e) {
     operatorImportPreview.value = null
     operatorImportNotice.value = errorText(e)
@@ -932,18 +1101,23 @@ function riskTone(r: AdmCaseRow) {
 function statusTone(s: string) {
   return s === 'VOIDED' ? 'red' : s === 'CLOSED' ? 'green' : s === 'DRAFT' ? 'amber' : 'blue'
 }
-function openCase(id: number) {
-  void router.push(`/adm/cases/${id}`)
+function showMasterReadOnlyNotice(record: AdmCaseRow) {
+  void message.warning(`当前账号不是该主单ADM负责人，只能查看。如需修改，请联系ADM负责人${record.coordinatorName ? `“${record.coordinatorName}”` : ''}。`)
+}
+function openCase(record: AdmCaseRow) {
+  if (!canEditMasterRow(record)) showMasterReadOnlyNotice(record)
+  void router.push(`/adm/cases/${record.id}`)
 }
 function canEditMasterRow(record: AdmCaseRow) {
-  const allowed = !!auth.user?.isAdmin || !!(
+  const allowed = !!(
     config.value?.permissions.create || config.value?.permissions.manage || config.value?.permissions.review
   )
-  const owner = !!auth.user?.isAdmin || Number(record.coordinatorId) === Number(auth.user?.id)
+  const owner = Number(record.coordinatorId) === Number(auth.user?.id)
   return allowed && owner && ['DRAFT', 'ACTIVE'].includes(record.caseStatus)
 }
 async function openMasterInfo(record: AdmCaseRow) {
   selectedMasterEditable.value = canEditMasterRow(record)
+  if (!selectedMasterEditable.value) showMasterReadOnlyNotice(record)
   masterInfoOpen.value = true
   selectedMasterDetail.value = null
   try {
@@ -967,14 +1141,17 @@ const createOpen = ref(false),
   fxLoading = ref(false),
   fxSnapshot = ref<FxSnapshot | null>(null),
   masterFiles = ref<File[]>([]),
-  masters = reactive<Record<string, Option[]>>({ department: [], diffType: [], ota: [], supplier: [] }),
+  masters = reactive<Record<string, Option[]>>({ department: [], diffType: [], ota: [], supplier: [], currency: [] }),
   form = reactive<Fields>({ lines: [] })
 const issuerOptions = [
     { value: 'SUPPLIER', label: '供应商' },
     { value: 'PLATFORM', label: '平台' },
     { value: 'AIRLINE', label: '航司' },
   ],
-  currencyOptions = ['CNY', 'USD', 'EUR', 'GBP', 'JPY'].map((value) => ({ value, label: value })),
+  currencyOptions = computed(() => {
+    const rows = masters.currency.length ? masters.currency : [{ code: 'CNY', name: 'CNY' }]
+    return rows.map((item) => ({ value: item.code, label: item.name === item.code ? item.code : `${item.name}（${item.code}）` }))
+  }),
   mapOptions = (x: Option[]) => x.map((i) => ({ value: i.code, label: `${i.name}（${i.code}）` })),
   departmentOptions = computed(() => mapOptions(masters.department)),
   diffTypeOptions = computed(() => masters.diffType.map((i) => ({ value: i.code, label: i.name }))),
@@ -1047,10 +1224,10 @@ async function openCreate() {
   referenceError.value = ''
   fxSnapshot.value = null
   createOpen.value = true
-  const kinds = ['department', 'diffType', 'ota', 'supplier'] as const
+  const kinds = ['department', 'diffType', 'ota', 'supplier', 'currency'] as const
   const results = await Promise.allSettled(kinds.map((kind) => admApi.options(kind, '', 200)))
   const failures: string[] = []
-  const labels = { department: '业务部门', diffType: '差异类型', ota: 'OTA平台', supplier: '供应商' }
+  const labels = { department: '业务部门', diffType: '差异类型', ota: 'OTA平台', supplier: '供应商', currency: '原币币种' }
   results.forEach((result, index) => {
     const kind = kinds[index]
     if (result.status === 'fulfilled') masters[kind] = result.value
@@ -1132,11 +1309,14 @@ function openImport() {
 function selectImport(e: Event) {
   importFile.value = (e.target as HTMLInputElement).files?.[0] || null
   preview.value = null
+  importError.value = ''
 }
 async function downloadTemplate() {
   try {
-    const r = await admApi.template()
-    saveBlob(r.data, 'ADM日常建单19列模板.xlsx')
+    const task = await exportTasks.createBackground('adm_import_template', {})
+    void message.success(
+      task.reused ? '相同模板任务正在进行，已打开导出任务' : '模板已生成，请在页头“导出任务”下载',
+    )
   } catch (e) {
     void message.error(errorText(e))
   }
@@ -1144,6 +1324,8 @@ async function downloadTemplate() {
 async function previewImport() {
   if (!importFile.value) return
   importBusy.value = true
+  importError.value = ''
+  preview.value = null
   try {
     preview.value = await admApi.importPreview(importFile.value)
   } catch (e) {
@@ -1173,6 +1355,16 @@ watch(() => route.name, (name) => {
   orderMetric.value = ''
   void load()
 }, { immediate: true })
+watch([workPage, workMetric], ([currentPage, currentMetric]) => {
+  if (route.name !== 'adm-workbench') return
+  const nextQuery: Fields = { ...route.query }
+  if (currentPage > 1) nextQuery.page = String(currentPage)
+  else delete nextQuery.page
+  if (currentMetric) nextQuery.workMetric = currentMetric
+  else delete nextQuery.workMetric
+  if (String(route.query.page || '') === String(nextQuery.page || '') && String(route.query.workMetric || '') === String(nextQuery.workMetric || '')) return
+  void router.replace({ query: nextQuery })
+})
 watch(() => route.name === 'adm-cases' && route.query.create === '1', async (create) => {
   if (!create) return
   await loadConfig()

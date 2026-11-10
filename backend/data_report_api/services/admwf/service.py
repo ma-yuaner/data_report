@@ -10,7 +10,10 @@ import uuid
 from .attachments import AdmAttachmentStorage
 from .catalog import AdmCatalog
 from .domain import business_date, business_datetime, money, normalize_create, normalize_line, text
-from .excel import AdmDailyWorkbook, StoredUpload
+from .excel import (
+    AdmDailyWorkbook, StoredUpload, _diff_label, _operator_actions, _operator_label,
+    _operator_stage,
+)
 from .policy import AdmError, business_now, display_name, has, identity, require
 from .repository import AdmWorkflowRepository
 from .workflow import difference_query_key
@@ -25,12 +28,27 @@ def _json_value(value):
         return value.isoformat()
     if isinstance(value, dict):
         return {
-            _camel(key): _json_value(item)
+            _camel(key): (_json_raw_value(item) if key == "source_payload" else _json_value(item))
             for key, item in value.items()
             if key not in {"storage_key"}
         }
     if isinstance(value, (list, tuple)):
         return [_json_value(item) for item in value]
+    return value
+
+
+def _json_raw_value(value):
+    """Serialize archived source JSON without renaming or cleaning its original keys."""
+    if isinstance(value, Decimal):
+        return format(value, "f")
+    if isinstance(value, datetime):
+        return value.isoformat(sep=" ")
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(key): _json_raw_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_raw_value(item) for item in value]
     return value
 
 
@@ -54,7 +72,8 @@ class AdmWorkflowService:
 
     def import_template(self, user):
         require(user, "adm.create")
-        return self.daily_workbook.template()
+        diff_types = self.catalog.options("diffType", "", 200)
+        return self.daily_workbook.template([item["name"] for item in diff_types])
 
     def _normalize_import_group(self, rows):
         first = rows[0]
@@ -64,13 +83,18 @@ class AdmWorkflowService:
         issuer_code = None
         if issuer_type == "PLATFORM":
             issuer = self.catalog.optional_master_value("ota", issuer_name)
+            if not issuer:
+                raise AdmError("平台类型的下发方名称不能为空")
             issuer_code, issuer_name = issuer["code"], issuer["name"]
         elif issuer_type == "SUPPLIER":
             issuer = self.catalog.optional_master_value("supplier", issuer_name)
+            if not issuer:
+                raise AdmError("供应商类型的下发方名称不能为空")
             issuer_code, issuer_name = issuer["code"], issuer["name"]
         elif issuer_type != "AIRLINE":
             raise AdmError("下发方类型必须为平台、供应商或航司")
         lines = []
+        seen_lines = set()
         for row in rows:
             department = self.catalog.department_value(row["department"])
             leader = self.catalog.user_value(row["leader"], leader=True)
@@ -124,6 +148,13 @@ class AdmWorkflowService:
                 summaries.append({
                     "admNo": group[0].get("admNo") or None, "rowCount": len(group),
                     "firstRow": first_row, "status": "INVALID", "message": error.message,
+                })
+            except (KeyError, TypeError, ValueError):
+                message = "数据格式无效，请检查该主单的必填字段和基础资料"
+                errors.append({"firstRow": first_row, "rowCount": len(group), "message": message})
+                summaries.append({
+                    "admNo": group[0].get("admNo") or None, "rowCount": len(group),
+                    "firstRow": first_row, "status": "INVALID", "message": message,
                 })
         return bodies, errors, summaries
 
@@ -262,6 +293,7 @@ class AdmWorkflowService:
             target = int(case_id)
         except (TypeError, ValueError):
             raise AdmError("ADM主单ID无效", 404, "ADM_NOT_FOUND") from None
+        getattr(self.repository, "mark_due_recoveries", lambda: 0)()
         result = self.repository.get_case(target)
         if not result:
             raise AdmError("ADM主单不存在", 404, "ADM_NOT_FOUND")
@@ -279,7 +311,9 @@ class AdmWorkflowService:
         return _json_value(result)
 
     def update_case(self, user, case_id, body):
-        actor = self._owner_actor(user, case_id, "编辑主单基础信息", "adm.create", "adm.manage", "adm.review")
+        actor = self._assigned_owner_actor(
+            user, case_id, "编辑主单基础信息", "adm.create", "adm.manage", "adm.review",
+        )
         stored = self.repository.get_case(int(case_id))
         case = stored["case"]
         if case["case_status"] not in {"DRAFT", "ACTIVE"}:
@@ -309,7 +343,9 @@ class AdmWorkflowService:
         return _json_value(self.repository.update_case_basic(int(case_id), data, actor))
 
     def update_line(self, user, case_id, line_id, body):
-        actor = self._owner_actor(user, case_id, "编辑订单基础信息", "adm.create", "adm.manage", "adm.review")
+        actor = self._assigned_owner_actor(
+            user, case_id, "编辑订单基础信息", "adm.create", "adm.manage", "adm.review",
+        )
         stored = self.repository.get_case(int(case_id))
         line = next((item for item in stored["lines"] if int(item["id"]) == int(line_id)), None)
         if not line:
@@ -396,6 +432,7 @@ class AdmWorkflowService:
         people = provider() if callable(provider) else {"handle": [], "leader": [], "coordinate": []}
         return _json_value({
             "caseStatuses": ["DRAFT", "ACTIVE", "CLOSED", "HISTORICAL", "VOIDED", "DELETED"],
+            "sourceTypes": ["MANUAL", "EXCEL", "LEGACY", "TEST"],
             "lineStatuses": [
                 "PENDING_LEADER", "PENDING_OPERATOR", "PENDING_ACCEPT", "PROCESSING",
                 "PENDING_REVIEW", "WAITING_DIFF", "WAITING_COLLECTION", "COMPLETED",
@@ -447,7 +484,10 @@ class AdmWorkflowService:
             "search": str(query.get("search") or "").strip() or None,
             "activeOnly": str(query.get("activeOnly") or "").lower() == "true",
             "metric": metric,
+            "sourceType": str(query.get("sourceType") or "").strip().upper() or None,
         }
+        if filters["sourceType"] not in {None, "MANUAL", "EXCEL", "LEGACY", "TEST"}:
+            raise AdmError("数据来源筛选无效")
         return filters, page, page_size
 
     def list_cases(self, user, query):
@@ -462,6 +502,7 @@ class AdmWorkflowService:
 
     def workbench(self, user):
         require(user, "adm.view")
+        getattr(self.repository, "mark_due_recoveries", lambda: 0)()
         capabilities = {
             "assignLeader": has(user, "adm.assign_leader") or has(user, "adm.review"),
             "assignOperator": has(user, "adm.assign_operator") or has(user, "adm.assign"),
@@ -495,7 +536,9 @@ class AdmWorkflowService:
         return _json_value(saved)
 
     def change_leader(self, user, case_id, line_id, body):
-        actor = self._owner_actor(user, case_id, "更换组长", "adm.assign_leader", "adm.review")
+        actor = self._assigned_owner_actor(
+            user, case_id, "更换组长", "adm.assign_leader", "adm.review",
+        )
         leader = self.catalog.user((body or {}).get("leaderId"), leader=True)
         return _json_value(self.repository.change_leader(
             int(case_id), int(line_id), leader, actor,
@@ -557,90 +600,218 @@ class AdmWorkflowService:
                            "HUMAN": "HUMAN", "PLATFORM": "PLATFORM", "SYSTEM": "SYSTEM"}
         decision_map = {"需要恢复编码": "NEEDED", "无需恢复编码": "NOT_NEEDED",
                         "NEEDED": "NEEDED", "NOT_NEEDED": "NOT_NEEDED"}
-        errors = []
         prepared = []
+        preview_rows = []
+        seen_lines = set()
+
         for row in rows:
             line = contexts.get(row["lineInternalNo"])
             prefix = f"第{row['rowNumber']}行"
+            row_errors = []
+            if row["lineInternalNo"] in seen_lines:
+                row_errors.append("文件内重复订单")
+            seen_lines.add(row["lineInternalNo"])
             if not line:
-                errors.append(prefix + "：内部明细编号不存在")
+                row_errors.append("内部明细编号不存在")
+                preview_rows.append({"rowNumber": row["rowNumber"], "lineInternalNo": row["lineInternalNo"],
+                                     "action": row["action"], "status": "错误", "reason": "；".join(row_errors)})
                 continue
             if line["case_status"] != "ACTIVE":
-                errors.append(prefix + "：所属主单不是处理中状态")
+                row_errors.append("所属主单不是处理中状态")
             if int(line["operator_id"] or 0) != int(actor["id"]):
-                errors.append(prefix + "：当前操作员与登录账号不一致")
+                row_errors.append("当前操作员与登录账号不一致")
             if int(line["version_no"]) != int(row["versionNo"]):
-                errors.append(prefix + "：数据版本已变化，请重新导出")
+                row_errors.append("数据版本已变化，请重新导出")
             if line["case_internal_no"] != row["caseInternalNo"] or line["adm_no"] != row["admNo"]:
-                errors.append(prefix + "：主单编号与系统记录不一致")
+                row_errors.append("主单编号与系统记录不一致")
+            if row["operatorName"] != str(line.get("operator_name") or ""):
+                row_errors.append("操作人员字段已被修改")
+            reminder_transition = (
+                str(line.get("recovery_status") or "") == "REMINDER_DUE"
+                and row["lineStatus"] == "等待恢复编码"
+                and row["recoveryStatus"] == str(_operator_label("WAITING"))
+            )
+            if row["lineStatus"] != _operator_stage(line) and not reminder_transition:
+                row_errors.append("原状态已变化，请重新导出")
+            if row["attachmentAddress"] != str(line.get("attachment_address") or ""):
+                row_errors.append("附件地址为只读字段，不允许修改")
+            def date_cell(value):
+                if value is None:
+                    return ""
+                if isinstance(value, datetime):
+                    return value.replace(microsecond=0).isoformat(sep=" ")
+                return str(value)
+
+            readonly_text = {
+                "业务归属部门": (row["departmentName"], str(line.get("department_name") or "")),
+                "负责组长": (row["leaderName"], str(line.get("leader_name") or "")),
+                "处理截止时间": (row["processDeadline"], date_cell(line.get("process_deadline"))),
+                "下发方类型": (row["issuerType"], str(_operator_label(line.get("issuer_type")) or "")),
+                "下发方名称": (row["issuerName"], str(line.get("issuer_name") or "")),
+                "原币币种": (row["currency"], str(line.get("currency") or "")),
+                "恢复编码发起时间": (row["recoveryStartedAt"], date_cell(line.get("recovery_started_at"))),
+                "恢复编码当前状态": (row["recoveryStatus"], str(_operator_label(line.get("recovery_status")) or "")),
+                "差异订单匹配状态": (row["diffMatchStatus"], str(_diff_label(line.get("diff_match_status"), line) or "")),
+            }
+            for field, (actual, expected) in readonly_text.items():
+                if reminder_transition and field == "恢复编码当前状态":
+                    continue
+                if actual != expected:
+                    row_errors.append(f"{field}为只读字段，不允许修改")
+            readonly_amounts = {
+                "本笔订单ADM金额（原币）": (row["originalAmount"], line.get("original_amount")),
+                "本笔订单ADM金额（人民币）": (row["cnyAmount"], line.get("cny_amount")),
+                "ADM主单原币总金额": (row["caseOriginalAmount"], line.get("case_original_amount")),
+                "ADM主单人民币总金额": (row["caseCnyAmount"], line.get("case_cny_amount")),
+            }
+            for field, (actual, expected) in readonly_amounts.items():
+                try:
+                    unchanged = Decimal(str(actual or "0")) == Decimal(str(expected or "0"))
+                except Exception:
+                    unchanged = False
+                if not unchanged:
+                    row_errors.append(f"{field}为只读字段，不允许修改")
             action = row["action"]
+            allowed_actions = set(_operator_actions(line))
+            if action and action not in allowed_actions:
+                row_errors.append(f"当前状态不允许执行“{action}”，请重新导出Excel")
             attribution = attribution_map.get(row["problemAttribution"].strip().upper())
             decision = decision_map.get(row["recoveryDecision"].strip().upper())
+            try:
+                ota = self.catalog.optional_master_value("ota", row["ota"])
+                supplier = self.catalog.optional_master_value("supplier", row["supplier"])
+            except AdmError as error:
+                row_errors.append(error.message)
+                preview_rows.append({"rowNumber": row["rowNumber"], "lineInternalNo": row["lineInternalNo"],
+                                     "action": action, "status": "错误", "reason": "；".join(row_errors)})
+                continue
+            supplement = {
+                "otaCode": ota["code"] if ota else None,
+                "otaName": ota["name"] if ota else None,
+                "otaOrderNo": text(row["otaOrderNo"], "OTA订单号", 200, required=False),
+                "supplierCode": supplier["code"] if supplier else None,
+                "supplierName": supplier["name"] if supplier else None,
+                "airlineCode": line.get("airline_code") if row["airline"] == str(line.get("airline_name") or "") else None,
+                "airlineName": text(row["airline"], "航司", 200, required=False),
+                "ticketNo": text(row["ticketNo"], "票号", 200, required=False),
+                "pnr": text(row["pnr"], "PNR编码", 100, required=False),
+                "investigationNote": text(row["investigationNote"], "补充问题说明", 10000, required=False),
+            }
+            supplement_columns = {
+                "otaCode": "ota_code", "otaName": "ota_name", "otaOrderNo": "ota_order_no",
+                "supplierCode": "supplier_code", "supplierName": "supplier_name",
+                "airlineCode": "airline_code", "airlineName": "airline_name",
+                "ticketNo": "ticket_no", "pnr": "pnr", "investigationNote": "investigation_note",
+            }
+            supplement_changed = any(
+                supplement[key] != line.get(column) for key, column in supplement_columns.items()
+            )
+            recovery = str(line.get("recovery_status") or "UNDECIDED")
+            expected_decision = ("需要恢复编码" if recovery in {"WAITING", "REMINDER_DUE", "CONFIRMED"}
+                                 else "无需恢复编码" if recovery == "NOT_REQUIRED" else "")
+            decision_changed = row["recoveryDecision"] != expected_decision
+            expected_confirmation = "已查看并处理" if recovery == "CONFIRMED" else ""
+            confirmation_changed = row["recoveryConfirmation"] != expected_confirmation
             if line["line_status"] != "PROCESSING":
-                errors.append(prefix + "：当前明细不在办理中，不能导入操作员处理结果")
-            elif action == "登记恢复决定" and line["recovery_status"] != "UNDECIDED":
-                errors.append(prefix + "：恢复编码决定已经登记")
-            elif action == "确认恢复处理" and line["recovery_status"] not in {"WAITING", "REMINDER_DUE"}:
-                errors.append(prefix + "：当前没有待确认的恢复处理")
-            elif action == "开始申诉" and (line["recovery_status"] not in {"NOT_REQUIRED", "CONFIRMED"}
-                                           or line["appeal_status"] not in {"UNDECIDED", "FAILED"}):
-                errors.append(prefix + "：当前恢复或申诉状态不能开始新一轮申诉")
-            elif action in {"登记申诉成功", "登记申诉失败"} and line["appeal_status"] != "IN_PROGRESS":
-                errors.append(prefix + "：当前没有进行中的申诉")
-            elif action == "登记不申诉" and (line["recovery_status"] not in {"NOT_REQUIRED", "CONFIRMED"}
-                                             or line["appeal_status"] != "UNDECIDED"):
-                errors.append(prefix + "：当前恢复或申诉状态不能登记不申诉")
-            elif action == "提交审核" and (line["recovery_status"] not in {"NOT_REQUIRED", "CONFIRMED"}
-                                           or line["appeal_status"] not in {"SUCCEEDED", "FAILED", "NO_APPEAL"}):
-                errors.append(prefix + "：恢复编码或申诉结果尚未完成，不能提交审核")
-            if action == "更新订单情况说明" and not row["investigationNote"].strip():
-                errors.append(prefix + "：订单情况说明不能为空")
-            elif action == "登记恢复决定" and not decision:
-                errors.append(prefix + "：恢复编码决定必须为需要恢复编码或无需恢复编码")
-            elif action == "登记恢复决定" and decision == "NOT_NEEDED" and not row["noRecoveryReason"].strip():
-                errors.append(prefix + "：无需恢复编码时必须填写原因")
-            elif action == "确认恢复处理" and row["recoveryConfirmation"].strip() not in {"已恢复并处理", "确认"}:
-                errors.append(prefix + "：恢复处理确认必须填写“已恢复并处理”")
-            elif action == "开始申诉" and not row["appealReason"].strip():
-                errors.append(prefix + "：申诉原因不能为空")
-            elif action in {"登记申诉失败", "登记不申诉"} and not attribution:
-                errors.append(prefix + "：必须选择人为问题、平台问题或系统问题")
-            elif action == "登记不申诉" and not row["noAppealReason"].strip():
-                errors.append(prefix + "：不申诉原因不能为空")
-            prepared.append((row, line, decision, attribution))
-        if errors:
-            raise AdmError("；".join(errors[:20]), 409, "ADM_OPERATOR_IMPORT_INVALID")
+                row_errors.append("当前明细不在办理中，不能导入操作员处理结果")
+            if decision_changed and recovery != "UNDECIDED":
+                row_errors.append("当前阶段不允许修改恢复编码决定")
+            if decision_changed and not decision:
+                row_errors.append("恢复编码决定必须为需要恢复编码或无需恢复编码")
+            if confirmation_changed and row["recoveryConfirmation"] != "已查看并处理":
+                row_errors.append("恢复编码处理确认值无效")
+            if confirmation_changed and recovery not in {"WAITING", "REMINDER_DUE"}:
+                row_errors.append("当前阶段不允许确认恢复编码已处理")
+            if supplement_changed and action in {"", "暂不处理"}:
+                action = "仅补充订单资料"
+                row["action"] = action
+            elif action == "仅补充订单资料" and not supplement_changed:
+                action = ""
+                row["action"] = ""
+            projected_recovery = ("WAITING" if decision == "NEEDED" else "NOT_REQUIRED") if decision_changed else recovery
+            if confirmation_changed:
+                projected_recovery = "CONFIRMED"
+            final_actions = {"提交申诉", "申诉成功", "申诉失败", "不申诉"}
+            implicit_confirmation = action in final_actions and projected_recovery in {"WAITING", "REMINDER_DUE"}
+            if implicit_confirmation:
+                projected_recovery = "CONFIRMED"
+            if action in final_actions and projected_recovery not in {"NOT_REQUIRED", "CONFIRMED"}:
+                row_errors.append("请先完成恢复编码决定及查看确认")
+            if action in {"提交申诉", "申诉成功", "申诉失败"} and not row["appealReason"].strip():
+                row_errors.append("申诉原因必填")
+            if action in {"提交申诉", "申诉成功", "申诉失败"} and not row["appealTarget"].strip():
+                row_errors.append("申诉对象必填")
+            if action == "不申诉" and not row["noAppealReason"].strip():
+                row_errors.append("不申诉原因必填")
+            if action in {"申诉失败", "不申诉"} and not attribution:
+                row_errors.append("问题归因必填")
+            has_change = supplement_changed or decision_changed or confirmation_changed or action not in {"", "暂不处理"}
+            status = "错误" if row_errors else "可提交" if has_change else "跳过"
+            reason = "；".join(row_errors) or ("校验通过" if status == "可提交" else "本行未填写处理动作，资料和状态保持原值")
+            preview_rows.append({"rowNumber": row["rowNumber"], "lineInternalNo": row["lineInternalNo"],
+                                 "action": action or row["recoveryConfirmation"] or row["recoveryDecision"],
+                                 "status": status, "reason": reason})
+            if status == "可提交":
+                prepared.append((row, line, decision, attribution, supplement, supplement_changed,
+                                 decision_changed, confirmation_changed))
+        failed = sum(item["status"] == "错误" for item in preview_rows)
+        skipped = sum(item["status"] == "跳过" for item in preview_rows)
         if dry_run:
-            return {"canCommit": True, "totalRows": len(prepared), "rows": [
-                {"rowNumber": row["rowNumber"], "lineInternalNo": row["lineInternalNo"],
-                 "action": row["action"], "status": "可提交"} for row, *_ in prepared
-            ]}
+            return {"canCommit": bool(prepared) and not failed, "totalRows": len(preview_rows),
+                    "validRows": len(prepared), "skippedRows": skipped, "failedRows": failed,
+                    "rows": preview_rows}
+        if failed:
+            messages = [f"第{item['rowNumber']}行：{item['reason']}" for item in preview_rows if item["status"] == "错误"]
+            raise AdmError("；".join(messages[:20]), 409, "ADM_OPERATOR_IMPORT_INVALID")
         results = []
-        for row, line, decision, attribution in prepared:
+        for row, line, decision, attribution, supplement, supplement_changed, decision_changed, confirmation_changed in prepared:
             case_id, line_id = int(line["case_id"]), int(line["id"])
-            if row["investigationNote"].strip() != str(line.get("investigation_note") or ""):
-                self.repository.update_investigation_note(case_id, line_id, actor, row["investigationNote"].strip())
+            if supplement_changed:
+                self.repository.update_operator_supplement(case_id, line_id, actor, supplement)
             action = row["action"]
-            if action == "登记恢复决定":
+            if decision_changed:
                 self.repository.decide_recovery(case_id, line_id, decision, actor,
-                                                reason=row["noRecoveryReason"].strip() or None)
-            elif action == "确认恢复处理":
+                                                reason=row["investigationNote"].strip() or None)
+            implicit_confirmation = action in {"提交申诉", "申诉成功", "申诉失败", "不申诉"} and (
+                (decision_changed and decision == "NEEDED")
+                or str(line.get("recovery_status") or "") in {"WAITING", "REMINDER_DUE"}
+            )
+            if confirmation_changed or implicit_confirmation:
                 self.repository.confirm_recovery(case_id, line_id, actor)
-            elif action == "开始申诉":
+            appeal_status = str(line.get("appeal_status") or "UNDECIDED")
+            target_status = {"申诉成功": "SUCCEEDED", "申诉失败": "FAILED"}.get(action)
+            appeal_actions = {"提交申诉", "申诉成功", "申诉失败"}
+            if action in appeal_actions and appeal_status == "IN_PROGRESS" and (
+                row["appealReason"].strip() != str(line.get("latest_appeal_reason") or "")
+                or row["appealTarget"].strip() != str(line.get("latest_appeal_target") or "")
+            ):
+                self.repository.update_active_appeal(
+                    case_id, line_id, actor, row["appealReason"].strip(), row["appealTarget"].strip(),
+                )
+            if (action in appeal_actions
+                    and appeal_status != "IN_PROGRESS" and appeal_status != target_status):
                 self.repository.start_appeal(case_id, line_id, actor, row["appealReason"].strip(),
-                                             row["appealTarget"].strip() or None)
-            elif action == "登记申诉成功":
+                                             row["appealTarget"].strip())
+                appeal_status = "IN_PROGRESS"
+            if action == "申诉成功" and appeal_status != "SUCCEEDED":
                 self.repository.finish_appeal(case_id, line_id, actor, "SUCCEEDED", note=row["resultNote"].strip() or None)
-            elif action == "登记申诉失败":
+            if action == "申诉成功":
+                self.repository.submit_review(case_id, line_id, actor)
+            elif action == "申诉失败" and appeal_status != "FAILED":
                 self.repository.finish_appeal(case_id, line_id, actor, "FAILED", attribution,
                                               row["resultNote"].strip() or None)
-            elif action == "登记不申诉":
-                self.repository.record_no_appeal(case_id, line_id, actor, row["noAppealReason"].strip(), attribution)
-            elif action == "提交审核":
+            if action == "申诉失败":
+                self.repository.submit_review(case_id, line_id, actor)
+            elif action == "不申诉":
+                if appeal_status != "NO_APPEAL":
+                    self.repository.record_no_appeal(case_id, line_id, actor, row["noAppealReason"].strip(), attribution)
+                self.repository.submit_review(case_id, line_id, actor)
+            elif action == "重新提交负责人审核":
                 self.repository.submit_review(case_id, line_id, actor)
             results.append({"rowNumber": row["rowNumber"], "lineInternalNo": row["lineInternalNo"],
-                            "action": action, "status": "已提交"})
-        return {"committed": len(results), "rows": results}
+                            "action": action or row["recoveryConfirmation"] or row["recoveryDecision"],
+                            "status": "已提交"})
+        return {"committed": len(results), "skipped": skipped, "rows": results}
 
     def decide_recovery(self, user, case_id, line_id, body):
         require(user, "adm.handle")
@@ -660,7 +831,7 @@ class AdmWorkflowService:
     def start_appeal(self, user, case_id, line_id, body):
         require(user, "adm.handle")
         reason = text((body or {}).get("appealReason"), "申诉原因", 1000)
-        target = text((body or {}).get("appealTarget"), "申诉对象", 500, required=False)
+        target = text((body or {}).get("appealTarget"), "申诉对象", 500)
         return _json_value(self.repository.start_appeal(
             int(case_id), int(line_id), self._actor(user), reason, target,
             allow_override=bool(user.get("is_admin")),
@@ -700,11 +871,23 @@ class AdmWorkflowService:
         if not user.get("is_admin") and stored["case"]["coordinator_id"] != actor["id"]:
             raise AdmError("只有该主单ADM负责人可以审核", 403, "ADM_FORBIDDEN")
         result = str((body or {}).get("result") or "").strip().upper()
+        return_type = str((body or {}).get("returnType") or "").strip().upper() or None
         required_value = (body or {}).get("collectionRequired")
         if required_value is not True and required_value is not False and required_value is not None:
             raise AdmError("是否需要回款必须为布尔值")
+        appeal_status = next(
+            (str(item.get("appeal_status") or "") for item in stored.get("lines", [])
+             if int(item.get("id") or 0) == int(line_id)),
+            "",
+        )
+        if result == "APPROVED" and appeal_status == "SUCCEEDED" and required_value is None:
+            raise AdmError("申诉成功审核通过时必须确认是否需要回款")
+        if result == "APPROVED" and appeal_status in {"FAILED", "NO_APPEAL"}:
+            if required_value is True:
+                raise AdmError("申诉失败或不申诉不进入回款流程，应先完成差异订单匹配")
+            required_value = False
         expected = None
-        if result == "APPROVED" and required_value is True:
+        if result == "APPROVED" and appeal_status == "SUCCEEDED" and required_value is True:
             expected = money((body or {}).get("expectedCollectionAmount"), "应回款金额")
             if expected <= 0:
                 raise AdmError("需要回款时应回款金额必须大于0")
@@ -712,6 +895,7 @@ class AdmWorkflowService:
             int(case_id), int(line_id), actor, result,
             comment=text((body or {}).get("comment"), "审核说明", 2000, required=False),
             return_reason=text((body or {}).get("returnReason"), "退回原因", 2000, required=False),
+            return_type=return_type,
             collection_required=required_value, expected_amount=expected,
             collection_note=text((body or {}).get("collectionNote"), "回款判断说明", 1000, required=False),
         ))
@@ -797,6 +981,17 @@ class AdmWorkflowService:
             raise AdmError(f"只有该主单ADM负责人可以{action}", 403, "ADM_FORBIDDEN")
         return actor
 
+    def _assigned_owner_actor(self, user, case_id, action, *permissions):
+        """Require the actual ADM coordinator even when the account is a system administrator."""
+        require_any(user, *(permissions or ("adm.review",)))
+        stored = self.repository.get_case(int(case_id))
+        if not stored:
+            raise AdmError("ADM主单不存在", 404, "ADM_NOT_FOUND")
+        actor = self._actor(user)
+        if stored["case"]["coordinator_id"] != actor["id"]:
+            raise AdmError(f"只有该主单ADM负责人可以{action}", 403, "ADM_FORBIDDEN")
+        return actor
+
     def void_line(self, user, case_id, line_id, body):
         actor = self._owner_actor(user, case_id, "作废明细", "adm.manage", "adm.review")
         return _json_value(self.repository.void_line(
@@ -833,29 +1028,40 @@ class AdmWorkflowService:
             int(case_id), actor, text((body or {}).get("reason"), "主单作废原因", 1000),
         ))
 
-    def _attachment_actor(self, user, stored, action):
+    def _attachment_actor(self, user, stored, action, line_id=None):
         require(user, "adm.view")
         actor = self._actor(user)
         if user.get("is_admin") or stored["case"]["coordinator_id"] == actor["id"]:
             return actor
-        if stored["case"]["case_status"] == "ACTIVE" and any(
-            line["line_status"] not in {"COMPLETED", "VOIDED", "HISTORICAL"}
+        eligible_lines = [
+            line for line in stored["lines"]
+            if line["line_status"] not in {"COMPLETED", "VOIDED", "HISTORICAL"}
             and actor["id"] in {line["leader_id"], line["operator_id"]}
-            for line in stored["lines"]
-        ):
+        ]
+        if line_id is not None:
+            eligible_lines = [line for line in eligible_lines if int(line["id"]) == int(line_id)]
+        if stored["case"]["case_status"] == "ACTIVE" and eligible_lines:
             return actor
         raise AdmError(f"当前人员不在该ADM主单办理范围内，不能{action}", 403, "ADM_FORBIDDEN")
 
-    def upload_attachment(self, user, case_id, upload, category):
+    def upload_attachment(self, user, case_id, upload, category, line_id=None):
         stored = self.repository.get_case(int(case_id))
         if not stored:
             raise AdmError("ADM主单不存在", 404, "ADM_NOT_FOUND")
-        actor = self._attachment_actor(user, stored, "上传附件")
+        target_line_id = None
+        if line_id not in {None, ""}:
+            try:
+                target_line_id = int(line_id)
+            except (TypeError, ValueError):
+                raise AdmError("附件所属明细无效", 400, "ADM_INVALID") from None
+            if target_line_id <= 0 or not any(int(line["id"]) == target_line_id for line in stored["lines"]):
+                raise AdmError("附件所属明细不属于当前ADM主单", 400, "ADM_INVALID")
+        actor = self._attachment_actor(user, stored, "上传附件", target_line_id)
         category_value = text(category, "附件分类", 32).upper()
         metadata = self.attachment_storage.save(int(case_id), upload)
         try:
             return _json_value(self.repository.add_attachment(
-                int(case_id), actor, category_value, metadata,
+                int(case_id), actor, category_value, metadata, target_line_id,
             ))
         except Exception:
             self.attachment_storage.path(metadata["storageKey"]).unlink(missing_ok=True)

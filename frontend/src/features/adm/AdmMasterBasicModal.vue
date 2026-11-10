@@ -1,5 +1,5 @@
 <template>
-  <a-modal :open="open" width="920px" :footer="null" wrap-class-name="v05-modal" @cancel="close">
+  <a-modal :open="open" width="920px" :footer="null" wrap-class-name="v05-modal adm-basic-info-modal" @cancel="close">
     <div v-if="detail" class="prototype-info-modal">
       <header class="prototype-info-head">
         <div><h2>{{ editable ? '编辑 ADM 主单基础信息' : 'ADM 主单基础信息' }}</h2><p>{{ detail.case.admNo }} · 系统记录 {{ detail.case.internalNo }}</p></div>
