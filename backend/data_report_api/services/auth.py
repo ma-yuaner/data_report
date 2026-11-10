@@ -19,8 +19,22 @@ from ..time_utils import business_now_naive
 
 USERNAME_RE = re.compile(r"^[A-Za-z0-9._-]{3,64}$")
 EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+DELETED_EMAIL_SUFFIX = "@deleted-account.invalid"
 ROLE_CODE_RE = re.compile(r"^[A-Z][A-Z0-9_]{2,63}$")
 ACCOUNT_DELETE_PERMISSION = "system.accounts.delete"
+
+
+def deleted_account_email(user_id: int) -> str:
+    return f"account-{user_id}{DELETED_EMAIL_SUFFIX}"
+
+
+def normalize_account_email(value: str) -> str:
+    email = value.strip().lower()
+    if len(email) > 100 or not EMAIL_RE.fullmatch(email):
+        raise AuthError("邮箱格式不合法")
+    if email.endswith(DELETED_EMAIL_SUFFIX):
+        raise AuthError("该邮箱域名仅用于已删除账号归档")
+    return email
 
 DATA_SCOPE_RESOURCES = {
     "smart_placement.task": "投放政策",
@@ -735,7 +749,10 @@ class MySqlAuthStore:
                     "INSERT INTO auth_deleted_account (user_id, deleted_by, deleted_at) VALUES (%s, %s, %s)",
                     (user_id, audit["user_id"], deleted_at),
                 )
-                cursor.execute("UPDATE sys_user SET is_active = 0, updated_at = %s WHERE id = %s", (deleted_at, user_id))
+                cursor.execute(
+                    "UPDATE sys_user SET is_active = 0, email = %s, updated_at = %s WHERE id = %s",
+                    (deleted_account_email(user_id), deleted_at, user_id),
+                )
                 cursor.execute(
                     "UPDATE auth_session SET revoked_at = %s WHERE user_id = %s AND revoked_at IS NULL",
                     (revoked_at, user_id),
@@ -1362,7 +1379,10 @@ class MemoryAuthStore:
             if target["is_admin"]:
                 raise AuthError("不能删除系统管理员账号", 403, "ADMIN_DELETE_FORBIDDEN")
             deleted_at = audit["created_at"]
-            self.users[user_id].update(is_enabled=False, deleted_at=deleted_at, deleted_by=audit["user_id"], updated_at=deleted_at)
+            self.users[user_id].update(
+                is_enabled=False, email=deleted_account_email(user_id), deleted_at=deleted_at,
+                deleted_by=audit["user_id"], updated_at=deleted_at,
+            )
             self.revoke_user_sessions(user_id, revoked_at)
             self.write_audit(audit)
 
@@ -1731,9 +1751,7 @@ class AuthManager:
         if not name or len(name) > 100:
             raise AuthError("姓名不能为空且不能超过100个字符")
         self.validate_password(password)
-        normalized_email = (email or f"{username}@data-report.local").strip().lower()
-        if len(normalized_email) > 100 or not EMAIL_RE.fullmatch(normalized_email):
-            raise AuthError("邮箱格式不合法")
+        normalized_email = normalize_account_email(email or f"{username}@data-report.local")
         if self.store.get_user_by_username(username):
             raise AuthError("用户名已存在", 409, "USERNAME_EXISTS")
         if self.store.get_user_by_email(normalized_email):
@@ -1785,9 +1803,7 @@ class AuthManager:
                 raise AuthError("姓名不能为空且不能超过100个字符")
             cleaned["display_name"] = display_name
         if "email" in values:
-            email = str(values["email"]).strip().lower()
-            if len(email) > 100 or not EMAIL_RE.fullmatch(email):
-                raise AuthError("邮箱格式不合法")
+            email = normalize_account_email(str(values["email"]))
             email_owner = self.store.get_user_by_email(email)
             if email_owner and int(email_owner["id"]) != target_id:
                 raise AuthError("邮箱已存在", 409, "EMAIL_EXISTS")
