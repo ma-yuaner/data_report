@@ -6,7 +6,22 @@ export const reviewKey = createOperationIdentifier
 export const conclusions: Record<string, string> = { no_issue: '核查无问题', problem: '有问题' }
 export const dispositions: Record<string, string> = { pending: '待认定', included: '计入差错', excluded: '不计入差错' }
 export const followStates: Record<string, string> = { todo: '待跟进', following: '跟进中', waiting: '等待反馈', done: '已完成' }
-export interface ReviewPolicy { id: string; name: string; policyVersion: string; start: string; end: string; scope: string; basis: string }
+export type HandbookBlockKind = 'paragraph' | 'list' | 'table' | 'question' | 'note'
+export interface HandbookBlock { kind: HandbookBlockKind; text: string }
+export interface HandbookSection {
+  id: string
+  title: string
+  blocks: HandbookBlock[]
+  cases: { id: string; title: string }[]
+  examples: { title: string; detail: string }[]
+  children: HandbookSection[]
+}
+export interface RiskHandbook { source: string; chapters: HandbookSection[] }
+export interface ReviewPolicy {
+  id: string; name: string; policyVersion: string; start: string; end: string; scope: string; basis: string
+  ruleDocument?: boolean
+  handbook?: RiskHandbook
+}
 export interface OrderReview { otaOrderNo?: string; otaCode?: string; orderId: string; issueDate: string; resultId: string; systemStatus: string; version: number; conclusion: string; reason: string; caseId: string | null; actor: string; at: string; consultation?: 'pending' | 'consulted'; remark?: string; problemTypes?: { id: string; name: string }[]; firstSeen?: boolean; special?: boolean; specialReason?: string; stale?: boolean; policy?: ReviewPolicy }
 export interface ReviewContext { orderId: string; issueDate: string; resultId: string; systemStatus: string; version: number; stale: boolean; review: OrderReview | null; events?: FollowEvent[]; eventsTruncated?: boolean }
 export interface FollowCase { stale?: boolean; workflowVersion?: number; consultation?: 'pending' | 'consulted'; remark?: string; id: string; version: number; title: string; conclusion: string; disposition: string; state: string; assignee: string; nextStep: string; nextAt: string | null; firstSeen: boolean; special: boolean; specialReason: string; problemType: string; cause: string; responsibility: string; createdAt: string; updatedAt: string }
@@ -32,6 +47,9 @@ export const riskFollowup = {
   review: (body: Record<string, unknown>) => post<{ count: number; caseId: string | null; casePool?: string }>('reviews', body),
   policies: () => get<ReviewPolicy[]>('policies'),
   createPolicy: (body: Record<string, unknown>) => post<ReviewPolicy>('policies', body),
+  exportPolicy: async (body: Record<string, unknown>) => (
+    await http.post<Blob>('/v1/risk-verification/followup/policies/export', body, { responseType: 'blob' })
+  ).data,
 }
 
 export function reviewStatus(context?: ReviewContext): string {

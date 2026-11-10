@@ -185,6 +185,19 @@ class RiskFollowup:
             body.update(ruleDocument=payload.get('ruleDocument') is True, id=uuid.uuid4().hex, start=day(payload.get('start')), end=day(payload.get('end')), actor=actor, at=now())
             if body['start'] > body['end']:
                 raise FlowError('策略有效期起止不正确')
+            if body['ruleDocument'] and 'handbook' in payload:
+                from .risk_handbook import case_links, validate_handbook
+
+                body['handbook'] = validate_handbook(payload['handbook'])
+                titles = {}
+                for link in case_links(body['handbook']['chapters']):
+                    identifier = link['id']
+                    if identifier not in titles:
+                        case = self._case(db, identifier)
+                        if not (case.get('firstSeen') or case.get('special')):
+                            raise FlowError('仅可关联已归入专项案例库的案例')
+                        titles[identifier] = case['title']
+                    link['title'] = titles[identifier]
             db.execute('INSERT INTO bi_risk_review_policies (id,body) VALUES(?,?)', (body['id'], encoded(body)))
             return body
         return self._transaction(actor, payload, create)
