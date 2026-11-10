@@ -17,7 +17,7 @@ const router = createRouter({
         { path: 'adm', redirect: '/adm/workbench' },
         { path: 'adm/workbench', name: 'adm-workbench', component: () => import('@/features/adm/AdmCenterView.vue'), meta: { title: '我的工作台', section: 'ADM 控制台', menuCode: 'adm.center', admView: 'workbench' } },
         { path: 'adm/cases', name: 'adm-cases', component: () => import('@/features/adm/AdmCenterView.vue'), meta: { title: 'ADM 台账', section: 'ADM 控制台', menuCode: 'adm.center', admView: 'cases' } },
-        { path: 'adm/detail', name: 'adm-detail-entry', component: () => import('@/features/adm/AdmDetailView.vue'), meta: { title: 'ADM 详情', section: 'ADM 控制台', menuCode: 'adm.center', admDetail: true } },
+        { path: 'adm/detail', redirect: '/adm/cases' },
         { path: 'adm/cases/:caseId', name: 'adm-case-detail', component: () => import('@/features/adm/AdmDetailView.vue'), meta: { title: 'ADM 详情', section: 'ADM 控制台', menuCode: 'adm.center', admDetail: true } },
         { path: 'resource-governance', redirect: '/resource-governance/gds' },
         { path: 'resource-governance/gds', name: 'gds-resource-governance', component: () => import('@/features/resource-governance/ResourceGovernancePage.vue'), meta: { title: 'GDS资源治理', section: '资源治理', menuCode: 'governance.gds', governanceLayer: 'gds' } },

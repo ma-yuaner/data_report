@@ -1,5 +1,5 @@
 <template>
-  <a-modal :open="open" width="920px" :footer="null" wrap-class-name="v05-modal" @cancel="close">
+  <a-modal :open="open" width="920px" :footer="null" wrap-class-name="v05-modal adm-basic-info-modal" @cancel="close">
     <div v-if="detail && line" class="prototype-info-modal">
       <header class="prototype-info-head"><div><h2>{{ editable ? '编辑订单基础信息' : '订单基础信息' }}</h2><p>{{ detail.case.admNo }} · {{ line.lineInternalNo }}</p></div></header>
       <div v-if="editable" class="v05-form-grid prototype-edit-grid">
@@ -25,6 +25,18 @@
         <dl><dt>截止时间（继承主单）</dt><dd>{{ detail.case.replyDeadline || '—' }}</dd></dl><dl><dt>差异类型</dt><dd>{{ line.diffTypeName || '未填写' }}</dd></dl>
         <dl class="wide"><dt>细分差异原因</dt><dd>{{ line.differenceReason || '未填写' }}</dd></dl><dl class="wide"><dt>订单情况说明</dt><dd>{{ line.investigationNote || '未填写' }}</dd></dl>
       </div>
+      <section class="inherited-master-attachments">
+        <header><div><h3>继承的主单公共附件</h3><p>同一 ADM 主单下所有明细均可查看，仅提供在线预览。</p></div><span>{{ masterAttachments.length }} 份</span></header>
+        <p v-if="!masterAttachments.length" class="attachment-empty">当前主单暂无公共附件</p>
+        <a-list v-else :data-source="masterAttachments" size="small">
+          <template #renderItem="{ item }">
+            <a-list-item>
+              <a-list-item-meta :title="item.originalFileName" :description="`${attachmentCategoryLabel(item.category)} · ${item.uploadedByName || '未知上传人'} · ${item.uploadedAt || '未记录时间'}`" />
+              <a-button size="small" @click="previewAttachment(item)">预览</a-button>
+            </a-list-item>
+          </template>
+        </a-list>
+      </section>
       <a-alert v-if="editable" type="info" show-icon message="订单金额涉及主单分配平衡，请使用完整处理记录中的金额调整功能。" class="block" />
       <footer class="prototype-info-footer"><a-button @click="close">关闭</a-button><a-button v-if="editable" type="primary" :loading="saving" @click="save">保存基础信息</a-button></footer>
     </div>
@@ -41,10 +53,17 @@ const saving = ref(false), masters = reactive<Record<string, Option[]>>({ depart
 const map = (items: Option[], plain = false) => items.map(item => ({ value: item.code, label: plain ? item.name : `${item.name}（${item.code}）` }))
 const options = computed(() => ({ department: map(masters.department), diffType: map(masters.diffType, true), ota: map(masters.ota), supplier: map(masters.supplier) }))
 const leaderOptions = computed(() => (props.config?.people.leader || []).map(item => ({ value: Number(item.id), label: item.name })))
+const masterAttachments = computed(() => (props.detail?.attachments || []).filter(
+  item => item.recordStatus === 'ACTIVE' && item.sourceLineId == null,
+))
+const attachmentCategoryLabel = (value: unknown) => ({
+  ADM_ORIGINAL: 'ADM原始附件', APPEAL: '申诉附件', COLLECTION: '回款凭证', OTHER: '其他附件',
+} as Record<string, string>)[String(value || '')] || String(value || '未分类')
 function reset() { const l = props.line; if (!l) return; Object.assign(form, { otaCode: l.otaCode || undefined, otaName: l.otaName || '', otaOrderNo: l.otaOrderNo || '', supplierCode: l.supplierCode || undefined, supplierName: l.supplierName || '', airlineCode: l.airlineCode || '', airlineName: l.airlineName || '', ticketNo: l.ticketNo || '', pnr: l.pnr || '', departmentCode: l.departmentCode, departmentName: l.departmentName, leaderId: Number(l.leaderId), leaderName: l.leaderName, diffTypeCode: l.diffTypeCode, diffTypeName: l.diffTypeName, differenceReason: l.differenceReason || '', investigationNote: l.investigationNote || '' }) }
 function close() { emit('close') }
 function pick(kind: string, value?: string) { const item = masters[kind].find(option => option.code === value); const nameKey = `${kind}Name`; form[nameKey] = item?.name || '' }
 function pickLeader(value: number) { form.leaderName = props.config?.people.leader.find(item => Number(item.id) === Number(value))?.name || '' }
+async function previewAttachment(item: Fields) { if (!props.detail) return; try { const response = await admApi.file(props.detail.case.id, item.id, 'preview'); const url = URL.createObjectURL(response.data); window.open(url, '_blank', 'noopener'); window.setTimeout(() => URL.revokeObjectURL(url), 60_000) } catch (error) { void message.error(errorText(error)) } }
 async function save() { if (!props.detail || !props.line) return; saving.value = true; try { const detail = await admApi.updateLine(props.detail.case.id, props.line.id, form); emit('saved', detail); void message.success('订单基础信息已保存') } catch (error) { void message.error(errorText(error)) } finally { saving.value = false } }
 watch(() => [props.open, props.line?.id], async ([open]) => { if (!open) return; reset(); if (props.editable) { const kinds = ['department', 'diffType', 'ota', 'supplier']; const results = await Promise.allSettled(kinds.map(kind => admApi.options(kind))); results.forEach((result, index) => { if (result.status === 'fulfilled') masters[kinds[index]] = result.value }) } }, { immediate: true })
 </script>

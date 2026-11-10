@@ -159,7 +159,6 @@
             <template #title>ADM 控制台</template>
             <a-menu-item key="/adm/workbench">我的工作台</a-menu-item>
             <a-menu-item key="/adm/cases">ADM 台账</a-menu-item>
-            <a-menu-item key="/adm/detail">ADM 详情</a-menu-item>
           </a-sub-menu>
           <a-menu-item v-if="canSeeMenu('problems')" key="/problems"
             ><template #icon><WarningOutlined /></template>问题中心</a-menu-item
@@ -289,7 +288,7 @@ const router = useRouter()
 const loggingOut = ref(false)
 const selectedKeys = computed(() => [
   route.path.startsWith('/adm/cases/')
-    ? '/adm/detail'
+    ? '/adm/cases'
     : route.path === '/analysis/profit'
       ? '/analysis/issue'
       : route.path,
