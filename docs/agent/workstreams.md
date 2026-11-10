@@ -6,6 +6,7 @@
 - 从《风控培训文档11.10》整理三章、四个脱敏培训示例，标为待确认。培训示例和专项案例分开展示。已归入专项库的记录可按案例编号关联，案例详情反查条款与版本。
 - 本地 Flask 登录、CSRF、SQLite 隔离版本、幂等、旧记录、失效引用和 Word 两种范围均已核对。Word 包、目录锚点、表格、内网案例链接已结构验证。本机无 LibreOffice，Word 排版未实测。浏览器沿用已知禁用限制，247部署及业务验收待实际回执。
 - 沿用已有存储和路由权限，无新增 SQL、DDL 或 ETL。247 在既有 data_report 的 main 检出目录拉取后按 scripts/deploy_risk_verification.sh 更新 API/Web。
+- 前端类型、定向 ESLint、80 个 Ant Design Vue 组件登记和 Vite 非压缩构建通过。Windows 标准 Vite 构建受 esbuild 临时文件清理权限阻塞。企业 GitLab main 已回读功能提交 `209e76f`。GitHub 同步被自动审批拒绝，隔离候选 `dca903a` 留本地。马远尔的待部署通知于 16:46 由既有企业微信发版接口接收，回执 `errcode=0`。
 
 ## 账号管理编辑与可分配删除（2026-11-09，SYS-ACCOUNT-20261109）
 
