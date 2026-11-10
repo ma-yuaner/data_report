@@ -1,7 +1,8 @@
 """Permission-controlled risk evidence and review workflow; ERP is read-only."""
 import logging
 import sqlite3
-from flask import current_app, g, jsonify, request
+from urllib.parse import urlsplit
+from flask import Response, current_app, g, jsonify, request, send_file
 
 from .common import ok
 from ..services.risk_order_evidence import EvidenceError, RiskOrderEvidenceService
@@ -23,6 +24,8 @@ def required_permission():
         return 'risk.verification.view'
     if '/configuration-evidence/' in path:
         return 'risk.verification.check' if path.endswith('/observe') else 'risk.verification.review'
+    if path.endswith('/followup/policies/export'):
+        return 'risk.verification.view'
     if "/followup/policies" in path:
         return "risk.verification.types.manage"
     if "/followup/" in path:
@@ -43,7 +46,8 @@ def _call(action):
         if "risk.verification" not in (user.get("menu_codes") or []) or not needed <= permission_codes(user):
             return jsonify(success=False, message="没有此风控核对功能权限", code="PERMISSION_FORBIDDEN", data=None), 403
     try:
-        response = ok(action(str(user["id"])))
+        result = action(str(user["id"]))
+        response = result if isinstance(result, Response) else ok(result)
         response.headers["Cache-Control"] = "no-store"
         return response
     except (EvidenceError, FlowError) as error:
@@ -144,6 +148,24 @@ def register_routes(api):
     @api.post("/v1/risk-verification/followup/policies")
     def risk_followup_policy_create():
         return _call(lambda actor: RiskFollowup(current_app.config).policy_create(actor, _body()))
+
+    @api.post("/v1/risk-verification/followup/policies/export")
+    def risk_followup_policy_export():
+        from ..services.risk_handbook import export_word
+
+        base_url = request.host_url.rstrip('/')
+        try:
+            origin = urlsplit(request.headers.get('Origin', ''))
+            if (origin.scheme in {'http', 'https'} and origin.hostname == urlsplit(base_url).hostname
+                    and not (origin.username or origin.password or origin.path or origin.query or origin.fragment)):
+                base_url = f'{origin.scheme}://{origin.netloc}'
+        except ValueError:
+            pass
+        return _call(lambda actor: send_file(
+            export_word(_body(), base_url),
+            as_attachment=True, download_name='风控业务手册.docx',
+            mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        ))
 
     @api.get("/v1/risk-verification/problem-types")
     def risk_problem_types():
