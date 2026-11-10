@@ -46,11 +46,13 @@ MISSED_ORDERS_KIND = "smart_missed_orders"
 HR_MAIL_FILE_KIND = "hr_mail_file"
 ADM_OPERATOR_KIND = "adm_operator_excel"
 ADM_ATTACHMENT_KIND = "adm_attachment"
+ADM_IMPORT_TEMPLATE_KIND = "adm_import_template"
 BACKGROUND_EXPORT_KINDS = {
     MISSED_ORDERS_KIND,
     HR_MAIL_FILE_KIND,
     ADM_OPERATOR_KIND,
     ADM_ATTACHMENT_KIND,
+    ADM_IMPORT_TEMPLATE_KIND,
     GDS_ROUTE_KIND,
     RESOURCE_GDS_KIND,
     RESOURCE_OTA_KIND,
@@ -64,6 +66,7 @@ TASK_LABELS = {
     HR_MAIL_FILE_KIND: "HR邮件附件",
     ADM_OPERATOR_KIND: "ADM接单处理表",
     ADM_ATTACHMENT_KIND: "ADM附件原件",
+    ADM_IMPORT_TEMPLATE_KIND: "ADM跨主单导入模板",
     GDS_ROUTE_KIND: "GDS航线名单",
     RESOURCE_GDS_KIND: "GDS资源治理汇报",
     RESOURCE_OTA_KIND: "OTA渠道质量汇报",
@@ -112,8 +115,12 @@ def _require_kind(user: dict[str, Any], kind: str) -> None:
         if not (_is_admin(user) or "hr.mail" in menu_codes):
             raise PermissionError("当前账号没有HR报表邮件菜单权限")
         return
-    if kind in {ADM_OPERATOR_KIND, ADM_ATTACHMENT_KIND}:
-        required = "adm.handle" if kind == ADM_OPERATOR_KIND else "adm.view"
+    if kind in {ADM_OPERATOR_KIND, ADM_ATTACHMENT_KIND, ADM_IMPORT_TEMPLATE_KIND}:
+        required = {
+            ADM_OPERATOR_KIND: "adm.handle",
+            ADM_ATTACHMENT_KIND: "adm.view",
+            ADM_IMPORT_TEMPLATE_KIND: "adm.create",
+        }[kind]
         if not (_is_admin(user) or (required in permission_codes(user) and "adm.center" in menu_codes)):
             raise PermissionError("当前账号没有该ADM导出任务权限")
         return
@@ -731,7 +738,9 @@ class ComprehensiveExportService:
             user_id=_user_id(user), requested_by=_display_name(user), fingerprint=fingerprint,
             business=kind, start_date=start_date, end_date=end_date, filters=payload, total_rows=0,
         )
-        if not task.get("reused") and kind in {ADM_OPERATOR_KIND, ADM_ATTACHMENT_KIND}:
+        if kind in {ADM_OPERATOR_KIND, ADM_ATTACHMENT_KIND, ADM_IMPORT_TEMPLATE_KIND}:
+            if task.get("reused"):
+                return task
             self._complete_adm_task(user, task, payload)
             row = self.store.get(_user_id(user), str(task["id"]))
             return self.store.public(row)
@@ -747,7 +756,18 @@ class ComprehensiveExportService:
         self.store.claim(_user_id(user), task_id)
         try:
             service = AdmWorkflowService(self.config)
-            if task["businessType"] == ADM_OPERATOR_KIND:
+            if task["businessType"] == ADM_IMPORT_TEMPLATE_KIND:
+                content = service.import_template(user)
+                output_path = self.store.files / f"{task_id}.xlsx"
+                try:
+                    content.seek(0)
+                    with output_path.open("wb") as target:
+                        shutil.copyfileobj(content, target)
+                finally:
+                    content.close()
+                self.store.set_total(task_id, 1)
+                self.store.finish(task_id, output_path, "ADM日常建单19列模板.xlsx", 1)
+            elif task["businessType"] == ADM_OPERATOR_KIND:
                 result = service.claim_and_export(user, {"lineIds": values["lineIds"]})
                 output_path = self.store.files / f"{task_id}.xlsx"
                 content = result["content"]

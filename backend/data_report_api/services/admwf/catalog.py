@@ -288,11 +288,25 @@ class AdmCatalog:
                 "SELECT ota_code AS code,ota_cname AS name FROM sibe_ota "
                 "WHERE status=1 AND (ota_code=%s OR ota_cname=%s) LIMIT 2", (raw, raw),
             )
+            if not rows and "/" in raw:
+                code, name = (item.strip() for item in raw.split("/", 1))
+                if code and name:
+                    rows = self._query_all(
+                        "SELECT ota_code AS code,ota_cname AS name FROM sibe_ota "
+                        "WHERE status=1 AND ota_code=%s AND ota_cname=%s LIMIT 2", (code, name),
+                    )
             return self._unique(rows, "OTA平台")
         rows = self._query_all(
             "SELECT supplier_code AS code,supplier_cname AS name FROM sibe_supplier "
             "WHERE status=1 AND (supplier_code=%s OR supplier_cname=%s) LIMIT 2", (raw, raw),
         )
+        if not rows and "/" in raw:
+            code, name = (item.strip() for item in raw.split("/", 1))
+            if code and name:
+                rows = self._query_all(
+                    "SELECT supplier_code AS code,supplier_cname AS name FROM sibe_supplier "
+                    "WHERE status=1 AND supplier_code=%s AND supplier_cname=%s LIMIT 2", (code, name),
+                )
         return self._unique(rows, "供应商")
 
     def options(self, kind, search="", limit=100):
@@ -309,8 +323,32 @@ class AdmCatalog:
             )
         if kind == "diffType":
             needle = raw.casefold()
-            rows = self._difference_type_rows()
+            resolver = self.config.get("ADMWF_DIFF_TYPE_OPTIONS_RESOLVER")
+            rows = resolver(raw, size) if callable(resolver) else self._difference_type_rows()
+            rows = [
+                {"code": str(item["code"]).strip(), "name": str(item.get("name") or item["code"]).strip()}
+                for item in (rows or []) if str(item.get("code") or "").strip()
+            ]
             return [row for row in rows if not needle or needle in row["name"].casefold()][:size]
+        if kind == "currency":
+            resolver = self.config.get("ADMWF_CURRENCY_OPTIONS_RESOLVER")
+            if callable(resolver):
+                rows = resolver(raw, size) or []
+            else:
+                rows = self._query_all(
+                    "SELECT DISTINCT exchange_currency AS code,exchange_currency AS name "
+                    "FROM sibe_exchange_rate WHERE source=6 AND data_flag=0 AND currency='CNY' "
+                    "AND central_parity_rate>0 AND exchange_currency LIKE %s ESCAPE '\\\\' "
+                    "ORDER BY exchange_currency LIMIT %s",
+                    (like, size),
+                )
+            normalized = [
+                {"code": str(item["code"]).strip().upper(), "name": str(item.get("name") or item["code"]).strip().upper()}
+                for item in rows if str(item.get("code") or "").strip()
+            ]
+            if (not raw or "CNY".casefold().find(raw.casefold()) >= 0) and not any(item["code"] == "CNY" for item in normalized):
+                normalized.insert(0, {"code": "CNY", "name": "CNY"})
+            return normalized[:size]
         table = {
             "ota": ("sibe_ota", "ota_code", "ota_cname"),
             "supplier": ("sibe_supplier", "supplier_code", "supplier_cname"),

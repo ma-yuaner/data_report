@@ -244,7 +244,9 @@ def register_routes(api: Blueprint) -> None:
         upload = request.files.get("file")
         if upload is None:
             raise AdmError("请选择要上传的附件")
-        return service.upload_attachment(user, case_id, upload, request.form.get("category"))
+        return service.upload_attachment(
+            user, case_id, upload, request.form.get("category"), request.form.get("lineId"),
+        )
 
     @api.get("/v1/adm/cases/<case_id>/attachments/<attachment_id>/preview")
     def admwf_preview_attachment(case_id, attachment_id):

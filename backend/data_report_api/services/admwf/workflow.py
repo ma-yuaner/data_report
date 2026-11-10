@@ -47,9 +47,9 @@ def validate_submit(recovery_status, appeal_status, problem_attribution):
 
 def status_after_approval(*, appeal_status, diff_match_status, collection_required,
                           expected_collection_amount, collected_amount):
-    if requires_diff_match(appeal_status) and diff_match_status not in DIFF_MATCHED:
-        return "WAITING_DIFF"
-    if collection_required:
+    if requires_diff_match(appeal_status):
+        return "COMPLETED" if diff_match_status in DIFF_MATCHED else "WAITING_DIFF"
+    if appeal_status == "SUCCEEDED" and collection_required:
         expected = Decimal(str(expected_collection_amount or "0"))
         collected = Decimal(str(collected_amount or "0"))
         if expected <= 0:
