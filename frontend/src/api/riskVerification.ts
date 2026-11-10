@@ -143,6 +143,7 @@ export interface RiskConfigCandidate {
 }
 
 export interface AutoRiskResult {
+  formula?: string
   id: string; orderId: string; reasonCode: string; sourceUpdatedAt: string | null; ruleVersion: string; checkedAt: string
   status: VerificationStatus; summary: string; platform?: string; stopLoss?: string; missing?: string[]; evidenceHash?: string
   sourceMode?: string; loadedAt?: string; isCurrent?: boolean; catalogRunId?: string; reusedFrom?: string; historyRunId?: string

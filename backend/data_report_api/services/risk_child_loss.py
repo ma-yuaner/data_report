@@ -21,6 +21,7 @@ BET_REASONS={
     'RLA045':'对赌亏损-退改','RLA069':'对赌亏损-私有',
     'RLA070':'对赌亏损-青年票','RLA067':'对赌亏损-降舱',
 }
+CONFIG_FREE_REASONS=(*PROFIT_REASONS,PNR_LOSS_REASON)
 SUPPORTED_REASONS=('RLA013',CHILD_REASON,ANCILLARY_REASON,PNR_LOSS_REASON,*BET_REASONS,*NORMAL_REASONS,*PROFIT_REASONS)
 ORDER_FIELDS='id,ota_code,ota_site_code,product_type,manual_flag,issue_way,dep_city,arr_city,ota_order_no,relation_ota_order_no,profit_reason_type,update_time'
 RELATED_SQL="SELECT "+ORDER_FIELDS+" FROM order_info WHERE ota_code=%s AND ota_site_code <=> %s AND (ota_order_no IN ({marks}) OR relation_ota_order_no IN ({marks})) ORDER BY id LIMIT 101"

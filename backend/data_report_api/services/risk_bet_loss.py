@@ -78,32 +78,35 @@ def evaluate_normal(evidence, version):
 
 
 def evaluate_original_pnr_loss(evidence, version):
-    """Require matching airline PNRs and the existing per-ticket stop loss."""
-    result = evaluate_bet(evidence, version)
-    result['formula'] = 'airline_pnr_match AND issue_profit >= -stop_loss'
-    if not result['tickets']:
+    """Compare the two airline PNRs on each issued-ticket row."""
+    result = {'ruleVersion': version, 'status': 'insufficient', 'summary': '出票范围不完整',
+              'platform': evidence['order'].get('ota_code'), 'tickets': [], 'stopLoss': None,
+              'logReferences': [], 'missing': [], 'formula': 'airline_pnr_match'}
+    if not evidence.get('complete') or not evidence.get('issues'):
+        result['missing'] = ['完整出票明细']
         return result
 
-    for issue, ticket in zip(evidence['issues'], result['tickets']):
+    states = {
+        1: ('supported', '原大编码与出票大编码一致'),
+        0: ('problem', '原大编码与出票大编码不一致'),
+        None: ('insufficient', '原大编码或出票大编码缺失'),
+    }
+    for issue in evidence['issues']:
         match = issue.get('airline_pnr_match')
-        if match not in (0, 1):
-            ticket['airlinePnrMatch'] = None
-            result['missing'].append('原大编码或出票大编码')
-            ticket['explanation'] += '；原大编码或出票大编码缺失'
-            if ticket['status'] == 'supported':
-                ticket['status'] = 'insufficient'
-        else:
-            ticket['airlinePnrMatch'] = bool(match)
-            ticket['explanation'] += '；原大编码与出票大编码一致' if match else '；原大编码与出票大编码不一致'
-            if not match:
-                ticket['status'] = 'problem'
+        status, explanation = states.get(match, states[None])
+        result['tickets'].append({
+            'id': str(issue['id']), 'profit': issue.get('issue_profit'), 'commission': None,
+            'airlinePnrMatch': bool(match) if status != 'insufficient' else None,
+            'status': status, 'explanation': explanation,
+        })
 
     statuses = {ticket['status'] for ticket in result['tickets']}
     result['status'] = 'problem' if 'problem' in statuses else 'insufficient' if 'insufficient' in statuses else 'supported'
     result['summary'] = {
-        'supported': '所有出票明细的大编码一致，且满足出票时通用止损配置',
-        'problem': '至少一张票的大编码不一致或突破出票时通用止损配置',
-        'insufficient': '大编码、出票利润或通用止损配置证据不足',
+        'supported': '所有出票明细的原大编码与出票大编码一致',
+        'problem': '至少一张票的原大编码与出票大编码不一致',
+        'insufficient': '原大编码或出票大编码证据不足',
     }[result['status']]
-    result['missing'] = sorted(set(result['missing']))
+    if 'insufficient' in statuses:
+        result['missing'] = ['原大编码或出票大编码']
     return result

@@ -1,12 +1,12 @@
 {
   "files": {
     "__init__.py": "01b3cfad27f9866c0e3220f76b8462258c576912dd1db51e622fb54911dd37e3",
-    "engine.py": "f1810edee1be21f5508464487f9dbad2fbc4e274bf6e917c43dac3e65f4e9993",
+    "engine.py": "863a8e79f6767b7909df4c6b9ba74db3e7a38d31663ba863c85fe9cfa110bc4e",
     "risk_ancillary_loss.py": "1b55e45649fbfde24c6c8bd9382f792a7184924d4dbe218501d3ce5342f8616c",
-    "risk_bet_loss.py": "7915adf875fc41628c8c2053709df2aa799a4d8022e4593d290a8b11c401c423",
-    "risk_child_loss.py": "70fbcabc84cee2ad59b4e234288ed1cb59541ce03c0a54b3f270b529b1ef9472",
-    "risk_commission_rule.py": "02583d054f8e6c5aa1562200d158a02e6dd322a1b3ee7a5cad8f3606228e4ac1",
-    "risk_evidence_batch.py": "51e263b65c90ab94ffd0b90541c4696d4194758fefaf104850d806f8301789fc",
+    "risk_bet_loss.py": "46f5cae8588bc0914400dc8467f6d2310be4bf45ade7c6f7aaafadf2f5657f97",
+    "risk_child_loss.py": "e315f4d60484d59225f4d2ab7524ddcc6f4bc0a0add67a308302cd35509e2ba7",
+    "risk_commission_rule.py": "fff1cafb94456b52ee4405f4e8896491db9c3708c8b38a516493cd198aea52b1",
+    "risk_evidence_batch.py": "a8ea218b145ee8a685c7a6aae5497966bcdbd68bf52be8311622fc5868aefde6",
     "risk_historical_threshold.py": "7407d7a109629fff60e73be0c5e2fb3a63d5ade6cc74dad97716e8e5df9b14ea",
     "risk_loss_threshold_config.py": "a40c4339b6c12e62459235de98cccbe0a7b8684c44db31555952d0d2077a767d",
     "risk_order_evidence.py": "32661d38a79f4fd80ec5bd7b00f051bade479e3c9f702c5762d6bdcab6d3a467",
@@ -15,6 +15,6 @@
     "risk_threshold_facts.py": "54d371a1711220c0052bb3578f4dcfdd38a085797e831383ba868cdeaa19f760",
     "risk_verification_flow.py": "33e04bd8f7722a98dbee651b4bfda9b27e7bd73d46bb89f1f05b195f9964f3a3"
   },
-  "ruleVersion": "qunar-commission-loss-config-v18",
-  "sha256": "e2bdc1b3180215c12444d763c5900598c1a8bbc15bd2a681f212fb732cbda80e"
+  "ruleVersion": "qunar-commission-loss-config-v19",
+  "sha256": "aae045a5550910fba7dec2a0e9709d79b5fa336111adf886b65653238bc1c64c"
 }

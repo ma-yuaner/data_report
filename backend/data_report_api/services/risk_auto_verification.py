@@ -8,7 +8,7 @@ import time
 import uuid
 
 from .risk_commission_rule import RULE_ID, evaluate_commission_loss
-from .risk_child_loss import CHILD_REASON, ANCILLARY_REASON, PNR_LOSS_REASON, BET_REASONS, NORMAL_REASONS, PROFIT_REASONS, SUPPORTED_REASONS, ORDER_FIELDS, read_child_evidence, evaluate_child
+from .risk_child_loss import CHILD_REASON, ANCILLARY_REASON, PNR_LOSS_REASON, CONFIG_FREE_REASONS, BET_REASONS, NORMAL_REASONS, PROFIT_REASONS, SUPPORTED_REASONS, ORDER_FIELDS, read_child_evidence, evaluate_child
 from .risk_order_profit import evaluate_order_profit
 from .risk_bet_loss import AIRLINE_PNR_MATCH_SQL, evaluate_bet, evaluate_normal, evaluate_original_pnr_loss
 from .risk_ancillary_loss import ANCILLARY_SQL, MAX_ANCILLARY_ROWS, evaluate_ancillary
@@ -125,7 +125,7 @@ def read_evidence_cursor(cursor, identifier, configuration_cache=None, _basic=Fa
     issues = _rows(cursor)
     if any(str(row["order_id"]) != str(identifier) for row in issues):
         raise FlowError("取证订单关联不一致", 409)
-    if issues and (_basic or orders[0].get('profit_reason_type') not in PROFIT_REASONS):
+    if issues and (_basic or orders[0].get('profit_reason_type') not in CONFIG_FREE_REASONS):
         cache = configuration_cache if configuration_cache is not None else {}
         if 'reader' not in cache:
             cache['reader'] = HistoricalThresholds(cursor)

@@ -3,7 +3,7 @@ from collections import defaultdict
 from copy import deepcopy
 import time
 from .risk_order_evidence import _rows
-from .risk_child_loss import ANCILLARY_REASON, CHILD_REASON, ORDER_FIELDS, PROFIT_REASONS
+from .risk_child_loss import ANCILLARY_REASON, CHILD_REASON, ORDER_FIELDS, CONFIG_FREE_REASONS
 from .risk_ancillary_loss import ANCILLARY_SQL, MAX_ANCILLARY_ROWS
 from .risk_bet_loss import AIRLINE_PNR_MATCH_SQL
 from .risk_historical_threshold import HistoricalThresholds
@@ -18,7 +18,7 @@ class BatchEvidence:
         self.orders={};self.issues=defaultdict(list);self.links=defaultdict(list);self.ages=defaultdict(list);self.airports=defaultdict(list)
         self._orders(identifiers)
         self.history = history
-        if self.history is None and any(row.get('profit_reason_type') not in PROFIT_REASONS for row in self.orders.values()):
+        if self.history is None and any(row.get('profit_reason_type') not in CONFIG_FREE_REASONS for row in self.orders.values()):
             self.history = HistoricalThresholds(cursor)
         self.ancillary_purchases = defaultdict(list)
         ancillary_numbers = sorted({row['ota_order_no'] for row in self.orders.values()
@@ -52,7 +52,7 @@ class BatchEvidence:
             if len(self.orders)>10000:raise ValueError('BATCH_RELATED_ORDER_LIMIT')
         else:raise ValueError('BATCH_RELATION_DEPTH_LIMIT')
         threshold_orders = {key for key, row in self.orders.items()
-                            if key in child_nodes or row.get('profit_reason_type') not in PROFIT_REASONS}
+                            if key in child_nodes or row.get('profit_reason_type') not in CONFIG_FREE_REASONS}
         ticket_count=0
         for chunk in self.chunks(list(self.orders)):
             marks=','.join(['%s']*len(chunk))
