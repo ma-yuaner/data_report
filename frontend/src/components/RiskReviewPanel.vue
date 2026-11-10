@@ -3,22 +3,22 @@
     <div class="review-heading"><h3>{{ directError ? '核实与跟进记录' : '人工核实记录' }}</h3><a-tag v-if="context" :color="context.stale || context.review?.conclusion === 'unknown' ? 'orange' : context.review?.conclusion === 'problem' ? 'red' : 'blue'">{{ reviewStatus(context) }}</a-tag></div>
     <a-alert v-if="error" type="error" show-icon :message="error" /><a-button v-if="error" :loading="busy" @click="load">重新读取人工记录</a-button>
     <a-alert v-if="context?.stale" type="warning" show-icon message="证据已变化，原记录待重新核实" />
-    <template v-if="context?.review"><p><a-tag :color="context.stale ? 'orange' : 'blue'">{{ humanReviewLabel(context.review) }}{{ context.stale ? '（历史结论）' : '' }}</a-tag>{{ context.review.reason }}</p><p v-if="context.review.remark">备注：{{ context.review.remark }}</p><p class="muted">{{ formatDateTimeDisplay(context.review.at) }} · 操作账号 {{ context.review.actor }}</p><router-link v-if="context.review.caseId" :to="`/risk-followup/cases?case=${context.review.caseId}`">进入关联案例跟进</router-link></template>
-    <p v-else-if="context" class="muted">{{ directError ? `清洗发布后将按原因建立案例，可在${pendingRoute ? '待认定' : '计入差错'}池查看。` : normalBusiness && context.systemStatus === 'supported' ? '自动通过已闭环，无须人工确认，可按需抽查。' : '尚无人工核实结论。可根据当前证据完成人工判断。' }}</p>
+    <template v-if="context?.review"><p><a-tag :color="context.stale ? 'orange' : 'blue'">{{ humanReviewLabel(context.review) }}{{ context.stale ? '（历史结论）' : '' }}</a-tag>{{ context.review.reason }}</p><p v-if="context.review.actualProfitReason">实际盈亏原因：{{ context.review.actualProfitReason }}</p><p v-if="context.review.remark">备注：{{ context.review.remark }}</p><p class="muted">{{ formatDateTimeDisplay(context.review.at) }} · 操作账号 {{ context.review.actor }}</p><router-link v-if="context.review.caseId && context.review.conclusion === 'problem' && context.review.caseId !== currentCaseId && !isLegacyAutoPending(context.review)" :to="{ name: 'risk-followup-cases', query: { case: context.review.caseId } }">查看本单跟进</router-link></template>
+    <p v-else-if="context" class="muted">{{ directError ? '清洗发布后将计入差错并完结，可在计入差错池查看。' : normalBusiness && context.systemStatus === 'supported' ? '自动通过已闭环，无须人工确认，可按需抽查。' : '尚无人工核实结论。可根据当前证据完成人工判断。' }}</p>
     <details v-if="context?.events?.length"><summary>查看核实与跟进历史</summary><p v-for="(event, i) in context.events" :key="i">{{ formatDateTimeDisplay(event.at) }} · {{ humanReviewLabel(event.after) }} · {{ event.note }}<span v-if="event.after.remark"> · 备注：{{ event.after.remark }}</span><a-tag v-for="type in event.after.problemTypes || []" :key="type.id">{{ type.name }}</a-tag> · 账号 {{ event.actor }}</p><p v-if="context.eventsTruncated">仅展示最近100条，历史未删除</p></details>
     <div class="review-action"><a-button v-if="canReview" type="primary" size="large" :loading="busy" :disabled="!context" @click="open = true">人工核实</a-button><span v-else class="muted">当前账号没有人工核实权限</span></div>
-    <RiskReviewForm :open="open" :orders="[{ orderId, issueDate }]" @close="open = false" @saved="reload" />
+    <RiskReviewForm :open="open" :current-case-id="currentCaseId" :orders="[{ orderId, issueDate }]" @close="open = false" @saved="reload" />
   </section>
 </template>
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Alert as AAlert, Button as AButton, Tag as ATag } from 'ant-design-vue'
-import { riskFollowup, humanReviewLabel, reviewStatus, type ReviewContext } from '@/api/riskFollowup'
+import { riskFollowup, humanReviewLabel, isLegacyAutoPending, reviewStatus, type ReviewContext } from '@/api/riskFollowup'
 import { useRiskPermissions } from '@/composables/useRiskPermissions'
 import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
 import RiskReviewForm from './RiskReviewForm.vue'
 const { canReview } = useRiskPermissions()
-const props = defineProps<{ orderId: string; issueDate: string; normalBusiness?: boolean; directError?: boolean; pendingRoute?: boolean }>()
+const props = defineProps<{ orderId: string; issueDate: string; normalBusiness?: boolean; directError?: boolean; currentCaseId?: string }>()
 const emit = defineEmits<{ changed: []; 'busy-change': [boolean] }>()
 const context = ref<ReviewContext>(), error = ref(''), open = ref(false), busy = ref(false)
 let alive = true

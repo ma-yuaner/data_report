@@ -10,14 +10,14 @@
       <a-alert v-if="!supportedReason" type="info" show-icon message="该类型规则尚未接入" description="后续为此类型补充专属证据和规则，不套用佣金亏损公式。" />
       <a-alert v-else-if="!result" type="info" show-icon message="尚未形成自动结果" description="系统正在核实或等待当前批次完成。关闭详情后可查看进度。" />
       <template v-if="result && supportedReason">
-        <a-alert :type="outdated ? 'warning' : result.status === 'supported' ? 'success' : result.status === 'problem' || result.status === 'failed' ? 'error' : 'warning'" show-icon :message="pinned ? '正在查看历史核查；人工核实仍以当前证据为准' : outdated ? '源版本已改变，此结果仅供历史参考' : result.summary" />
+        <a-alert :type="outdated ? 'warning' : result.status === 'supported' ? 'success' : result.status === 'problem' || result.status === 'failed' ? 'error' : 'warning'" show-icon :message="pinned ? '正在查看历史核查；人工核实仍以当前证据为准' : outdated ? '源版本已改变，此结果仅供历史参考' : isSystemLoss && result.status === 'supported' ? '自动通过核对，可按需人工核查' : result.summary" />
         <a-alert v-if="(isNormal || isProfit) && !outdated && !pinned && result.status === 'supported'" type="success" show-icon message="自动通过（已闭环）" :description="isProfit ? '整单出票利润大于 0，可按需抽查。' : '所有出票明细均在通用配置止损阈值内，无须再人工确认，可按需抽查。'" />
         <a-descriptions bordered size="small" :column="2">
           <a-descriptions-item label="平台">{{ result.platform || '证据缺失' }}</a-descriptions-item>
-          <a-descriptions-item v-if="!isProfit && !isPnrOnly && !isDirectError" label="止损值来源">{{ usesConfiguration ? '原取证配置（逐票查看历史证明）' : '历史日志结果，需更新并核实' }}</a-descriptions-item>
+          <a-descriptions-item v-if="!isProfit && !isPnrOnly && !isReasonRouted" label="止损值来源">{{ usesConfiguration ? '原取证配置（逐票查看历史证明）' : '历史日志结果，需更新并核实' }}</a-descriptions-item>
           <a-descriptions-item :label="result.sourceMode === 'prepared_etl' ? '清洗核实时间' : '核实时间'">{{ formatDateTimeDisplay(result.checkedAt) }}</a-descriptions-item>
           <a-descriptions-item label="规则版本">{{ result.ruleVersion }}</a-descriptions-item>
-          <a-descriptions-item v-if="!isChild && !isBet && !isNormal && !isAncillary && !isProfit && !isPnrLoss && !isDirectError" label="核实依据" :span="2">非去哪儿平台优先判为选因有问题；去哪儿且有正佣金时，出票利润＋销售佣金 ≥ －单票止损值；金额为CNY。超过4段按4段配置＋超出段数×25元。</a-descriptions-item>
+          <a-descriptions-item v-if="!isChild && !isBet && !isNormal && !isAncillary && !isProfit && !isPnrLoss && !isReasonRouted" label="核实依据" :span="2">非去哪儿平台优先判为选因有问题；去哪儿且有正佣金时，出票利润＋销售佣金 ≥ －单票止损值；金额为CNY。超过4段按4段配置＋超出段数×25元。</a-descriptions-item>
           <a-descriptions-item v-if="isBet || isNormal" label="核实依据" :span="2">逐票出票利润 ≥ －出票时单票止损值（含等号），不加佣金或预期收益；任一票突破则整单有问题。原始利润为CNY，不合并关联单平均利润。</a-descriptions-item>
           <a-descriptions-item v-if="isPnrLoss" label="核实依据" :span="2">{{ isPnrOnly ? '逐票核对原大编码与出票大编码，全部一致才通过。' : '逐票核对原大编码和出票大编码，并检查出票利润是否达到当时适用的止损下界。' }}</a-descriptions-item>
           <a-descriptions-item v-if="isChild" label="核实依据" :span="2">必须有儿童或婴儿；携程同OTA订单与关联单汇总出票利润÷总票数，不加佣金；平均利润须满足当前单逐票止损阈值；平均值展示四位小数，判定不按展示值舍入。</a-descriptions-item>
@@ -28,7 +28,7 @@
             <a-descriptions-item label="平均单票利润">{{ result.aggregate.averageProfitDisplay ?? result.aggregate.averageProfit ?? '证据不足' }} 元</a-descriptions-item>
             <a-descriptions-item label="范围内订单" :span="2">{{ result.aggregate.orderCount }} 单（按OTA与关联关系核算）</a-descriptions-item>
           </template>
-          <a-descriptions-item v-if="isDirectError" label="处理方式" :span="2">{{ isSystemLoss ? '自动通过核对，按盈亏原因进入待认定池。' : '按盈亏原因进入计入差错池。' }}已有人工记录的订单沿用原认定。</a-descriptions-item>
+          <a-descriptions-item v-if="isReasonRouted" label="处理方式" :span="2">{{ isSystemLoss ? '可按需核查，判为有问题后进入案例跟进。' : '清洗发布后按盈亏原因计入差错并完结。' }}已有核查记录的订单沿用原认定。</a-descriptions-item>
           <template v-if="isProfit">
             <a-descriptions-item label="核实依据" :span="2">整单出票利润合计大于 0 自动通过，小于或等于 0 判为有问题。</a-descriptions-item>
             <a-descriptions-item label="整单出票利润">{{ profitText(result.aggregate?.totalProfit) }}</a-descriptions-item>
@@ -42,7 +42,7 @@
             <a-descriptions-item label="增值单数">{{ result.aggregate?.ancillaryOrderCount ?? '证据不足' }}</a-descriptions-item>
           </template>
         </a-descriptions>
-        <a-table v-if="!isProfit && !isDirectError" :data-source="result.tickets" :columns="columns" row-key="id" :pagination="false" :scroll="{ x: isPnrOnly ? 670 : 1550 }" size="small">
+        <a-table v-if="!isProfit && !isReasonRouted" :data-source="result.tickets" :columns="columns" row-key="id" :pagination="false" :scroll="{ x: isPnrOnly ? 670 : 1550 }" size="small">
           <template #bodyCell="{ column, record }">
             <a-tag v-if="column.key === 'status'" :color="record.status === 'supported' ? 'green' : record.status === 'problem' ? 'red' : 'orange'">{{ labels[record.status] || record.status }}</a-tag>
             <template v-else-if="column.key === 'airlinePnrMatch'">{{ record.airlinePnrMatch == null ? '证据不足' : record.airlinePnrMatch ? '一致' : '不一致' }}</template>
@@ -57,9 +57,9 @@
           </template>
         </a-table>
         <a-alert v-if="result.missing?.length" type="warning" show-icon :message="`待补证据：${result.missing.join('；')}`" />
-        <p v-if="!isAncillary && !isProfit && !isPnrLoss && !isDirectError" class="muted">{{ isBet || isNormal ? '来源：order_info_issue.issue_profit（CNY）与出票时通用配置单票止损值；逐票比较，不加佣金或预期收益。' : isChild ? '来源：范围内各独立订单出票利润（CNY）与票数、乘机人年龄类型；不加佣金，不去重独立出票。阈值沿用当前单出票时配置。' : usesConfiguration ? '来源：出票明细的利润、销售佣金和单票航段关联；止损值取出票时的通用配置。保留配置版本、快照哈希及必要的配置变更引用，不从订单止损日志取值。' : '此为旧版日志核实结果，仅供历史参考；请先完成所选日期清洗，再在列表查询最新结果。' }}</p>
+        <p v-if="!isAncillary && !isProfit && !isPnrLoss && !isReasonRouted" class="muted">{{ isBet || isNormal ? '来源：order_info_issue.issue_profit（CNY）与出票时通用配置单票止损值；逐票比较，不加佣金或预期收益。' : isChild ? '来源：范围内各独立订单出票利润（CNY）与票数、乘机人年龄类型；不加佣金，不去重独立出票。阈值沿用当前单出票时配置。' : usesConfiguration ? '来源：出票明细的利润、销售佣金和单票航段关联；止损值取出票时的通用配置。保留配置版本、快照哈希及必要的配置变更引用，不从订单止损日志取值。' : '此为旧版日志核实结果，仅供历史参考；请先完成所选日期清洗，再在列表查询最新结果。' }}</p>
       </template>
-      <RiskReviewPanel v-if="issueDate" :direct-error="isDirectError" :pending-route="isSystemLoss" :order-id="orderId" :issue-date="issueDate" :normal-business="NORMAL_REASON_CODES.includes(reason) || PROFIT_REASON_CODES.includes(reason || currentResult?.reasonCode || '')" @changed="emit('changed')" @busy-change="reviewBusy = $event" />
+      <RiskReviewPanel v-if="issueDate" :current-case-id="currentCaseId" :direct-error="isDirectError" :order-id="orderId" :issue-date="issueDate" :normal-business="NORMAL_REASON_CODES.includes(reason) || PROFIT_REASON_CODES.includes(reason || currentResult?.reasonCode || '')" @changed="emit('changed')" @busy-change="reviewBusy = $event" />
     </div>
   </a-spin>
 </template>
@@ -73,7 +73,7 @@ import RiskReviewPanel from '@/components/RiskReviewPanel.vue'
 import RiskConfigurationBasis from '@/components/RiskConfigurationBasis.vue'
 import RiskConfigEvidencePanel from '@/components/RiskConfigEvidencePanel.vue'
 import { readLatestConfig, latestConfigStatus, type LatestConfigResponse } from '@/api/riskLatestConfig'
-const props = defineProps<{ orderId: string; reason: string; sourceUpdatedAt: string | null; issueDate?: string }>()
+const props = defineProps<{ currentCaseId?: string; orderId: string; reason: string; sourceUpdatedAt: string | null; issueDate?: string }>()
 const emit = defineEmits<{ changed: []; 'busy-change': [boolean] }>()
 const result = ref<AutoRiskResult | null>(null)
 const currentResult = ref<AutoRiskResult | null>(null)
@@ -100,12 +100,13 @@ const effectiveReason = computed(() => (pinned.value ? result.value?.reasonCode 
 const isBet = computed(() => ['RLA068', 'RLA047', 'RLA50', 'RLA046', 'RLA045', 'RLA069', 'RLA070', 'RLA067'].includes(effectiveReason.value))
 const isNormal = computed(() => NORMAL_REASON_CODES.includes(effectiveReason.value))
 const isSystemLoss = computed(() => effectiveReason.value === 'RLB18')
-const isDirectError = computed(() => isSystemLoss.value || effectiveReason.value === 'RLA028')
+const isDirectError = computed(() => effectiveReason.value === 'RLA028')
+const isReasonRouted = computed(() => isDirectError.value || isSystemLoss.value)
 const isProfit = computed(() => PROFIT_REASON_CODES.includes(effectiveReason.value))
 const isPnrLoss = computed(() => effectiveReason.value === 'RLA006')
 const isPnrOnly = computed(() => isPnrLoss.value && result.value?.formula === 'airline_pnr_match')
 const isAncillary = computed(() => effectiveReason.value === 'RLA041')
-const supportedReason = computed(() => isDirectError.value || isPnrLoss.value || isProfit.value || isAncillary.value || isNormal.value || isBet.value || ['RLA013', 'RLA040'].includes(effectiveReason.value))
+const supportedReason = computed(() => isReasonRouted.value || isPnrLoss.value || isProfit.value || isAncillary.value || isNormal.value || isBet.value || ['RLA013', 'RLA040'].includes(effectiveReason.value))
 const profitText = (amount?: string) => amount == null ? '证据不足' : `${amount} 元`
 const isChild = computed(() => effectiveReason.value === 'RLA040')
 const columns = computed(() => isPnrOnly.value ? [

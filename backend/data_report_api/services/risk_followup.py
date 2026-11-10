@@ -349,7 +349,69 @@ class RiskFollowup:
                     stale = True
                 orders.append({**review, 'stale': stale})
             events = db.execute('SELECT body FROM bi_risk_followup_events WHERE case_id=? ORDER BY seq DESC LIMIT 501', (case_id,)).fetchall()
-            return {**body, 'orders': orders, 'events': [json.loads(row['body']) for row in events[:500]], 'eventsTruncated': len(events) > 500}
+            metadata = self._case_orders(db, [case_id]).get(case_id, {})
+            primary = metadata.get('primaryOrder')
+            personnel = self._case_personnel(db, primary) if primary else {}
+            if primary:
+                codes = sorted({primary[k] for k in ('firstProfitReason', 'latestProfitReason') if primary[k]})
+                if codes:
+                    placeholders = ','.join('?' for _ in codes)
+                    labels = db.execute(f"""SELECT det_code,det_cname FROM bi_risk_reason_dict
+                        WHERE parent_code='PRODUCT_PROFIT_REASON_TYPE' AND det_code IN ({placeholders})""", tuple(codes)).fetchall()
+                    names = {row['det_code']: row['det_cname'] for row in labels}
+                    for key in ('firstProfitReason', 'latestProfitReason'):
+                        primary[key + 'Label'] = names.get(primary[key])
+            return {**body, **metadata, **personnel, 'orders': orders, 'events': [json.loads(row['body']) for row in events[:500]], 'eventsTruncated': len(events) > 500}
+
+    @staticmethod
+    def _case_orders(db, case_ids):
+        if not case_ids:
+            return {}
+        placeholders = ','.join('?' for _ in case_ids)
+        rows = db.execute(f"""SELECT grouped.case_id,grouped.order_count,r.order_id,r.issue_date,r.body,
+                o.ota_order_no,o.order_no,o.ota_code,m.body AS metric_body
+            FROM (SELECT case_id,COUNT(*) AS order_count,MIN(order_id) AS order_id,MIN(issue_date) AS issue_date
+                  FROM bi_risk_order_reviews WHERE case_id IN ({placeholders}) GROUP BY case_id) grouped
+            LEFT JOIN bi_risk_order_reviews r ON grouped.order_count=1 AND r.case_id=grouped.case_id
+              AND r.order_id=grouped.order_id AND r.issue_date=grouped.issue_date
+            LEFT JOIN bi_risk_order_day o ON o.order_id=CAST(r.order_id AS UNSIGNED) AND o.issue_date=r.issue_date
+            LEFT JOIN bi_risk_order_metric_day m ON m.order_id=o.order_id AND m.issue_date=o.issue_date
+              AND m.catalog_run_id=o.etl_run_id""", tuple(case_ids)).fetchall()
+        result = {}
+        for row in rows:
+            order = None
+            if row['order_count'] == 1:
+                review = json.loads(row['body'])
+                order = dict(orderId=str(row['order_id']), issueDate=str(row['issue_date'])[:10],
+                             otaOrderNo=row['ota_order_no'] or review.get('otaOrderNo'),
+                             businessOrderNo=row['order_no'] or review.get('businessOrderNo'),
+                             otaCode=row['ota_code'] or review.get('otaCode'),
+                             airlines=json.loads(row['metric_body']).get('airlines', []) if row['metric_body'] else [],
+                             firstProfitReason=review.get('firstProfitReason') or review.get('routingReason'),
+                             latestProfitReason=review.get('latestProfitReason'),
+                             latestReasonSyncedAt=review.get('latestReasonSyncedAt'))
+            result[row['case_id']] = {'orderCount': int(row['order_count']), 'primaryOrder': order}
+        return result
+
+    @staticmethod
+    def _case_personnel(db, order):
+        if not order['businessOrderNo'] or not order['otaOrderNo']:
+            return {}
+        params = (order['businessOrderNo'], order['otaOrderNo'])
+        issues = db.execute("""SELECT DISTINCT policy_operator,issue_operator
+            FROM bi_order_issue_profit_reconcile_year WHERE order_no=? AND ota_order_no=?
+            ORDER BY policy_operator,issue_operator LIMIT 101""", params).fetchall()
+        refunds = db.execute("""SELECT DISTINCT r.refund_operator
+            FROM bi_order_issue_profit_reconcile_year i JOIN bi_order_refund_profit_reconcile_year r
+              ON r.issue_ticket_no=i.issue_ticket_no AND r.ota_order_no=i.ota_order_no
+            WHERE i.order_no=? AND i.ota_order_no=? AND i.issue_ticket_no<>''
+            ORDER BY r.refund_operator LIMIT 101""", params).fetchall()
+
+        def names(rows, key):
+            return sorted({str(row[key]).strip() for row in rows[:100] if row[key] and str(row[key]).strip()})
+
+        return {'policyOperators': names(issues, 'policy_operator'), 'issueOperators': names(issues, 'issue_operator'),
+                'refundOperators': names(refunds, 'refund_operator'), 'personnelTruncated': len(issues) > 100 or len(refunds) > 100}
 
     def update(self, actor, case_id, payload):
         with self.store.db() as read_db:
@@ -409,13 +471,18 @@ class RiskFollowup:
             clauses.append("state<>'done' AND next_at<?")
             args.append(now())
         if params.get('q'):
-            clauses.append('(id=? OR JSON_UNQUOTE(JSON_EXTRACT(body,\'$.title\')) LIKE ?)')
+            clauses.append("""(c.id=? OR JSON_UNQUOTE(JSON_EXTRACT(c.body,'$.title')) LIKE ?
+                OR EXISTS (SELECT 1 FROM bi_risk_order_reviews r
+                  LEFT JOIN bi_risk_order_day o ON o.order_id=CAST(r.order_id AS UNSIGNED) AND o.issue_date=r.issue_date
+                  WHERE r.case_id=c.id AND (o.ota_order_no=? OR o.order_no=?
+                    OR JSON_UNQUOTE(JSON_EXTRACT(r.body,'$.otaOrderNo'))=?
+                    OR JSON_UNQUOTE(JSON_EXTRACT(r.body,'$.businessOrderNo'))=?)))""")
             query = text(params['q'], 160, '搜索内容')
-            args.extend((query, '%' + query.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'))
+            args.extend((query, '%' + query.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%', query, query, query, query))
         page = _integer(params.get('page', '1'), '页码', 100000)
         size = _integer(params.get('pageSize', '20'), '每页数量', 100)
         if params.get('disposition') in ('included', 'pending'):
-            clauses.append("""(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(c.body,'$.recognitionSource')),'')<>'reason_rule'
+            clauses.append("""(c.state='done' OR COALESCE(JSON_UNQUOTE(JSON_EXTRACT(c.body,'$.recognitionSource')),'')<>'reason_rule'
               OR EXISTS (SELECT 1 FROM bi_risk_order_reviews rr JOIN bi_risk_order_day oo
                 ON oo.order_id=rr.order_id AND oo.issue_date=rr.issue_date
                 WHERE rr.case_id=c.id AND oo.profit_reason_type=COALESCE(JSON_UNQUOTE(JSON_EXTRACT(rr.body,'$.routingReason')),?)))""")
@@ -426,4 +493,8 @@ class RiskFollowup:
             count = db.execute('SELECT COUNT(*) AS n FROM bi_risk_followup_cases c WHERE ' + scope, tuple(args)).fetchone()['n']
             rows = db.execute('SELECT c.body,' + stale_sql + ' AS stale FROM bi_risk_followup_cases c WHERE ' + scope + ' ORDER BY updated_at DESC,id DESC LIMIT ? OFFSET ?', (*stale_args, *args, size, (page - 1) * size)).fetchall()
             metrics = db.execute("SELECT COUNT(*) AS total,SUM(conclusion='problem' AND disposition='pending' AND stale=0) AS pending,SUM(conclusion='problem' AND disposition='included' AND stale=0) AS included,SUM(conclusion<>'unknown' AND disposition='excluded' AND stale=0) AS excluded,SUM(state<>'done' AND next_at<?) AS overdue,SUM(conclusion='unknown' AND stale=0) AS unknown,SUM(stale) AS stale FROM (SELECT c.*," + stale_sql + ' AS stale FROM bi_risk_followup_cases c) scoped', (now(), *stale_args)).fetchone()
-        return {'items': [{**json.loads(row['body']), 'stale': bool(row['stale'])} for row in rows], 'total': int(count), 'metrics': {key: int(value or 0) for key, value in dict(metrics).items()}, 'page': page, 'pageSize': size}
+            items = [{**json.loads(row['body']), 'stale': bool(row['stale'])} for row in rows]
+            order_metadata = self._case_orders(db, [item['id'] for item in items])
+            for item in items:
+                item.update(order_metadata.get(item['id'], {}))
+        return {'items': items, 'total': int(count), 'metrics': {key: int(value or 0) for key, value in dict(metrics).items()}, 'page': page, 'pageSize': size}

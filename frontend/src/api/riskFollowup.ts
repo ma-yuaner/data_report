@@ -5,7 +5,21 @@ import { createOperationIdentifier } from '@/utils/operationIdentifier'
 export const reviewKey = createOperationIdentifier
 export const conclusions: Record<string, string> = { no_issue: '核查无问题', problem: '有问题' }
 export const dispositions: Record<string, string> = { pending: '待认定', included: '计入差错', excluded: '不计入差错' }
-export const followStates: Record<string, string> = { todo: '待跟进', following: '跟进中', waiting: '等待反馈', done: '已完成' }
+export const followStates: Record<string, string> = { todo: '待跟进', following: '跟进中', waiting: '等待反馈', done: '已完结' }
+export const consultationLabel = (status?: string) => status === 'consulted' ? '已咨询' : status === 'pending' ? '待咨询' : '—'
+export interface CaseOrder {
+  orderId: string
+  issueDate: string
+  otaOrderNo?: string
+  businessOrderNo?: string
+  otaCode?: string
+  airlines: string[]
+  firstProfitReason?: string
+  firstProfitReasonLabel?: string
+  latestProfitReason?: string
+  latestProfitReasonLabel?: string
+  latestReasonSyncedAt?: string
+}
 export type HandbookBlockKind = 'paragraph' | 'list' | 'table' | 'question' | 'note'
 export interface HandbookBlock { kind: HandbookBlockKind; text: string }
 export interface HandbookSection {
@@ -22,11 +36,11 @@ export interface ReviewPolicy {
   ruleDocument?: boolean
   handbook?: RiskHandbook
 }
-export interface OrderReview { recognitionSource?: string; otaOrderNo?: string; otaCode?: string; orderId: string; issueDate: string; resultId: string; systemStatus: string; version: number; conclusion: string; reason: string; caseId: string | null; actor: string; at: string; consultation?: 'pending' | 'consulted'; remark?: string; problemTypes?: { id: string; name: string }[]; firstSeen?: boolean; special?: boolean; specialReason?: string; stale?: boolean; policy?: ReviewPolicy }
+export interface OrderReview { routingReason?: string; recognitionSource?: string; otaOrderNo?: string; otaCode?: string; orderId: string; issueDate: string; resultId: string; systemStatus: string; version: number; conclusion: string; reason: string; caseId: string | null; actor: string; at: string; consultation?: 'pending' | 'consulted'; remark?: string; problemTypes?: { id: string; name: string }[]; firstSeen?: boolean; special?: boolean; specialReason?: string; stale?: boolean; policy?: ReviewPolicy }
 export interface ReviewContext { orderId: string; issueDate: string; resultId: string; systemStatus: string; version: number; stale: boolean; review: OrderReview | null; events?: FollowEvent[]; eventsTruncated?: boolean }
-export interface FollowCase { recognitionSource?: string; stale?: boolean; workflowVersion?: number; consultation?: 'pending' | 'consulted'; remark?: string; id: string; version: number; title: string; conclusion: string; disposition: string; state: string; assignee: string; nextStep: string; nextAt: string | null; firstSeen: boolean; special: boolean; specialReason: string; problemType: string; cause: string; responsibility: string; createdAt: string; updatedAt: string }
+export interface FollowCase { recognitionSource?: string; stale?: boolean; workflowVersion?: number; consultation?: 'pending' | 'consulted'; remark?: string; id: string; version: number; title: string; actualProfitReason?: string; conclusion: string; disposition: string; state: string; assignee: string; nextStep: string; nextAt: string | null; firstSeen: boolean; special: boolean; specialReason: string; problemType: string; cause: string; responsibility: string; createdAt: string; updatedAt: string; orderCount?: number; primaryOrder?: CaseOrder | null }
 export interface FollowEvent { actor: string; at: string; kind: string; note: string; before: Partial<FollowCase & OrderReview> | null; after: Partial<FollowCase & OrderReview> }
-export interface FollowDetail extends FollowCase { orders: OrderReview[]; events: FollowEvent[]; eventsTruncated: boolean }
+export interface FollowDetail extends FollowCase { orders: OrderReview[]; events: FollowEvent[]; eventsTruncated: boolean; policyOperators?: string[]; issueOperators?: string[]; refundOperators?: string[]; personnelTruncated?: boolean }
 export interface FollowList { items: FollowCase[]; total: number; metrics: Record<string, number>; page: number; pageSize: number }
 async function get<T>(path: string, params?: Record<string, unknown>) {
   const { data } = await http.get<ApiEnvelope<T>>(`/v1/risk-verification/followup/${path}`, { params })
@@ -57,6 +71,10 @@ export function reviewStatus(context?: ReviewContext): string {
   if (context.stale) return '待重新核实'
   if (!context.review) return '待人工核实'
   return humanReviewLabel(context.review)
+}
+
+export function isLegacyAutoPending(review: OrderReview) {
+  return review.recognitionSource === 'reason_rule' && review.routingReason === 'RLB18'
 }
 
 export function humanReviewLabel(review: { conclusion?: string; consultation?: string; recognitionSource?: string }): string {
