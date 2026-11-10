@@ -52,6 +52,8 @@ def review(service, actor, payload):
                         case.update(disposition='excluded', wasIncluded=True)
                 elif before_case['conclusion'] != 'problem':
                     case.update(state='todo', nextAt=None, nextStep=reason)
+                if case.get('recognitionSource') == 'reason_rule':
+                    case['recognitionSource'] = 'manual'
                 service._save_case(db, case)
                 service._event(db, case_id, actor, 'recognition', before_case, case, reason)
             elif conclusion == 'problem':
@@ -133,6 +135,8 @@ def update(service, actor, case_id, payload):
             after = {**old, 'workflowVersion':3, 'conclusion':body['conclusion'], 'consultation':body['consultation'], 'remark':body['remark'], 'version':old['version']+1, 'actor':actor, 'at':now()}
             if body['conclusion'] != old['conclusion']:
                 after['reason'] = note
+                after['recognitionSource'] = 'manual'
+                body['recognitionSource'] = 'manual'
             db.execute('UPDATE bi_risk_order_reviews SET version=?,body=? WHERE order_id=? AND issue_date=?', (after['version'],encoded(after),row['order_id'],str(row['issue_date'])[:10]))
             service._event(db, case_id, actor, 'review_sync', old, after, note)
         body.update(version=before['version']+1, updatedAt=now(), wasIncluded=before.get('wasIncluded',False) or before['disposition']=='included' or body['disposition']=='included')

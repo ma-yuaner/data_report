@@ -10,7 +10,8 @@ from .risk_auto_store import RiskAutoStore, StoreConflict
 from .risk_verification_flow import FlowError, _owner
 from .risk_prepared_facts import one, engine_hash
 from .risk_commission_rule import RULE_ID
-from .risk_child_loss import SUPPORTED_REASONS
+from .risk_child_loss import DIRECT_ERROR_REASON, REASON_CASE_ROUTES, SUPPORTED_REASONS
+from .risk_direct_error import reason_snapshot
 from .risk_problem_tags import text
 from .risk_query_contract import positive_integer as _integer
 from .risk_order_evidence import order_id
@@ -90,12 +91,16 @@ class RiskFollowup:
     def _snapshot(db, identifier, issue_date, lock=False):
         identifier, issue_date = str(order_id(identifier)), day(issue_date)
         body = one(lambda sql, args: db.execute(sql, args).fetchall(), identifier, issue_date, lock)
+        if body and body.get('reasonCode') in REASON_CASE_ROUTES:
+            return reason_snapshot(identifier, issue_date, body['reasonCode'])
         if body:
             return {'orderId': identifier, 'issueDate': issue_date, 'resultId': body['id'], 'systemStatus': body['status'],
                     'snapshotKind': 'prepared', 'evidenceHash': body['evidenceHash'], 'ruleVersion': body['ruleVersion'], 'engineHash': body['engineHash']}
         row = db.execute('SELECT order_id,profit_reason_type,update_time,etl_run_id FROM bi_risk_order_day WHERE order_id=? AND issue_date=?' + (' FOR UPDATE' if lock else ''), (identifier, issue_date)).fetchone()
         if not row:
             raise FlowError('订单不在该出票日已同步目录中', 409)
+        if row['profit_reason_type'] in REASON_CASE_ROUTES:
+            return reason_snapshot(identifier, issue_date, row['profit_reason_type'])
         return {'orderId': identifier, 'issueDate': issue_date,
                 'resultId': 'catalog-' + hashlib.sha256(encoded(dict(row)).encode()).hexdigest()[:32],
                 'systemStatus': 'unchecked', 'snapshotKind': 'catalog', 'catalogRunId': row['etl_run_id']}
@@ -115,13 +120,15 @@ class RiskFollowup:
           AND p.rule_version=JSON_UNQUOTE(JSON_EXTRACT(r.body,'$.ruleVersion'))
           AND p.engine_hash=JSON_UNQUOTE(JSON_EXTRACT(r.body,'$.engineHash')))
           OR (JSON_UNQUOTE(JSON_EXTRACT(r.body,'$.snapshotKind'))='catalog' AND o.order_id IS NOT NULL
-          AND o.etl_run_id=JSON_UNQUOTE(JSON_EXTRACT(r.body,'$.catalogRunId')) AND NOT COALESCE((""" + ready + """),0)))"""
+          AND o.etl_run_id=JSON_UNQUOTE(JSON_EXTRACT(r.body,'$.catalogRunId')) AND NOT COALESCE((""" + ready + """),0))
+          OR (JSON_UNQUOTE(JSON_EXTRACT(r.body,'$.snapshotKind'))='reason_rule'
+          AND o.profit_reason_type=COALESCE(JSON_UNQUOTE(JSON_EXTRACT(r.body,'$.routingReason')),?)))"""
         sql = """EXISTS (SELECT 1 FROM bi_risk_order_reviews r
           LEFT JOIN bi_risk_order_day o ON o.order_id=r.order_id AND o.issue_date=r.issue_date
           LEFT JOIN bi_risk_prepared_order p ON p.order_id=r.order_id AND p.issue_date=r.issue_date
           LEFT JOIN bi_risk_prepared_day d ON d.issue_date=r.issue_date
           WHERE r.case_id=c.id AND NOT COALESCE(""" + valid + ",0))"
-        return sql, (RULE_ID, engine_hash(), RULE_ID, engine_hash())
+        return sql, (RULE_ID, engine_hash(), RULE_ID, engine_hash(), DIRECT_ERROR_REASON)
 
     @staticmethod
     def _review(db, identifier, issue_date, lock=False):
@@ -158,7 +165,9 @@ class RiskFollowup:
                 if row is None:
                     raise FlowError('订单不在该出票日已同步目录中', 409)
                 body = fact(row, digest)
-                if body:
+                if row['profit_reason_type'] in REASON_CASE_ROUTES:
+                    current = reason_snapshot(identifier, issue_date, row['profit_reason_type'])
+                elif body:
                     current = {'orderId': identifier, 'issueDate': issue_date, 'resultId': body['id'], 'systemStatus': body['status'],
                                'snapshotKind': 'prepared', 'evidenceHash': body['evidenceHash'], 'ruleVersion': body['ruleVersion'], 'engineHash': body['engineHash']}
                 else:
@@ -392,10 +401,16 @@ class RiskFollowup:
             args.extend((query, '%' + query.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'))
         page = _integer(params.get('page', '1'), '页码', 100000)
         size = _integer(params.get('pageSize', '20'), '每页数量', 100)
+        if params.get('disposition') in ('included', 'pending'):
+            clauses.append("""(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(c.body,'$.recognitionSource')),'')<>'reason_rule'
+              OR EXISTS (SELECT 1 FROM bi_risk_order_reviews rr JOIN bi_risk_order_day oo
+                ON oo.order_id=rr.order_id AND oo.issue_date=rr.issue_date
+                WHERE rr.case_id=c.id AND oo.profit_reason_type=COALESCE(JSON_UNQUOTE(JSON_EXTRACT(rr.body,'$.routingReason')),?)))""")
+            args.append(DIRECT_ERROR_REASON)
         scope = ' AND '.join(clauses)
         stale_sql, stale_args = self._stale_clause()
         with self.store.db() as db:
-            count = db.execute('SELECT COUNT(*) AS n FROM bi_risk_followup_cases WHERE ' + scope, tuple(args)).fetchone()['n']
+            count = db.execute('SELECT COUNT(*) AS n FROM bi_risk_followup_cases c WHERE ' + scope, tuple(args)).fetchone()['n']
             rows = db.execute('SELECT c.body,' + stale_sql + ' AS stale FROM bi_risk_followup_cases c WHERE ' + scope + ' ORDER BY updated_at DESC,id DESC LIMIT ? OFFSET ?', (*stale_args, *args, size, (page - 1) * size)).fetchall()
             metrics = db.execute("SELECT COUNT(*) AS total,SUM(conclusion='problem' AND disposition='pending' AND stale=0) AS pending,SUM(conclusion='problem' AND disposition='included' AND stale=0) AS included,SUM(conclusion<>'unknown' AND disposition='excluded' AND stale=0) AS excluded,SUM(state<>'done' AND next_at<?) AS overdue,SUM(conclusion='unknown' AND stale=0) AS unknown,SUM(stale) AS stale FROM (SELECT c.*," + stale_sql + ' AS stale FROM bi_risk_followup_cases c) scoped', (now(), *stale_args)).fetchone()
         return {'items': [{**json.loads(row['body']), 'stale': bool(row['stale'])} for row in rows], 'total': int(count), 'metrics': {key: int(value or 0) for key, value in dict(metrics).items()}, 'page': page, 'pageSize': size}

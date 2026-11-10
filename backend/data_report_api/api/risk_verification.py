@@ -11,7 +11,7 @@ from ..services.risk_verification_overview import RiskVerificationOverview
 from ..services.risk_auto_verification import RiskAutoVerification
 from ..services.risk_auto_store import StoreUnavailable
 from ..services.risk_commission_rule import RULE_ID
-from ..services.risk_child_loss import BET_REASONS, PNR_LOSS_REASON, PROFIT_REASONS
+from ..services.risk_child_loss import BET_REASONS, DIRECT_ERROR_REASON, PNR_LOSS_REASON, PROFIT_REASONS, SYSTEM_LOSS_REASON
 from ..shared.permissions import permission_codes
 
 
@@ -235,6 +235,12 @@ def register_routes(api):
                                              {"id": RULE_ID+":RLA041", "label": "综合无亏损-增值",
                                               "formula": "整单出票利润＋同OTA订单号的增值利润≥－出票时通用配置止损值",
                                               "status": "利润、关联或配置证据不完整时保留证据不足"},
+                                             {"id": RULE_ID+":"+SYSTEM_LOSS_REASON, "label": "系统问题亏损",
+                                              "formula": "当前盈亏原因是 RLB18 时自动通过核对，并转入案例待认定池",
+                                              "status": "已有人工记录时保留原认定"},
+                                             {"id": RULE_ID+":"+DIRECT_ERROR_REASON, "label": "升舱亏损-外放无位",
+                                              "formula": "当前盈亏原因是 RLA028 时直接计入差错",
+                                              "status": "由清洗批次建立跟进案例"},
                                              {"id": RULE_ID+":"+PNR_LOSS_REASON, "label": "外放无位原编码出票亏损",
                                               "formula": "逐票核对原大编码与出票大编码是否一致",
                                               "status": "任一票编码不一致即有问题；编码缺失时保留证据不足"},

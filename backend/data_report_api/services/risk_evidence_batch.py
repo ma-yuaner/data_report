@@ -3,7 +3,7 @@ from collections import defaultdict
 from copy import deepcopy
 import time
 from .risk_order_evidence import _rows
-from .risk_child_loss import ANCILLARY_REASON, CHILD_REASON, ORDER_FIELDS, CONFIG_FREE_REASONS
+from .risk_child_loss import ANCILLARY_REASON, CHILD_REASON, REASON_CASE_ROUTES, ORDER_FIELDS, CONFIG_FREE_REASONS
 from .risk_ancillary_loss import ANCILLARY_SQL, MAX_ANCILLARY_ROWS
 from .risk_bet_loss import AIRLINE_PNR_MATCH_SQL
 from .risk_historical_threshold import HistoricalThresholds
@@ -54,7 +54,9 @@ class BatchEvidence:
         threshold_orders = {key for key, row in self.orders.items()
                             if key in child_nodes or row.get('profit_reason_type') not in CONFIG_FREE_REASONS}
         ticket_count=0
-        for chunk in self.chunks(list(self.orders)):
+        ticket_orders = [key for key, row in self.orders.items()
+                         if key in child_nodes or row.get('profit_reason_type') not in REASON_CASE_ROUTES]
+        for chunk in self.chunks(ticket_orders):
             marks=','.join(['%s']*len(chunk))
             rows=self.query('SELECT '+ISSUE_FIELDS+' FROM order_info_issue WHERE order_id IN ('+marks+') ORDER BY id LIMIT 100001',tuple(chunk))
             ticket_count+=len(rows)

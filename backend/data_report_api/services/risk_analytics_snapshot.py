@@ -13,6 +13,7 @@ from .risk_auto_store import RiskAutoStore, StoreUnavailable, StoreCommittedClea
 from .risk_order_evidence import EvidenceError
 from .risk_prepared_facts import STATUS_PROJECTION, JOINS, fact, engine_hash
 from .risk_commission_rule import RULE_ID
+from .risk_child_loss import DIRECT_ERROR_REASON, REASON_CASE_ROUTES
 from .risk_query_contract import period as _period, METRIC_JOIN, METRIC_FIELDS
 
 MANIFEST = 'bi_risk_analytics_snapshot'
@@ -161,8 +162,10 @@ class Builder:
         status=body['status'] if body else None
         review=json.loads(row['review_body']) if row.get('review_body') else None
         if review is not None and not isinstance(review,dict):raise AnalyticsError('ANALYTICS_REVIEW_INVALID')
-        current=bool(review and ((review.get('snapshotKind')=='prepared' and body and review.get('resultId')==body['id']) or (review.get('snapshotKind')=='catalog' and not body and review.get('catalogRunId')==row['catalog_run_id'])))
-        reviewed=current and review.get('conclusion') in ('no_issue','problem')
+        current=bool(review and ((review.get('snapshotKind')=='prepared' and body and review.get('resultId')==body['id']) or (review.get('snapshotKind')=='catalog' and not body and review.get('catalogRunId')==row['catalog_run_id'])
+                                 or (review.get('snapshotKind')=='reason_rule' and review.get('routingReason', DIRECT_ERROR_REASON)==row['profit_reason_type'] in REASON_CASE_ROUTES)))
+        human=current and review.get('recognitionSource')!='reason_rule'
+        reviewed=human and review.get('conclusion') in ('no_issue','problem')
         problem=current and review.get('conclusion')=='problem'
         metric=json.loads(row['metric_body']) if row.get('metric_body') else {}
         if not isinstance(metric,dict) or (row.get('metric_body') and metric.get('version')!=3):raise AnalyticsError('ANALYTICS_METRIC_VERSION_INVALID')
@@ -171,7 +174,7 @@ class Builder:
         reason=str(row['profit_reason_type'])
         dimensions=[('total','total','总量'),('category',reason,self.labels.get(reason,reason))]
         dimensions += [('department',v,v) for v in sorted(set(departments))]
-        counts=dict(zip(COUNTERS,(1,int(status=='supported'),int(status in ('supported','problem')),int(bool(reviewed)),int(bool(problem)),int(bool(problem and row.get('case_disposition')=='included')),int(row.get('total_profit') is None))))
+        counts=dict(zip(COUNTERS,(1,int(status=='supported'),int(status in ('supported','problem')),int(bool(reviewed)),int(bool(human and problem)),int(bool(problem and row.get('case_disposition')=='included')),int(row.get('total_profit') is None))))
         amount=None if row.get('total_profit') is None else Decimal(str(row['total_profit']))
         if amount is not None and (not amount.is_finite() or amount != amount.quantize(Decimal('0.0001'))):raise AnalyticsError('ANALYTICS_PROFIT_INVALID')
         for dimension,key,label in dimensions:

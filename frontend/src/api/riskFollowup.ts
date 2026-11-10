@@ -7,9 +7,9 @@ export const conclusions: Record<string, string> = { no_issue: '核查无问题'
 export const dispositions: Record<string, string> = { pending: '待认定', included: '计入差错', excluded: '不计入差错' }
 export const followStates: Record<string, string> = { todo: '待跟进', following: '跟进中', waiting: '等待反馈', done: '已完成' }
 export interface ReviewPolicy { id: string; name: string; policyVersion: string; start: string; end: string; scope: string; basis: string }
-export interface OrderReview { otaOrderNo?: string; otaCode?: string; orderId: string; issueDate: string; resultId: string; systemStatus: string; version: number; conclusion: string; reason: string; caseId: string | null; actor: string; at: string; consultation?: 'pending' | 'consulted'; remark?: string; problemTypes?: { id: string; name: string }[]; firstSeen?: boolean; special?: boolean; specialReason?: string; stale?: boolean; policy?: ReviewPolicy }
+export interface OrderReview { recognitionSource?: string; otaOrderNo?: string; otaCode?: string; orderId: string; issueDate: string; resultId: string; systemStatus: string; version: number; conclusion: string; reason: string; caseId: string | null; actor: string; at: string; consultation?: 'pending' | 'consulted'; remark?: string; problemTypes?: { id: string; name: string }[]; firstSeen?: boolean; special?: boolean; specialReason?: string; stale?: boolean; policy?: ReviewPolicy }
 export interface ReviewContext { orderId: string; issueDate: string; resultId: string; systemStatus: string; version: number; stale: boolean; review: OrderReview | null; events?: FollowEvent[]; eventsTruncated?: boolean }
-export interface FollowCase { stale?: boolean; workflowVersion?: number; consultation?: 'pending' | 'consulted'; remark?: string; id: string; version: number; title: string; conclusion: string; disposition: string; state: string; assignee: string; nextStep: string; nextAt: string | null; firstSeen: boolean; special: boolean; specialReason: string; problemType: string; cause: string; responsibility: string; createdAt: string; updatedAt: string }
+export interface FollowCase { recognitionSource?: string; stale?: boolean; workflowVersion?: number; consultation?: 'pending' | 'consulted'; remark?: string; id: string; version: number; title: string; conclusion: string; disposition: string; state: string; assignee: string; nextStep: string; nextAt: string | null; firstSeen: boolean; special: boolean; specialReason: string; problemType: string; cause: string; responsibility: string; createdAt: string; updatedAt: string }
 export interface FollowEvent { actor: string; at: string; kind: string; note: string; before: Partial<FollowCase & OrderReview> | null; after: Partial<FollowCase & OrderReview> }
 export interface FollowDetail extends FollowCase { orders: OrderReview[]; events: FollowEvent[]; eventsTruncated: boolean }
 export interface FollowList { items: FollowCase[]; total: number; metrics: Record<string, number>; page: number; pageSize: number }
@@ -41,7 +41,8 @@ export function reviewStatus(context?: ReviewContext): string {
   return humanReviewLabel(context.review)
 }
 
-export function humanReviewLabel(review: { conclusion?: string; consultation?: string }): string {
+export function humanReviewLabel(review: { conclusion?: string; consultation?: string; recognitionSource?: string }): string {
+  if (review.recognitionSource === 'reason_rule') return '按原因入池'
   if (review.conclusion === 'problem') return `有问题-${review.consultation === 'consulted' ? '已咨询' : '待咨询'}`
   return review.conclusion === 'no_issue' ? '核查无问题' : '历史未判定，待重新核实'
 }

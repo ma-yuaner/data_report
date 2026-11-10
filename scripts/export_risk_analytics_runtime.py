@@ -28,7 +28,7 @@ def outputs(target_repo):
     contract = 'from datetime import date\nfrom risk_cleaning_runtime.risk_order_evidence import EvidenceError\n'
     contract += select(SERVICES/'risk_query_contract.py', {'period','METRIC_JOIN','METRIC_PROFIT','METRIC_FIELDS'}).replace('def period(', 'def _period(')
     snapshot = (SERVICES/'risk_analytics_snapshot.py').read_text(encoding='utf-8')
-    for before, after in [('.risk_auto_store','.store'),('.risk_order_evidence','risk_cleaning_runtime.risk_order_evidence'),('.risk_prepared_facts','.facts'),('.risk_commission_rule','risk_cleaning_runtime.risk_commission_rule'),('.risk_query_contract','.contract')]:
+    for before, after in [('.risk_auto_store','.store'),('.risk_order_evidence','risk_cleaning_runtime.risk_order_evidence'),('.risk_prepared_facts','.facts'),('.risk_commission_rule','risk_cleaning_runtime.risk_commission_rule'),('.risk_child_loss','risk_cleaning_runtime.risk_child_loss'),('.risk_query_contract','.contract')]:
         snapshot = snapshot.replace('from '+before+' import', 'from '+after+' import')
     # Preserve the standalone runtime's existing private date-validator name.
     snapshot = snapshot.replace('from .contract import period as _period', 'from .contract import _period')

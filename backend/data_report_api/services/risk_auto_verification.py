@@ -8,7 +8,7 @@ import time
 import uuid
 
 from .risk_commission_rule import RULE_ID, evaluate_commission_loss
-from .risk_child_loss import CHILD_REASON, ANCILLARY_REASON, PNR_LOSS_REASON, CONFIG_FREE_REASONS, BET_REASONS, NORMAL_REASONS, PROFIT_REASONS, SUPPORTED_REASONS, ORDER_FIELDS, read_child_evidence, evaluate_child
+from .risk_child_loss import CHILD_REASON, ANCILLARY_REASON, PNR_LOSS_REASON, REASON_CASE_ROUTES, CONFIG_FREE_REASONS, BET_REASONS, NORMAL_REASONS, PROFIT_REASONS, SUPPORTED_REASONS, ORDER_FIELDS, read_child_evidence, evaluate_child
 from .risk_order_profit import evaluate_order_profit
 from .risk_bet_loss import AIRLINE_PNR_MATCH_SQL, evaluate_bet, evaluate_normal, evaluate_original_pnr_loss
 from .risk_ancillary_loss import ANCILLARY_SQL, MAX_ANCILLARY_ROWS, evaluate_ancillary
@@ -34,6 +34,12 @@ def now():
 def evaluate(evidence):
     """Only selected source fields, never raw logs or passenger information in results."""
     order = evidence["order"]
+    if order.get("profit_reason_type") in REASON_CASE_ROUTES:
+        status, pool = REASON_CASE_ROUTES[order['profit_reason_type']]
+        summary = '自动通过核对，按原因转入待认定' if pool == 'pending' else '此盈亏原因适用直接计入差错规则'
+        return {'ruleVersion': RULE_ID, 'status': status, 'summary': summary,
+                'platform': order.get('ota_code'), 'tickets': [], 'missing': [], 'logReferences': [],
+                'caseRouting': 'direct_pending' if pool == 'pending' else 'direct_error'}
     if order.get("profit_reason_type") in PROFIT_REASONS:
         return evaluate_order_profit(evidence, RULE_ID)
     if order.get("profit_reason_type") == PNR_LOSS_REASON:
@@ -116,6 +122,8 @@ def read_evidence_cursor(cursor, identifier, configuration_cache=None, _basic=Fa
         return read_child_evidence(cursor,orders[0],configuration_cache if configuration_cache is not None else {},read_evidence_cursor)
     if not _basic and orders[0].get("profit_reason_type") == "RLA013" and orders[0].get("ota_code") != "QUNAR":
         return {"order": orders[0], "issues": [], "logs": [], "complete": True}
+    if not _basic and orders[0].get('profit_reason_type') in REASON_CASE_ROUTES:
+        return {'order': orders[0], 'issues': [], 'logs': [], 'complete': True}
     ancillary = not _basic and orders[0].get('profit_reason_type') == ANCILLARY_REASON
     if not _basic and orders[0].get('profit_reason_type') not in SUPPORTED_REASONS:
         return {'order': orders[0], 'issues': [], 'logs': [], 'complete': True}
