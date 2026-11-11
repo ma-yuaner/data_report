@@ -57,6 +57,8 @@ export const admApi = {
     data<{ items: AdmLedgerLine[]; pagination: Fields }>(
       http.get(`${base}/ledger-lines`, { params }),
     ),
+  workbenchQueue: (params: { queue: 'close' | 'transfer'; status: 'pending' | 'all'; page: number; pageSize: number }) =>
+    data<{ items: Fields[]; pagination: { total: number } }>(http.get(`${base}/workbench/queue`, { params })),
   workbench: () => data<{ items: Fields[]; summary: Fields }>(http.get(`${base}/workbench`)),
   detail: (caseId: number | string) => data<AdmCaseDetail>(http.get(casePath(caseId))),
   summary: (caseId: number | string) => data<AdmCaseDetail>(http.get(`${casePath(caseId)}/summary`)),
@@ -91,7 +93,7 @@ export const admApi = {
   close: (caseId: number) => data<Fields>(http.post(`${casePath(caseId)}/close`, {})),
   voidCase: (caseId: number, reason: string) => data<Fields>(http.post(`${casePath(caseId)}/void`, { reason })),
   operatorImport: (file: File, dryRun: boolean) => { const form = new FormData(); form.append('file', file); form.append('dryRun', String(dryRun)); return data<Fields>(http.post(`${base}/operator-imports`, form)) },
-  upload: (caseId: number, file: File, category: string, lineId?: number) => { const form = new FormData(); form.append('file', file); form.append('category', category); if (lineId) form.append('lineId', String(lineId)); return data<AdmCaseDetail>(http.post(`${casePath(caseId)}/attachments`, form)) },
+  upload: (caseId: number, file: File, category: string, lineId?: number) => { const form = new FormData(); form.append('file', file); form.append('category', category); if (lineId) form.append('lineId', String(lineId)); return data<AdmCaseDetail & { uploadedAttachmentId: number }>(http.post(`${casePath(caseId)}/attachments`, form)) },
   file: (caseId: number, attachmentId: number, mode: 'preview') => http.get<Blob>(`${casePath(caseId)}/attachments/${attachmentId}/${mode}`, { responseType: 'blob' }),
   voidAttachment: (caseId: number, attachmentId: number, reason: string) => data<Fields>(http.post(`${casePath(caseId)}/attachments/${attachmentId}/void`, { reason })),
 }

@@ -689,13 +689,67 @@ class AdmWorkflowRepository:
             values.append(actor_id)
         return conditions, values
 
+    @staticmethod
+    def _closable_case_source():
+        return (
+            " FROM admwf_case c WHERE c.case_status='ACTIVE' AND c.coordinator_id=%s "
+            "AND EXISTS (SELECT 1 FROM admwf_case_line l WHERE l.case_id=c.id) "
+            "AND NOT EXISTS (SELECT 1 FROM admwf_case_line l WHERE l.case_id=c.id "
+            "AND l.line_status NOT IN ('COMPLETED','VOIDED','HISTORICAL'))"
+        )
+
+    @staticmethod
+    def _transfer_queue_source(actor_id, capabilities, pending_only):
+        scopes, values = [], []
+        if capabilities.get("assignOperator"):
+            scopes.append("t.requested_by_id=%s")
+            values.append(actor_id)
+        if capabilities.get("handle"):
+            scopes.append("(t.from_operator_id=%s OR t.to_operator_id=%s)")
+            values.extend((actor_id, actor_id))
+        if not scopes:
+            raise AdmError("没有查看转派记录的权限", 403, "ADM_FORBIDDEN")
+        source = (
+            " FROM admwf_transfer t JOIN admwf_case c ON c.id=t.case_id "
+            "JOIN admwf_case_line l ON l.id=t.line_id AND l.case_id=c.id "
+            "WHERE (" + " OR ".join(scopes) + ")"
+        )
+        if pending_only:
+            source += " AND t.status='PENDING'"
+        return source, values
+
+    def list_workbench_queue(self, actor_id, capabilities, queue, page, page_size, *, pending_only=True):
+        if queue == "close":
+            if not capabilities.get("close"):
+                raise AdmError("没有查看待结案主单的权限", 403, "ADM_FORBIDDEN")
+            source, values = self._closable_case_source(), (actor_id,)
+            fields = "c.id AS case_id,c.adm_no,c.internal_no,c.reply_deadline,c.updated_at"
+            order = "c.updated_at DESC,c.id DESC"
+        else:
+            source, values = self._transfer_queue_source(actor_id, capabilities, pending_only)
+            fields = (
+                "t.id AS transfer_id,c.id AS case_id,c.adm_no,c.internal_no,l.id AS line_id,l.line_internal_no,"
+                "t.status AS transfer_status,t.requested_at,t.requested_by_name,t.from_operator_name,"
+                "t.to_operator_name,t.decided_at,t.decided_by_name,t.decision_reason,"
+                "CASE WHEN t.status='PENDING' AND c.case_status='ACTIVE' AND l.line_status='PROCESSING' "
+                "AND l.operator_id=t.from_operator_id THEN 1 ELSE 0 END AS actionable"
+            )
+            order = "t.requested_at DESC,t.id DESC"
+        with self.transaction() as connection, connection.cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) AS total" + source, values)
+            total = int(cursor.fetchone()["total"])
+            cursor.execute(
+                "SELECT " + fields + source + " ORDER BY " + order + " LIMIT %s OFFSET %s",
+                (*values, page_size, (page - 1) * page_size),
+            )
+            items = cursor.fetchall()
+        return {"items": items, "pagination": {"page": page, "pageSize": page_size, "total": total}}
+
     def list_workbench(self, actor_id, capabilities, is_admin=False, limit=1000):
         # The workbench is always personal. System administrators may inspect the full
         # ledger, but must not inherit other coordinators' or assignees' task queues.
         conditions, values = self._workbench_scope(actor_id, capabilities)
-        if not conditions:
-            return {"items": [], "summary": {"total": 0, "closableCaseCount": 0, "pendingTransferCount": 0}}
-        task_clause = "c.case_status='ACTIVE' AND (" + " OR ".join(conditions) + ")"
+        task_clause = "c.case_status='ACTIVE' AND (" + (" OR ".join(conditions) or "1=0") + ")"
         with self.transaction() as connection, connection.cursor() as cursor:
             cursor.execute(
                 "SELECT c.id AS case_id,l.id AS line_id,l.operator_id,c.adm_no,c.internal_no,l.line_internal_no,"
@@ -719,6 +773,7 @@ class AdmWorkflowRepository:
                     "FROM admwf_transfer t JOIN admwf_case c ON c.id=t.case_id "
                     "JOIN admwf_case_line l ON l.id=t.line_id "
                     "WHERE t.status='PENDING' AND t.to_operator_id=%s AND c.case_status='ACTIVE' "
+                    "AND l.line_status='PROCESSING' AND l.operator_id=t.from_operator_id "
                     "ORDER BY t.requested_at,t.id LIMIT %s",
                     (actor_id, max(1, min(int(limit), 1000))),
                 )
@@ -732,20 +787,12 @@ class AdmWorkflowRepository:
             )
             closable = 0
             if capabilities.get("close"):
-                cursor.execute(
-                    "SELECT COUNT(*) AS total FROM admwf_case c WHERE c.case_status='ACTIVE' AND c.coordinator_id=%s "
-                    "AND EXISTS (SELECT 1 FROM admwf_case_line l WHERE l.case_id=c.id) "
-                    "AND NOT EXISTS (SELECT 1 FROM admwf_case_line l WHERE l.case_id=c.id AND l.line_status NOT IN ('COMPLETED','VOIDED'))",
-                    (actor_id,),
-                )
+                cursor.execute("SELECT COUNT(*) AS total" + self._closable_case_source(), (actor_id,))
                 closable = int(cursor.fetchone()["total"])
             pending_transfers = 0
             if capabilities.get("assignOperator") or capabilities.get("handle"):
-                cursor.execute(
-                    "SELECT COUNT(*) AS total FROM admwf_transfer WHERE status='PENDING' "
-                    "AND (requested_by_id=%s OR from_operator_id=%s OR to_operator_id=%s)",
-                    (actor_id, actor_id, actor_id),
-                )
+                source, params = self._transfer_queue_source(actor_id, capabilities, pending_only=True)
+                cursor.execute("SELECT COUNT(*) AS total" + source, params)
                 pending_transfers = int(cursor.fetchone()["total"])
         return {
             "items": items,
@@ -2069,6 +2116,8 @@ class AdmWorkflowRepository:
                     raise AdmError("当前主单状态不能结案", 409, "ADM_ACTION_BLOCKED")
                 cursor.execute("SELECT id,line_internal_no,line_status FROM admwf_case_line WHERE case_id=%s", (case_id,))
                 lines = cursor.fetchall()
+                if not lines:
+                    raise AdmError("暂无订单明细，不能结案", 409, "ADM_CLOSE_BLOCKED")
                 blockers = closure_blockers(lines)
                 if blockers:
                     raise AdmError("还有未完成的有效明细，不能结案", 409, "ADM_CLOSE_BLOCKED")
@@ -2163,7 +2212,9 @@ class AdmWorkflowRepository:
                        "scope": "LINE" if line_id is not None else "CASE"},
                 changed_fields=["attachments"],
             )
-            return self.get_case(case_id, connection=connection)
+            detail = self.get_case(case_id, connection=connection)
+            detail["uploaded_attachment_id"] = attachment_id
+            return detail
 
     def attachment(self, case_id, attachment_id):
         with self.transaction() as connection, connection.cursor() as cursor:

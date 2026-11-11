@@ -22,7 +22,7 @@
 | [上传说明](../business/air_ticketing/risk-data-upload.md) / [行为监控](../product/user-behavior-monitoring-v1.md) | 上传队列和行为采集 |
 
 <!-- BEGIN:API_ROUTES -->
-共 **241个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
+共 **245个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
 
 <a id="auth"></a>
 
@@ -40,6 +40,7 @@
 | `PUT` | `/api/admin/roles/<string:role_code>` | [update_role](../../backend/data_report_api/auth_routes.py) |
 | `GET` | `/api/admin/users` | [list_users](../../backend/data_report_api/auth_routes.py) |
 | `POST` | `/api/admin/users` | [create_user](../../backend/data_report_api/auth_routes.py) |
+| `DELETE` | `/api/admin/users/<int:user_id>` | [delete_user](../../backend/data_report_api/auth_routes.py) |
 | `PATCH` | `/api/admin/users/<int:user_id>` | [update_user](../../backend/data_report_api/auth_routes.py) |
 | `PUT` | `/api/admin/users/<int:user_id>/business-roles` | [update_business_roles](../../backend/data_report_api/auth_routes.py) |
 | `GET` | `/api/admin/users/<int:user_id>/employee-binding` | [get_employee_binding](../../backend/data_report_api/auth_routes.py) |
@@ -49,6 +50,7 @@
 | `PUT` | `/api/admin/users/<int:user_id>/menus` | [update_user_menus](../../backend/data_report_api/auth_routes.py) |
 | `PUT` | `/api/admin/users/<int:user_id>/permissions` | [update_user_permissions](../../backend/data_report_api/auth_routes.py) |
 | `POST` | `/api/admin/users/<int:user_id>/reset-password` | [reset_password](../../backend/data_report_api/auth_routes.py) |
+| `GET` | `/api/admin/users/deletable` | [list_deletable_users](../../backend/data_report_api/auth_routes.py) |
 | `POST` | `/api/auth/change-password` | [change_password](../../backend/data_report_api/auth_routes.py) |
 | `POST` | `/api/auth/login` | [login](../../backend/data_report_api/auth_routes.py) |
 | `POST` | `/api/auth/logout` | [logout](../../backend/data_report_api/auth_routes.py) |
@@ -314,6 +316,7 @@
 | `POST` | `/api/v1/adm/operator-imports` | [admwf_operator_import](../../backend/data_report_api/api/admwf.py) |
 | `GET` | `/api/v1/adm/reference-options/<kind>` | [admwf_reference_options](../../backend/data_report_api/api/admwf.py) |
 | `GET` | `/api/v1/adm/workbench` | [admwf_workbench](../../backend/data_report_api/api/admwf.py) |
+| `GET` | `/api/v1/adm/workbench/queue` | [admwf_workbench_queue](../../backend/data_report_api/api/admwf.py) |
 
 <a id="missed_orders"></a>
 
@@ -377,6 +380,7 @@
 | `GET` | `/api/v1/risk-verification/followup/orders/<identifier>` | [risk_followup_order](../../backend/data_report_api/api/risk_verification.py) |
 | `GET` | `/api/v1/risk-verification/followup/policies` | [risk_followup_policies](../../backend/data_report_api/api/risk_verification.py) |
 | `POST` | `/api/v1/risk-verification/followup/policies` | [risk_followup_policy_create](../../backend/data_report_api/api/risk_verification.py) |
+| `POST` | `/api/v1/risk-verification/followup/policies/export` | [risk_followup_policy_export](../../backend/data_report_api/api/risk_verification.py) |
 | `GET` | `/api/v1/risk-verification/followup/reviews` | [risk_followup_summaries](../../backend/data_report_api/api/risk_verification.py) |
 | `POST` | `/api/v1/risk-verification/followup/reviews` | [risk_followup_review](../../backend/data_report_api/api/risk_verification.py) |
 | `GET` | `/api/v1/risk-verification/knowledge` | [risk_verification_knowledge](../../backend/data_report_api/api/risk_verification.py) |
