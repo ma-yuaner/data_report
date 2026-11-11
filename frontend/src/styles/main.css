@@ -357,3 +357,8 @@ body { background: #f2f5f9; }
   .layout-skeleton { grid-template-columns: 1fr; }
   .layout-skeleton .skeleton-wide, .layout-skeleton .skeleton-full { grid-column: auto; grid-row: auto; }
 }
+
+/* Required markers for native labels. Ant Design forms use Form.Item required. */
+.form-required-mark {
+  color: var(--ant-color-error, #ff4d4f);
+}

@@ -470,7 +470,7 @@
       />
       <div class="v05-form-grid">
         <label class="wide"
-          >所属 ADM 主单 *<a-select
+          ><span class="form-field-label">所属 ADM 主单 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
             v-model:value="addTargetCaseId"
             show-search
             :filter-option="filterOption"
@@ -487,13 +487,13 @@
             :options="addOtaOptions"
             @change="(v?: string) => selectAddOption('ota', v)" /></label
         ><label
-          >业务归属部门 *<a-select
+          ><span class="form-field-label">业务归属部门 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
             v-model:value="addLineForm.departmentCode"
             show-search
             :options="addDepartmentOptions"
             @change="(v: string) => selectAddOption('department', v)" /></label
         ><label
-          >负责组长 *<a-select
+          ><span class="form-field-label">负责组长 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
             v-model:value="addLineForm.leaderId"
             :options="addLeaderOptions"
             @change="selectAddLeader" /></label
@@ -505,7 +505,7 @@
             :options="addSupplierOptions"
             @change="(v?: string) => selectAddOption('supplier', v)" /></label
         ><label>航司（选填）<a-input v-model:value="addLineForm.airlineName" /></label
-        ><label>ADM金额（原币） *<a-input v-model:value="addLineForm.originalAmount" /></label
+        ><label><span class="form-field-label">ADM金额（原币） <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="addLineForm.originalAmount" /></label
         ><label>币种（继承主单）<a-input :value="addTarget.case.currency" readonly /></label
         ><label>ADM金额（人民币，系统换算）<a-input :value="`¥ ${addLineCnyAmount}`" readonly /></label
         ><label class="wide"
@@ -514,13 +514,13 @@
             :rows="2"
             placeholder="填写当前已知的订单情况，操作员办理时可继续更新" /></label
         ><label
-          >差异类型 *<a-select
+          ><span class="form-field-label">差异类型 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
             v-model:value="addLineForm.diffTypeCode"
             show-search
             :options="addDiffTypeOptions"
             @change="(v: string) => selectAddOption('diffType', v)" /></label
-        ><label class="wide">细分差异原因 *<a-textarea v-model:value="addLineForm.differenceReason" :rows="3" /></label
-        ><label class="wide">新增及金额调整说明 *<a-textarea v-model:value="addLineForm.reason" :rows="2" /></label>
+        ><label class="wide"><span class="form-field-label">细分差异原因 <span class="form-required-mark" aria-hidden="true">*</span></span><a-textarea aria-required="true" v-model:value="addLineForm.differenceReason" :rows="3" /></label
+        ><label class="wide"><span class="form-field-label">新增及金额调整说明 <span class="form-required-mark" aria-hidden="true">*</span></span><a-textarea aria-required="true" v-model:value="addLineForm.reason" :rows="2" /></label>
       </div>
       <h3>现有有效明细调整后金额</h3>
       <div class="amount-adjustments">
@@ -580,33 +580,33 @@
         <a-form-item v-if="actionName === 'assign'" label="操作员"
           ><a-select v-model:value="actionForm.operatorId" :options="operatorOptions"
         /></a-form-item>
-        <a-form-item v-if="actionName === 'leader'" label="新组长"
+        <a-form-item v-if="actionName === 'leader'" label="新组长" required
           ><a-select v-model:value="actionForm.leaderId" :options="leaderOptions"
         /></a-form-item>
-        <a-form-item v-if="actionName === 'transfer'" label="目标操作员"
+        <a-form-item v-if="actionName === 'transfer'" label="目标操作员" required
           ><a-select v-model:value="actionForm.operatorId" :options="operatorOptions"
         /></a-form-item>
-        <a-form-item v-if="actionName === 'note'" label="订单情况说明"
+        <a-form-item v-if="actionName === 'note'" label="订单情况说明" required
           ><a-textarea v-model:value="actionForm.investigationNote" :rows="5"
         /></a-form-item>
-        <a-form-item v-if="actionName === 'recovery'" label="是否需要恢复"
+        <a-form-item v-if="actionName === 'recovery'" label="是否需要恢复" required
           ><a-radio-group v-model:value="actionForm.decision"
             ><a-radio value="NEEDED">需要恢复</a-radio><a-radio value="NOT_NEEDED">无需恢复</a-radio></a-radio-group
           ></a-form-item
         >
-        <a-form-item v-if="actionName === 'appeal'" label="申诉原因"
+        <a-form-item v-if="actionName === 'appeal'" label="申诉原因" required
           ><a-textarea v-model:value="actionForm.appealReason"
         /></a-form-item>
-        <a-form-item v-if="actionName === 'appeal'" label="申诉对象"
+        <a-form-item v-if="actionName === 'appeal'" label="申诉对象" required
           ><a-input v-model:value="actionForm.appealTarget"
         /></a-form-item>
-        <a-form-item v-if="actionName === 'appealResult'" label="申诉结果"
+        <a-form-item v-if="actionName === 'appealResult'" label="申诉结果" required
           ><a-select v-model:value="actionForm.result" :options="appealResultOptions"
         /></a-form-item>
-        <a-form-item v-if="['appealResult', 'noAppeal'].includes(actionName)" label="问题归属"
+        <a-form-item v-if="['appealResult', 'noAppeal'].includes(actionName)" label="问题归属" :required="actionName === 'noAppeal' || actionForm.result === 'FAILED'"
           ><a-select v-model:value="actionForm.problemAttribution" :options="attributionOptions"
         /></a-form-item>
-        <a-form-item v-if="actionName === 'review'" label="审核结果"
+        <a-form-item v-if="actionName === 'review'" label="审核结果" required
           ><a-radio-group v-model:value="actionForm.result"
             ><a-radio value="APPROVED">通过</a-radio><a-radio value="RETURNED">退回</a-radio></a-radio-group
           ></a-form-item
@@ -616,17 +616,17 @@
             ><a-radio value="SUPPLEMENT">驳回补充材料</a-radio><a-radio value="REAPPEAL">驳回重新申诉</a-radio></a-radio-group
           ><div class="form-help">补充材料保留原处理决定；重新申诉会把当前处理决定退回，由操作员重新选择申诉或不申诉。</div></a-form-item
         >
-        <a-form-item v-if="actionName === 'review' && actionForm.result === 'APPROVED' && selectedLine?.appealStatus === 'SUCCEEDED'" label="是否需要回款"
+        <a-form-item v-if="actionName === 'review' && actionForm.result === 'APPROVED' && selectedLine?.appealStatus === 'SUCCEEDED'" label="是否需要回款" required
           ><a-radio-group v-model:value="actionForm.collectionRequired"
             ><a-radio :value="true">需要</a-radio><a-radio :value="false">不需要</a-radio></a-radio-group
           ></a-form-item
         >
-        <a-form-item v-if="actionName === 'review' && actionForm.result === 'APPROVED' && selectedLine?.appealStatus === 'SUCCEEDED' && actionForm.collectionRequired === true" label="应回款金额"
+        <a-form-item v-if="actionName === 'review' && actionForm.result === 'APPROVED' && selectedLine?.appealStatus === 'SUCCEEDED' && actionForm.collectionRequired === true" label="应回款金额" required
           ><a-input v-model:value="actionForm.expectedCollectionAmount"
         /></a-form-item>
         <template v-if="actionName === 'collection'"
-          ><a-form-item label="回款日期"><a-input v-model:value="actionForm.receivedDate" type="date" /></a-form-item
-          ><a-form-item label="回款金额"><a-input v-model:value="actionForm.amount" /></a-form-item
+          ><a-form-item label="回款日期" required><a-input v-model:value="actionForm.receivedDate" type="date" /></a-form-item
+          ><a-form-item label="回款金额" required><a-input v-model:value="actionForm.amount" /></a-form-item
           ><a-form-item label="凭证号（银行流水号、收款单号或财务凭证号）"
             ><a-input v-model:value="actionForm.voucherNo" placeholder="有凭证号时填写真实编号，不要随意编写" /></a-form-item
           ><a-form-item label="回款凭证附件"
@@ -650,7 +650,7 @@
             class="block" /><a-form-item v-for="line in activeLines" :key="line.id" :label="line.lineInternalNo"
             ><a-input v-model:value="actionForm.amounts[line.id]" :addon-before="record?.case.currency" /></a-form-item
         ></template>
-        <a-form-item v-if="needsReason" :label="reasonLabel"
+        <a-form-item v-if="needsReason" :label="reasonLabel" :required="reasonRequired"
           ><a-textarea v-model:value="actionForm.reason"
         /></a-form-item>
         <a-form-item v-if="actionName === 'appealResult'" label="结果说明"
@@ -1296,6 +1296,11 @@ const needsReason = computed(() =>
     'deleteDraft',
   ].includes(actionName.value),
 )
+const reasonRequired = computed(() =>
+  actionName.value === 'recovery'
+    ? actionForm.decision === 'NOT_NEEDED'
+    : actionName.value !== 'assign',
+)
 const reasonLabel = computed(
   () =>
     (({ recovery: '无需恢复原因', noAppeal: '不申诉原因', leader: '更换原因', transfer: '转派原因' }) as Fields)[
@@ -1597,11 +1602,9 @@ onMounted(async () => {
   const configRequest = admApi.config()
     .then((value) => { config.value = value })
     .catch((e) => { configError.value = `人员与权限配置加载失败：${errorText(e)}` })
-  await load()
-  await configRequest
   const taskAction = String(route.query.taskAction || '')
+  await Promise.all([load(!!taskAction), configRequest])
   if (taskAction && selectedLineId.value) {
-    await load(true)
     const line = selectedLine.value
     if (line) {
       const directAction = ({ assignLeader: 'leader', assign: 'assign' } as Fields)[taskAction]

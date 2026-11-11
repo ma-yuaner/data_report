@@ -31,6 +31,7 @@
           :message="`当前显示前 ${workbenchItems.length} 条任务，共 ${workbenchSummary.total} 条；分类数仅统计已加载任务。`" />
         <div class="v05-work-list">
           <p v-if="loading" class="v05-card v05-empty" role="status">正在读取 ADM 任务…</p>
+          <p v-else-if="error" class="v05-card v05-empty"><a-button @click="load">重试</a-button></p>
           <div v-else-if="pagedTasks.length" class="work-task-table">
             <div class="work-task-row work-task-head" aria-hidden="true">
               <span>ADM / 内部明细</span><span>任务类型</span><span>当前责任分配</span><span>当前需要处理</span><span>处理截止</span><span>操作</span>
@@ -41,16 +42,22 @@
               <span>{{ task.assignment }}</span>
               <span>{{ task.requiredAction }}</span>
               <b :class="{ danger: task.overdue }">{{ dateText(task.deadline) }}</b>
-              <button class="primary" @click="openTask(task)">去处理 →</button>
+              <a-button
+                v-if="canAcceptTask(task)"
+                type="primary"
+                :loading="acceptingLines.has(Number(task.lineId))"
+                @click="acceptTask(task)"
+              >接单</a-button>
+              <a-button v-else type="primary" @click="openTask(task)">去处理 →</a-button>
             </div>
           </div>
           <div v-if="workbenchReady && !loading && !error && !visibleTasks.length" class="v05-card v05-empty">
             {{ workMetric ? '当前筛选下没有待办任务' : '当前账号暂无需要处理的ADM任务' }}
           </div>
         </div>
-        <div v-if="visibleTasks.length > workPageSize" class="v05-pager">
+        <div v-if="workbenchReady && !error && visibleTasks.length" class="v05-pager">
           <a-pagination v-model:current="workPage" :page-size="workPageSize" :total="visibleTasks.length"
-            :show-size-changer="false" />
+            :show-size-changer="false" :disabled="loading" :show-total="taskTotalText" />
         </div>
       </section>
 
@@ -143,7 +150,7 @@
                   </td>
                   <td>
                     <div class="stage-list">
-                      <span v-for="stage in stageSummary(record.id)" :key="stage.label"
+                      <span v-for="stage in stageSummary(record)" :key="stage.label"
                         ><i></i>{{ stage.label }}<b>{{ stage.count }}</b></span
                       >
                     </div>
@@ -170,11 +177,14 @@
           </div>
           <div class="v05-pager">
             <a-pagination
-              v-model:current="page"
-              v-model:page-size="pageSize"
+              :current="page"
+              :page-size="pageSize"
               :total="total"
+              :disabled="loading || !!error"
+              :show-total="recordTotalText"
+              :page-size-options="['10', '20', '50', '100']"
               show-size-changer
-              @change="load"
+              @change="changeLedgerPage"
             />
           </div>
         </div>
@@ -290,8 +300,11 @@
         <p v-else-if="!globalOrders.length" class="empty">当前指标下没有订单明细</p>
       </div>
       <div class="v05-pager">
-        <a-pagination v-model:current="ordersPage" :page-size="pageSize" :total="ordersTotal"
-          :show-size-changer="false" :disabled="ordersLoading" @change="loadGlobalOrders" />
+        <div class="v05-pager">
+          <a-pagination v-model:current="ordersPage" :page-size="pageSize" :total="ordersTotal"
+            :show-size-changer="false" :disabled="ordersLoading || !!ordersError"
+            :show-total="recordTotalText" @change="loadGlobalOrders" />
+        </div>
         <small v-if="ordersError"><button @click="loadGlobalOrders">重试</button></small>
         <small v-else-if="ordersTotal">共 {{ ordersTotal }} 条</small>
       </div></a-modal
@@ -372,26 +385,26 @@
         style="margin-bottom: 16px"
       /><template v-if="createStep === 1"
         ><div class="v05-form-grid">
-          <label>ADM 单号 *<a-input v-model:value="form.admNo" /></label
+          <label><span class="form-field-label">ADM 单号 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.admNo" /></label
           ><label
-            >下发方类型 *<a-select
+            ><span class="form-field-label">下发方类型 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
               v-model:value="form.issuerType"
               :options="issuerOptions"
               @change="issuerChanged" /></label
-          ><label v-if="form.issuerType === 'AIRLINE'">航司名称 *<a-input v-model:value="form.issuerName" /></label
+          ><label v-if="form.issuerType === 'AIRLINE'"><span class="form-field-label">航司名称 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.issuerName" /></label
           ><label v-else
-            >下发方 *<a-select
+            ><span class="form-field-label">下发方 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
               v-model:value="form.issuerCode"
               show-search
               :filter-option="filterOption"
               :options="issuerMasterOptions"
               @change="issuerSelected" /></label
           ><label
-            >原币币种 *<a-select
+            ><span class="form-field-label">原币币种 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
               v-model:value="form.currency"
               :options="currencyOptions"
               @change="loadExchangeRate" /></label
-          ><label>原币总金额 *<a-input v-model:value="form.originalAmount" /></label
+          ><label><span class="form-field-label">原币总金额 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.originalAmount" /></label
           ><label
             >换算汇率（对人民币）<a-input
               :value="fxLoading ? '读取中…' : fxSnapshot?.rateValue || '暂无可用汇率'"
@@ -401,8 +414,8 @@
             >汇率日期 / 来源<a-input
               :value="fxSnapshot ? `${fxSnapshot.sourceUpdatedAt || '即时'} / ${fxSnapshot.actualSource}` : '—'"
               readonly /></label
-          ><label>下发日期 *<a-input v-model:value="form.issuedDate" type="date" /></label
-          ><label>处理截止 *<a-input v-model:value="form.replyDeadline" type="datetime-local" /></label
+          ><label><span class="form-field-label">下发日期 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.issuedDate" type="date" /></label
+          ><label><span class="form-field-label">处理截止 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.replyDeadline" type="datetime-local" /></label
           ><label class="wide">备注（选填）<a-textarea v-model:value="form.remark" :rows="2" /></label
           ><label class="wide"
             >主单公共附件（选填）<input type="file" multiple @change="pickMasterFiles" /><span>{{
@@ -441,14 +454,14 @@
                 :options="otaOptions"
                 @change="(v?: string) => selectOption(line, 'ota', v)" /></label
             ><label
-              >业务归属部门 *<a-select
+              ><span class="form-field-label">业务归属部门 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
                 v-model:value="line.departmentCode"
                 show-search
                 :filter-option="filterOption"
                 :options="departmentOptions"
                 @change="(v: string) => selectOption(line, 'department', v)" /></label
             ><label
-              >负责组长 *<a-select
+              ><span class="form-field-label">负责组长 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
                 v-model:value="line.leaderId"
                 :options="leaderOptions"
                 @change="(v: string) => selectLeader(line, v)" /></label
@@ -460,7 +473,7 @@
                 :options="supplierOptions"
                 @change="(v?: string) => selectOption(line, 'supplier', v)" /></label
             ><label>航司（选填）<a-input v-model:value="line.airlineName" /></label
-            ><label>ADM金额（原币） *<a-input v-model:value="line.originalAmount" /></label
+            ><label><span class="form-field-label">ADM金额（原币） <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="line.originalAmount" /></label
             ><label>币种（继承主单）<a-input :value="form.currency" readonly /></label
             ><label>ADM金额（人民币，系统换算）<a-input :value="lineCnyAmount(Number(index))" readonly /></label
             ><label class="wide"
@@ -469,13 +482,13 @@
                 :rows="2"
                 placeholder="填写当前已知的订单情况，操作员办理时可继续更新" /></label
             ><label
-              >差异类型 *<a-select
+              ><span class="form-field-label">差异类型 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
                 v-model:value="line.diffTypeCode"
                 show-search
                 :filter-option="filterOption"
                 :options="diffTypeOptions"
                 @change="(v: string) => selectOption(line, 'diffType', v)" /></label
-            ><label class="wide">细分差异原因 *<a-textarea v-model:value="line.differenceReason" :rows="3" /></label>
+            ><label class="wide"><span class="form-field-label">细分差异原因 <span class="form-required-mark" aria-hidden="true">*</span></span><a-textarea aria-required="true" v-model:value="line.differenceReason" :rows="3" /></label>
           </div>
         </div>
         <section class="entry-extra">
@@ -593,6 +606,8 @@ const masterInfoOpen = ref(false),
   selectedMasterEditable = ref(false)
 const filters = reactive({ search: '', status: '' })
 const appliedFilters = ref({ ...filters })
+const recordTotalText = (count: number) => `共 ${count} 条`
+const taskTotalText = (count: number) => `共 ${count} 条任务`
 const shownRows = computed(() => loading.value || error.value ? [] : rows.value)
 let request = 0
 let configRequest: Promise<void> | undefined
@@ -635,6 +650,11 @@ async function load() {
   } finally {
     if (seq === request) loading.value = false
   }
+}
+function changeLedgerPage(nextPage: number, nextSize: number) {
+  page.value = nextSize === pageSize.value ? nextPage : 1
+  pageSize.value = nextSize
+  void load()
 }
 function query() {
   appliedFilters.value = { ...filters }
@@ -802,7 +822,8 @@ const visibleTasks = computed(() => {
   return tasks.value.filter((t) => t.kind === (aliases[workMetric.value] || workMetric.value))
 })
 const workPageSize = 20
-const workPage = ref(Math.max(1, Number(route.query.page || 1)))
+const requestedWorkPage = Number(route.query.page)
+const workPage = ref(Number.isSafeInteger(requestedWorkPage) && requestedWorkPage > 0 ? requestedWorkPage : 1)
 const pagedTasks = computed(() =>
   visibleTasks.value.slice((workPage.value - 1) * workPageSize, workPage.value * workPageSize),
 )
@@ -830,6 +851,24 @@ const canCreate = computed(() => !!auth.user?.isAdmin || !!config.value?.permiss
       .forEach((item) => unique.set(Number(item.lineId), item))
     return [...unique.values()]
   })
+const acceptingLines = reactive(new Set<number>())
+function canAcceptTask(task: Fields) {
+  return task.kind === 'accept' && canOperatorWork.value && Number(task.operatorId) === myId.value
+}
+async function acceptTask(task: Fields) {
+  const lineId = Number(task.lineId)
+  if (!canAcceptTask(task) || acceptingLines.has(lineId)) return
+  acceptingLines.add(lineId)
+  try {
+    await admApi.accept(Number(task.caseId), lineId)
+    void message.success('已接单，可在「本人待办理」继续处理')
+  } catch (e) {
+    void message.error(`接单失败：${errorText(e)}`)
+  } finally {
+    if (isWorkbench.value) await load()
+    acceptingLines.delete(lineId)
+  }
+}
 const exportSelectionOpen = ref(false),
   selectedExportIds = ref<number[]>([]),
   selectedExportTypes = ref<string[]>([]),
@@ -1062,9 +1101,7 @@ function selectMetric(k: string) {
 const activeLineCount = (r: AdmCaseRow) => Math.max(0, Number(r.lineCount || 0) - Number(r.voidedLineCount || 0)),
   progressWidth = (r: AdmCaseRow) =>
     `${activeLineCount(r) ? Math.min(100, (Number(r.completedLineCount || 0) / activeLineCount(r)) * 100) : 100}%`
-function stageSummary(id: number) {
-  const row = rows.value.find((item) => Number(item.id) === Number(id))
-  if (!row) return []
+function stageSummary(row: AdmCaseRow) {
   return [
     { label: '待办', count: Number(row.pendingLeaderCount || 0) + Number(row.pendingOperatorCount || 0) + Number(row.pendingAcceptCount || 0) },
     { label: '处理中', count: Number(row.processingCount || 0) },
