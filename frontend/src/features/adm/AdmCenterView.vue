@@ -101,17 +101,15 @@
         <a-alert v-if="configError" type="warning" show-icon :message="configError" />
         <div class="v05-card">
           <div class="v05-toolbar">
-            <label
-              >⌕<input v-model="filters.search" placeholder="搜索 ADM 单号、内部主单编号、下发方" @keyup.enter="query"
-            /></label>
-            <div>
-              <select v-model="filters.status" @change="query">
-                <option value="">全部状态</option>
-                <option v-for="status in config?.caseStatuses || []" :key="status" :value="status">
-                  {{ label(status) }}
-                </option></select
-              ><button @click="resetFilters">重置</button>
-            </div>
+            <a-space wrap>
+              <a-input v-model:value="filters.search" allow-clear aria-label="搜索 ADM 台账"
+                placeholder="ADM 单号、内部主单编号、下发方" style="width: min(300px, 65vw)" @press-enter="query" />
+              <a-select v-model:value="filters.status" aria-label="主单状态" style="width: 140px"
+                :options="[{ value: '', label: '全部状态' }, ...(config?.caseStatuses || []).map((status) => ({ value: status, label: label(status) }))]"
+                @change="query" />
+              <a-button type="primary" :loading="loading" @click="query">查询</a-button>
+              <a-button @click="resetFilters">重置</a-button>
+            </a-space>
           </div>
           <div class="v05-table-wrap">
             <table>
@@ -226,7 +224,7 @@
         :data-source="queueRows"
         :row-key="(row: Fields) => row.transferId || row.caseId"
         :loading="queueLoading"
-        :locale="{ emptyText: queueError ? '读取失败' : '当前没有符合条件的记录' }"
+        :locale="{ emptyText: queueError ? '读取失败' : queueLoading ? '正在读取清单…' : '当前没有符合条件的记录' }"
         :pagination="false"
         :scroll="{ x: workQueue === 'transfer' ? 760 : 540 }"
         size="small"
@@ -928,6 +926,8 @@ async function loadWorkQueue() {
     if (seq !== queueRequest) return
     queueRows.value = result.items
     queueTotal.value = result.pagination.total
+    if (queue === 'close') workbenchSummary.value.closableCaseCount = queueTotal.value
+    else if (queueStatus.value === 'pending') workbenchSummary.value.pendingTransferCount = queueTotal.value
     const lastPage = Math.max(1, Math.ceil(queueTotal.value / 20))
     if (queuePage.value > lastPage) {
       queuePage.value = lastPage

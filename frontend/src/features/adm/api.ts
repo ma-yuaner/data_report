@@ -15,6 +15,7 @@ export interface FxSnapshot extends Fields {
 export interface AdmConfig extends Fields {
   caseStatuses: string[]; lineStatuses: string[]; issuerTypes: string[]
   sourceTypes: string[]
+  appealTargets: Array<{ value: string; label: string }>
   appealResults: string[]; problemAttributions: string[]; attachmentCategories: string[]
   people: { handle: Person[]; leader: Person[]; coordinate: Person[] }
   permissions: Record<string, boolean>
@@ -23,6 +24,9 @@ export interface AdmLine extends Fields {
   id: number; caseId: number; lineInternalNo: string; lineStatus: string; originalAmount: string
   departmentName: string; leaderId: number | null; leaderName: string | null
   operatorId: number | null; operatorName: string | null
+}
+export function canChangeAdmLeader(line: AdmLine) {
+  return !line.acceptedAt && ['PENDING_LEADER', 'PENDING_OPERATOR', 'PENDING_ACCEPT'].includes(line.lineStatus)
 }
 export interface AdmCaseRow extends Fields {
   id: number; internalNo: string; admNo: string; issuerName: string; currency: string

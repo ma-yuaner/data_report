@@ -59,26 +59,26 @@
               </div>
             </dl>
             <div class="summary-actions">
-              <button @click="openMasterBasicInfo">{{ canEditMasterBasic ? '编辑基础信息' : '查看基础信息' }}</button
-              ><button :disabled="loading" @click="() => load()">刷新</button
-              ><button v-if="isCaseOwner && canCreate && record.case.caseStatus === 'DRAFT'" class="primary" @click="publishDraft">
-                发布草稿</button
-              ><button
+              <a-button @click="openMasterBasicInfo">{{ canEditMasterBasic ? '编辑基础信息' : '查看基础信息' }}</a-button>
+              <a-button :loading="loading" @click="openMasterOperations">操作记录</a-button><a-button :disabled="loading" @click="() => load()">刷新</a-button
+              ><a-button v-if="isCaseOwner && canCreate && record.case.caseStatus === 'DRAFT'" type="primary" @click="publishDraft">
+                发布草稿</a-button
+              ><a-button
                 v-if="isCaseOwner && (canCreate || canManage) && record.case.caseStatus === 'DRAFT'"
-                class="danger"
+                danger
                 @click="openAction('deleteDraft')"
               >
-                删除草稿</button
-              ><button v-if="isCaseOwner && canClose && record.case.caseStatus === 'ACTIVE'"
+                删除草稿</a-button
+              ><a-button v-if="isCaseOwner && canClose && record.case.caseStatus === 'ACTIVE'"
                 :disabled="saving || !canCloseCurrentCase" @click="runSimple('close')">
-                主单结案</button
-              ><button
+                主单结案</a-button
+              ><a-button
                 v-if="isCaseOwner && canManage && record.case.caseStatus === 'ACTIVE'"
-                class="danger"
+                danger
                 @click="openAction('voidCase')"
               >
                 作废主单
-              </button>
+              </a-button>
             </div>
           </div>
           <section v-if="isLegacyReadOnly" class="legacy-source-card">
@@ -119,7 +119,7 @@
               v-for="item in stageMetrics"
               :key="item.key"
               :class="{ selected: selectedStage === item.key }"
-              @click="selectedStage = selectedStage === item.key ? '' : item.key"
+              @click="selectDetailStage(item.key)"
             >
               <span>{{ item.title }}</span
               ><strong>{{ item.value }}</strong>
@@ -139,18 +139,16 @@
                 </div>
               </div>
               <div class="order-filters">
-                <input v-model="lineFilter.q" placeholder="⌕ 订单号、票号、PNR" /><select v-model="lineFilter.status">
-                  <option value="">全部状态</option>
-                  <option v-for="status in config?.lineStatuses || []" :key="status" :value="status">
-                    {{ label(status) }}
-                  </option></select
-                ><select v-model="lineFilter.dept">
-                  <option value="">全部部门</option>
-                  <option v-for="name in departmentNames" :key="name">{{ name }}</option></select
-                ><select v-model="lineFilter.leader">
-                  <option value="">全部组长</option>
-                  <option v-for="name in leaderNames" :key="name">{{ name }}</option></select
-                ><button @click="clearLineFilters">清除筛选</button>
+                <a-input v-model:value="lineFilter.q" allow-clear aria-label="搜索订单明细"
+                  placeholder="订单号、票号、PNR" style="min-width: 180px; flex: 1" />
+                <a-select v-model:value="lineFilter.status" aria-label="明细状态" style="width: 155px"
+                  :options="[{ value: '', label: '全部状态' }, ...(config?.lineStatuses || []).map((status) => ({ value: status, label: label(status) }))]"
+                  @change="selectedStage = ''" />
+                <a-select v-model:value="lineFilter.dept" aria-label="归属部门" style="width: 155px"
+                  :options="[{ value: '', label: '全部部门' }, ...departmentNames.map((name) => ({ value: name, label: name }))]" />
+                <a-select v-model:value="lineFilter.leader" aria-label="负责组长" style="width: 155px"
+                  :options="[{ value: '', label: '全部组长' }, ...leaderNames.map((name) => ({ value: name, label: name }))]" />
+                <a-button @click="clearLineFilters">清除筛选</a-button>
               </div>
               <div class="v05-table-wrap">
                 <table>
@@ -210,15 +208,15 @@
                       <td>{{ nextTask(line) }}</td>
                       <td>
                         <div class="record-actions order-record-actions">
-                          <button class="primary" @click.stop="openLineDrawer(line)">{{ canEditLineRecord(line) ? '编辑完整处理记录' : '查看完整处理记录' }}</button
-                          ><button v-if="isCaseOwner && canAssignLeader && record.case.caseStatus === 'ACTIVE' && !['COMPLETED', 'HISTORICAL', 'VOIDED'].includes(line.lineStatus)" @click.stop="openLineTask(line, 'leader')">{{ line.lineStatus === 'PENDING_LEADER' ? '分配组长' : '更换组长' }}</button
-                          ><button v-if="canAssignOperator && Number(line.leaderId) === myId && line.lineStatus === 'PENDING_OPERATOR'" @click.stop="openLineTask(line, 'assign')">分配操作员</button
-                          ><button v-if="canAssignOperator && Number(line.leaderId) === myId && line.operatorId && line.lineStatus === 'PROCESSING'" @click.stop="openLineTask(line, 'transfer')">转派</button>
+                          <a-button type="primary" @click.stop="openLineDrawer(line)">订单处理详情</a-button
+                          ><a-button v-if="isCaseOwner && canAssignLeader && record.case.caseStatus === 'ACTIVE' && canChangeAdmLeader(line)" @click.stop="openLineTask(line, 'leader')">{{ line.lineStatus === 'PENDING_LEADER' ? '分配组长' : '更换组长' }}</a-button
+                          ><a-button v-if="canAssignOperator && Number(line.leaderId) === myId && line.lineStatus === 'PENDING_OPERATOR'" @click.stop="openLineTask(line, 'assign')">分配操作员</a-button
+                          ><a-button v-if="canAssignOperator && Number(line.leaderId) === myId && line.operatorId && line.lineStatus === 'PROCESSING'" @click.stop="openLineTask(line, 'transfer')">转派</a-button>
                         </div>
                       </td>
                     </tr>
                     <tr v-if="!visibleLines.length">
-                      <td colspan="8" class="empty">暂无订单明细；表头、筛选项和操作入口会一直保留。</td>
+                      <td colspan="8" class="empty">{{ record.lines.length ? '当前筛选下没有订单明细' : '暂无订单明细' }}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -229,7 +227,7 @@
           <a-drawer
             v-if="selectedLine"
             v-model:open="drawerOpen"
-            :title="`${canEditLineRecord(selectedLine) ? '编辑' : '查看'}完整处理记录`"
+            title="订单处理详情"
             width="940"
             ><div class="drawer-line-head">
               <div>
@@ -330,7 +328,7 @@
                     <h3>2. 是否申诉与最终结果</h3>
                     <p>申诉在系统外办理，无需登记具体跟进过程；允许一次填写实际最终结果。</p>
                     <label>处理决定<div class="task-buttons process-choice-buttons"><a-button :aria-pressed="selectedLine.appealStatus === 'IN_PROGRESS'" :disabled="selectedLine.appealStatus !== 'UNDECIDED'" @click="openAction('appeal')">{{ selectedReturnMode === 'REAPPEAL' ? '重新申诉' : '提交申诉' }}</a-button><a-button :aria-pressed="selectedLine.appealStatus === 'NO_APPEAL'" :disabled="selectedLine.appealStatus !== 'UNDECIDED'" @click="openAction('noAppeal')">不申诉</a-button></div></label>
-                    <template v-if="activeAppeal"><p>申诉原因：{{ activeAppeal.appealReason || '未填写' }}</p><p>申诉对象：{{ activeAppeal.appealTarget || '未填写' }}</p><label>申诉结果<div class="task-buttons process-choice-buttons"><a-button @click="openAppealResult('SUCCEEDED')">成功</a-button><a-button @click="openAppealResult('FAILED')">不成功</a-button></div></label></template>
+                    <template v-if="activeAppeal"><p>申诉原因：{{ activeAppeal.appealReason || '未填写' }}</p><p>申诉对象：{{ activeAppeal.appealTarget || '未填写' }}</p><a-button @click="openAction('appealResult')">申诉结果</a-button></template>
                     <div v-if="['NO_APPEAL', 'FAILED'].includes(selectedLine.appealStatus)"><p>问题归因（必填，三选一）</p><div class="task-buttons process-choice-buttons"><a-button v-for="cause in ['人为问题', '平台问题', '系统问题']" :key="cause" :aria-pressed="label(selectedLine.problemAttribution) === cause">{{ cause }}</a-button></div><p>差异订单匹配状态：{{ label(selectedLine.diffMatchStatus) }}</p><small>{{ selectedLine.otaOrderNo || selectedLine.lineInternalNo }} · 审核通过后由 ADM 负责人核验。</small></div>
                     <label v-if="selectedLine.appealStatus !== 'UNDECIDED'">处理依据附件（选填）<a-button @click="openLineAttachments('APPEAL')">上传或查看当前明细附件（{{ selectedLineAttachments.length }}）</a-button></label>
                     <div v-if="['SUPPLEMENT', 'WITHDRAWN'].includes(selectedReturnMode)" class="task-buttons"><a-button @click="openBasicInfo(selectedLine)">{{ selectedReturnMode === 'WITHDRAWN' ? '更正订单基础信息' : '补充订单基础信息' }}</a-button><a-button @click="openLineAttachments('APPEAL')">补充附件材料</a-button><a-button type="primary" @click="runSimple('submitReview')">{{ selectedReturnMode === 'WITHDRAWN' ? '更正完成，重新提交审核' : '补充完成，重新提交审核' }}</a-button></div>
@@ -455,7 +453,8 @@
                 <h3>回款</h3>
                 <p v-if="selectedLine.collectionRequired">
                   应回款 {{ selectedLine.currency }} {{ selectedLine.expectedCollectionAmount }} ·
-                  已登记 {{ selectedLine.currency }} {{ selectedLine.collectedAmount }}
+                  已登记 {{ selectedLine.currency }} {{ selectedLine.collectedAmount }} ·
+                  未回款 {{ selectedLine.currency }} {{ collectionBalance.current }}
                 </p>
                 <a-button v-if="isCaseOwner && canCollection && selectedLine.lineStatus === 'WAITING_COLLECTION'"
                   :disabled="saving" @click="openAction('collection')">登记回款</a-button>
@@ -469,14 +468,9 @@
                 <p v-else class="empty">当前暂无负责人跟进记录</p>
               </section>
               <section v-else>
-                <h3>操作记录</h3>
-                <a-timeline
-                  ><a-timeline-item v-for="item in lineRecords('operationLogs').slice().reverse()" :key="item.id"
-                    ><b>{{ eventLabel(item.eventType) }}</b>
-                    <div>{{ item.operatorName }} · {{ item.occurredAt }}</div>
-                    <p v-if="item.note">{{ item.note }}</p></a-timeline-item
-                  ></a-timeline
-                >
+                <h3>订单操作记录</h3>
+                <a-button type="link" @click="openMasterOperations">查看主单操作记录</a-button>
+                <AdmOperationTimeline :items="lineRecords('operationLogs')" empty-text="当前订单暂无操作记录" />
               </section>
             </div></a-drawer
           >
@@ -484,6 +478,9 @@
       </section>
     </main>
 
+    <a-modal v-model:open="masterOperationsOpen" title="ADM 主单操作记录" :footer="null" :width="720">
+      <AdmOperationTimeline :items="caseOperationLogs" empty-text="当前主单暂无操作记录" />
+    </a-modal>
     <AdmMasterBasicModal :open="masterInfoOpen" :detail="record" :editable="canEditMasterBasic" @close="masterInfoOpen = false" @saved="basicInfoSaved" />
     <AdmLineBasicModal :open="basicInfoOpen" :detail="record" :line="selectedLine" :editable="!!selectedLine && canEditLineBasic(selectedLine)" :config="config" @close="basicInfoOpen = false" @saved="basicInfoSaved" />
 
@@ -634,11 +631,14 @@
         <a-form-item v-if="actionName === 'appeal'" label="申诉原因" required
           ><a-textarea v-model:value="actionForm.appealReason"
         /></a-form-item>
-        <a-form-item v-if="actionName === 'appeal'" label="申诉对象" required
-          ><a-input v-model:value="actionForm.appealTarget"
-        /></a-form-item>
+        <a-form-item v-if="actionName === 'appeal'" label="申诉对象" required>
+          <a-select v-model:value="actionForm.appealTarget" :options="config?.appealTargets || []" placeholder="请选择申诉对象" />
+          <div v-if="actionForm.appealTarget" class="form-help">
+            {{ appealPartyName || '当前订单未登记该类型的对象名称' }}
+          </div>
+        </a-form-item>
         <a-form-item v-if="actionName === 'appealResult'" label="申诉结果" required
-          ><a-select v-model:value="actionForm.result" :options="appealResultOptions"
+          ><a-select v-model:value="actionForm.result" :options="appealResultOptions" placeholder="请选择申诉结果"
         /></a-form-item>
         <a-form-item v-if="['appealResult', 'noAppeal'].includes(actionName)" label="问题归属" :required="actionName === 'noAppeal' || actionForm.result === 'FAILED'"
           ><a-select v-model:value="actionForm.problemAttribution" :options="attributionOptions"
@@ -661,8 +661,20 @@
         <a-form-item v-if="actionName === 'review' && actionForm.result === 'APPROVED' && selectedLine?.appealStatus === 'SUCCEEDED' && actionForm.collectionRequired === true" label="应回款金额" required
           ><a-input v-model:value="actionForm.expectedCollectionAmount"
         /></a-form-item>
-        <template v-if="actionName === 'collection'"
-          ><a-form-item label="回款日期" required><a-input v-model:value="actionForm.receivedDate" type="date" /></a-form-item
+        <template v-if="actionName === 'collection'">
+          <a-alert show-icon :type="collectionBalance.over ? 'warning' : 'info'" class="block">
+            <template #message>
+              应回款 {{ selectedLine?.currency }} {{ selectedLine?.expectedCollectionAmount }}，
+              已登记 {{ selectedLine?.currency }} {{ selectedLine?.collectedAmount }}，
+              未回款 {{ selectedLine?.currency }} {{ collectionBalance.current }}
+            </template>
+            <template #description>
+              <span v-if="collectionBalance.over">本次金额超过当前未回款金额，请核对凭证。</span>
+              <span v-else-if="collectionBalance.projected !== null">登记后预计未回款 {{ selectedLine?.currency }} {{ collectionBalance.projected }}</span>
+              <span v-else>可按实际到账金额分次登记。</span>
+            </template>
+          </a-alert>
+          <a-form-item label="回款日期" required><a-input v-model:value="actionForm.receivedDate" type="date" /></a-form-item
           ><a-form-item label="回款金额" required><a-input v-model:value="actionForm.amount" /></a-form-item
           ><a-form-item label="凭证号（银行流水号、收款单号或财务凭证号）"
             ><a-input v-model:value="actionForm.voucherNo" placeholder="有凭证号时填写真实编号，不要随意编写" /></a-form-item
@@ -708,10 +720,12 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
 import { Modal, message } from 'ant-design-vue'
+import AdmOperationTimeline from './AdmOperationTimeline.vue'
 import AdmLineBasicModal from './AdmLineBasicModal.vue'
 import AdmMasterBasicModal from './AdmMasterBasicModal.vue'
 import {
   admApi,
+  canChangeAdmLeader,
   diffMatchLabel,
   errorText,
   label,
@@ -779,7 +793,7 @@ const selectedLineId = ref<number | null>(Number(route.query.lineId) || null),
   basicInfoOpen = ref(false),
   masterInfoOpen = ref(false)
 const drawerTabs = ['处理决定与结果', '附件', '审核处理', '负责人跟进', '转派记录', '操作记录']
-const selectedLine = computed(() => record.value?.lines.find((line) => line.id === selectedLineId.value) || null)
+const selectedLine = computed(() => record.value?.lines.find((line) => Number(line.id) === Number(selectedLineId.value)) || null)
 const activeLines = computed(() => record.value?.lines.filter((line) => line.lineStatus !== 'VOIDED') || [])
 const isAdmin = computed(() => !!auth.user?.isAdmin)
 const myId = computed(() => Number(auth.user?.id))
@@ -860,10 +874,11 @@ function legacyValue(field: string) {
   return legacyEnumLabels[field]?.[raw] ? `${raw}（${legacyEnumLabels[field][raw]}）` : raw
 }
 const stageGroups: Record<string, string[]> = {
-  todo: ['PENDING_OPERATOR', 'PENDING_ACCEPT'],
+  todo: ['PENDING_LEADER', 'PENDING_OPERATOR', 'PENDING_ACCEPT'],
   processing: ['PROCESSING'],
   review: ['PENDING_REVIEW'],
-  collection: ['WAITING_DIFF', 'WAITING_COLLECTION'],
+  difference: ['WAITING_DIFF'],
+  collection: ['WAITING_COLLECTION'],
   completed: ['COMPLETED'],
 }
 const stageMetrics = computed(() => [
@@ -881,6 +896,11 @@ const stageMetrics = computed(() => [
     key: 'review',
     title: '待审核',
     value: activeLines.value.filter((l) => stageGroups.review.includes(l.lineStatus)).length,
+  },
+  {
+    key: 'difference',
+    title: '待匹配差异单',
+    value: activeLines.value.filter((l) => stageGroups.difference.includes(l.lineStatus)).length,
   },
   {
     key: 'collection',
@@ -909,6 +929,10 @@ const visibleLines = computed(() =>
       (!lineFilter.leader || line.leaderName === lineFilter.leader),
   ),
 )
+function selectDetailStage(key: string) {
+  lineFilter.status = ''
+  selectedStage.value = selectedStage.value === key ? '' : key
+}
 function clearLineFilters() {
   Object.assign(lineFilter, { q: '', status: '', dept: '', leader: '' })
   selectedStage.value = ''
@@ -1018,13 +1042,18 @@ async function openLineDrawer(line: AdmLine) {
   if (!fullDetailLoaded.value) await load(true)
   if (!hasRecord.value || error.value) return
   selectedLineId.value = line.id
-  if (!canEditLineRecord(selectedLine.value || line)) readOnlyNotice('这笔订单完整处理记录')
   drawerTab.value = canReview.value && line.lineStatus === 'PENDING_REVIEW' ? '审核处理' : '处理决定与结果'
   drawerOpen.value = true
 }
 async function openLineTask(line: AdmLine, action: string) {
   if (!fullDetailLoaded.value) await load(true)
-  selectedLineId.value = line.id
+  const current = record.value.lines.find((item) => Number(item.id) === Number(line.id))
+  if (!current || error.value) return
+  if (action === 'leader' && !canChangeAdmLeader(current)) {
+    void message.warning('操作员已接单，不能更换组长')
+    return
+  }
+  selectedLineId.value = current.id
   openAction(action)
 }
 function openBasicInfo(line: AdmLine) {
@@ -1201,7 +1230,7 @@ async function load(full = fullDetailLoaded.value) {
   try {
     record.value = full ? await admApi.detail(caseId) : await admApi.summary(caseId)
     fullDetailLoaded.value = full
-    if (!selectedLineId.value || !record.value.lines.some((line) => line.id === selectedLineId.value))
+    if (!selectedLineId.value || !record.value.lines.some((line) => Number(line.id) === Number(selectedLineId.value)))
       selectedLineId.value = record.value.lines[0]?.id || null
   } catch (e) {
     record.value = emptyRecord()
@@ -1211,7 +1240,15 @@ async function load(full = fullDetailLoaded.value) {
   }
 }
 const lineRecords = (key: keyof AdmCaseDetail) =>
-  ((record.value?.[key] as Fields[]) || []).filter((item) => item.lineId === selectedLineId.value)
+  ((record.value?.[key] as Fields[]) || []).filter(
+    (item) => item.lineId != null && Number(item.lineId) === Number(selectedLineId.value),
+  )
+const masterOperationsOpen = ref(false)
+const caseOperationLogs = computed(() => record.value.operationLogs.filter((item) => item.lineId == null))
+async function openMasterOperations() {
+  if (!fullDetailLoaded.value) await load(true)
+  if (hasRecord.value && !error.value) masterOperationsOpen.value = true
+}
 const latestReviewFor = (lineId: number) => ((record.value.reviews || []) as Fields[])
     .filter((item) => Number(item.lineId) === Number(lineId)).at(-1),
   returnModeFor = (lineId: number) => {
@@ -1364,13 +1401,38 @@ const reasonLabel = computed(
       actionName.value
     ] || '原因/说明',
 )
+const appealPartyName = computed(() => {
+  const type = actionForm.appealTarget
+  const line = selectedLine.value
+  if (type === record.value.case.issuerType) return record.value.case.issuerName
+  return ({ PLATFORM: line?.otaName, AIRLINE: line?.airlineName, SUPPLIER: line?.supplierName } as Fields)[type]
+})
+function amountInCents(value: unknown): bigint | null {
+  const parts = /^(\d+)(?:\.(\d{1,2}))?$/.exec(String(value ?? '').trim())
+  if (!parts) return null
+  return BigInt(parts[1]) * 100n + BigInt((parts[2] || '').padEnd(2, '0'))
+}
+function centsText(amount: bigint) {
+  return `${amount / 100n}.${String(amount % 100n).padStart(2, '0')}`
+}
+const collectionBalance = computed(() => {
+  const expected = amountInCents(selectedLine.value?.expectedCollectionAmount) ?? 0n
+  const collected = amountInCents(selectedLine.value?.collectedAmount) ?? 0n
+  const current = expected > collected ? expected - collected : 0n
+  const amount = amountInCents(actionForm.amount)
+  const over = amount !== null && amount > current
+  return {
+    current: centsText(current),
+    projected: amount === null ? null : centsText(over ? 0n : current - amount),
+    over,
+  }
+})
 function openAction(name: string) {
   actionName.value = name
   actionError.value = ''
   Object.keys(actionForm).forEach((key) => delete actionForm[key])
   if (name === 'recovery') actionForm.decision = 'NEEDED'
   if (name === 'review') Object.assign(actionForm, { result: 'APPROVED', collectionRequired: undefined, returnType: 'SUPPLEMENT' })
-  if (name === 'appealResult') actionForm.result = 'SUCCEEDED'
   if (name === 'collection') {
     actionForm.receivedDate = new Date().toISOString().slice(0, 10)
     actionForm.attachmentIds = []
@@ -1385,10 +1447,6 @@ function openRecoveryAction(decision: 'NEEDED' | 'NOT_NEEDED') {
   openAction('recovery')
   actionForm.decision = decision
 }
-function openAppealResult(result: 'SUCCEEDED' | 'FAILED') {
-  openAction('appealResult')
-  actionForm.result = result
-}
 function rejectPendingTransfer(lineId: number) {
   const transfer = pendingTargetTransfer.value
   if (!transfer) throw new Error('待处理转派已变化，请刷新')
@@ -1396,6 +1454,14 @@ function rejectPendingTransfer(lineId: number) {
 }
 async function submitAction() {
   if (saving.value || (!selectedLine.value && !['voidCase', 'deleteDraft'].includes(actionName.value))) return
+  if (actionName.value === 'appeal' && !actionForm.appealTarget) {
+    actionError.value = '请选择申诉对象'
+    return
+  }
+  if (actionName.value === 'appealResult' && !actionForm.result) {
+    actionError.value = '请选择申诉结果'
+    return
+  }
   saving.value = true
   actionError.value = ''
   const lineId = selectedLine.value?.id || 0
@@ -1613,47 +1679,6 @@ function voidAttachment(item: Fields) {
     },
   })
 }
-const eventLabel = (value: string) =>
-  (
-    ({
-      CREATE_CASE: '创建主单',
-      CREATE_TEST_DATA: '创建测试数据',
-      ADD_LINE: '新增订单',
-      UPDATE_CASE_BASIC_INFO: '编辑主单基础信息',
-      UPDATE_LINE_BASIC_INFO: '编辑订单基础信息',
-      UPDATE_OPERATOR_SUPPLEMENT: '补充订单资料',
-      UPDATE_INVESTIGATION_NOTE: '更新订单情况说明',
-      REBALANCE_LINE_AMOUNT: '调整明细金额',
-      PUBLISH_DRAFT: '发布草稿',
-      DELETE_DRAFT: '删除草稿',
-      ASSIGN_OPERATOR: '分配操作员',
-      ACCEPT_LINE: '接单',
-      ACCEPT_AND_EXPORT: '接单并导出',
-      CHANGE_LEADER: '更换组长',
-      REQUEST_TRANSFER: '发起转派',
-      TRANSFER_ACCEPTED: '接受转派',
-      TRANSFER_REJECTED: '拒绝转派',
-      DECIDE_RECOVERY: '判断是否恢复编码',
-      RECOVERY_REMINDER_DUE: '恢复编码待查看提醒',
-      CONFIRM_RECOVERY: '确认已查看恢复结果',
-      START_APPEAL: '开始申诉',
-      FINISH_APPEAL: '登记申诉结果',
-      RECORD_NO_APPEAL: '登记不申诉',
-      SUBMIT_REVIEW: '提交审核',
-      REVIEW_APPROVED: '审核通过',
-      REVIEW_RETURNED: '审核退回',
-      WITHDRAW_REVIEW: '撤回审核',
-      CHECK_DIFFERENCE_ORDER: '核验差异单',
-      RECORD_COLLECTION: '登记回款',
-      VOID_COLLECTION: '作废回款记录',
-      CLOSE_CASE: '主单结案',
-      VOID_LINE: '作废订单明细',
-      VOID_CASE: '作废主单',
-      UPLOAD_ATTACHMENT: '上传附件',
-      DOWNLOAD_ATTACHMENT: '下载附件',
-      VOID_ATTACHMENT: '作废附件',
-    }) as Fields
-  )[value] || value
 onMounted(async () => {
   if (!caseId) return
   const configRequest = admApi.config()
@@ -1670,7 +1695,7 @@ onMounted(async () => {
     return
   }
   if (record.value.case.caseStatus === 'ACTIVE') {
-    if (taskAction === 'assignLeader' && line.lineStatus === 'PENDING_LEADER' && isCaseOwner.value && canAssignLeader.value) {
+    if (taskAction === 'assignLeader' && line.lineStatus === 'PENDING_LEADER' && canChangeAdmLeader(line) && isCaseOwner.value && canAssignLeader.value) {
       openAction('leader')
       return
     }

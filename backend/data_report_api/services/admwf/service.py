@@ -9,12 +9,12 @@ import uuid
 
 from .attachments import AdmAttachmentStorage
 from .catalog import AdmCatalog
-from .domain import business_date, business_datetime, money, normalize_create, normalize_line, text
+from .domain import appeal_target, business_date, business_datetime, money, normalize_create, normalize_line, text
 from .excel import (
     AdmDailyWorkbook, StoredUpload, _diff_label, _operator_actions, _operator_label,
     _operator_stage,
 )
-from .policy import AdmError, business_now, display_name, has, identity, require
+from .policy import APPEAL_TARGETS, AdmError, business_now, display_name, has, identity, require
 from .repository import AdmWorkflowRepository
 from .workflow import difference_query_key
 
@@ -439,6 +439,7 @@ class AdmWorkflowService:
                 "HISTORICAL", "VOIDED",
             ],
             "issuerTypes": ["PLATFORM", "SUPPLIER", "AIRLINE"],
+            "appealTargets": [{"value": code, "label": name} for code, name in APPEAL_TARGETS.items()],
             "appealResults": ["SUCCEEDED", "FAILED"],
             "problemAttributions": ["HUMAN", "PLATFORM", "SYSTEM"],
             "attachmentCategories": ["ADM_ORIGINAL", "APPEAL", "COLLECTION", "OTHER"],
@@ -761,8 +762,15 @@ class AdmWorkflowService:
                 row_errors.append("请先完成恢复编码决定及查看确认")
             if action in {"提交申诉", "申诉成功", "申诉失败"} and not row["appealReason"].strip():
                 row_errors.append("申诉原因必填")
-            if action in {"提交申诉", "申诉成功", "申诉失败"} and not row["appealTarget"].strip():
-                row_errors.append("申诉对象必填")
+            if action in {"提交申诉", "申诉成功", "申诉失败"}:
+                target = row["appealTarget"].strip()
+                historical_target = str(line.get("latest_appeal_target") or "").strip()
+                # An existing appeal can be completed using its original target text.
+                if not (line.get("appeal_status") == "IN_PROGRESS" and target and target == historical_target):
+                    try:
+                        row["appealTarget"] = appeal_target(target)
+                    except AdmError as error:
+                        row_errors.append(error.message)
             if action == "不申诉" and not row["noAppealReason"].strip():
                 row_errors.append("不申诉原因必填")
             if action in {"申诉失败", "不申诉"} and not attribution:
@@ -853,7 +861,7 @@ class AdmWorkflowService:
     def start_appeal(self, user, case_id, line_id, body):
         require(user, "adm.handle")
         reason = text((body or {}).get("appealReason"), "申诉原因", 1000)
-        target = text((body or {}).get("appealTarget"), "申诉对象", 500)
+        target = appeal_target((body or {}).get("appealTarget"))
         return _json_value(self.repository.start_appeal(
             int(case_id), int(line_id), self._actor(user), reason, target,
             allow_override=bool(user.get("is_admin")),

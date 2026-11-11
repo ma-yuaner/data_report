@@ -11,8 +11,16 @@ import json
 import re
 
 from .domain import allocate_cny_amounts
-from .policy import AdmError, business_now
+from .policy import PRE_ACCEPT_STATUSES, AdmError, business_now
 from .workflow import DIFF_MATCHED, closure_blockers, status_after_approval, validate_submit
+
+# Older rows can carry the pre-assignment status even when a leader is already assigned.
+LEADER_ALREADY_ASSIGNED = "(l.line_status='PENDING_LEADER' AND l.leader_id>0 AND COALESCE(l.operator_id,0)=0)"
+EFFECTIVE_LINE_STATUS = f"(CASE WHEN {LEADER_ALREADY_ASSIGNED} THEN 'PENDING_OPERATOR' ELSE l.line_status END)"
+
+
+def _leader_locked(line):
+    return line.get("accepted_at") is not None or line["line_status"] not in PRE_ACCEPT_STATUSES
 
 
 class AdmWorkflowRepository:
@@ -375,11 +383,17 @@ class AdmWorkflowRepository:
                 cursor.execute(f"SELECT * FROM {table} WHERE case_id=%s ORDER BY {order_by}", (case_id,))
                 histories[key] = cursor.fetchall()
         return {
-            "case": case, "lines": lines, "fxSnapshot": fx,
+            "case": case, "lines": [self._effective_line(line) for line in lines], "fxSnapshot": fx,
             "legacySource": legacy_source,
             "diffMatches": diff_matches, "collections": collections, "transfers": transfers,
             "attachments": attachments, **histories,
         }
+
+    @staticmethod
+    def _effective_line(line):
+        if line["line_status"] == "PENDING_LEADER" and line.get("leader_id") and not line.get("operator_id"):
+            return {**line, "line_status": "PENDING_OPERATOR"}
+        return line
 
     def get_case_summary(self, case_id):
         """Load only the records needed to paint the detail page shell."""
@@ -394,7 +408,7 @@ class AdmWorkflowRepository:
             cursor.execute("SELECT * FROM admwf_fx_snapshot WHERE case_id=%s", (case_id,))
             fx = cursor.fetchone()
         return {
-            "case": case, "lines": lines, "fxSnapshot": fx,
+            "case": case, "lines": [self._effective_line(line) for line in lines], "fxSnapshot": fx,
             "legacySource": legacy_source,
             "diffMatches": [], "collections": [], "transfers": [], "attachments": [],
             "assignments": [], "responsibilitySegments": [], "recoveries": [],
@@ -496,9 +510,12 @@ class AdmWorkflowRepository:
                 raise AdmError("该订单已审核通过，不能直接修改；如需更正，请由ADM负责人先撤回审核", 409, "ADM_REVIEWED_READ_ONLY")
             if case["case_status"] not in {"DRAFT", "ACTIVE"} or line["line_status"] in {"HISTORICAL", "VOIDED"}:
                 raise AdmError("当前订单状态只允许查看基础信息", 409, "ADM_ACTION_BLOCKED")
+            next_status = "PENDING_OPERATOR" if line["line_status"] == "PENDING_LEADER" else line["line_status"]
             now = business_now()
             with connection.cursor() as cursor:
                 if line["leader_id"] != data["leaderId"]:
+                    if _leader_locked(line):
+                        raise AdmError("操作员已接单，不能更换组长", 409, "ADM_LEADER_LOCKED")
                     cursor.execute(
                         "UPDATE admwf_assignment SET effective_status='ENDED',ended_at=%s "
                         "WHERE line_id=%s AND assignment_type='LEADER' AND effective_status='EFFECTIVE'",
@@ -516,13 +533,13 @@ class AdmWorkflowRepository:
                     "UPDATE admwf_case_line SET ota_code=%s,ota_name=%s,ota_order_no=%s,supplier_code=%s,"
                     "supplier_name=%s,airline_code=%s,airline_name=%s,ticket_no=%s,pnr=%s,department_code=%s,"
                     "department_name=%s,diff_type_code=%s,diff_type_name=%s,difference_reason=%s,"
-                    "investigation_note=%s,leader_id=%s,leader_name=%s,version_no=version_no+1,updated_by_id=%s,"
+                    "investigation_note=%s,leader_id=%s,leader_name=%s,line_status=%s,version_no=version_no+1,updated_by_id=%s,"
                     "updated_by_name=%s,updated_at=%s WHERE id=%s AND version_no=%s",
                     (data["otaCode"], data["otaName"], data["otaOrderNo"], data["supplierCode"],
                      data["supplierName"], data["airlineCode"], data["airlineName"], data["ticketNo"],
                      data["pnr"], data["departmentCode"], data["departmentName"], data["diffTypeCode"],
                      data["diffTypeName"], data["differenceReason"], data["investigationNote"], data["leaderId"],
-                     data["leaderName"], actor["id"], actor["name"], now, line_id, line["version_no"]),
+                     data["leaderName"], next_status, actor["id"], actor["name"], now, line_id, line["version_no"]),
                 )
                 if cursor.rowcount != 1:
                     raise AdmError("明细已被其他人修改，请刷新后重试", 409, "ADM_VERSION_CONFLICT")
@@ -542,7 +559,7 @@ class AdmWorkflowRepository:
                 connection, case_id=case_id, line_id=line_id,
                 event_no=self._next_event_no(connection, case_id), event_type="UPDATE_LINE_BASIC_INFO",
                 operator_id=actor["id"], operator_name=actor["name"],
-                from_status=line["line_status"], to_status=line["line_status"],
+                from_status=line["line_status"], to_status=next_status,
                 before_version=line["version_no"], after_version=line["version_no"] + 1,
                 before=before, after=after, changed_fields=changed,
             )
@@ -603,8 +620,8 @@ class AdmWorkflowRepository:
                 "SUM(CASE WHEN l.line_status='COMPLETED' THEN 1 ELSE 0 END) AS completed_line_count,"
                 "SUM(CASE WHEN l.line_status='VOIDED' THEN 1 ELSE 0 END) AS voided_line_count,"
                 "SUM(CASE WHEN l.line_status='HISTORICAL' THEN 1 ELSE 0 END) AS historical_line_count,"
-                "SUM(CASE WHEN l.line_status='PENDING_LEADER' THEN 1 ELSE 0 END) AS pending_leader_count,"
-                "SUM(CASE WHEN l.line_status='PENDING_OPERATOR' THEN 1 ELSE 0 END) AS pending_operator_count,"
+                f"SUM(CASE WHEN {EFFECTIVE_LINE_STATUS}='PENDING_LEADER' THEN 1 ELSE 0 END) AS pending_leader_count,"
+                f"SUM(CASE WHEN {EFFECTIVE_LINE_STATUS}='PENDING_OPERATOR' THEN 1 ELSE 0 END) AS pending_operator_count,"
                 "SUM(CASE WHEN l.line_status='PENDING_ACCEPT' THEN 1 ELSE 0 END) AS pending_accept_count,"
                 "SUM(CASE WHEN l.line_status='PROCESSING' THEN 1 ELSE 0 END) AS processing_count,"
                 "SUM(CASE WHEN l.line_status='PENDING_REVIEW' THEN 1 ELSE 0 END) AS pending_review_count,"
@@ -657,7 +674,7 @@ class AdmWorkflowRepository:
             total = int(cursor.fetchone()["total"])
             cursor.execute(
                 "SELECT c.id AS case_id,c.adm_no,l.id,l.line_internal_no,l.ticket_no,l.ota_order_no,"
-                "l.pnr,l.department_name,l.leader_name,l.operator_name,l.line_status" + source +
+                f"l.pnr,l.department_name,l.leader_name,l.operator_name,{EFFECTIVE_LINE_STATUS} AS line_status" + source +
                 " ORDER BY c.updated_at DESC,c.id DESC,l.line_no,l.id LIMIT %s OFFSET %s",
                 (*values, page_size, (page - 1) * page_size),
             )
@@ -678,11 +695,11 @@ class AdmWorkflowRepository:
             owner_statuses.append("WAITING_COLLECTION")
         if owner_statuses:
             conditions.append(
-                "(c.coordinator_id=%s AND l.line_status IN (" + ",".join(["%s"] * len(owner_statuses)) + "))"
+                f"(c.coordinator_id=%s AND {EFFECTIVE_LINE_STATUS} IN (" + ",".join(["%s"] * len(owner_statuses)) + "))"
             )
             values.extend([actor_id, *owner_statuses])
         if capabilities.get("assignOperator"):
-            conditions.append("(l.leader_id=%s AND l.line_status='PENDING_OPERATOR')")
+            conditions.append(f"(l.leader_id=%s AND {EFFECTIVE_LINE_STATUS}='PENDING_OPERATOR')")
             values.append(actor_id)
         if capabilities.get("handle"):
             conditions.append("(l.operator_id=%s AND l.line_status IN ('PENDING_ACCEPT','PROCESSING'))")
@@ -753,7 +770,7 @@ class AdmWorkflowRepository:
         with self.transaction() as connection, connection.cursor() as cursor:
             cursor.execute(
                 "SELECT c.id AS case_id,l.id AS line_id,l.operator_id,c.adm_no,c.internal_no,l.line_internal_no,"
-                "l.line_status,l.recovery_status,l.appeal_status,l.review_status,l.department_name,l.leader_name,l.operator_name,"
+                f"{EFFECTIVE_LINE_STATUS} AS line_status,l.recovery_status,l.appeal_status,l.review_status,l.department_name,l.leader_name,l.operator_name,"
                 "c.reply_deadline,c.coordinator_id,NULL AS task_type,NULL AS transfer_id,"
                 "(SELECT rv.result FROM admwf_review rv WHERE rv.line_id=l.id "
                 " ORDER BY rv.review_no DESC LIMIT 1) AS latest_review_status,"
@@ -837,7 +854,7 @@ class AdmWorkflowRepository:
     def assign_operator(self, case_id, line_id, operator, actor, reason=None):
         with self.transaction() as connection:
             case, line = self._lock_case_and_line(connection, case_id, line_id)
-            if case["case_status"] != "ACTIVE" or line["line_status"] != "PENDING_OPERATOR":
+            if case["case_status"] != "ACTIVE" or self._effective_line(line)["line_status"] != "PENDING_OPERATOR":
                 raise AdmError("当前状态不能分配操作员", 409, "ADM_ACTION_BLOCKED")
             now = business_now()
             with connection.cursor() as cursor:
@@ -876,6 +893,9 @@ class AdmWorkflowRepository:
                 raise AdmError("该订单已审核通过，不能更换组长；如需更正，请先撤回审核", 409, "ADM_REVIEWED_READ_ONLY")
             if case["case_status"] != "ACTIVE" or line["line_status"] in {"VOIDED", "HISTORICAL"}:
                 raise AdmError("当前状态不能更换组长", 409, "ADM_ACTION_BLOCKED")
+            if _leader_locked(line):
+                raise AdmError("操作员已接单，不能更换组长", 409, "ADM_LEADER_LOCKED")
+            next_status = "PENDING_OPERATOR" if line["line_status"] == "PENDING_LEADER" else line["line_status"]
             if line["leader_id"] == leader["id"]:
                 raise AdmError("新组长不能与当前组长相同")
             now = business_now()
@@ -894,9 +914,9 @@ class AdmWorkflowRepository:
                      reason, actor["id"], actor["name"], now, now),
                 )
                 cursor.execute(
-                    "UPDATE admwf_case_line SET leader_id=%s,leader_name=%s,version_no=version_no+1,"
+                    "UPDATE admwf_case_line SET leader_id=%s,leader_name=%s,line_status=%s,version_no=version_no+1,"
                     "updated_by_id=%s,updated_by_name=%s,updated_at=%s WHERE id=%s AND version_no=%s",
-                    (leader["id"], leader["name"], actor["id"], actor["name"], now,
+                    (leader["id"], leader["name"], next_status, actor["id"], actor["name"], now,
                      line_id, line["version_no"]),
                 )
                 if cursor.rowcount != 1:
@@ -905,7 +925,7 @@ class AdmWorkflowRepository:
                 connection, case_id=case_id, line_id=line_id,
                 event_no=self._next_event_no(connection, case_id), event_type="CHANGE_LEADER",
                 operator_id=actor["id"], operator_name=actor["name"], note=reason,
-                from_status=line["line_status"], to_status=line["line_status"],
+                from_status=line["line_status"], to_status=next_status,
                 before_version=line["version_no"], after_version=line["version_no"] + 1,
                 before={"leaderId": line["leader_id"], "leaderName": line["leader_name"]},
                 after={"leaderId": leader["id"], "leaderName": leader["name"],

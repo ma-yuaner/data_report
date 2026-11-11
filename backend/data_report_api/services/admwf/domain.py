@@ -3,7 +3,7 @@
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
-from .policy import AdmError
+from .policy import APPEAL_TARGETS, AdmError
 
 
 TWO_PLACES = Decimal("0.01")
@@ -21,6 +21,15 @@ def text(value, field, maximum, required=True):
     if len(result) > maximum:
         raise AdmError(f"{field}不能超过{maximum}个字符")
     return result or None
+
+
+def appeal_target(value):
+    target = str(value or "").strip()
+    if target in APPEAL_TARGETS.values():
+        return target
+    if target.upper() in APPEAL_TARGETS:
+        return APPEAL_TARGETS[target.upper()]
+    raise AdmError("申诉对象请选择平台、航司或供应商")
 
 
 def money(value, field):
