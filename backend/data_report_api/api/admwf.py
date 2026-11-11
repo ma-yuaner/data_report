@@ -15,6 +15,13 @@ def admwf_response(function):
             service = AdmWorkflowService(current_app.config)
             return ok(function(service, g.current_user, *args, **kwargs))
         except AdmError as error:
+            if error.status >= 500:
+                cause = error.__cause__
+                errno = cause.args[0] if cause and cause.args and isinstance(cause.args[0], int) else None
+                current_app.logger.error(
+                    "ADM request failed: endpoint=%s code=%s db_errno=%s cause_type=%s",
+                    request.endpoint, error.code, errno, type(cause).__name__ if cause else None,
+                )
             return jsonify({"success": False, "message": error.message, "code": error.code, "data": None}), error.status
         except (TypeError, ValueError):
             return jsonify({"success": False, "message": "ADM请求参数无效", "code": "ADM_INVALID", "data": None}), 400
@@ -103,6 +110,16 @@ def register_routes(api: Blueprint) -> None:
     @admwf_response
     def admwf_case_summary(service, user, case_id):
         return service.case_summary(user, case_id)
+
+    @api.post("/v1/adm/cases/<case_id>/master-leader-transfer")
+    @admwf_response
+    def admwf_master_leader_transfer(service, user, case_id):
+        return service.master_leader_transfer(user, case_id, json_body())
+
+    @api.post("/v1/adm/cases/<case_id>/master-recovery")
+    @admwf_response
+    def admwf_master_recovery(service, user, case_id):
+        return service.master_recovery(user, case_id, json_body())
 
     @api.post("/v1/adm/cases/<case_id>/lines")
     @admwf_response

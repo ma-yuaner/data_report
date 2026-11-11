@@ -5,13 +5,13 @@
       <div v-if="editable" class="v05-form-grid prototype-edit-grid">
         <label>系统主单ID<a-input :value="detail.case.internalNo" readonly /></label><label>内部明细ID<a-input :value="line.lineInternalNo" readonly /></label>
         <label>OTA平台<a-select v-model:value="form.otaCode" allow-clear :options="options.ota" @change="(v?: string) => pick('ota', v)" /></label><label>OTA订单号<a-input v-model:value="form.otaOrderNo" /></label>
-        <label>供应商<a-select v-model:value="form.supplierCode" allow-clear :options="options.supplier" @change="(v?: string) => pick('supplier', v)" /></label><label>航司<a-input v-model:value="form.airlineName" /></label>
+        <label v-if="!detail.case.masterRecoveryStatus">供应商<a-select v-model:value="form.supplierCode" allow-clear :options="options.supplier" @change="(v?: string) => pick('supplier', v)" /></label><label v-if="detail.case.masterRecoveryStatus">供应商（继承主单）<a-input :value="line.supplierName" readonly /></label><label>航司<a-input v-model:value="form.airlineName" :readonly="!!detail.case.masterRecoveryStatus" /></label>
         <label>票号<a-input v-model:value="form.ticketNo" /></label><label>PNR编码<a-input v-model:value="form.pnr" /></label>
-        <label><span class="form-field-label">业务归属部门 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true" v-model:value="form.departmentCode" :options="options.department" @change="(v: string) => pick('department', v)" /></label><label><span class="form-field-label">负责组长 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true" :disabled="!canChangeAdmLeader(line)" v-model:value="form.leaderId" :options="leaderOptions" show-search option-filter-prop="label" placeholder="搜索姓名、部门或账号" @change="pickLeader" /></label>
+        <label><span class="form-field-label">业务归属部门 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true" v-model:value="form.departmentCode" :disabled="!!detail.case.lineDefaults" :options="departmentOptions" @change="(v: string) => pick('department', v)" /></label><label><span class="form-field-label">负责组长 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true" :disabled="!!detail.case.lineDefaults || !canChangeAdmLeader(line)" v-model:value="form.leaderId" :options="leaderOptions" show-search option-filter-prop="label" placeholder="搜索姓名、部门或账号" @change="pickLeader" /></label>
         <label>操作人员<a-input :value="line.operatorName || '未分配'" readonly /></label><label>截止时间（继承主单）<a-input :value="detail.case.replyDeadline || '—'" readonly /></label>
         <label>本笔ADM金额（原币）<a-input :value="`${detail.case.currency} ${line.originalAmount}`" readonly /></label><label>本笔ADM金额（人民币）<a-input :value="`¥ ${line.cnyAmount}`" readonly /></label>
-        <label><span class="form-field-label">差异类型 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true" v-model:value="form.diffTypeCode" :options="options.diffType" @change="(v: string) => pick('diffType', v)" /></label>
-        <label class="wide"><span class="form-field-label">细分差异原因 <span class="form-required-mark" aria-hidden="true">*</span></span><a-textarea aria-required="true" v-model:value="form.differenceReason" :rows="3" /></label>
+        <label><span class="form-field-label">差异类型 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true" v-model:value="form.diffTypeCode" :disabled="!!detail.case.lineDefaults" :options="options.diffType" @change="(v: string) => pick('diffType', v)" /></label>
+        <label class="wide"><span class="form-field-label">细分差异原因 <span class="form-required-mark" aria-hidden="true">*</span></span><a-textarea aria-required="true" v-model:value="form.differenceReason" :readonly="!!detail.case.lineDefaults" :rows="3" /></label>
         <label class="wide">订单情况说明<a-textarea v-model:value="form.investigationNote" :rows="3" /></label>
       </div>
       <div v-else class="basic-info-grid">
@@ -52,6 +52,9 @@ const emit = defineEmits<{ close: []; saved: [detail: AdmCaseDetail] }>()
 const saving = ref(false), masters = reactive<Record<string, Option[]>>({ department: [], diffType: [], ota: [], supplier: [] }), form = reactive<Fields>({})
 const map = (items: Option[], plain = false) => items.map(item => ({ value: item.code, label: plain ? item.name : `${item.name}（${item.code}）` }))
 const options = computed(() => ({ department: map(masters.department), diffType: map(masters.diffType, true), ota: map(masters.ota), supplier: map(masters.supplier) }))
+const departmentOptions = computed(() => props.detail?.case.lineDefaults
+  ? (props.config?.masterDepartments || [])
+  : options.value.department)
 const leaderOptions = computed(() => admPersonOptions(props.config?.people.leader || [], true))
 const masterAttachments = computed(() => (props.detail?.attachments || []).filter(
   item => item.recordStatus === 'ACTIVE' && item.sourceLineId == null,

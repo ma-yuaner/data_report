@@ -8,8 +8,8 @@
         <label>系统主单ID<a-input :value="detail.case.internalNo" readonly /></label>
         <label>当前状态<a-input :value="label(detail.case.caseStatus)" readonly /></label>
         <label><span class="form-field-label">ADM单号 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.admNo" /></label>
-        <label><span class="form-field-label">下发方类型 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true" v-model:value="form.issuerType" :options="issuerTypes" @change="issuerChanged" /></label>
-        <label v-if="form.issuerType === 'AIRLINE'" class="wide"><span class="form-field-label">下发方名称 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.issuerName" /></label>
+        <label><span class="form-field-label">下发方类型 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true" v-model:value="form.issuerType"  :options="detail.case.lineDefaults ? issuerTypes.filter((item) => item.value !== 'PLATFORM') : issuerTypes" @change="issuerChanged" /></label>
+        <label v-if="detail.case.lineDefaults || form.issuerType === 'AIRLINE'" class="wide"><span class="form-field-label">下发方名称 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.issuerName" /></label>
         <label v-else class="wide"><span class="form-field-label">下发方名称 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true" v-model:value="form.issuerCode" show-search :filter-option="filterOption" :options="issuerOptions" @change="issuerSelected" /></label>
         <label>ADM负责人<a-input :value="detail.case.coordinatorName || '—'" readonly /></label>
         <label>原币币种<a-input :value="detail.case.currency" readonly /></label>
@@ -17,6 +17,13 @@
         <label>人民币总金额<a-input :value="`¥ ${detail.case.cnyAmount}`" readonly /></label>
         <label><span class="form-field-label">下发日期 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.issuedDate" type="date" /></label>
         <label><span class="form-field-label">主单回复截止时间 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.replyDeadline" type="datetime-local" /></label>
+        <template v-if="detail.case.lineDefaults">
+          <label>关联航司<a-input :value="detail.case.airlineName" readonly /></label>
+          <label>归属部门<a-input :value="detail.case.lineDefaults.departmentName" readonly /></label>
+          <label>负责组长<a-input :value="detail.case.lineDefaults.leaderName" readonly /></label>
+          <label>差异类型<a-input :value="detail.case.lineDefaults.diffTypeName" readonly /></label>
+          <label class="wide">细分差异原因<a-textarea :value="detail.case.lineDefaults.differenceReason" readonly /></label>
+        </template>
         <label class="wide">主单备注<a-textarea v-model:value="form.remark" :rows="3" /></label>
       </div>
       <div v-else class="basic-info-grid">
@@ -27,6 +34,13 @@
         <dl><dt>人民币总金额</dt><dd>¥ {{ detail.case.cnyAmount }}</dd></dl><dl><dt>下发日期</dt><dd>{{ detail.case.issuedDate || '—' }}</dd></dl>
         <dl><dt>主单回复截止时间</dt><dd>{{ detail.case.replyDeadline || '—' }}</dd></dl><dl><dt>汇率快照</dt><dd>{{ detail.fxSnapshot?.rateValue || '—' }} · {{ detail.fxSnapshot?.sourceUpdatedAt || detail.fxSnapshot?.rateDate || '—' }}</dd></dl>
         <dl><dt>订单完成情况</dt><dd>{{ completed }} / {{ activeLines }}</dd></dl><dl><dt>最近更新</dt><dd>{{ detail.case.updatedAt || '—' }}</dd></dl>
+        <template v-if="detail.case.lineDefaults">
+          <dl><dt>关联航司</dt><dd>{{ detail.case.airlineName || '—' }}</dd></dl>
+          <dl><dt>归属部门</dt><dd>{{ detail.case.lineDefaults.departmentName }}</dd></dl>
+          <dl><dt>负责组长</dt><dd>{{ detail.case.lineDefaults.leaderName }}</dd></dl>
+          <dl><dt>差异类型</dt><dd>{{ detail.case.lineDefaults.diffTypeName }}</dd></dl>
+          <dl class="wide"><dt>细分差异原因</dt><dd>{{ detail.case.lineDefaults.differenceReason }}</dd></dl>
+        </template>
         <dl class="wide"><dt>主单备注</dt><dd>{{ detail.case.remark || '未填写' }}</dd></dl>
         <dl class="wide"><dt>主单公共附件</dt><dd>{{ attachmentNames }}</dd></dl>
       </div>
@@ -56,5 +70,5 @@ function close() { emit('close') }
 function issuerChanged() { form.issuerCode = undefined; form.issuerName = '' }
 function issuerSelected(value?: string) { const source = form.issuerType === 'PLATFORM' ? masters.ota : masters.supplier; form.issuerName = source.find(item => item.code === value)?.name || '' }
 async function save() { if (!props.detail) return; saving.value = true; try { const detail = await admApi.updateCase(props.detail.case.id, form); emit('saved', detail); void message.success('主单基础信息已保存') } catch (error) { void message.error(errorText(error)) } finally { saving.value = false } }
-watch(() => [props.open, props.detail?.case.id], async ([open]) => { if (!open) return; reset(); if (props.editable && (!masters.ota.length || !masters.supplier.length)) { const [ota, supplier] = await Promise.allSettled([admApi.options('ota'), admApi.options('supplier')]); if (ota.status === 'fulfilled') masters.ota = ota.value; if (supplier.status === 'fulfilled') masters.supplier = supplier.value } }, { immediate: true })
+watch(() => [props.open, props.detail?.case.id], async ([open]) => { if (!open) return; reset(); if (props.editable && !props.detail?.case.lineDefaults && (!masters.ota.length || !masters.supplier.length)) { const [ota, supplier] = await Promise.allSettled([admApi.options('ota'), admApi.options('supplier')]); if (ota.status === 'fulfilled') masters.ota = ota.value; if (supplier.status === 'fulfilled') masters.supplier = supplier.value } }, { immediate: true })
 </script>

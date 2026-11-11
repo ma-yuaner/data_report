@@ -9,7 +9,7 @@ import uuid
 
 from .attachments import AdmAttachmentStorage
 from .catalog import AdmCatalog
-from .domain import appeal_target, business_date, business_datetime, money, normalize_create, normalize_line, text
+from .domain import MASTER_DEPARTMENTS, appeal_target, business_date, business_datetime, money, normalize_create, normalize_line, text
 from .excel import (
     AdmDailyWorkbook, StoredUpload, _diff_label, _operator_actions, _operator_label,
     _operator_stage,
@@ -244,8 +244,23 @@ class AdmWorkflowService:
         require(user, "adm.create")
         currency = text((body or {}).get("currency"), "主单原币币种", 3).upper()
         fx = self.catalog.fx(currency)
-        data = normalize_create(body, fx["rateValue"])
-        if data["issuerType"] in {"PLATFORM", "SUPPLIER"}:
+        master_only = source_type == "MANUAL" and (body or {}).get("masterOnly") is True
+        data = normalize_create(body, fx["rateValue"], master_only=master_only)
+        if master_only:
+            data["airlineName"] = text(body.get("airlineName"), "航司", 100)
+            department_code = text(body.get("departmentCode"), "归属部门", 64)
+            department_name = MASTER_DEPARTMENTS.get(department_code)
+            if not department_name:
+                raise AdmError("归属部门请选择机票、票务或客服")
+            leader = self.catalog.user(body.get("leaderId"), leader=True)
+            diff_type = self.catalog.diff_type(text(body.get("diffTypeCode"), "差异类型", 64))
+            data["lineDefaults"] = {
+                "departmentCode": department_code, "departmentName": department_name,
+                "leaderId": leader["id"], "leaderName": leader["name"],
+                "diffTypeCode": diff_type["code"], "diffTypeName": diff_type["name"],
+                "differenceReason": text(body.get("differenceReason"), "细分差异原因", 1000),
+            }
+        if not master_only and data["issuerType"] in {"PLATFORM", "SUPPLIER"}:
             issuer_kind = "ota" if data["issuerType"] == "PLATFORM" else "supplier"
             issuer = self.catalog.optional_master(issuer_kind, data["issuerCode"])
             if not issuer:
@@ -273,7 +288,7 @@ class AdmWorkflowService:
         result = self.repository.create_case(
             data, fx, self._actor(user), source_type=source_type, idempotency_key=idempotency_key,
             import_batch_id=import_batch_id,
-            case_status="DRAFT" if source_type == "MANUAL" and (body or {}).get("saveAsDraft") is True else "ACTIVE",
+            case_status="DRAFT" if not master_only and source_type == "MANUAL" and (body or {}).get("saveAsDraft") is True else "ACTIVE",
         )
         return _json_value(result)
 
@@ -293,7 +308,7 @@ class AdmWorkflowService:
             target = int(case_id)
         except (TypeError, ValueError):
             raise AdmError("ADM主单ID无效", 404, "ADM_NOT_FOUND") from None
-        getattr(self.repository, "mark_due_recoveries", lambda: 0)()
+        # The recovery worker advances due reminders independently of this read.
         result = self.repository.get_case(target)
         if not result:
             raise AdmError("ADM主单不存在", 404, "ADM_NOT_FOUND")
@@ -324,7 +339,11 @@ class AdmWorkflowService:
             raise AdmError("下发方类型必须为供应商、平台或航司")
         issuer_code = text(payload.get("issuerCode"), "下发方编码", 64, required=False)
         issuer_name = text(payload.get("issuerName"), "下发方名称", 200)
-        if issuer_type in {"SUPPLIER", "PLATFORM"}:
+        if case.get("lineDefaults"):
+            if issuer_type == "PLATFORM":
+                raise AdmError("下发方类型必须为供应商或航司")
+            issuer_code = None
+        elif issuer_type in {"SUPPLIER", "PLATFORM"}:
             issuer = self.catalog.optional_master("supplier" if issuer_type == "SUPPLIER" else "ota", issuer_code)
             if not issuer:
                 raise AdmError("下发方编码不能为空")
@@ -353,6 +372,14 @@ class AdmWorkflowService:
         if line["line_status"] in {"COMPLETED", "HISTORICAL", "VOIDED"}:
             raise AdmError("当前订单状态只允许查看基础信息", 409, "ADM_ACTION_BLOCKED")
         payload = body or {}
+        if stored["case"].get("lineDefaults"):
+            payload = {
+                **payload,
+                "departmentCode": line["department_code"], "departmentName": line["department_name"],
+                "leaderId": line["leader_id"], "leaderName": line["leader_name"],
+                "diffTypeCode": line["diff_type_code"], "diffTypeName": line["diff_type_name"],
+                "differenceReason": line["difference_reason"],
+            }
         normalized = normalize_line({
             "originalAmount": line["original_amount"],
             "otaCode": payload.get("otaCode"), "otaName": payload.get("otaName"),
@@ -368,7 +395,12 @@ class AdmWorkflowService:
         }, stored["fxSnapshot"]["rate_value"])
         ota = self.catalog.optional_master("ota", normalized["otaCode"])
         supplier = self.catalog.optional_master("supplier", normalized["supplierCode"])
-        department = self.catalog.department(normalized["departmentCode"])
+        department_code = normalized["departmentCode"]
+        department = (
+            {"code": department_code, "name": MASTER_DEPARTMENTS[department_code]}
+            if department_code in MASTER_DEPARTMENTS
+            else self.catalog.department(department_code)
+        )
         leader = (
             {"id": line["leader_id"], "name": line["leader_name"]}
             if normalized["leaderId"] == line["leader_id"]
@@ -383,24 +415,81 @@ class AdmWorkflowService:
             leaderId=leader["id"], leaderName=leader["name"],
             diffTypeCode=diff_type["code"], diffTypeName=diff_type["name"],
         )
+        if stored["case"].get("master_recovery_status"):
+            normalized.update(
+                supplierCode=line.get("supplier_code"), supplierName=line.get("supplier_name"),
+                airlineCode=line.get("airline_code"), airlineName=line.get("airline_name"),
+            )
         return _json_value(self.repository.update_line_basic(int(case_id), int(line_id), normalized, actor))
 
+    def master_leader_transfer(self, user, case_id, body):
+        require_any(user, "adm.assign_operator", "adm.assign")
+        body = body or {}
+        accepted = body.get("accepted")
+        if accepted is not None and type(accepted) is not bool:
+            raise AdmError("转派确认结果无效")
+        target = None if accepted is not None else self.catalog.user(body.get("targetUserId"), leader=True)
+        reason = text(body.get("reason"), "转派或拒绝原因", 1000, required=accepted is not True)
+        return _json_value(self.repository.master_leader_transfer(
+            int(case_id), self._actor(user), target=target, reason=reason, accepted=accepted,
+        ))
+
+    def master_recovery(self, user, case_id, body):
+        action = (body or {}).get("action")
+        if action not in {"skip", "request", "start"}:
+            raise AdmError("恢复编码操作无效")
+        if action == "start":
+            require_any(user, "adm.create", "adm.manage", "adm.review")
+        else:
+            require_any(user, "adm.assign_operator", "adm.assign")
+        actor = self._actor(user)
+        locators = None
+        line = None
+        if action == "request":
+            raw = text(body.get("locators"), "GDS-PCC-PNR", 2000)
+            entries = [item.strip().upper() for item in raw.replace("，", ",").split(",")]
+            if not all(re.fullmatch(r"[A-Z0-9]{2}-[A-Z0-9]{3,8}-[A-Z0-9]{5,8}", item) for item in entries):
+                raise AdmError("请按 GDS-PCC-PNR 格式填写，多条用逗号分隔，例如 1G-5S75-13124N")
+            locators = ",".join(entries)
+        if action == "skip":
+            stored = self.repository.get_case(int(case_id))
+            if not stored or not stored["case"].get("lineDefaults") or not stored.get("fxSnapshot"):
+                raise AdmError("主单资料或冻结汇率不存在")
+            case = stored["case"]
+            line = normalize_line({**case["lineDefaults"], "originalAmount": case["original_amount"]},
+                                  stored["fxSnapshot"]["rate_value"])
+        return _json_value(self.repository.master_recovery(int(case_id), action, actor, locators=locators, line=line))
+
     def add_line(self, user, case_id, body):
-        actor = self._owner_actor(user, case_id, "新增订单", "adm.create", "adm.manage")
         stored = self.repository.get_case(int(case_id))
         if not stored:
             raise AdmError("ADM主单不存在", 404, "ADM_NOT_FOUND")
+        case = stored["case"]
+        if case.get("master_recovery_status") == "RECOVERED":
+            require_any(user, "adm.assign_operator", "adm.assign")
+            actor = self._actor(user)
+            if actor["id"] != case["lineDefaults"]["leaderId"]:
+                raise AdmError("只有该主单的负责组长可以补录订单", 403, "ADM_FORBIDDEN")
+        else:
+            actor = self._owner_actor(user, case_id, "新增订单", "adm.create", "adm.manage")
         fx = stored.get("fxSnapshot")
         if not fx:
             raise AdmError("主单冻结汇率不存在", 500, "ADM_REFERENCE_INVALID")
         raw_line = (body or {}).get("line")
+        defaults = stored["case"].get("lineDefaults")
+        if defaults and isinstance(raw_line, dict):
+            selected_leader = raw_line.get("leaderId") if case.get("master_recovery_status") == "RECOVERED" else None
+            raw_line = {**raw_line, **defaults}
+            if selected_leader:
+                raw_line["leaderId"] = selected_leader
         line = normalize_line(raw_line, fx["rate_value"])
         if line["originalAmount"] <= 0:
             raise AdmError("新增订单金额必须大于0")
-        department = self.catalog.department(line["departmentCode"])
-        line.update(departmentCode=department["code"], departmentName=department["name"])
-        diff_type = self.catalog.diff_type(line["diffTypeCode"])
-        line.update(diffTypeCode=diff_type["code"], diffTypeName=diff_type["name"])
+        if not defaults:
+            department = self.catalog.department(line["departmentCode"])
+            line.update(departmentCode=department["code"], departmentName=department["name"])
+            diff_type = self.catalog.diff_type(line["diffTypeCode"])
+            line.update(diffTypeCode=diff_type["code"], diffTypeName=diff_type["name"])
         leader = self.catalog.user(line["leaderId"], leader=True)
         line.update(leaderId=leader["id"], leaderName=leader["name"])
         if line["otaCode"]:
@@ -427,8 +516,8 @@ class AdmWorkflowService:
             amounts[line_id] = money(item.get("originalAmount"), "调整后明细金额")
             if amounts[line_id] <= 0:
                 raise AdmError("调整后每条有效明细金额必须大于0")
-        reason = text((body or {}).get("reason"), "新增订单及金额调整说明", 1000)
-        return _json_value(self.repository.add_line(int(case_id), line, amounts, actor, reason))
+        reason = text((body or {}).get("reason"), "新增订单及金额调整说明", 1000, required=not defaults or bool(amounts))
+        return _json_value(self.repository.add_line(int(case_id), line, amounts, actor, reason or "首次录入订单明细"))
 
     def config_payload(self, user):
         require(user, "adm.view")
@@ -531,12 +620,17 @@ class AdmWorkflowService:
         }
     def workbench(self, user):
         require(user, "adm.view")
-        getattr(self.repository, "mark_due_recoveries", lambda: 0)()
+        # The recovery worker advances due reminders independently of this read.
         capabilities = self._workbench_capabilities(user)
         actor = self._actor(user)
-        return _json_value(self.repository.list_workbench(
-            actor["id"], capabilities, is_admin=bool(user.get("is_admin")),
-        ))
+        result = self.repository.list_workbench(actor["id"], capabilities, is_admin=bool(user.get("is_admin")))
+        master_tasks = getattr(self.repository, "list_master_workbench", None)
+        if master_tasks:
+            capabilities["masterRecovery"] = any(has(user, code) for code in ("adm.create", "adm.manage", "adm.review"))
+            items = master_tasks(actor["id"], capabilities)
+            result["items"].extend(items)
+            result["summary"]["total"] += len(items)
+        return _json_value(result)
 
     def workbench_queue(self, user, query):
         require(user, "adm.view")
@@ -581,19 +675,32 @@ class AdmWorkflowService:
         ))
 
     def request_transfer(self, user, case_id, line_id, body):
-        require_any(user, "adm.assign_operator", "adm.assign")
-        target = self.catalog.user((body or {}).get("operatorId"), leader=False)
+        body = body or {}
+        role = body.get("targetRole") or "OPERATOR"
+        if role == "LEADER":
+            require_any(user, "adm.assign_operator", "adm.assign")
+        elif role == "OPERATOR":
+            require_any(user, "adm.assign_operator", "adm.assign", "adm.handle")
+        else:
+            raise AdmError("转派岗位无效")
+        target = self.catalog.user(body.get("targetUserId") or body.get("operatorId"), leader=role == "LEADER")
         return _json_value(self.repository.request_transfer(
             int(case_id), int(line_id), target, self._actor(user),
-            text((body or {}).get("reason"), "转派原因", 1000),
-            text((body or {}).get("handoverNote"), "交接说明", 2000),
+            text(body.get("reason"), "转派原因", 1000),
+            text(body.get("handoverNote"), "交接说明", 2000), target_role=role,
+            can_lead=has(user, "adm.assign_operator") or has(user, "adm.assign"), can_handle=has(user, "adm.handle"),
         ))
 
     def decide_transfer(self, user, case_id, line_id, transfer_id, decision, body):
-        require(user, "adm.handle")
+        require_any(user, "adm.handle", "adm.assign_operator", "adm.assign")
+        allowed_roles = []
+        if has(user, "adm.handle"):
+            allowed_roles.append("OPERATOR")
+        if has(user, "adm.assign_operator") or has(user, "adm.assign"):
+            allowed_roles.append("LEADER")
         return _json_value(self.repository.decide_transfer(
             int(case_id), int(line_id), int(transfer_id), self._actor(user), decision,
-            text((body or {}).get("reason"), "拒绝原因", 1000, required=False),
+            text((body or {}).get("reason"), "拒绝原因", 1000, required=False), allowed_roles=allowed_roles,
         ))
 
     def accept_line(self, user, case_id, line_id, *, source="WEB"):

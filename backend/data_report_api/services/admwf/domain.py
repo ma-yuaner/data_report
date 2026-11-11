@@ -8,6 +8,7 @@ from .policy import APPEAL_TARGETS, AdmError
 
 TWO_PLACES = Decimal("0.01")
 ISSUER_TYPES = frozenset({"SUPPLIER", "PLATFORM", "AIRLINE"})
+MASTER_DEPARTMENTS = {"ADM_AIR_TICKET": "机票", "ADM_TICKETING": "票务", "ADM_CUSTOMER_SERVICE": "客服"}
 OPTIONAL_LINE_TEXT = (
     "otaCode", "otaName", "otaOrderNo", "supplierCode", "supplierName",
     "airlineCode", "airlineName", "ticketNo", "pnr", "investigationNote",
@@ -105,7 +106,7 @@ def normalize_line(raw, rate, position=1):
     return line
 
 
-def normalize_create(body, rate):
+def normalize_create(body, rate, *, master_only=False):
     if not isinstance(body, dict):
         raise AdmError("请求内容格式无效")
     issuer_type = text(body.get("issuerType"), "下发方类型", 32)
@@ -122,14 +123,24 @@ def normalize_create(body, rate):
     if fx_rate <= 0:
         raise AdmError("冻结汇率必须大于0")
     raw_lines = body.get("lines")
-    if not isinstance(raw_lines, list) or not raw_lines:
+    if master_only:
+        if raw_lines not in (None, []):
+            raise AdmError("单独新建主单时不能同时提交订单明细")
+        if issuer_type not in {"SUPPLIER", "AIRLINE"}:
+            raise AdmError("下发方类型必须为供应商或航司")
+        if original_amount <= 0:
+            raise AdmError("主单原币总金额必须大于0")
+        raw_lines = []
+    elif not isinstance(raw_lines, list) or not raw_lines:
         raise AdmError("主单至少需要一条明细")
     lines = [normalize_line(raw, fx_rate, position) for position, raw in enumerate(raw_lines, 1)]
-    if sum((line["originalAmount"] for line in lines), Decimal("0.00")) != original_amount:
+    if not master_only and sum((line["originalAmount"] for line in lines), Decimal("0.00")) != original_amount:
         raise AdmError("全部明细原币金额之和必须等于主单原币总金额")
     cny_amount, allocated_cny = allocate_cny_amounts(
         [line["originalAmount"] for line in lines], fx_rate,
     )
+    if master_only:
+        cny_amount = (original_amount * fx_rate).quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
     for line, line_cny in zip(lines, allocated_cny):
         line["cnyAmount"] = line_cny
     return {
