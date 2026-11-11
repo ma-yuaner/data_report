@@ -260,7 +260,7 @@
           (workbenchBatchAction === 'transferAccept' && !workbenchBatchForm.accepted)" label="原因" required>
           <a-textarea v-model:value="workbenchBatchForm.reason" />
         </a-form-item>
-        <a-form-item v-if="workbenchBatchAction === 'transfer'" label="交接说明" required>
+        <a-form-item v-if="workbenchBatchAction === 'transfer' && workbenchBatchRows.every((task) => !!task.lineId)" label="交接说明" required>
           <a-textarea v-model:value="workbenchBatchForm.handoverNote" />
         </a-form-item>
         <a-alert v-if="workbenchBatchError" type="warning" show-icon :message="workbenchBatchError" />
