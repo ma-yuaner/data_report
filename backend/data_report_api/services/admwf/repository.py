@@ -780,7 +780,7 @@ class AdmWorkflowRepository:
                 "ORDER BY CASE WHEN c.reply_deadline IS NULL THEN 1 ELSE 0 END,c.reply_deadline,c.id,l.id LIMIT %s",
                 (*values, max(1, min(int(limit), 1000))),
             )
-            items = cursor.fetchall()
+            items = list(cursor.fetchall())
             if capabilities.get("handle"):
                 cursor.execute(
                     "SELECT c.id AS case_id,l.id AS line_id,l.operator_id,c.adm_no,c.internal_no,l.line_internal_no,"
