@@ -456,7 +456,9 @@
         show-icon
         :message="referenceError"
         style="margin-bottom: 16px"
-      /><template v-if="createStep === 1"
+      >
+        <template #action><a-button size="small" @click="retryCreateReferences">重试</a-button></template>
+      </a-alert><template v-if="createStep === 1"
         ><div class="v05-form-grid">
           <label><span class="form-field-label">ADM 单号 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.admNo" /></label
           ><label
@@ -471,11 +473,13 @@
               show-search
               :filter-option="filterOption"
               :options="issuerMasterOptions"
+              :loading="referenceLoading[form.issuerType === 'PLATFORM' ? 'ota' : 'supplier']"
               @change="issuerSelected" /></label
           ><label
             ><span class="form-field-label">原币币种 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
               v-model:value="form.currency"
               :options="currencyOptions"
+              :loading="referenceLoading.currency"
               @change="loadExchangeRate" /></label
           ><label><span class="form-field-label">原币总金额 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.originalAmount" /></label
           ><label
@@ -499,7 +503,7 @@
         <p class="hint"><b>*</b> 为必填项。ADM负责人由系统自动记录；汇率保存为创建时快照。</p>
         <div class="v05-modal-actions">
           <button @click="createOpen = false">取消</button
-          ><button class="primary" @click="createStep = 2">保存并录入订单</button>
+          ><button class="primary" @click="openCreateLines">保存并录入订单</button>
         </div></template
       >
       <template v-else
@@ -537,6 +541,7 @@
               ><span class="form-field-label">负责组长 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
                 v-model:value="line.leaderId"
                 :options="leaderOptions"
+                show-search option-filter-prop="label" placeholder="搜索姓名、部门或账号"
                 @change="(v: string) => selectLeader(line, v)" /></label
             ><label>截止时间（继承主单）<a-input :value="form.replyDeadline" readonly /></label
             ><label
@@ -641,6 +646,7 @@ import { createOperationIdentifier } from '@/utils/operationIdentifier'
 import AdmMasterBasicModal from './AdmMasterBasicModal.vue'
 import {
   admApi,
+  admPersonOptions,
   errorText,
   label,
   type AdmCaseDetail,
@@ -684,8 +690,8 @@ const taskTotalText = (count: number) => `共 ${count} 条任务`
 const shownRows = computed(() => loading.value || error.value ? [] : rows.value)
 let request = 0
 let configRequest: Promise<void> | undefined
-function loadConfig() {
-  if (config.value) return Promise.resolve()
+function loadConfig(refresh = false) {
+  if (config.value && !refresh) return Promise.resolve()
   configRequest ??= admApi.config().then(
     (value) => { config.value = value; configError.value = '' },
     (e) => { configError.value = `人员与权限配置加载失败：${errorText(e)}` },
@@ -1324,12 +1330,56 @@ const createOpen = ref(false),
   createStep = ref(1),
   saving = ref(false),
   createError = ref(''),
-  referenceError = ref(''),
+  fxError = ref(''),
   fxLoading = ref(false),
   fxSnapshot = ref<FxSnapshot | null>(null),
   masterFiles = ref<File[]>([]),
   masters = reactive<Record<string, Option[]>>({ department: [], diffType: [], ota: [], supplier: [], currency: [] }),
   form = reactive<Fields>({ lines: [] })
+const masterReferenceKinds = ['ota', 'supplier', 'currency'] as const
+const lineReferenceKinds = ['department', 'diffType'] as const
+type CreateReferenceKind = typeof masterReferenceKinds[number] | typeof lineReferenceKinds[number]
+const referenceLabels: Record<CreateReferenceKind, string> = {
+  ota: 'OTA平台', supplier: '供应商', currency: '原币币种', department: '业务部门', diffType: '差异类型',
+}
+const referenceTtl = 5 * 60 * 1000
+const referenceLoadedAt: Partial<Record<CreateReferenceKind, number>> = {}
+const referenceRequests: Partial<Record<CreateReferenceKind, Promise<void>>> = {}
+const referenceLoading = reactive<Partial<Record<CreateReferenceKind, boolean>>>({})
+const referenceErrors = reactive<Partial<Record<CreateReferenceKind, string>>>({})
+const referenceError = computed(() => {
+  const kinds = createStep.value === 1 ? masterReferenceKinds : [...masterReferenceKinds, ...lineReferenceKinds]
+  return [...kinds.map((kind) => referenceErrors[kind]), fxError.value].filter(Boolean).join('；')
+})
+function loadCreateReference(kind: CreateReferenceKind) {
+  if (referenceRequests[kind]) return referenceRequests[kind]
+  const loadedAt = referenceLoadedAt[kind]
+  if (loadedAt !== undefined && Date.now() - loadedAt < referenceTtl) return Promise.resolve()
+  referenceLoading[kind] = true
+  delete referenceErrors[kind]
+  const pending = admApi.options(kind, '', 200).then(
+    (rows) => {
+      masters[kind] = rows
+      referenceLoadedAt[kind] = Date.now()
+    },
+    (error) => { referenceErrors[kind] = `${referenceLabels[kind]}读取失败：${errorText(error)}` },
+  ).finally(() => {
+    referenceLoading[kind] = false
+    delete referenceRequests[kind]
+  })
+  referenceRequests[kind] = pending
+  return pending
+}
+function openCreateLines() {
+  createStep.value = 2
+  void loadConfig(true)
+  lineReferenceKinds.forEach((kind) => { void loadCreateReference(kind) })
+}
+function retryCreateReferences() {
+  const kinds = createStep.value === 1 ? masterReferenceKinds : [...masterReferenceKinds, ...lineReferenceKinds]
+  kinds.forEach((kind) => { if (referenceErrors[kind]) void loadCreateReference(kind) })
+  if (fxError.value) void loadExchangeRate()
+}
 const issuerOptions = [
     { value: 'SUPPLIER', label: '供应商' },
     { value: 'PLATFORM', label: '平台' },
@@ -1345,17 +1395,19 @@ const issuerOptions = [
   otaOptions = computed(() => mapOptions(masters.ota)),
   supplierOptions = computed(() => mapOptions(masters.supplier)),
   issuerMasterOptions = computed(() => (form.issuerType === 'PLATFORM' ? otaOptions.value : supplierOptions.value)),
-  leaderOptions = computed(() => (config.value?.people.leader || []).map((i) => ({ value: i.id, label: i.name }))),
+  leaderOptions = computed(() => admPersonOptions(config.value?.people.leader || [])),
   filterOption = (input: string, o: Fields) =>
     String(o.label || '')
       .toLowerCase()
       .includes(input.toLowerCase())
 const masterCnyAmount = computed(() => {
-  const amount = Number(form.originalAmount || 0), rate = Number(fxSnapshot.value?.rateValue || 0)
+  if (!fxSnapshot.value) return '—'
+  const amount = Number(form.originalAmount || 0), rate = Number(fxSnapshot.value.rateValue)
   return Number.isFinite(amount * rate) ? `¥ ${(amount * rate).toFixed(2)}` : '—'
 })
 const lineCnyAmount = (index: number) => {
-  const rate = Number(fxSnapshot.value?.rateValue || 0)
+  if (!fxSnapshot.value) return '—'
+  const rate = Number(fxSnapshot.value.rateValue)
   if (!Number.isFinite(rate)) return '—'
   const rounded = form.lines.map((line: Fields) => Number((Number(line.originalAmount || 0) * rate).toFixed(2)))
   if (index === form.lines.length - 1) {
@@ -1392,7 +1444,7 @@ function addLine() {
 function pickMasterFiles(e: Event) {
   masterFiles.value = Array.from((e.target as HTMLInputElement).files || [])
 }
-async function openCreate() {
+function openCreate() {
   createStep.value = 1
   masterFiles.value = []
   Object.assign(form, {
@@ -1408,33 +1460,24 @@ async function openCreate() {
     lines: [blankLine()],
   })
   createError.value = ''
-  referenceError.value = ''
-  fxSnapshot.value = null
   createOpen.value = true
-  const kinds = ['department', 'diffType', 'ota', 'supplier', 'currency'] as const
-  const results = await Promise.allSettled(kinds.map((kind) => admApi.options(kind, '', 200)))
-  const failures: string[] = []
-  const labels = { department: '业务部门', diffType: '差异类型', ota: 'OTA平台', supplier: '供应商', currency: '原币币种' }
-  results.forEach((result, index) => {
-    const kind = kinds[index]
-    if (result.status === 'fulfilled') masters[kind] = result.value
-    else {
-      masters[kind] = []
-      failures.push(`${labels[kind]}：${errorText(result.reason)}`)
-    }
-  })
-  referenceError.value = failures.length ? `部分基础资料读取失败：${failures.join('；')}` : ''
-  await loadExchangeRate()
+  masterReferenceKinds.forEach((kind) => { void loadCreateReference(kind) })
+  void loadExchangeRate()
 }
+let fxRequest = 0
 async function loadExchangeRate() {
+  const seq = ++fxRequest
+  const currency = String(form.currency || '')
   fxLoading.value = true
+  fxError.value = ''
   fxSnapshot.value = null
   try {
-    fxSnapshot.value = await admApi.exchangeRate(String(form.currency || ''))
+    const snapshot = await admApi.exchangeRate(currency)
+    if (seq === fxRequest && createOpen.value) fxSnapshot.value = snapshot
   } catch (e) {
-    referenceError.value = `汇率读取失败：${errorText(e)}`
+    if (seq === fxRequest && createOpen.value) fxError.value = `汇率读取失败：${errorText(e)}`
   } finally {
-    fxLoading.value = false
+    if (seq === fxRequest) fxLoading.value = false
   }
 }
 function issuerChanged() {
@@ -1535,6 +1578,13 @@ async function commitImport() {
     importBusy.value = false
   }
 }
+watch(
+  () => !isWorkbench.value && ledgerReady.value && canCreate.value,
+  (ready) => {
+    if (ready) masterReferenceKinds.forEach((kind) => { void loadCreateReference(kind) })
+  },
+  { immediate: true },
+)
 watch(() => route.name, (name) => {
   if (name !== 'adm-workbench' && name !== 'adm-cases') return
   ordersRequest++
@@ -1558,10 +1608,11 @@ watch(() => route.name === 'adm-cases' && route.query.create === '1', async (cre
   await loadConfig()
   if (route.name === 'adm-cases' && route.query.create === '1' && config.value?.permissions.create) {
     await router.replace({ path: '/adm/cases' })
-    await openCreate()
+    openCreate()
   }
 }, { immediate: true })
 onBeforeUnmount(() => {
+  fxRequest++
   queueRequest++
   request++
   ordersRequest++

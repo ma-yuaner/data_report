@@ -2,7 +2,23 @@ import { http, type ApiEnvelope } from '@/api/http'
 
 export type Fields = Record<string, any>
 export interface Option { code: string; name: string }
-export interface Person { id: string; name: string }
+export interface Person {
+  id: string
+  name: string
+  username?: string
+  accountName?: string
+  departmentName?: string
+  disabled?: boolean
+  selectionNote?: string
+}
+export function admPersonOptions(people: Person[], numeric = false) {
+  return people.map((person) => ({
+    value: numeric && /^\d+$/.test(person.id) ? Number(person.id) : person.id,
+    label: [person.name, person.departmentName, person.username || (person.accountName !== person.name ? person.accountName : ''), person.selectionNote]
+      .filter(Boolean).join(' · '),
+    disabled: !!person.disabled,
+  }))
+}
 export interface FxSnapshot extends Fields {
   sourceRecordId: string | null
   sourceCode: string | number
@@ -17,7 +33,7 @@ export interface AdmConfig extends Fields {
   sourceTypes: string[]
   appealTargets: Array<{ value: string; label: string }>
   appealResults: string[]; problemAttributions: string[]; attachmentCategories: string[]
-  people: { handle: Person[]; leader: Person[]; coordinate: Person[] }
+  people: { handle: Person[]; leader: Person[]; coordinate: Person[]; rosterAvailable?: boolean }
   permissions: Record<string, boolean>
 }
 export interface AdmLine extends Fields {

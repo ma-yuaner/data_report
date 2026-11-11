@@ -200,9 +200,14 @@ class TargetManagementService:
     def _platforms(self) -> str:
         return self._qualified(self.platform_database, self.platform_table)
 
-    def _roster_options(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    def _roster_options(self, *, active_only=False) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         import pymysql
 
+        active_filter = (
+            " AND ru.status=1 AND (ru.start_time IS NULL OR ru.start_time<=NOW()) "
+            "AND (ru.end_time IS NULL OR ru.end_time>=NOW())"
+            if active_only else ""
+        )
         connection = None
         try:
             connection = self.roster_source.connect()
@@ -220,7 +225,7 @@ class TargetManagementService:
                         ) latest ON latest.user_id=ru.id
                         LEFT JOIN {self._roster_user_departments} rud ON rud.id=latest.latest_id
                         LEFT JOIN {self._roster_orgs} ro ON ro.id=rud.department_id
-                        WHERE ru.enabled=0 AND coalesce(ru.cname, '')<>''
+                        WHERE ru.enabled=0 AND coalesce(ru.cname, '')<>''{active_filter}
                         ORDER BY ro.org_cname, ru.cname, ru.id"""
                 )
                 employees = [{
