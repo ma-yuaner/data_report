@@ -21,6 +21,13 @@ defineProps<{ items: Fields[]; emptyText: string }>()
 const eventLabel = (value: string) =>
   (
     ({
+      MASTER_RECOVERY_SKIP: '无需恢复编码，自动生成明细',
+      MASTER_RECOVERY_REQUEST: '提交恢复编码申请',
+      MASTER_RECOVERY_START: '负责人标记正在恢复',
+      MASTER_RECOVERY_COMPLETED: '48 小时到期，编码已恢复',
+      MASTER_LEADER_TRANSFER_REQUESTED: '发起主单组长转派',
+      MASTER_LEADER_TRANSFER_ACCEPTED: '接受主单组长转派',
+      MASTER_LEADER_TRANSFER_REJECTED: '拒绝主单组长转派',
       CREATE_CASE: '创建主单',
       CREATE_TEST_DATA: '创建测试数据',
       ADD_LINE: '新增订单',

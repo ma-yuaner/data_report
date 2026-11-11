@@ -29,6 +29,7 @@ export interface FxSnapshot extends Fields {
   rateField: string
 }
 export interface AdmConfig extends Fields {
+  masterDepartments: Array<{ value: string; label: string }>
   caseStatuses: string[]; lineStatuses: string[]; issuerTypes: string[]
   sourceTypes: string[]
   appealTargets: Array<{ value: string; label: string }>
@@ -91,6 +92,10 @@ export const admApi = {
   template: () => http.get<Blob>(`${base}/imports/template`, { responseType: 'blob' }),
   importPreview: (file: File) => { const form = new FormData(); form.append('file', file); return data<Fields>(http.post(`${base}/imports/preview`, form)) },
   importCommit: (batchNo: string) => data<Fields>(http.post(`${base}/imports/${encodeURIComponent(batchNo)}/commit`, {})),
+  masterLeaderTransfer: (caseId: number, body: Fields) =>
+    data<AdmCaseDetail>(http.post(`${casePath(caseId)}/master-leader-transfer`, body)),
+  masterRecovery: (caseId: number, action: string, locators?: string) =>
+    data<AdmCaseDetail>(http.post(`${casePath(caseId)}/master-recovery`, { action, locators })),
   assignOperator: (caseId: number, lineId: number, body: Fields) => data<Fields>(http.post(`${linePath(caseId, lineId)}/assign-operator`, body)),
   changeLeader: (caseId: number, lineId: number, body: Fields) => data<Fields>(http.post(`${linePath(caseId, lineId)}/change-leader`, body)),
   accept: (caseId: number, lineId: number) => data<Fields>(http.post(`${linePath(caseId, lineId)}/accept`, {})),

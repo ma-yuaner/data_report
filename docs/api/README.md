@@ -22,7 +22,7 @@
 | [上传说明](../business/air_ticketing/risk-data-upload.md) / [行为监控](../product/user-behavior-monitoring-v1.md) | 上传队列和行为采集 |
 
 <!-- BEGIN:API_ROUTES -->
-共 **245个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
+共 **247个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
 
 <a id="auth"></a>
 
@@ -303,6 +303,8 @@
 | `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/transfers/<transfer_id>/reject` | [admwf_reject_transfer](../../backend/data_report_api/api/admwf.py) |
 | `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/void` | [admwf_void_line](../../backend/data_report_api/api/admwf.py) |
 | `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/withdraw-review` | [admwf_withdraw_review](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/master-leader-transfer` | [admwf_master_leader_transfer](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/master-recovery` | [admwf_master_recovery](../../backend/data_report_api/api/admwf.py) |
 | `POST` | `/api/v1/adm/cases/<case_id>/publish` | [admwf_publish_draft](../../backend/data_report_api/api/admwf.py) |
 | `POST` | `/api/v1/adm/cases/<case_id>/rebalance-lines` | [admwf_rebalance_lines](../../backend/data_report_api/api/admwf.py) |
 | `GET` | `/api/v1/adm/cases/<case_id>/summary` | [admwf_case_summary](../../backend/data_report_api/api/admwf.py) |

@@ -205,7 +205,7 @@ docker compose up -d --build
 API统一前缀为`/api`。认证与账号管理使用`/api/auth/*`、`/api/admin/*`；业务接口主要使用`/api/v1/*`。登录后使用会话Cookie，非安全方法需携带CSRF头；JSON通常返回`success/message/data`，导出接口返回文件。具体权限、参数与错误见[完整接口目录](docs/api/README.md)及对应源码。
 
 <!-- BEGIN:API_SUMMARY -->
-当前静态登记 **245个HTTP方法/路径条目**（含认证与管理接口，不重复列自动HEAD/OPTIONS）。
+当前静态登记 **247个HTTP方法/路径条目**（含认证与管理接口，不重复列自动HEAD/OPTIONS）。
 
 | 接口领域 | 条目数 | 完整清单 |
 |---|---:|---|
@@ -222,7 +222,7 @@ API统一前缀为`/api`。认证与账号管理使用`/api/auth/*`、`/api/admi
 | 数据加工工作台 | 13 | [data_workbench](docs/api/README.md#data_workbench) |
 | HR报表邮件 | 8 | [hr_mail](docs/api/README.md#hr_mail) |
 | 行为采集与管理看板 | 4 | [telemetry](docs/api/README.md#telemetry) |
-| admwf | 44 | [admwf](docs/api/README.md#admwf) |
+| admwf | 46 | [admwf](docs/api/README.md#admwf) |
 | missed_orders | 3 | [missed_orders](docs/api/README.md#missed_orders) |
 | placement_diagnosis | 2 | [placement_diagnosis](docs/api/README.md#placement_diagnosis) |
 | placement_import | 3 | [placement_import](docs/api/README.md#placement_import) |

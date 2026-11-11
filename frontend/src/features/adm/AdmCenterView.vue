@@ -29,15 +29,35 @@
         <a-alert v-if="configError" type="warning" show-icon :message="configError" />
         <a-alert v-if="workbenchSummary.truncated" type="warning" show-icon
           :message="`当前显示前 ${workbenchItems.length} 条任务，共 ${workbenchSummary.total} 条；分类数仅统计已加载任务。`" />
+        <a-space v-if="batchRows.length" wrap class="block">
+          <span>已选 {{ batchRows.length }} 条</span>
+          <a-button v-for="action in batchActions" :key="action" @click="openWorkbenchBatch(action)">
+            {{ workbenchActionLabels[action] }}
+          </a-button>
+          <span v-if="!batchActions.length">请选择同一阶段且可执行同一操作的任务</span>
+          <a-button type="link" @click="workSelection = []">清除选择</a-button>
+        </a-space>
         <div class="v05-work-list">
           <p v-if="loading" class="v05-card v05-empty" role="status">正在读取 ADM 任务…</p>
           <p v-else-if="error" class="v05-card v05-empty"><a-button @click="load">重试</a-button></p>
           <div v-else-if="pagedTasks.length" class="work-task-table">
-            <div class="work-task-row work-task-head" aria-hidden="true">
+            <div class="work-task-row work-task-head">
+              <a-checkbox aria-label="选择当前页任务"
+                :checked="!!pagedTasks.length && pagedTasks.every((task) => workSelection.includes(workTaskKey(task)))"
+                @change="selectWorkbenchPage" />
               <span>ADM / 内部明细</span><span>任务类型</span><span>当前责任分配</span><span>当前需要处理</span><span>处理截止</span><span>操作</span>
             </div>
-            <div v-for="task in pagedTasks" :key="`${task.caseId}-${task.lineId}-${task.kind}`" class="work-task-row">
-              <div><b>{{ task.admNo || task.internalNo }}</b><small>{{ task.lineInternalNo }}</small></div>
+            <div v-for="task in pagedTasks" :key="workTaskKey(task)" class="work-task-row">
+              <a-checkbox :aria-label="`选择 ${task.lineInternalNo || task.admNo}`"
+                :checked="workSelection.includes(workTaskKey(task))"
+                @change="toggleWorkbenchTask(task)" />
+              <div>
+                <a-button type="link" @click="openTask(task)">{{ task.admNo || task.internalNo }}</a-button>
+                <small>{{ task.lineInternalNo || '主单' }}</small>
+                <a-tag v-if="task.leaderOverdueAt" color="red">组长分派超 3 天</a-tag>
+                <a-tag v-if="task.operatorOverdueAt" color="red">操作员分派超 3 天</a-tag>
+                <a-tag v-if="task.hasTransfer || task.transferId" color="blue">转派</a-tag>
+              </div>
               <span class="work-task-type">{{ task.role }}任务：{{ task.title }}</span>
               <span>{{ task.assignment }}</span>
               <span>{{ task.requiredAction }}</span>
@@ -48,7 +68,12 @@
                 :loading="acceptingLines.has(Number(task.lineId))"
                 @click="acceptTask(task)"
               >接单</a-button>
-              <a-button v-else type="primary" @click="openTask(task)">去处理 →</a-button>
+              <a-button v-else-if="task.kind === 'leaderRecovery'" type="primary" @click="openWorkbenchBatch('recovery', [task])">恢复判断</a-button>
+              <a-button v-else-if="task.kind === 'ownerRecovery'" type="primary" @click="openWorkbenchBatch('startRecovery', [task])">正在恢复</a-button>
+              <a-button v-else-if="task.kind === 'recovered'" type="primary" @click="openTask(task)">录入明细</a-button>
+              <a-button v-else-if="task.kind === 'transferAccept'" type="primary" @click="openWorkbenchBatch('transferAccept', [task])">确认转派</a-button>
+              <a-button v-else-if="task.kind === 'assign' || task.kind === 'assignLeader'" type="primary"
+                @click="openWorkbenchBatch(task.kind, [task])">{{ workbenchActionLabels[task.kind] }}</a-button>
             </div>
           </div>
           <div v-if="workbenchReady && !loading && !error && !visibleTasks.length" class="v05-card v05-empty">
@@ -198,6 +223,49 @@
         </div>
       </section>
     </main>
+
+    <a-modal v-model:open="workbenchBatchOpen" :title="workbenchActionLabels[workbenchBatchAction]"
+      :confirm-loading="workbenchBatchBusy" :closable="!workbenchBatchBusy"
+      :mask-closable="!workbenchBatchBusy" :keyboard="!workbenchBatchBusy"
+      :cancel-button-props="{ disabled: workbenchBatchBusy }" @ok="submitWorkbenchBatch">
+      <a-form layout="vertical" :disabled="workbenchBatchBusy">
+        <a-form-item v-if="['assign', 'assignLeader', 'transfer'].includes(workbenchBatchAction)" label="目标人员" required>
+          <a-radio-group v-if="workbenchBatchAction === 'transfer' && workbenchBatchRows.every(canTransferLeader)"
+            v-model:value="workbenchBatchForm.targetRole" @change="workbenchBatchForm.targetUserId = undefined">
+            <a-radio-button value="OPERATOR">操作员</a-radio-button>
+            <a-radio-button value="LEADER">组长</a-radio-button>
+          </a-radio-group>
+          <a-select v-model:value="workbenchBatchForm.targetUserId" show-search option-filter-prop="label"
+            :options="workbenchPeople" placeholder="搜索姓名、部门或账号" />
+        </a-form-item>
+        <a-form-item v-if="workbenchBatchAction === 'recovery'" label="是否恢复编码" required>
+          <a-radio-group v-model:value="workbenchBatchForm.recoveryAction">
+            <a-radio value="skip">无需恢复，生成明细</a-radio>
+            <a-radio value="request">需要恢复，交回 ADM 负责人</a-radio>
+          </a-radio-group>
+        </a-form-item>
+        <a-form-item v-if="workbenchBatchAction === 'recovery' && workbenchBatchForm.recoveryAction === 'request'"
+          label="GDS-PCC-PNR" required>
+          <a-textarea v-model:value="workbenchBatchForm.locators" placeholder="1G-5S75-13124N,1A-BKK247-123NE" />
+        </a-form-item>
+        <a-alert v-if="workbenchBatchAction === 'startRecovery'" type="info" show-icon
+          :message="workbenchBatchRows[0]?.recoveryLocators || ''"
+          description="在 GDS 操作后确认正在恢复。从确认时起 48 小时后自动交回组长。" />
+        <a-form-item v-if="workbenchBatchAction === 'transferAccept'" label="确认结果">
+          <a-radio-group v-model:value="workbenchBatchForm.accepted">
+            <a-radio :value="true">接受</a-radio><a-radio :value="false">拒绝</a-radio>
+          </a-radio-group>
+        </a-form-item>
+        <a-form-item v-if="['assignLeader', 'transfer'].includes(workbenchBatchAction) ||
+          (workbenchBatchAction === 'transferAccept' && !workbenchBatchForm.accepted)" label="原因" required>
+          <a-textarea v-model:value="workbenchBatchForm.reason" />
+        </a-form-item>
+        <a-form-item v-if="workbenchBatchAction === 'transfer'" label="交接说明" required>
+          <a-textarea v-model:value="workbenchBatchForm.handoverNote" />
+        </a-form-item>
+        <a-alert v-if="workbenchBatchError" type="warning" show-icon :message="workbenchBatchError" />
+      </a-form>
+    </a-modal>
 
     <a-modal
       v-if="isWorkbench"
@@ -441,14 +509,14 @@
     >
     <a-modal
       v-model:open="createOpen"
-      :title="createStep === 1 ? '新建 ADM 主单' : '录入订单明细'"
+      title="新建 ADM 主单"
       width="1180px"
       :footer="null"
       wrap-class-name="v05-modal"
       ><a-alert
         type="info"
         show-icon
-        message="先填写主单，再录入一笔或多笔订单；明细金额合计必须等于主单金额。"
+        message="主单可单独保存，之后从详情录入订单明细。"
         style="margin-bottom: 16px"
       /><a-alert
         v-if="referenceError"
@@ -458,25 +526,22 @@
         style="margin-bottom: 16px"
       >
         <template #action><a-button size="small" @click="retryCreateReferences">重试</a-button></template>
-      </a-alert><template v-if="createStep === 1"
-        ><div class="v05-form-grid">
+      </a-alert>
+      <div class="v05-form-grid">
           <label><span class="form-field-label">ADM 单号 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.admNo" /></label
           ><label
             ><span class="form-field-label">下发方类型 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
               v-model:value="form.issuerType"
               :options="issuerOptions"
-              @change="issuerChanged" /></label
-          ><label v-if="form.issuerType === 'AIRLINE'"><span class="form-field-label">航司名称 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.issuerName" /></label
-          ><label v-else
-            ><span class="form-field-label">下发方 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
-              v-model:value="form.issuerCode"
-              show-search
-              :filter-option="filterOption"
-              :options="issuerMasterOptions"
-              :loading="referenceLoading[form.issuerType === 'PLATFORM' ? 'ota' : 'supplier']"
-              @change="issuerSelected" /></label
+              @change="form.issuerName = ''" /></label
+          ><label>
+            <span class="form-field-label">{{ form.issuerType === 'SUPPLIER' ? '供应商名称' : '航司名称' }} <span class="form-required-mark" aria-hidden="true">*</span></span>
+            <a-input aria-required="true" v-model:value="form.issuerName" />
+          </label>
           ><label
-            ><span class="form-field-label">原币币种 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
+            ><span class="form-field-label">关联航司 <span class="form-required-mark" aria-hidden="true">*</span></span>
+              <a-input aria-required="true" v-model:value="form.airlineName" /></label>
+          <label><span class="form-field-label">原币币种 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
               v-model:value="form.currency"
               :options="currencyOptions"
               :loading="referenceLoading.currency"
@@ -493,7 +558,21 @@
               readonly /></label
           ><label><span class="form-field-label">下发日期 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.issuedDate" type="date" /></label
           ><label><span class="form-field-label">处理截止 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.replyDeadline" type="datetime-local" /></label
-          ><label class="wide">备注（选填）<a-textarea v-model:value="form.remark" :rows="2" /></label
+          ><label>
+            <span class="form-field-label">归属部门 <span class="form-required-mark" aria-hidden="true">*</span></span>
+            <a-select aria-required="true" v-model:value="form.departmentCode" :options="config?.masterDepartments || []" />
+          </label><label>
+            <span class="form-field-label">负责组长 <span class="form-required-mark" aria-hidden="true">*</span></span>
+            <a-select aria-required="true" v-model:value="form.leaderId" :options="leaderOptions"
+              show-search option-filter-prop="label" placeholder="搜索姓名、部门或账号" />
+          </label><label>
+            <span class="form-field-label">差异类型 <span class="form-required-mark" aria-hidden="true">*</span></span>
+            <a-select aria-required="true" v-model:value="form.diffTypeCode" :options="diffTypeOptions"
+              :loading="referenceLoading.diffType" show-search option-filter-prop="label" />
+          </label><label class="wide">
+            <span class="form-field-label">细分差异原因 <span class="form-required-mark" aria-hidden="true">*</span></span>
+            <a-textarea aria-required="true" v-model:value="form.differenceReason" :rows="2" />
+          </label><label class="wide">备注（选填）<a-textarea v-model:value="form.remark" :rows="2" /></label
           ><label class="wide"
             >主单公共附件（选填）<input type="file" multiple @change="pickMasterFiles" /><span>{{
               masterFiles.map((file) => file.name).join('、') || '未选择附件'
@@ -501,106 +580,11 @@
           >
         </div>
         <p class="hint"><b>*</b> 为必填项。ADM负责人由系统自动记录；汇率保存为创建时快照。</p>
+        <a-alert v-if="createError" type="error" show-icon :message="createError" class="block" />
         <div class="v05-modal-actions">
-          <button @click="createOpen = false">取消</button
-          ><button class="primary" @click="openCreateLines">保存并录入订单</button>
-        </div></template
-      >
-      <template v-else
-        ><p class="context">
-          <b>{{ form.admNo }}</b
-          > {{ form.issuerName }} 原币总金额 {{ form.currency }} {{ form.originalAmount }} 处理截止
-          {{ form.replyDeadline || '未设置' }}
-        </p>
-        <p class="v05-label">订单明细 · OTA平台、OTA订单号、供应商、航司、票号、PNR均为选填</p>
-        <div v-for="(line, index) in form.lines" :key="line.key" class="v05-line-card">
-          <header>
-            <b>订单明细 {{ Number(index) + 1 }}</b
-            ><button v-if="form.lines.length > 1" class="danger" @click="form.lines.splice(Number(index), 1)">
-              移除
-            </button>
-          </header>
-          <div class="v05-form-grid">
-            <label>OTA订单号（选填）<a-input v-model:value="line.otaOrderNo" /></label
-            ><label>票号（选填）<a-input v-model:value="line.ticketNo" /></label
-            ><label>PNR编码（选填）<a-input v-model:value="line.pnr" /></label
-            ><label
-              >OTA平台（选填）<a-select
-                v-model:value="line.otaCode"
-                allow-clear
-                :options="otaOptions"
-                @change="(v?: string) => selectOption(line, 'ota', v)" /></label
-            ><label
-              ><span class="form-field-label">业务归属部门 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
-                v-model:value="line.departmentCode"
-                show-search
-                :filter-option="filterOption"
-                :options="departmentOptions"
-                @change="(v: string) => selectOption(line, 'department', v)" /></label
-            ><label
-              ><span class="form-field-label">负责组长 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
-                v-model:value="line.leaderId"
-                :options="leaderOptions"
-                show-search option-filter-prop="label" placeholder="搜索姓名、部门或账号"
-                @change="(v: string) => selectLeader(line, v)" /></label
-            ><label>截止时间（继承主单）<a-input :value="form.replyDeadline" readonly /></label
-            ><label
-              >供应商（选填）<a-select
-                v-model:value="line.supplierCode"
-                allow-clear
-                :options="supplierOptions"
-                @change="(v?: string) => selectOption(line, 'supplier', v)" /></label
-            ><label>航司（选填）<a-input v-model:value="line.airlineName" /></label
-            ><label><span class="form-field-label">ADM金额（原币） <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="line.originalAmount" /></label
-            ><label>币种（继承主单）<a-input :value="form.currency" readonly /></label
-            ><label>ADM金额（人民币，系统换算）<a-input :value="lineCnyAmount(Number(index))" readonly /></label
-            ><label class="wide"
-              >订单情况说明（选填）<a-textarea
-                v-model:value="line.investigationNote"
-                :rows="2"
-                placeholder="填写当前已知的订单情况，操作员办理时可继续更新" /></label
-            ><label
-              ><span class="form-field-label">差异类型 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
-                v-model:value="line.diffTypeCode"
-                show-search
-                :filter-option="filterOption"
-                :options="diffTypeOptions"
-                @change="(v: string) => selectOption(line, 'diffType', v)" /></label
-            ><label class="wide"><span class="form-field-label">细分差异原因 <span class="form-required-mark" aria-hidden="true">*</span></span><a-textarea aria-required="true" v-model:value="line.differenceReason" :rows="3" /></label>
-          </div>
+          <a-button :disabled="saving" @click="createOpen = false">取消</a-button>
+          <a-button type="primary" :loading="saving" @click="createCase">保存主单</a-button>
         </div>
-        <section class="entry-extra">
-          <h3>本次已录入 {{ form.lines.length }} 笔</h3>
-          <div class="v05-table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>序号</th>
-                  <th>OTA订单号 / 票号 / PNR</th>
-                  <th>部门 / 组长</th>
-                  <th>原币金额</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(line, index) in form.lines" :key="`summary-${line.key}`">
-                  <td>{{ Number(index) + 1 }}</td>
-                  <td>
-                    {{ line.otaOrderNo || '未填写' }} / {{ line.ticketNo || '未填写' }} / {{ line.pnr || '未填写' }}
-                  </td>
-                  <td>{{ line.departmentName || '未选择' }} / {{ line.leaderName || '未选择' }}</td>
-                  <td>{{ form.currency }} {{ line.originalAmount || '0.00' }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
-        <a-alert v-if="createError" type="error" show-icon :message="createError" style="margin-top: 12px" />
-        <div class="v05-modal-actions">
-          <button @click="createStep = 1">返回主单</button><button @click="addLine">＋ 继续新增一笔</button
-          ><button :disabled="saving" @click="createCase(true)">保存草稿</button
-          ><button class="primary" :disabled="saving" @click="createCase(false)">保存并进入详情</button>
-        </div></template
-      >
     </a-modal>
     <a-modal
       v-model:open="importOpen"
@@ -784,11 +768,27 @@ const availableRoles = computed(() => {
 })
 const tasks = computed<Fields[]>(() =>
   workbenchItems.value.map((line): Fields => {
+    const masterStages: Fields = {
+      MASTER_LEADER_FOLLOWUP: ['masterLeaderFollowup', '组长', '负责人恢复编码中，可跟进或转派组长'],
+      MASTER_TRANSFER_ACCEPT: ['transferAccept', '组长', '确认是否接受组长转派'],
+      MASTER_TRANSFER_WAIT: ['masterTransferWait', '组长', '等待目标组长确认转派'],
+      LEADER_DECISION: ['leaderRecovery', '组长', '判断是否恢复编码'],
+      OWNER_RECOVERY: ['ownerRecovery', 'ADM负责人', '在 GDS 操作后标记正在恢复'],
+      RECOVERING: ['recovering', 'ADM负责人', '等待 48 小时自动恢复'],
+      RECOVERED: ['recovered', '组长', '已恢复，录入订单明细'],
+      LEADER_FOLLOWUP: ['leaderFollowup', '组长', '跟进或转派单笔订单'],
+    }
+    const stage = masterStages[line.taskType]
+    if (stage) return {
+      ...line, status: line.lineStatus, kind: stage[0], role: stage[1], title: stage[2],
+      requiredAction: stage[2], assignment: line.leaderName || line.coordinatorName || '—',
+      deadline: line.masterRecoveryDueAt || line.replyDeadline,
+    }
     const transferTask = line.taskType === 'TRANSFER_ACCEPT'
     const returnMode = taskReturnMode(line)
     const reviewWithdrawn = line.reviewStatus === 'WITHDRAWN' || line.latestReviewStatus === 'WITHDRAWN'
     const role = transferTask
-      ? '操作人员'
+      ? (line.targetRole === 'LEADER' ? '组长' : '操作人员')
       : ['PENDING_LEADER', 'PENDING_REVIEW', 'WAITING_DIFF', 'WAITING_COLLECTION'].includes(line.lineStatus)
       ? 'ADM负责人'
       : line.lineStatus === 'PENDING_OPERATOR'
@@ -859,8 +859,17 @@ const workMetrics = computed(() => {
     )
   if (auth.user?.isAdmin || config.value?.permissions.close)
     items.push({ key: 'close', title: '可以结案', value: Number(workbenchSummary.value.closableCaseCount || 0) })
-  if (availableRoles.value.includes('组长'))
-    items.push({ key: 'assign', title: '待分配操作员', value: tasks.value.filter((t) => t.kind === 'assign').length })
+  if (availableRoles.value.includes('组长')) {
+    items.push(
+      { key: 'assign', title: '待分配操作员', value: tasks.value.filter((t) => t.kind === 'assign').length },
+      { key: 'leaderRecovery', title: '待恢复判断', value: tasks.value.filter((t) => t.kind === 'leaderRecovery').length },
+      { key: 'recovered', title: '已恢复待录入', value: tasks.value.filter((t) => t.kind === 'recovered').length },
+      { key: 'leaderFollowup', title: '组长跟进', value: tasks.value.filter((t) => t.kind === 'leaderFollowup').length },
+    )
+  }
+  if (availableRoles.value.includes('ADM负责人')) {
+    items.push({ key: 'ownerRecovery', title: '待 GDS 操作', value: tasks.value.filter((t) => t.kind === 'ownerRecovery').length })
+  }
   if (availableRoles.value.some((role) => role === '组长' || role === '操作人员'))
     items.push({ key: 'transfer', title: '转派申请', value: Number(workbenchSummary.value.pendingTransferCount || 0) })
   if (availableRoles.value.includes('操作人员'))
@@ -969,6 +978,7 @@ function openWorkMetric(key: string) {
     resetWorkQueuePage()
     return
   }
+  workSelection.value = []
   workMetric.value = workMetric.value === key ? '' : key
   workPage.value = 1
 }
@@ -977,7 +987,8 @@ function openTask(t: Fields) {
     path: `/adm/cases/${t.caseId}`,
     query: {
       lineId: t.lineId,
-      taskAction: t.kind,
+      taskAction: t.lineId ? t.kind : undefined,
+      addLine: t.kind === 'recovered' ? '1' : undefined,
       returnPage: String(workPage.value),
       ...(workMetric.value ? { returnMetric: workMetric.value } : {}),
     },
@@ -992,6 +1003,100 @@ const canCreate = computed(() => !!auth.user?.isAdmin || !!config.value?.permiss
       .forEach((item) => unique.set(Number(item.lineId), item))
     return [...unique.values()]
   })
+const workSelection = ref<string[]>([])
+const workTaskKey = (task: Fields) => `${task.caseId}-${task.lineId || 0}-${task.kind}-${task.transferId || 0}`
+const batchRows = computed(() => visibleTasks.value.filter((task) => workSelection.value.includes(workTaskKey(task))))
+const canTransferLeader = (task: Fields) => !['transferAccept', 'masterTransferWait'].includes(task.kind) && Number(task.leaderId) === myId.value &&
+  (auth.user?.isAdmin || config.value?.permissions.assignOperator)
+const canTransferOperator = (task: Fields) => !!task.operatorId &&
+  (canTransferLeader(task) || (canOperatorWork.value && Number(task.operatorId) === myId.value))
+const workbenchActionLabels: Record<string, string> = {
+  assign: '分配操作员', assignLeader: '分配组长', accept: '接单', transfer: '转派',
+  transferAccept: '确认转派', recovery: '恢复编码判断', startRecovery: '正在恢复',
+}
+const batchActions = computed(() => {
+  const rows = batchRows.value
+  if (!rows.length || !rows.every((task) => task.kind === rows[0].kind)) return []
+  const actions = ['assign', 'assignLeader', 'accept', 'transferAccept'].includes(rows[0].kind) ? [rows[0].kind] : []
+  if (rows.every((task) => task.kind !== 'transferAccept' && (canTransferLeader(task) || canTransferOperator(task)))) actions.push('transfer')
+  return actions
+})
+function toggleWorkbenchTask(task: Fields) {
+  const key = workTaskKey(task)
+  workSelection.value = workSelection.value.includes(key)
+    ? workSelection.value.filter((item) => item !== key) : [...workSelection.value, key]
+}
+function selectWorkbenchPage() {
+  const keys = pagedTasks.value.map(workTaskKey)
+  workSelection.value = keys.every((key) => workSelection.value.includes(key))
+    ? workSelection.value.filter((key) => !keys.includes(key))
+    : [...new Set([...workSelection.value, ...keys])]
+}
+const workbenchBatchOpen = ref(false)
+const workbenchBatchBusy = ref(false)
+const workbenchBatchRows = ref<Fields[]>([])
+const workbenchBatchAction = ref('')
+const workbenchBatchError = ref('')
+const workbenchBatchForm = reactive<Fields>({})
+const workbenchPeople = computed(() => admPersonOptions(
+  (workbenchBatchAction.value === 'assignLeader' || workbenchBatchForm.targetRole === 'LEADER'
+    ? config.value?.people.leader : config.value?.people.handle) || [],
+))
+function openWorkbenchBatch(action: string, rows = batchRows.value) {
+  if (!rows.length) return
+  workbenchBatchRows.value = rows
+  workbenchBatchAction.value = action
+  workbenchBatchError.value = ''
+  Object.assign(workbenchBatchForm, {
+    targetUserId: undefined, targetRole: action === 'transfer' && !rows.every(canTransferOperator) ? 'LEADER' : 'OPERATOR',
+    reason: '', handoverNote: '', recoveryAction: undefined, locators: '', accepted: true,
+  })
+  workbenchBatchOpen.value = true
+}
+async function submitWorkbenchBatch() {
+  if (workbenchBatchBusy.value) return
+  const action = workbenchBatchAction.value
+  const form = { ...workbenchBatchForm }
+  if (action === 'transfer' && form.targetRole === 'OPERATOR' && !workbenchBatchRows.value.every(canTransferOperator)) {
+    workbenchBatchError.value = '选中明细中有尚未分配操作员的记录，请转派给组长或重新选择'
+    return
+  }
+  const failures: Fields[] = []
+  const errors: string[] = []
+  workbenchBatchBusy.value = true
+  try {
+    for (const task of workbenchBatchRows.value) {
+      const caseId = Number(task.caseId), lineId = Number(task.lineId)
+      try {
+        if (action === 'assign') await admApi.assignOperator(caseId, lineId, { operatorId: form.targetUserId })
+        if (action === 'assignLeader') await admApi.changeLeader(caseId, lineId, { leaderId: form.targetUserId, reason: form.reason })
+        if (action === 'accept') await admApi.accept(caseId, lineId)
+        if (action === 'transfer') {
+          if (task.lineId) await admApi.transfer(caseId, lineId, form)
+          else await admApi.masterLeaderTransfer(caseId, { targetUserId: form.targetUserId, reason: form.reason })
+        }
+        if (action === 'transferAccept') {
+          if (task.lineId) await admApi.decideTransfer(caseId, lineId, Number(task.transferId), form.accepted, form.reason)
+          else await admApi.masterLeaderTransfer(caseId, { accepted: form.accepted, reason: form.reason })
+        }
+        if (action === 'recovery' || action === 'startRecovery')
+          await admApi.masterRecovery(caseId, action === 'startRecovery' ? 'start' : form.recoveryAction, form.locators)
+      } catch (e) {
+        failures.push(task)
+        errors.push(`${task.lineInternalNo || task.admNo}：${errorText(e)}`)
+      }
+    }
+    const success = workbenchBatchRows.value.length - failures.length
+    if (success) void message.success(`成功处理 ${success} 条`)
+    workbenchBatchRows.value = failures
+    workSelection.value = failures.map(workTaskKey)
+    workbenchBatchError.value = errors.join('；')
+    if (!failures.length) workbenchBatchOpen.value = false
+    await load()
+  } finally {
+    workbenchBatchBusy.value = false
+  }
+}
 const acceptingLines = reactive(new Set<number>())
 function canAcceptTask(task: Fields) {
   return task.kind === 'accept' && canOperatorWork.value && Number(task.operatorId) === myId.value
@@ -1266,6 +1371,7 @@ function ledgerStages(row: AdmCaseRow) {
 function ledgerDetailText(row: AdmCaseRow) {
   if (row.caseStatus === 'DRAFT') return '草稿详情'
   if (row.caseStatus !== 'ACTIVE') return 'ADM 详情'
+  if (!Number(row.lineCount)) return '主单详情 · 待录入订单'
   const stages = ledgerStages(row)
   if (stages.length === 1) return `查看${stages[0].title}明细`
   if (!stages.length && canCloseLedgerCase(row)) return '查看结案'
@@ -1327,20 +1433,18 @@ async function masterInfoSaved(detail: AdmCaseDetail) {
 }
 
 const createOpen = ref(false),
-  createStep = ref(1),
   saving = ref(false),
   createError = ref(''),
   fxError = ref(''),
   fxLoading = ref(false),
   fxSnapshot = ref<FxSnapshot | null>(null),
   masterFiles = ref<File[]>([]),
-  masters = reactive<Record<string, Option[]>>({ department: [], diffType: [], ota: [], supplier: [], currency: [] }),
-  form = reactive<Fields>({ lines: [] })
-const masterReferenceKinds = ['ota', 'supplier', 'currency'] as const
-const lineReferenceKinds = ['department', 'diffType'] as const
-type CreateReferenceKind = typeof masterReferenceKinds[number] | typeof lineReferenceKinds[number]
+  masters = reactive<Record<CreateReferenceKind, Option[]>>({ diffType: [], currency: [] }),
+  form = reactive<Fields>({})
+const masterReferenceKinds = ['currency', 'diffType'] as const
+type CreateReferenceKind = typeof masterReferenceKinds[number]
 const referenceLabels: Record<CreateReferenceKind, string> = {
-  ota: 'OTA平台', supplier: '供应商', currency: '原币币种', department: '业务部门', diffType: '差异类型',
+  currency: '原币币种', diffType: '差异类型',
 }
 const referenceTtl = 5 * 60 * 1000
 const referenceLoadedAt: Partial<Record<CreateReferenceKind, number>> = {}
@@ -1348,8 +1452,7 @@ const referenceRequests: Partial<Record<CreateReferenceKind, Promise<void>>> = {
 const referenceLoading = reactive<Partial<Record<CreateReferenceKind, boolean>>>({})
 const referenceErrors = reactive<Partial<Record<CreateReferenceKind, string>>>({})
 const referenceError = computed(() => {
-  const kinds = createStep.value === 1 ? masterReferenceKinds : [...masterReferenceKinds, ...lineReferenceKinds]
-  return [...kinds.map((kind) => referenceErrors[kind]), fxError.value].filter(Boolean).join('；')
+  return [...masterReferenceKinds.map((kind) => referenceErrors[kind]), fxError.value].filter(Boolean).join('；')
 })
 function loadCreateReference(kind: CreateReferenceKind) {
   if (referenceRequests[kind]) return referenceRequests[kind]
@@ -1370,97 +1473,48 @@ function loadCreateReference(kind: CreateReferenceKind) {
   referenceRequests[kind] = pending
   return pending
 }
-function openCreateLines() {
-  createStep.value = 2
-  void loadConfig(true)
-  lineReferenceKinds.forEach((kind) => { void loadCreateReference(kind) })
-}
 function retryCreateReferences() {
-  const kinds = createStep.value === 1 ? masterReferenceKinds : [...masterReferenceKinds, ...lineReferenceKinds]
-  kinds.forEach((kind) => { if (referenceErrors[kind]) void loadCreateReference(kind) })
+  masterReferenceKinds.forEach((kind) => { if (referenceErrors[kind]) void loadCreateReference(kind) })
   if (fxError.value) void loadExchangeRate()
 }
 const issuerOptions = [
     { value: 'SUPPLIER', label: '供应商' },
-    { value: 'PLATFORM', label: '平台' },
     { value: 'AIRLINE', label: '航司' },
   ],
   currencyOptions = computed(() => {
     const rows = masters.currency.length ? masters.currency : [{ code: 'CNY', name: 'CNY' }]
     return rows.map((item) => ({ value: item.code, label: item.name === item.code ? item.code : `${item.name}（${item.code}）` }))
   }),
-  mapOptions = (x: Option[]) => x.map((i) => ({ value: i.code, label: `${i.name}（${i.code}）` })),
-  departmentOptions = computed(() => mapOptions(masters.department)),
   diffTypeOptions = computed(() => masters.diffType.map((i) => ({ value: i.code, label: i.name }))),
-  otaOptions = computed(() => mapOptions(masters.ota)),
-  supplierOptions = computed(() => mapOptions(masters.supplier)),
-  issuerMasterOptions = computed(() => (form.issuerType === 'PLATFORM' ? otaOptions.value : supplierOptions.value)),
-  leaderOptions = computed(() => admPersonOptions(config.value?.people.leader || [])),
-  filterOption = (input: string, o: Fields) =>
-    String(o.label || '')
-      .toLowerCase()
-      .includes(input.toLowerCase())
+  leaderOptions = computed(() => admPersonOptions(config.value?.people.leader || []))
 const masterCnyAmount = computed(() => {
   if (!fxSnapshot.value) return '—'
   const amount = Number(form.originalAmount || 0), rate = Number(fxSnapshot.value.rateValue)
   return Number.isFinite(amount * rate) ? `¥ ${(amount * rate).toFixed(2)}` : '—'
 })
-const lineCnyAmount = (index: number) => {
-  if (!fxSnapshot.value) return '—'
-  const rate = Number(fxSnapshot.value.rateValue)
-  if (!Number.isFinite(rate)) return '—'
-  const rounded = form.lines.map((line: Fields) => Number((Number(line.originalAmount || 0) * rate).toFixed(2)))
-  if (index === form.lines.length - 1) {
-    const master = Number((Number(form.originalAmount || 0) * rate).toFixed(2))
-    return `¥ ${(master - rounded.slice(0, -1).reduce((sum: number, value: number) => sum + value, 0)).toFixed(2)}`
-  }
-  return `¥ ${rounded[index].toFixed(2)}`
-}
-function blankLine() {
-  return {
-    key: createOperationIdentifier(),
-    originalAmount: '',
-    departmentCode: '',
-    departmentName: '',
-    leaderId: undefined,
-    leaderName: '',
-    diffTypeCode: '',
-    diffTypeName: '',
-    differenceReason: '',
-    investigationNote: '',
-    otaCode: undefined,
-    otaName: '',
-    otaOrderNo: '',
-    supplierCode: undefined,
-    supplierName: '',
-    airlineName: '',
-    ticketNo: '',
-    pnr: '',
-  }
-}
-function addLine() {
-  form.lines.push(blankLine())
-}
 function pickMasterFiles(e: Event) {
   masterFiles.value = Array.from((e.target as HTMLInputElement).files || [])
 }
 function openCreate() {
-  createStep.value = 1
   masterFiles.value = []
   Object.assign(form, {
     admNo: '',
     issuerType: 'SUPPLIER',
-    issuerCode: '',
     issuerName: '',
+    airlineName: '',
     currency: 'CNY',
     originalAmount: '',
     issuedDate: '',
     replyDeadline: '',
     remark: '',
-    lines: [blankLine()],
+    departmentCode: undefined,
+    leaderId: undefined,
+    diffTypeCode: undefined,
+    differenceReason: '',
   })
   createError.value = ''
   createOpen.value = true
+  void loadConfig(true)
   masterReferenceKinds.forEach((kind) => { void loadCreateReference(kind) })
   void loadExchangeRate()
 }
@@ -1480,28 +1534,12 @@ async function loadExchangeRate() {
     if (seq === fxRequest) fxLoading.value = false
   }
 }
-function issuerChanged() {
-  form.issuerCode = ''
-  form.issuerName = ''
-}
-function issuerSelected(code: string) {
-  const i = (form.issuerType === 'PLATFORM' ? masters.ota : masters.supplier).find((v) => v.code === code)
-  form.issuerName = i?.name || ''
-}
-function selectOption(line: Fields, kind: string, code?: string) {
-  const i = masters[kind].find((v) => v.code === code),
-    p = kind === 'diffType' ? 'diffType' : kind
-  line[`${p}Code`] = code || null
-  line[`${p}Name`] = i?.name || null
-}
-function selectLeader(line: Fields, id: string) {
-  line.leaderName = config.value?.people.leader.find((v) => v.id === id)?.name || ''
-}
-async function createCase(saveAsDraft: boolean) {
+async function createCase() {
+  if (saving.value) return
   saving.value = true
   createError.value = ''
   try {
-    const r = await admApi.create({ ...JSON.parse(JSON.stringify(form)), saveAsDraft }, createOperationIdentifier())
+    const r = await admApi.create({ ...form, masterOnly: true }, createOperationIdentifier())
     const attachmentErrors: string[] = []
     for (const file of masterFiles.value) {
       try {
@@ -1513,10 +1551,10 @@ async function createCase(saveAsDraft: boolean) {
     createOpen.value = false
     if (attachmentErrors.length) {
       void message.warning(
-        `${saveAsDraft ? '草稿已保存' : '主单及订单已创建'}：${r.case.internalNo}；部分附件上传失败，可进入详情重新上传`,
+        `主单已保存：${r.case.internalNo}；部分附件上传失败，可进入详情重新上传`,
       )
     } else {
-      void message.success(saveAsDraft ? `草稿已保存：${r.case.internalNo}` : `已创建：${r.case.internalNo}`)
+      void message.success(`主单已保存：${r.case.internalNo}`)
     }
     await router.push(`/adm/cases/${r.case.id}`)
   } catch (e) {

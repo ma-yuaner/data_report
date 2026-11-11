@@ -111,6 +111,16 @@ def register_routes(api: Blueprint) -> None:
     def admwf_case_summary(service, user, case_id):
         return service.case_summary(user, case_id)
 
+    @api.post("/v1/adm/cases/<case_id>/master-leader-transfer")
+    @admwf_response
+    def admwf_master_leader_transfer(service, user, case_id):
+        return service.master_leader_transfer(user, case_id, json_body())
+
+    @api.post("/v1/adm/cases/<case_id>/master-recovery")
+    @admwf_response
+    def admwf_master_recovery(service, user, case_id):
+        return service.master_recovery(user, case_id, json_body())
+
     @api.post("/v1/adm/cases/<case_id>/lines")
     @admwf_response
     def admwf_add_line(service, user, case_id):

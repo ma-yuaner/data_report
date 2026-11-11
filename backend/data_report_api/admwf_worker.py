@@ -14,7 +14,8 @@ def main():
     interval = max(10, int(Config.ADM_RECOVERY_POLL_SECONDS))
     while True:
         try:
-            count = repository.mark_due_recoveries()
+            count = repository.mark_due_recoveries() + repository.advance_master_recovery()
+            repository.mark_overdue_assignments()
             if count:
                 logging.info("Marked %s ADM recovery reminders due", count)
         except AdmError as error:
