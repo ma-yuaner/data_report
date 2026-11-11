@@ -15,6 +15,13 @@ def admwf_response(function):
             service = AdmWorkflowService(current_app.config)
             return ok(function(service, g.current_user, *args, **kwargs))
         except AdmError as error:
+            if error.status >= 500:
+                cause = error.__cause__
+                errno = cause.args[0] if cause and cause.args and isinstance(cause.args[0], int) else None
+                current_app.logger.error(
+                    "ADM request failed: endpoint=%s code=%s db_errno=%s cause_type=%s",
+                    request.endpoint, error.code, errno, type(cause).__name__ if cause else None,
+                )
             return jsonify({"success": False, "message": error.message, "code": error.code, "data": None}), error.status
         except (TypeError, ValueError):
             return jsonify({"success": False, "message": "ADM请求参数无效", "code": "ADM_INVALID", "data": None}), 400

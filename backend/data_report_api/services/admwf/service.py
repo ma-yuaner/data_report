@@ -531,7 +531,7 @@ class AdmWorkflowService:
         }
     def workbench(self, user):
         require(user, "adm.view")
-        getattr(self.repository, "mark_due_recoveries", lambda: 0)()
+        # The recovery worker advances due reminders independently of this read.
         capabilities = self._workbench_capabilities(user)
         actor = self._actor(user)
         return _json_value(self.repository.list_workbench(
