@@ -61,7 +61,7 @@
         </div>
       </a-tab-pane>
 
-      <a-tab-pane v-if="isAdmin" key="audit" tab="操作审计"><a-card title="登录与权限操作审计" class="panel-card"><a-table :columns="auditColumns" :data-source="audits" row-key="id" size="small" :pagination="{ pageSize: 20 }" :scroll="{ x: 860 }"><template #bodyCell="{ column, record }"><template v-if="column.key === 'success'"><a-tag :color="record.success ? 'green' : 'red'">{{ record.success ? '成功' : '失败' }}</a-tag></template><template v-else-if="column.key === 'createdAt'">{{ formatTime(record.createdAt) }}</template><template v-else-if="column.key === 'detail'"><code>{{ detailText(record.detail) }}</code></template></template></a-table></a-card></a-tab-pane>
+      <a-tab-pane v-if="isAdmin" key="audit" tab="操作审计"><a-card title="登录与权限操作审计" class="panel-card"><a-table :columns="auditColumns" :data-source="audits" :loading="auditsLoading" row-key="id" size="small" :pagination="{ pageSize: 20 }" :scroll="{ x: 860 }"><template #bodyCell="{ column, record }"><template v-if="column.key === 'success'"><a-tag :color="record.success ? 'green' : 'red'">{{ record.success ? '成功' : '失败' }}</a-tag></template><template v-else-if="column.key === 'createdAt'">{{ formatTime(record.createdAt) }}</template><template v-else-if="column.key === 'detail'"><code>{{ detailText(record.detail) }}</code></template></template></a-table></a-card></a-tab-pane>
     </a-tabs>
 
     <a-modal v-model:open="createVisible" title="新增账号" width="760px" ok-text="创建账号" cancel-text="取消" :confirm-loading="creating" @ok="createAccount">
@@ -196,7 +196,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { DownOutlined, PlusOutlined, ReloadOutlined, SafetyCertificateOutlined, SearchOutlined } from '@ant-design/icons-vue'
 import { authApi, type AuthAudit, type AuthUser, type BusinessRole, type DataScopeResource, type DataScopeType, type DeletableAccount, type EmployeeBinding, type FunctionPermission, type MenuPermission, type RolePayload, type RosterEmployee } from '@/api/auth'
@@ -232,6 +232,9 @@ const dataScopeDescriptions: Record<DataScopeType, string> = {
 }
 
 const activeTab = ref('accounts')
+const auditsLoading = ref(false)
+const catalogsLoading = ref(false)
+const catalogsReady = ref(false)
 const authStore = useAuthStore()
 const isAdmin = computed(() => Boolean(authStore.user?.isAdmin))
 const deletableAccounts = ref<DeletableAccount[]>([])
@@ -295,19 +298,56 @@ const menuGroups = computed<MenuGroup[]>(() => {
   return [...groups.values()]
 })
 
+const loadAudits = async () => {
+  if (!isAdmin.value || auditsLoading.value) return
+  auditsLoading.value = true
+  try {
+    audits.value = await authApi.audits()
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '操作审计加载失败')
+  } finally {
+    auditsLoading.value = false
+  }
+}
+const loadCatalogs = async () => {
+  if (!isAdmin.value || catalogsLoading.value) return
+  catalogsLoading.value = true
+  try {
+    const [roleList, menus, permissions] = await Promise.all([
+      authApi.roles(), authApi.menuCatalog(), authApi.permissionCatalog(),
+    ])
+    roles.value = roleList
+    menuCatalog.value = menus
+    permissionCatalog.value = permissions
+    catalogsReady.value = true
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '权限目录加载失败')
+  } finally {
+    catalogsLoading.value = false
+  }
+}
+const requireCatalogs = () => {
+  if (catalogsReady.value) return true
+  message.warning(catalogsLoading.value ? '权限目录正在加载，请稍后再试' : '权限目录未加载，请先刷新')
+  return false
+}
 const load = async () => {
+  if (isAdmin.value) {
+    void loadCatalogs()
+    if (activeTab.value === 'audit') void loadAudits()
+  }
   loading.value = true
   try {
-    if (isAdmin.value) {
-      ;[users.value, audits.value, roles.value, menuCatalog.value, permissionCatalog.value] = await Promise.all([authApi.users(), authApi.audits(), authApi.roles(), authApi.menuCatalog(), authApi.permissionCatalog()])
-    } else {
-      deletableAccounts.value = await authApi.deletableAccounts()
-    }
+    if (isAdmin.value) users.value = await authApi.users()
+    else deletableAccounts.value = await authApi.deletableAccounts()
   } catch (error) {
-    message.error(error instanceof Error ? error.message : '账号与权限数据加载失败')
-  } finally { loading.value = false }
+    message.error(error instanceof Error ? error.message : '账号列表加载失败')
+  } finally {
+    loading.value = false
+  }
 }
-const openCreateAccount = () => { Object.assign(createForm, { username: '', displayName: '', email: '', initialPassword: '', isAdmin: false, roleCodes: [] }); createVisible.value = true }
+watch(activeTab, tab => { if (tab === 'audit') void loadAudits() })
+const openCreateAccount = () => { if (!requireCatalogs()) return; Object.assign(createForm, { username: '', displayName: '', email: '', initialPassword: '', isAdmin: false, roleCodes: [] }); createVisible.value = true }
 const createAccount = async () => { creating.value = true; try { await authApi.createUser({ ...createForm, roleCodes: [...createForm.roleCodes] }); message.success('账号创建成功，角色权限已生效'); createVisible.value = false; await load() } catch (error) { message.error(error instanceof Error ? error.message : '创建失败') } finally { creating.value = false } }
 const confirmDelete = (record: DeletableAccount) => {
   const dialog = Modal.confirm({
@@ -341,7 +381,7 @@ const openFromEdit = (open: (record: AuthUser) => void) => {
   editVisible.value = false
   open(editTarget.value)
 }
-const openRoles = (record: AuthUser) => { roleTarget.value = record; selectedRoleCodes.value = (record.businessRoles || []).map(role => role.code); roleVisible.value = true }
+const openRoles = (record: AuthUser) => { if (!requireCatalogs()) return; roleTarget.value = record; selectedRoleCodes.value = (record.businessRoles || []).map(role => role.code); roleVisible.value = true }
 const managedResource = ref<'smart_placement' | 'adm'>('smart_placement')
 let managedRequest = 0
 const loadManagedMembers = async () => { if (!managedTarget.value) return; const sequence = ++managedRequest; selectedManagedMemberIds.value = []; managedSaving.value = true; try { const result = await authApi.managedMembers(managedTarget.value.id, managedResource.value); if (sequence === managedRequest) selectedManagedMemberIds.value = result.memberUserIds } catch (error) { if (sequence === managedRequest) { managedVisible.value = false; message.error(error instanceof Error ? error.message : '管理成员加载失败') } } finally { if (sequence === managedRequest) managedSaving.value = false } }
@@ -355,7 +395,7 @@ const toggleAssignedRole = (roleCode: string, event: { target?: { checked?: bool
   if (eventChecked(event)) selectedRoleCodes.value = [...new Set([...selectedRoleCodes.value, roleCode])]
   else selectedRoleCodes.value = selectedRoleCodes.value.filter(code => code !== roleCode)
 }
-const openPersonalPermissions = (record: AuthUser) => { permissionTarget.value = record; for (const item of permissionCatalog.value) personalOverrides[item.code] = record.permissionOverrides?.[item.code] || 'INHERIT'; permissionVisible.value = true }
+const openPersonalPermissions = (record: AuthUser) => { if (!requireCatalogs()) return; permissionTarget.value = record; for (const item of permissionCatalog.value) personalOverrides[item.code] = record.permissionOverrides?.[item.code] || 'INHERIT'; permissionVisible.value = true }
 const savePersonalPermissions = async () => { if (!permissionTarget.value) return; permissionSaving.value = true; try { const overrides: Record<string, 'ALLOW' | 'DENY'> = {}; for (const [code, state] of Object.entries(personalOverrides)) if (state === 'ALLOW' || state === 'DENY') overrides[code] = state; await authApi.updateUserPermissions(permissionTarget.value.id, overrides); message.success('个人权限已更新'); permissionVisible.value = false; await load() } catch (error) { message.error(error instanceof Error ? error.message : '个人权限更新失败') } finally { permissionSaving.value = false } }
 const saveEdit = async () => {
   if (!editTarget.value || editing.value || !editDirty.value) return
@@ -375,8 +415,8 @@ const resetRoleForm = () => Object.assign(roleForm, { roleCode: '', name: '', de
 const applyRoleTemplate = (template: RoleTemplate) => { selectedTemplate.value = template.key; Object.assign(roleForm, { roleCode: template.code, name: template.name.replace('类', ''), description: template.description, isActive: true, menuCodes: [...template.menuCodes], permissions: [...template.permissions], dataScopes: { ...template.dataScopes } }) }
 const rolePayload = (): RolePayload => ({ ...roleForm, menuCodes: [...roleForm.menuCodes], permissions: [...roleForm.permissions], dataScopes: { ...roleForm.dataScopes } })
 const rememberRole = () => { originalRole.value = rolePayload() }
-const openCreateRole = () => { returnToRoleAssignment.value = false; editingRoleCode.value = ''; resetRoleForm(); applyRoleTemplate(roleTemplates[2]); rememberRole(); roleEditorVisible.value = true }
-const openEditRole = (role: BusinessRole) => { returnToRoleAssignment.value = false; editingRoleCode.value = role.code; Object.assign(roleForm, { roleCode: role.code, name: role.name, description: role.description, isActive: Boolean(role.isActive), menuCodes: [...(role.menuCodes || [])], permissions: [...(role.permissions || [])], dataScopes: { ...defaultDataScopes(), ...(role.dataScopes || {}) } }); rememberRole(); roleEditorVisible.value = true }
+const openCreateRole = () => { if (!requireCatalogs()) return; returnToRoleAssignment.value = false; editingRoleCode.value = ''; resetRoleForm(); applyRoleTemplate(roleTemplates[2]); rememberRole(); roleEditorVisible.value = true }
+const openEditRole = (role: BusinessRole) => { if (!requireCatalogs()) return; returnToRoleAssignment.value = false; editingRoleCode.value = role.code; Object.assign(roleForm, { roleCode: role.code, name: role.name, description: role.description, isActive: Boolean(role.isActive), menuCodes: [...(role.menuCodes || [])], permissions: [...(role.permissions || [])], dataScopes: { ...defaultDataScopes(), ...(role.dataScopes || {}) } }); rememberRole(); roleEditorVisible.value = true }
 const editRoleFromAssignment = (role: BusinessRole) => { roleVisible.value = false; openEditRole(role); returnToRoleAssignment.value = true }
 const closeRoleEditor = () => { roleEditorVisible.value = false; if (returnToRoleAssignment.value) { returnToRoleAssignment.value = false; roleVisible.value = true } }
 const resetRoleChanges = () => { Object.assign(roleForm, { ...originalRole.value, menuCodes: [...originalRole.value.menuCodes], permissions: [...originalRole.value.permissions], dataScopes: { ...originalRole.value.dataScopes } }) }

@@ -377,136 +377,144 @@ class MySqlAuthStore:
         return bool(getattr(error, "args", ())) and error.args[0] == 1146
 
     def _with_access(self, user: dict[str, Any] | None) -> dict[str, Any] | None:
-        if not user:
-            return None
-        connection = None
-        try:
-            import pymysql
+        return self._with_access_batch([user])[0] if user else None
 
-            connection = self.source.connect()
+    def _with_access_batch(self, users: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not users:
+            return []
+        import pymysql
+
+        user_ids = tuple(int(user["id"]) for user in users)
+        placeholders = ",".join(["%s"] * len(user_ids))
+        connection = self.source.connect()
+        try:
             with connection.cursor(pymysql.cursors.DictCursor) as cursor:
-                cursor.execute(
+                def group(query: str, *, optional: bool = False) -> tuple[dict[int, list[dict[str, Any]]], bool]:
+                    try:
+                        cursor.execute(query.format(ids=placeholders), user_ids)
+                    except Exception as error:
+                        if not optional or not self._missing_rbac(error):
+                            raise
+                        return {}, False
+                    by_user: dict[int, list[dict[str, Any]]] = {}
+                    for row in cursor.fetchall():
+                        by_user.setdefault(int(row["user_id"]), []).append(row)
+                    return by_user, True
+
+                access, _ = group(
                     """
-                    SELECT r.role_code, r.role_name, r.description, rp.permission_code
+                    SELECT ur.user_id, r.role_code, r.role_name, r.description, rp.permission_code
                     FROM sys_user_role ur
                     JOIN sys_role r ON r.id = ur.role_id AND r.is_active = 1
                     LEFT JOIN sys_role_permission rp ON rp.role_id = r.id
-                    WHERE ur.user_id = %s ORDER BY r.id, rp.permission_code
+                    WHERE ur.user_id IN ({ids}) ORDER BY ur.user_id, r.id, rp.permission_code
                     """,
-                    (int(user["id"]),),
                 )
-                access_rows = [dict(row) for row in cursor.fetchall()]
-                role_menu_configured = True
-                try:
-                    cursor.execute(
-                        """
-                        SELECT DISTINCT rm.menu_code
-                        FROM sys_user_role ur
-                        JOIN sys_role r ON r.id = ur.role_id AND r.is_active = 1
-                        JOIN sys_role_menu rm ON rm.role_id = r.id
-                        WHERE ur.user_id = %s ORDER BY rm.menu_code
-                        """,
-                        (int(user["id"]),),
-                    )
-                    role_menus = {str(row["menu_code"]) for row in cursor.fetchall()}
-                except Exception as error:
-                    if not self._missing_rbac(error):
-                        raise
-                    role_menu_configured = False
-                    role_menus = set()
-                try:
-                    cursor.execute(
-                        "SELECT menu_code FROM sys_user_menu WHERE user_id=%s ORDER BY id",
-                        (int(user["id"]),),
-                    )
-                    direct_menus = {str(row["menu_code"]) for row in cursor.fetchall()}
-                except Exception as error:
-                    if not self._missing_rbac(error):
-                        raise
-                    direct_menus = set()
-                try:
-                    cursor.execute(
-                        "SELECT permission_code, effect FROM sys_user_permission WHERE user_id=%s ORDER BY permission_code",
-                        (int(user["id"]),),
-                    )
-                    permission_overrides = {
-                        str(row["permission_code"]): str(row["effect"]).upper()
-                        for row in cursor.fetchall()
-                    }
-                except Exception as error:
-                    if not self._missing_rbac(error):
-                        raise
-                    permission_overrides = {}
-                try:
-                    cursor.execute(
-                        """
-                        SELECT rds.resource_code, rds.scope_type
-                        FROM sys_user_role ur
-                        JOIN sys_role r ON r.id=ur.role_id AND r.is_active=1
-                        JOIN sys_role_data_scope rds ON rds.role_id=r.id
-                        WHERE ur.user_id=%s
-                        ORDER BY rds.resource_code
-                        """,
-                        (int(user["id"]),),
-                    )
-                    data_scope_rows = [dict(row) for row in cursor.fetchall()]
-                except Exception as error:
-                    if not self._missing_rbac(error):
-                        raise
-                    data_scope_rows = []
-            roles_by_code: dict[str, dict[str, str]] = {}
-            role_permissions: set[str] = set()
-            for row in access_rows:
-                roles_by_code.setdefault(
-                    row["role_code"],
-                    {"code": row["role_code"], "name": row["role_name"], "description": row.get("description") or ""},
+                role_menus, role_menu_configured = group(
+                    """
+                    SELECT DISTINCT ur.user_id, rm.menu_code
+                    FROM sys_user_role ur
+                    JOIN sys_role r ON r.id = ur.role_id AND r.is_active = 1
+                    JOIN sys_role_menu rm ON rm.role_id = r.id
+                    WHERE ur.user_id IN ({ids}) ORDER BY ur.user_id, rm.menu_code
+                    """, optional=True,
                 )
-                if row.get("permission_code"):
-                    role_permissions.add(row["permission_code"])
-            allowed_permissions = {
-                code for code, effect in permission_overrides.items() if effect == "ALLOW"
-            }
-            denied_permissions = {
-                code for code, effect in permission_overrides.items() if effect == "DENY"
-            }
-            permissions = (role_permissions | allowed_permissions) - denied_permissions
-            data_scopes: dict[str, str] = {}
-            for row in data_scope_rows:
-                resource = str(row["resource_code"])
-                scope = str(row["scope_type"]).upper()
-                if scope not in DATA_SCOPE_TYPES:
-                    continue
-                if DATA_SCOPE_RANK[scope] > DATA_SCOPE_RANK.get(data_scopes.get(resource, ""), 0):
-                    data_scopes[resource] = scope
-            permission_menus = {
-                row["menuCode"] for row in PERMISSION_CATALOG
-                if row["code"] in permissions
-            }
-            return {
-                **user,
-                "business_roles": list(roles_by_code.values()),
-                "permissions": sorted(permissions),
-                "role_permissions": sorted(role_permissions),
-                "permission_overrides": permission_overrides,
-                "data_scopes": data_scopes,
-                "menu_codes": effective_menu_codes(
-                    role_menus | direct_menus | permission_menus
-                ),
-                "direct_menu_codes": sorted(direct_menus),
-                "rbac_configured": role_menu_configured,
-            }
+                direct_menus, _ = group(
+                    """
+                    SELECT user_id, menu_code FROM sys_user_menu WHERE user_id IN ({ids}) ORDER BY user_id, id
+                    """, optional=True,
+                )
+                overrides, _ = group(
+                    """
+                    SELECT user_id, permission_code, effect FROM sys_user_permission WHERE user_id IN ({ids}) ORDER BY user_id, permission_code
+                    """, optional=True,
+                )
+                scopes, _ = group(
+                    """
+                    SELECT ur.user_id, rds.resource_code, rds.scope_type
+                    FROM sys_user_role ur
+                    JOIN sys_role r ON r.id=ur.role_id AND r.is_active=1
+                    JOIN sys_role_data_scope rds ON rds.role_id=r.id
+                    WHERE ur.user_id IN ({ids})
+                    ORDER BY ur.user_id, rds.resource_code
+                    """, optional=True,
+                )
+
         except Exception as error:
             if not self._missing_rbac(error):
                 raise
-            return {
-                **user, "business_roles": [], "permissions": [],
-                "role_permissions": [], "permission_overrides": {},
-                "data_scopes": {},
-                "menu_codes": [], "direct_menu_codes": [], "rbac_configured": False,
-            }
+            return [
+                {
+                    **user, "business_roles": [], "permissions": [], "role_permissions": [],
+                    "permission_overrides": {}, "data_scopes": {}, "menu_codes": [],
+                    "direct_menu_codes": [], "rbac_configured": False,
+                }
+                for user in users
+            ]
         finally:
-            if connection is not None:
-                connection.close()
+            connection.close()
+
+        return [
+            self._assemble_access(
+                user, access.get(user_id, []),
+                {str(row["menu_code"]) for row in role_menus.get(user_id, [])},
+                {str(row["menu_code"]) for row in direct_menus.get(user_id, [])},
+                {
+                    str(row["permission_code"]): str(row["effect"]).upper()
+                    for row in overrides.get(user_id, [])
+                },
+                scopes.get(user_id, []), role_menu_configured,
+            )
+            for user, user_id in zip(users, user_ids)
+        ]
+
+    @staticmethod
+    def _assemble_access(
+        user: dict[str, Any], access_rows: list[dict[str, Any]],
+        role_menus: set[str], direct_menus: set[str], permission_overrides: dict[str, str],
+        data_scope_rows: list[dict[str, Any]], role_menu_configured: bool,
+    ) -> dict[str, Any]:
+        roles_by_code: dict[str, dict[str, str]] = {}
+        role_permissions: set[str] = set()
+        for row in access_rows:
+            roles_by_code.setdefault(
+                row["role_code"],
+                {"code": row["role_code"], "name": row["role_name"], "description": row.get("description") or ""},
+            )
+            if row.get("permission_code"):
+                role_permissions.add(row["permission_code"])
+        allowed_permissions = {
+            code for code, effect in permission_overrides.items() if effect == "ALLOW"
+        }
+        denied_permissions = {
+            code for code, effect in permission_overrides.items() if effect == "DENY"
+        }
+        permissions = (role_permissions | allowed_permissions) - denied_permissions
+        data_scopes: dict[str, str] = {}
+        for row in data_scope_rows:
+            resource = str(row["resource_code"])
+            scope = str(row["scope_type"]).upper()
+            if scope not in DATA_SCOPE_TYPES:
+                continue
+            if DATA_SCOPE_RANK[scope] > DATA_SCOPE_RANK.get(data_scopes.get(resource, ""), 0):
+                data_scopes[resource] = scope
+        permission_menus = {
+            row["menuCode"] for row in PERMISSION_CATALOG
+            if row["code"] in permissions
+        }
+        return {
+            **user,
+            "business_roles": list(roles_by_code.values()),
+            "permissions": sorted(permissions),
+            "role_permissions": sorted(role_permissions),
+            "permission_overrides": permission_overrides,
+            "data_scopes": data_scopes,
+            "menu_codes": effective_menu_codes(
+                role_menus | direct_menus | permission_menus
+            ),
+            "direct_menu_codes": sorted(direct_menus),
+            "rbac_configured": role_menu_configured,
+        }
 
     @staticmethod
     def _fetchone_from(
@@ -716,7 +724,12 @@ class MySqlAuthStore:
 
     def list_users(self) -> list[dict[str, Any]]:
         rows = self._fetchall(f"{self.USER_SELECT} WHERE d.user_id IS NULL ORDER BY u.id")
-        return [self._with_access(row) or row for row in rows]
+        batch_size = 500
+        return [
+            user
+            for start in range(0, len(rows), batch_size)
+            for user in self._with_access_batch(rows[start:start + batch_size])
+        ]
 
     def list_deletable_users(self, actor_id: int) -> list[dict[str, Any]]:
         return self._fetchall(
