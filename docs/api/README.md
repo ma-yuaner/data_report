@@ -22,7 +22,7 @@
 | [上传说明](../business/air_ticketing/risk-data-upload.md) / [行为监控](../product/user-behavior-monitoring-v1.md) | 上传队列和行为采集 |
 
 <!-- BEGIN:API_ROUTES -->
-共 **244个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
+共 **245个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
 
 <a id="auth"></a>
 
@@ -316,6 +316,7 @@
 | `POST` | `/api/v1/adm/operator-imports` | [admwf_operator_import](../../backend/data_report_api/api/admwf.py) |
 | `GET` | `/api/v1/adm/reference-options/<kind>` | [admwf_reference_options](../../backend/data_report_api/api/admwf.py) |
 | `GET` | `/api/v1/adm/workbench` | [admwf_workbench](../../backend/data_report_api/api/admwf.py) |
+| `GET` | `/api/v1/adm/workbench/queue` | [admwf_workbench_queue](../../backend/data_report_api/api/admwf.py) |
 
 <a id="missed_orders"></a>
 

@@ -470,12 +470,17 @@ class AdmWorkflowService:
         return _json_value(self.catalog.fx(code))
 
     @staticmethod
-    def _ledger_query(query, default_metric):
+    def _page_params(query):
         try:
             page = max(1, int(query.get("page", 1)))
             page_size = min(100, max(1, int(query.get("pageSize", 20))))
         except (TypeError, ValueError):
             raise AdmError("分页参数无效") from None
+        return page, page_size
+
+    @staticmethod
+    def _ledger_query(query, default_metric):
+        page, page_size = AdmWorkflowService._page_params(query)
         metric = str(query.get("metric") or default_metric)
         if metric not in {default_metric, "pending", "open", "soon", "late"}:
             raise AdmError("台账指标参数无效")
@@ -500,10 +505,9 @@ class AdmWorkflowService:
         filters, page, page_size = self._ledger_query(query, "all")
         return _json_value(self.repository.list_ledger_lines(filters, page, page_size))
 
-    def workbench(self, user):
-        require(user, "adm.view")
-        getattr(self.repository, "mark_due_recoveries", lambda: 0)()
-        capabilities = {
+    @staticmethod
+    def _workbench_capabilities(user):
+        return {
             "assignLeader": has(user, "adm.assign_leader") or has(user, "adm.review"),
             "assignOperator": has(user, "adm.assign_operator") or has(user, "adm.assign"),
             "handle": has(user, "adm.handle"),
@@ -512,9 +516,27 @@ class AdmWorkflowService:
             "collection": has(user, "adm.collection") or has(user, "adm.review"),
             "close": has(user, "adm.close") or has(user, "adm.review"),
         }
+    def workbench(self, user):
+        require(user, "adm.view")
+        getattr(self.repository, "mark_due_recoveries", lambda: 0)()
+        capabilities = self._workbench_capabilities(user)
         actor = self._actor(user)
         return _json_value(self.repository.list_workbench(
             actor["id"], capabilities, is_admin=bool(user.get("is_admin")),
+        ))
+
+    def workbench_queue(self, user, query):
+        require(user, "adm.view")
+        queue = str(query.get("queue") or "")
+        if queue not in {"close", "transfer"}:
+            raise AdmError("工作台清单类型无效")
+        status = str(query.get("status") or "pending")
+        if status not in {"pending", "all"}:
+            raise AdmError("转派筛选无效")
+        page, page_size = self._page_params(query)
+        return _json_value(self.repository.list_workbench_queue(
+            self._actor(user)["id"], self._workbench_capabilities(user), queue, page, page_size,
+            pending_only=status == "pending",
         ))
 
     def assign_operator(self, user, case_id, line_id, body):

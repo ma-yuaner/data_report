@@ -19,7 +19,7 @@
             v-for="item in workMetrics"
             :key="item.key"
             :class="{ selected: workMetric === item.key }"
-            @click="selectWorkMetric(item.key)"
+            @click="openWorkMetric(item.key)"
           >
             <span>{{ item.title }}</span
             ><strong>{{ item.value }}</strong>
@@ -158,14 +158,24 @@
                   <td>
                     <span :class="['pill', statusTone(record.caseStatus)]">● {{ label(record.caseStatus) }}</span>
                   </td>
-                  <td>{{ blockerText(record.id) }}</td>
+                  <td>{{ blockerText(record) }}</td>
                   <td>
                     <span :class="['pill', riskTone(record)]">{{ riskText(record) }}</span>
                   </td>
                   <td>{{ dateText(record.updatedAt) }}</td>
                   <td>
                     <div class="record-actions master-record-actions">
-                      <button class="primary" @click="openCase(record)">{{ canEditMasterRow(record) ? '编辑完整处理记录' : '查看完整处理记录' }}</button>
+                      <a-button type="primary" @click="openCase(record)">{{ ledgerDetailText(record) }}</a-button>
+                      <a-dropdown v-if="ledgerStages(record).length > 1" :trigger="['click']">
+                        <a-button>按阶段查看</a-button>
+                        <template #overlay>
+                          <a-menu @click="({ key }: { key: string | number }) => openCase(record, String(key))">
+                            <a-menu-item v-for="stage in ledgerStages(record)" :key="stage.status">
+                              {{ stage.title }}（{{ stage.count }}）
+                            </a-menu-item>
+                          </a-menu>
+                        </template>
+                      </a-dropdown>
                     </div>
                   </td>
                 </tr>
@@ -190,6 +200,71 @@
         </div>
       </section>
     </main>
+
+    <a-modal
+      v-if="isWorkbench"
+      :open="!!workQueue"
+      :title="workQueue === 'close' ? '可以结案的主单' : '我的转派申请'"
+      :footer="null"
+      :width="900"
+      @cancel="closeWorkQueue"
+    >
+      <a-radio-group
+        v-if="workQueue === 'transfer'"
+        v-model:value="queueStatus"
+        :disabled="queueLoading"
+        @change="resetWorkQueuePage"
+      >
+        <a-radio-button value="pending">待确认</a-radio-button>
+        <a-radio-button value="all">全部记录</a-radio-button>
+      </a-radio-group>
+      <a-alert v-if="queueError" type="error" show-icon :message="queueError">
+        <template #action><a-button size="small" @click="loadWorkQueue">重试</a-button></template>
+      </a-alert>
+      <a-table
+        :columns="queueColumns"
+        :data-source="queueRows"
+        :row-key="(row: Fields) => row.transferId || row.caseId"
+        :loading="queueLoading"
+        :locale="{ emptyText: queueError ? '读取失败' : '当前没有符合条件的记录' }"
+        :pagination="false"
+        :scroll="{ x: workQueue === 'transfer' ? 760 : 540 }"
+        size="small"
+      >
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'identity'">
+            <strong>{{ record.admNo || record.internalNo }}</strong>
+            <div>{{ record.lineInternalNo || record.internalNo }}</div>
+          </template>
+          <template v-else-if="column.key === 'operators'">
+            {{ record.fromOperatorName }} → {{ record.toOperatorName }}
+            <div>申请人 {{ record.requestedByName }}</div>
+          </template>
+          <template v-else-if="column.key === 'status'">
+            {{ transferStatusText(record) }}
+            <div v-if="record.decidedAt">{{ record.decidedByName }} · {{ dateText(record.decidedAt) }}</div>
+            <div v-if="record.decisionReason">{{ record.decisionReason }}</div>
+          </template>
+          <template v-else-if="column.key === 'date'">{{ dateText(record.requestedAt || record.replyDeadline) }}</template>
+          <template v-else-if="column.key === 'action'">
+            <a-button type="link" @click="openQueueRecord(record)">
+              {{ workQueue === 'close' ? '前往结案' : '查看明细' }}
+            </a-button>
+          </template>
+        </template>
+      </a-table>
+      <div v-if="queueTotal" class="v05-pager">
+        <a-pagination
+          v-model:current="queuePage"
+          :page-size="20"
+          :total="queueTotal"
+          :show-size-changer="false"
+          :disabled="queueLoading"
+          :show-total="recordTotalText"
+          @change="loadWorkQueue"
+        />
+      </div>
+    </a-modal>
 
     <AdmMasterBasicModal :open="masterInfoOpen" :detail="selectedMasterDetail" :editable="selectedMasterEditable" @close="masterInfoOpen = false" @saved="masterInfoSaved" />
 
@@ -698,7 +773,7 @@ const availableRoles = computed(() => {
   if (auth.user?.isAdmin) return ['ADM负责人', '组长', '操作人员']
   const p = config.value?.permissions,
     roles: string[] = []
-  if (p?.review || p?.create || p?.collection || p?.close || p?.assignLeader) roles.push('ADM负责人')
+  if (p?.review || p?.create || p?.collection || p?.diffMatch || p?.close || p?.assignLeader) roles.push('ADM负责人')
   if (p?.assign || p?.assignOperator) roles.push('组长')
   if (p?.handle) roles.push('操作人员')
   return roles
@@ -775,22 +850,15 @@ const workMetrics = computed(() => {
     items.push(
       { key: 'assignLeader', title: '待分配组长', value: tasks.value.filter((t) => t.kind === 'assignLeader').length },
       { key: 'review', title: '待审核', value: tasks.value.filter((t) => t.kind === 'review').length },
+      { key: 'diff', title: '待匹配差异单', value: tasks.value.filter((t) => t.kind === 'diff').length },
       { key: 'collection', title: '待回款跟进', value: tasks.value.filter((t) => t.kind === 'collection').length },
-      {
-        key: 'close',
-        title: '可以结案',
-        value: Number(workbenchSummary.value.closableCaseCount || 0),
-      },
     )
+  if (auth.user?.isAdmin || config.value?.permissions.close)
+    items.push({ key: 'close', title: '可以结案', value: Number(workbenchSummary.value.closableCaseCount || 0) })
   if (availableRoles.value.includes('组长'))
-    items.push(
-      { key: 'assign', title: '待分配操作员', value: tasks.value.filter((t) => t.kind === 'assign').length },
-      {
-        key: 'transfer',
-        title: '转派申请',
-        value: Number(workbenchSummary.value.pendingTransferCount || 0),
-      },
-    )
+    items.push({ key: 'assign', title: '待分配操作员', value: tasks.value.filter((t) => t.kind === 'assign').length })
+  if (availableRoles.value.some((role) => role === '组长' || role === '操作人员'))
+    items.push({ key: 'transfer', title: '转派申请', value: Number(workbenchSummary.value.pendingTransferCount || 0) })
   if (availableRoles.value.includes('操作人员'))
     items.push(
       { key: 'transferAccept', title: '待确认转派', value: tasks.value.filter((t) => t.kind === 'transferAccept').length },
@@ -818,8 +886,7 @@ const visibleTasks = computed(() => {
   if (['soon', 'late'].includes(workMetric.value)) return tasks.value.filter((t) => dueKind(t) === workMetric.value)
   if (workMetric.value === 'codeReminder') return tasks.value.filter((t) => t.recoveryStatus === 'REMINDER_DUE')
   if (workMetric.value === 'appeal') return tasks.value.filter((t) => t.appealStatus === 'IN_PROGRESS')
-  const aliases: Fields = { close: 'close' }
-  return tasks.value.filter((t) => t.kind === (aliases[workMetric.value] || workMetric.value))
+  return tasks.value.filter((t) => t.kind === workMetric.value)
 })
 const workPageSize = 20
 const requestedWorkPage = Number(route.query.page)
@@ -827,7 +894,75 @@ const workPage = ref(Number.isSafeInteger(requestedWorkPage) && requestedWorkPag
 const pagedTasks = computed(() =>
   visibleTasks.value.slice((workPage.value - 1) * workPageSize, workPage.value * workPageSize),
 )
-function selectWorkMetric(key: string) {
+const workQueue = ref<'close' | 'transfer' | null>(null)
+const queueStatus = ref<'pending' | 'all'>('pending')
+const queuePage = ref(1)
+const queueTotal = ref(0)
+const queueRows = ref<Fields[]>([])
+const queueLoading = ref(false)
+const queueError = ref('')
+let queueRequest = 0
+const queueColumns = computed(() => [
+  { title: 'ADM / 内部单号', key: 'identity' },
+  ...(workQueue.value === 'transfer'
+    ? [{ title: '承办人变更', key: 'operators' }, { title: '处理结果', key: 'status' }]
+    : []),
+  { title: workQueue.value === 'transfer' ? '申请时间' : '处理截止', key: 'date' },
+  { title: '操作', key: 'action' },
+])
+function transferStatusText(row: Fields) {
+  if (row.transferStatus === 'PENDING') return row.actionable ? '待目标操作员确认' : '待确认 · 当前状态不可处理'
+  return ({ ACCEPTED: '已接受', REJECTED: '已拒绝' } as Record<string, string>)[row.transferStatus] || label(row.transferStatus)
+}
+async function loadWorkQueue() {
+  const queue = workQueue.value
+  if (!queue) return
+  const seq = ++queueRequest
+  queueLoading.value = true
+  queueError.value = ''
+  queueRows.value = []
+  try {
+    const result = await admApi.workbenchQueue({
+      queue, status: queueStatus.value, page: queuePage.value, pageSize: 20,
+    })
+    if (seq !== queueRequest) return
+    queueRows.value = result.items
+    queueTotal.value = result.pagination.total
+    const lastPage = Math.max(1, Math.ceil(queueTotal.value / 20))
+    if (queuePage.value > lastPage) {
+      queuePage.value = lastPage
+      await loadWorkQueue()
+    }
+  } catch (e) {
+    if (seq === queueRequest) queueError.value = errorText(e)
+  } finally {
+    if (seq === queueRequest) queueLoading.value = false
+  }
+}
+function resetWorkQueuePage() {
+  queuePage.value = 1
+  queueTotal.value = 0
+  void loadWorkQueue()
+}
+function closeWorkQueue() {
+  workQueue.value = null
+  queueRequest++
+}
+function openQueueRecord(row: Fields) {
+  if (workQueue.value === 'transfer') openTask({ ...row, kind: 'transferHistory' })
+  else void router.push({
+    path: `/adm/cases/${row.caseId}`,
+    query: { returnPage: String(workPage.value), ...(workMetric.value ? { returnMetric: workMetric.value } : {}) },
+  })
+  closeWorkQueue()
+}
+function openWorkMetric(key: string) {
+  if (key === 'close' || key === 'transfer') {
+    workQueue.value = key
+    queueStatus.value = 'pending'
+    resetWorkQueuePage()
+    return
+  }
   workMetric.value = workMetric.value === key ? '' : key
   workPage.value = 1
 }
@@ -1110,22 +1245,36 @@ function stageSummary(row: AdmCaseRow) {
     { label: '完成', count: Number(row.completedLineCount || 0) },
   ].filter((item) => item.count)
 }
-function blockerText(id: number) {
-  const row = rows.value.find((item) => Number(item.id) === Number(id))
-  if (!row || !openLineCount(row)) return '全部有效订单已完成'
+function ledgerStages(row: AdmCaseRow) {
+  if (row.caseStatus !== 'ACTIVE') return []
   return [
-    ['待分配组长', Number(row.pendingLeaderCount || 0)],
-    ['待分配操作员', Number(row.pendingOperatorCount || 0)],
-    ['待接单', Number(row.pendingAcceptCount || 0)],
-    ['办理中', Number(row.processingCount || 0)],
-    ['待负责人审核', Number(row.pendingReviewCount || 0)],
-    ['待匹配差异单', Number(row.waitingDiffCount || 0)],
-    ['待回款', Number(row.waitingCollectionCount || 0)],
-  ]
-    .filter(([, count]) => Number(count) > 0)
-    .slice(0, 2)
-    .map(([name, count]) => `${count}笔${name}`)
-    .join('；')
+    { status: 'PENDING_LEADER', title: '待分配组长', count: Number(row.pendingLeaderCount || 0) },
+    { status: 'PENDING_OPERATOR', title: '待分配操作员', count: Number(row.pendingOperatorCount || 0) },
+    { status: 'PENDING_ACCEPT', title: '待接单', count: Number(row.pendingAcceptCount || 0) },
+    { status: 'PROCESSING', title: '办理中', count: Number(row.processingCount || 0) },
+    { status: 'PENDING_REVIEW', title: '待负责人审核', count: Number(row.pendingReviewCount || 0) },
+    { status: 'WAITING_DIFF', title: '待匹配差异单', count: Number(row.waitingDiffCount || 0) },
+    { status: 'WAITING_COLLECTION', title: '待回款', count: Number(row.waitingCollectionCount || 0) },
+  ].filter((stage) => stage.count > 0)
+}
+function ledgerDetailText(row: AdmCaseRow) {
+  if (row.caseStatus === 'DRAFT') return '草稿详情'
+  if (row.caseStatus !== 'ACTIVE') return 'ADM 详情'
+  const stages = ledgerStages(row)
+  if (stages.length === 1) return `查看${stages[0].title}明细`
+  if (!stages.length && canCloseLedgerCase(row)) return '查看结案'
+  return '订单明细'
+}
+function canCloseLedgerCase(row: AdmCaseRow) {
+  return Number(row.lineCount) > 0 && !!config.value?.permissions.close &&
+    Number(row.coordinatorId) === myId.value && !openLineCount(row)
+}
+function blockerText(row: AdmCaseRow) {
+  if (row.caseStatus !== 'ACTIVE') return '—'
+  if (!Number(row.lineCount)) return '暂无订单明细'
+  const stages = ledgerStages(row)
+  if (!stages.length) return openLineCount(row) ? '存在未完成明细' : '全部有效订单已完成'
+  return stages.slice(0, 2).map(({ title, count }) => `${count}笔${title}`).join('；')
 }
 function riskText(r: AdmCaseRow) {
   if (!r.replyDeadline) return '未设期限'
@@ -1141,9 +1290,10 @@ function statusTone(s: string) {
 function showMasterReadOnlyNotice(record: AdmCaseRow) {
   void message.warning(`当前账号不是该主单ADM负责人，只能查看。如需修改，请联系ADM负责人${record.coordinatorName ? `“${record.coordinatorName}”` : ''}。`)
 }
-function openCase(record: AdmCaseRow) {
-  if (!canEditMasterRow(record)) showMasterReadOnlyNotice(record)
-  void router.push(`/adm/cases/${record.id}`)
+function openCase(record: AdmCaseRow, status?: string) {
+  const stages = ledgerStages(record)
+  const lineStatus = status || (stages.length === 1 ? stages[0].status : undefined)
+  void router.push({ path: `/adm/cases/${record.id}`, query: { lineStatus } })
 }
 function canEditMasterRow(record: AdmCaseRow) {
   const allowed = !!(
@@ -1390,6 +1540,7 @@ watch(() => route.name, (name) => {
   ordersRequest++
   globalOrdersOpen.value = false
   orderMetric.value = ''
+  closeWorkQueue()
   void load()
 }, { immediate: true })
 watch([workPage, workMetric], ([currentPage, currentMetric]) => {
@@ -1411,6 +1562,7 @@ watch(() => route.name === 'adm-cases' && route.query.create === '1', async (cre
   }
 }, { immediate: true })
 onBeforeUnmount(() => {
+  queueRequest++
   request++
   ordersRequest++
 })
