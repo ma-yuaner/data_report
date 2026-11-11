@@ -7,16 +7,16 @@
       <div v-if="editable" class="v05-form-grid prototype-edit-grid">
         <label>系统主单ID<a-input :value="detail.case.internalNo" readonly /></label>
         <label>当前状态<a-input :value="label(detail.case.caseStatus)" readonly /></label>
-        <label>ADM单号 *<a-input v-model:value="form.admNo" /></label>
-        <label>下发方类型 *<a-select v-model:value="form.issuerType" :options="issuerTypes" @change="issuerChanged" /></label>
-        <label v-if="form.issuerType === 'AIRLINE'" class="wide">下发方名称 *<a-input v-model:value="form.issuerName" /></label>
-        <label v-else class="wide">下发方名称 *<a-select v-model:value="form.issuerCode" show-search :filter-option="filterOption" :options="issuerOptions" @change="issuerSelected" /></label>
+        <label><span class="form-field-label">ADM单号 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.admNo" /></label>
+        <label><span class="form-field-label">下发方类型 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true" v-model:value="form.issuerType" :options="issuerTypes" @change="issuerChanged" /></label>
+        <label v-if="form.issuerType === 'AIRLINE'" class="wide"><span class="form-field-label">下发方名称 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.issuerName" /></label>
+        <label v-else class="wide"><span class="form-field-label">下发方名称 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true" v-model:value="form.issuerCode" show-search :filter-option="filterOption" :options="issuerOptions" @change="issuerSelected" /></label>
         <label>ADM负责人<a-input :value="detail.case.coordinatorName || '—'" readonly /></label>
         <label>原币币种<a-input :value="detail.case.currency" readonly /></label>
         <label>原币总金额<a-input :value="`${detail.case.currency} ${detail.case.originalAmount}`" readonly /></label>
         <label>人民币总金额<a-input :value="`¥ ${detail.case.cnyAmount}`" readonly /></label>
-        <label>下发日期 *<a-input v-model:value="form.issuedDate" type="date" /></label>
-        <label>主单回复截止时间 *<a-input v-model:value="form.replyDeadline" type="datetime-local" /></label>
+        <label><span class="form-field-label">下发日期 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.issuedDate" type="date" /></label>
+        <label><span class="form-field-label">主单回复截止时间 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.replyDeadline" type="datetime-local" /></label>
         <label class="wide">主单备注<a-textarea v-model:value="form.remark" :rows="3" /></label>
       </div>
       <div v-else class="basic-info-grid">
