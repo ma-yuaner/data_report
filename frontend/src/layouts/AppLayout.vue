@@ -335,9 +335,16 @@ const canExport = computed(
     Boolean(authStore.user?.menuCodes?.some((code) => exportMenuCodes.has(code))),
 )
 watch(
-  canExport,
-  (allowed) => {
-    if (allowed) exportStore.startPolling()
+  [canExport, () => exportStore.drawerOpen],
+  ([allowed, open], [wasAllowed, wasOpen]) => {
+    if (allowed && (!wasAllowed || (open && !wasOpen))) void exportStore.refresh()
+  },
+  { immediate: true },
+)
+watch(
+  () => canExport.value && exportStore.activeCount > 0,
+  (shouldPoll) => {
+    if (shouldPoll) exportStore.startPolling()
     else exportStore.stopPolling()
   },
   { immediate: true },
