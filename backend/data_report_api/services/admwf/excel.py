@@ -6,7 +6,7 @@ from pathlib import Path
 import os
 from zipfile import BadZipFile, ZipFile
 
-from .policy import AdmError
+from .policy import APPEAL_TARGETS, AdmError
 
 
 HEADERS = (
@@ -360,6 +360,7 @@ class AdmDailyWorkbook:
                 (24, ["需要恢复编码", "无需恢复编码"] if recovery == "UNDECIDED" else []),
                 (27, ["已查看并处理"] if recovery in {"WAITING", "REMINDER_DUE"} else []),
                 (28, _operator_actions(item)),
+                (30, list(APPEAL_TARGETS.values()) if not correction_only else []),
                 (32, ["人为问题", "平台问题", "系统问题"] if not correction_only else []),
             )
             for column, options in validations:
