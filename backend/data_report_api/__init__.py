@@ -16,20 +16,17 @@ PUBLIC_AUTH_ENDPOINTS = {"api.health", "auth.login", "auth.status"}
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
-def build_adm_workflow_user_options(users, employees, binding_resolver, departments):
-    """Build ADM assignee options with login-account IDs as the authority key.
-
-    ERP roster bindings enrich labels and department metadata only.  An enabled
-    account with the ADM menu and required permission remains assignable when it
-    has no roster binding.
-    """
+def build_adm_workflow_user_options(users, employees, bindings, departments, *, roster_available=True):
+    """Keep roster identity and task-account identity distinct in ADM selection."""
     purposes = {
         "handle": {"adm.handle"},
-        "leader": {"adm.assign_operator"},
+        "leader": {"adm.assign_operator", "adm.assign"},
         "coordinate": {"adm.create", "adm.review"},
     }
     result = {purpose: [] for purpose in purposes}
     employee_by_id = {int(item["id"]): item for item in employees}
+    roster_with_account = set(bindings.values())
+    matched = {purpose: set() for purpose in purposes}
     for user in users:
         if not user.get("is_enabled", True):
             continue
@@ -37,23 +34,44 @@ def build_adm_workflow_user_options(users, employees, binding_resolver, departme
         permissions = set(user.get("permissions") or [])
         if not admin and ("adm.view" not in permissions or "adm.center" not in (user.get("menu_codes") or [])):
             continue
-        binding = binding_resolver(int(user["id"]))
-        employee = None
-        if binding and str(binding.get("status") or "ACTIVE") == "ACTIVE":
-            employee = employee_by_id.get(int(binding.get("employee_id") or 0))
-        account_name = user.get("display_name") or user.get("username") or str(user["id"])
+        account_id = int(user["id"])
+        employee_id = bindings.get(account_id)
+        employee = employee_by_id.get(employee_id)
+        account_name = user.get("display_name") or user.get("username") or str(account_id)
+        unavailable = roster_available and employee_id is not None and employee is None
         person = {
-            "id": str(user["id"]),
+            "id": str(account_id),
             "name": employee["name"] if employee else account_name,
             "accountName": account_name,
-            "rosterEmployeeId": str(employee["id"]) if employee else "",
+            "username": user.get("username") or "",
+            "rosterEmployeeId": str(employee_id) if employee_id is not None else "",
             "departmentCode": employee.get("departmentCode", "") if employee else "",
             "departmentName": employee.get("departmentName", "") if employee else "",
+            "disabled": unavailable,
+            "selectionNote": (
+                "绑定人员不在有效花名册" if unavailable else
+                "" if employee else "未绑定花名册" if roster_available else "花名册暂不可用"
+            ),
         }
         for purpose, required in purposes.items():
-            if admin or required <= permissions or (purpose == "leader" and "adm.assign" in permissions):
+            eligible = required <= permissions if purpose == "coordinate" else bool(required & permissions)
+            if admin or eligible:
                 result[purpose].append(person)
+                if employee:
+                    matched[purpose].add(employee_id)
+    for purpose in ("handle", "leader"):
+        result[purpose].sort(key=lambda item: (item["disabled"], not bool(item["rosterEmployeeId"]), item["name"], item["id"]))
+        for employee_id, employee in employee_by_id.items():
+            if employee_id not in matched[purpose]:
+                result[purpose].append({
+                    "id": f"roster:{employee_id}", "name": employee["name"], "disabled": True,
+                    "rosterEmployeeId": str(employee_id), "departmentName": employee.get("departmentName", ""),
+                    "selectionNote": (
+                        "中台账号停用或缺少此岗位权限" if employee_id in roster_with_account else "未绑定中台账号"
+                    ),
+                })
     result["departments"] = departments
+    result["rosterAvailable"] = roster_available
     return result
 
 
@@ -162,35 +180,43 @@ def create_app(config: type[Config] = Config, auth_store=None) -> Flask:
         app.config["ADM_USER_OPTIONS"] = adm_user_options
         adm_options_cache = {"expires_at": 0.0, "value": None}
         adm_options_lock = Lock()
-        def adm_workflow_user_options():
+        adm_accounts_cache = {"expires_at": 0.0, "value": []}
+        def adm_workflow_roster():
             from .services.target_management import TargetManagementService
 
-            now = monotonic()
-            if adm_options_cache["value"] is not None and now < adm_options_cache["expires_at"]:
-                return adm_options_cache["value"]
             with adm_options_lock:
                 now = monotonic()
-                if adm_options_cache["value"] is not None and now < adm_options_cache["expires_at"]:
-                    return adm_options_cache["value"]
-                try:
-                    employees, departments = TargetManagementService(app.config)._roster_options()
-                except Exception as error:
-                    # Account permissions are authoritative for ADM assignment.  A
-                    # roster outage may remove optional labels/departments, but must
-                    # not make otherwise valid login accounts unassignable.
-                    app.logger.warning("ADM roster enrichment unavailable: %s", error)
-                    employees, departments = [], []
-                database = str(app.config.get("ERP_ROSTER_DATABASE", "sibedb"))
-                table = str(app.config.get("ERP_ROSTER_TABLE", "system_user"))
-                value = build_adm_workflow_user_options(
-                    manager.store.list_users(),
-                    employees,
-                    lambda user_id: manager.store.get_employee_binding(user_id, database, table),
-                    departments,
-                )
-                ttl = max(0, int(app.config.get("ADM_WORKFLOW_OPTIONS_CACHE_TTL", 300)))
-                adm_options_cache.update(value=value, expires_at=monotonic() + ttl)
-                return value
+                if adm_options_cache["value"] is None or now >= adm_options_cache["expires_at"]:
+                    roster_config = dict(app.config)
+                    roster_config["ERP_ROSTER_USER_TABLE"] = app.config.get("ERP_ROSTER_TABLE", "system_user")
+                    try:
+                        employees, departments = TargetManagementService(roster_config)._roster_options(active_only=True)
+                        roster = (employees, departments, True)
+                    except Exception as error:
+                        app.logger.warning("ADM roster enrichment unavailable: %s", error)
+                        roster = ([], [], False)
+                    ttl = max(0, int(app.config.get("ADM_WORKFLOW_OPTIONS_CACHE_TTL", 300)))
+                    adm_options_cache.update(value=roster, expires_at=monotonic() + (ttl if roster[2] else min(ttl, 15)))
+                employees, departments, roster_available = adm_options_cache["value"]
+            try:
+                bindings = manager.store.list_active_employee_bindings()
+            except Exception as error:
+                app.logger.warning("ADM roster bindings unavailable: %s", error)
+                bindings, employees, roster_available = {}, [], False
+            return employees, departments, bindings, roster_available
+
+        def adm_workflow_user_options():
+            employees, departments, bindings, roster_available = adm_workflow_roster()
+            with adm_options_lock:
+                if monotonic() >= adm_accounts_cache["expires_at"]:
+                    users = manager.store.list_users()
+                    adm_accounts_cache.update(value=users, expires_at=monotonic() + 15)
+                users = adm_accounts_cache["value"]
+            return build_adm_workflow_user_options(
+                users, employees, bindings, departments,
+                roster_available=roster_available,
+            )
+        app.config["ADM_WORKFLOW_ROSTER"] = adm_workflow_roster
         app.config["ADM_WORKFLOW_USER_OPTIONS"] = adm_workflow_user_options
         if not configured:
             app.logger.warning(

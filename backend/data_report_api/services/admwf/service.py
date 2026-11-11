@@ -369,7 +369,11 @@ class AdmWorkflowService:
         ota = self.catalog.optional_master("ota", normalized["otaCode"])
         supplier = self.catalog.optional_master("supplier", normalized["supplierCode"])
         department = self.catalog.department(normalized["departmentCode"])
-        leader = self.catalog.user(normalized["leaderId"], leader=True)
+        leader = (
+            {"id": line["leader_id"], "name": line["leader_name"]}
+            if normalized["leaderId"] == line["leader_id"]
+            else self.catalog.user(normalized["leaderId"], leader=True)
+        )
         diff_type = self.catalog.diff_type(normalized["diffTypeCode"])
         normalized.update(
             otaCode=ota["code"] if ota else None, otaName=ota["name"] if ota else None,
@@ -430,6 +434,14 @@ class AdmWorkflowService:
         require(user, "adm.view")
         provider = self.config.get("ADM_WORKFLOW_USER_OPTIONS")
         people = provider() if callable(provider) else {"handle": [], "leader": [], "coordinate": []}
+        may_select = {
+            "leader": any(has(user, permission) for permission in ("adm.create", "adm.manage", "adm.review", "adm.assign_leader")),
+            "handle": any(has(user, permission) for permission in ("adm.assign_operator", "adm.assign")),
+        }
+        people = {**people, **{
+            role: [item for item in people.get(role, []) if allowed or not item.get("disabled")]
+            for role, allowed in may_select.items()
+        }}
         return _json_value({
             "caseStatuses": ["DRAFT", "ACTIVE", "CLOSED", "HISTORICAL", "VOIDED", "DELETED"],
             "sourceTypes": ["MANUAL", "EXCEL", "LEGACY", "TEST"],

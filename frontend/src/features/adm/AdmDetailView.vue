@@ -611,14 +611,20 @@
       @ok="submitAction"
     >
       <a-form layout="vertical">
-        <a-form-item v-if="actionName === 'assign'" label="操作员"
+        <a-alert v-if="assignmentAction && (configError || config?.people.rosterAvailable === false)" type="warning" show-icon
+          :message="configError || '花名册暂不可用，当前显示具备 ADM 权限的中台账号。'" />
+        <a-button v-if="assignmentAction" type="link" :loading="peopleLoading" @click="loadPeople">刷新人员名单</a-button>
+        <a-form-item v-if="actionName === 'assign'" label="操作员" required
           ><a-select v-model:value="actionForm.operatorId" :options="operatorOptions"
+            show-search option-filter-prop="label" placeholder="搜索姓名、部门或账号" :loading="peopleLoading"
         /></a-form-item>
         <a-form-item v-if="actionName === 'leader'" label="新组长" required
           ><a-select v-model:value="actionForm.leaderId" :options="leaderOptions"
+            show-search option-filter-prop="label" placeholder="搜索姓名、部门或账号" :loading="peopleLoading"
         /></a-form-item>
         <a-form-item v-if="actionName === 'transfer'" label="目标操作员" required
           ><a-select v-model:value="actionForm.operatorId" :options="operatorOptions"
+            show-search option-filter-prop="label" placeholder="搜索姓名、部门或账号" :loading="peopleLoading"
         /></a-form-item>
         <a-form-item v-if="actionName === 'note'" label="订单情况说明" required
           ><a-textarea v-model:value="actionForm.investigationNote" :rows="5"
@@ -725,6 +731,7 @@ import AdmLineBasicModal from './AdmLineBasicModal.vue'
 import AdmMasterBasicModal from './AdmMasterBasicModal.vue'
 import {
   admApi,
+  admPersonOptions,
   canChangeAdmLeader,
   diffMatchLabel,
   errorText,
@@ -1335,12 +1342,22 @@ const canWithdrawReview = computed(
     lineRecords('reviews').some((item) => item.result === 'APPROVED' && !item.withdrawnFlag) &&
     !lineRecords('collections').some((item) => item.recordStatus === 'VALID'),
 )
-const operatorOptions = computed(() =>
-    (config.value?.people.handle || []).map((item) => ({ value: Number(item.id), label: item.name })),
-  ),
-  leaderOptions = computed(() =>
-    (config.value?.people.leader || []).map((item) => ({ value: Number(item.id), label: item.name })),
-  )
+const operatorOptions = computed(() => admPersonOptions(config.value?.people.handle || [], true))
+const leaderOptions = computed(() => admPersonOptions(config.value?.people.leader || [], true))
+const assignmentAction = computed(() => ['assign', 'leader', 'transfer'].includes(actionName.value))
+const peopleLoading = ref(false)
+async function loadPeople() {
+  if (peopleLoading.value) return
+  peopleLoading.value = true
+  try {
+    config.value = await admApi.config()
+    configError.value = ''
+  } catch (e) {
+    configError.value = `人员与权限配置加载失败：${errorText(e)}`
+  } finally {
+    peopleLoading.value = false
+  }
+}
 const appealResultOptions = computed(() =>
   (config.value?.appealResults || []).map((value) => ({
     value,
@@ -1442,6 +1459,7 @@ function openAction(name: string) {
   if (name === 'rebalance')
     actionForm.amounts = Object.fromEntries(activeLines.value.map((line) => [line.id, line.originalAmount]))
   actionOpen.value = true
+  if (assignmentAction.value) void loadPeople()
 }
 function openRecoveryAction(decision: 'NEEDED' | 'NOT_NEEDED') {
   openAction('recovery')
@@ -1454,6 +1472,10 @@ function rejectPendingTransfer(lineId: number) {
 }
 async function submitAction() {
   if (saving.value || (!selectedLine.value && !['voidCase', 'deleteDraft'].includes(actionName.value))) return
+  if (assignmentAction.value && !Number(actionName.value === 'leader' ? actionForm.leaderId : actionForm.operatorId)) {
+    actionError.value = '请选择可分配的人员'
+    return
+  }
   if (actionName.value === 'appeal' && !actionForm.appealTarget) {
     actionError.value = '请选择申诉对象'
     return
@@ -1681,9 +1703,7 @@ function voidAttachment(item: Fields) {
 }
 onMounted(async () => {
   if (!caseId) return
-  const configRequest = admApi.config()
-    .then((value) => { config.value = value })
-    .catch((e) => { configError.value = `人员与权限配置加载失败：${errorText(e)}` })
+  const configRequest = loadPeople()
   const taskAction = String(route.query.taskAction || '')
   await Promise.all([load(!!taskAction), configRequest])
   const requestedStatus = String(route.query.lineStatus || '')

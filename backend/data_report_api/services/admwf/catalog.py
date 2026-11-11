@@ -8,6 +8,8 @@ from .policy import AdmError, has
 class AdmCatalog:
     def __init__(self, config):
         self.config = config
+        self._person_options = None
+        self._roster = None
 
     def _call(self, key, message, *args):
         resolver = self.config.get(key)
@@ -202,23 +204,50 @@ class AdmCatalog:
         return result
 
     def user(self, user_id, *, leader=False):
-        result = self._call("ADM_USER_RESOLVER", "所选人员不存在或人员目录不可用", user_id)
+        try:
+            account_id = int(user_id)
+        except (TypeError, ValueError):
+            raise AdmError("请选择已绑定账号或可办理的中台人员") from None
+        result = self._call("ADM_USER_RESOLVER", "所选人员不存在或人员目录不可用", account_id)
         if not result.get("is_enabled", True):
             raise AdmError("所选人员已停用")
-        if not has(result, "adm.view") or (leader and not (has(result, "adm.assign_operator") or has(result, "adm.assign"))) or (not leader and not has(result, "adm.handle")):
-            raise AdmError("所选人员没有对应的ADM查看和办理权限")
-        return {"id": int(result["id"]), "name": str(result.get("display_name") or result.get("username") or result["id"])}
+        can_do_role = (has(result, "adm.assign_operator") or has(result, "adm.assign")) if leader else has(result, "adm.handle")
+        can_open_adm = result.get("is_admin") or "adm.center" in (result.get("menu_codes") or [])
+        if not can_open_adm or not has(result, "adm.view") or not can_do_role:
+            raise AdmError("所选人员缺少对应的ADM菜单、查看或办理权限")
+        name = result.get("display_name") or result.get("username") or result["id"]
+        provider = self.config.get("ADM_WORKFLOW_ROSTER")
+        if callable(provider):
+            if self._roster is None:
+                employees, _, bindings, available = provider()
+                self._roster = ({int(item["id"]): item["name"] for item in employees}, bindings, available)
+            names, bindings, available = self._roster
+            employee_id = bindings.get(account_id)
+            if available and employee_id is not None:
+                if employee_id not in names:
+                    raise AdmError("所选账号绑定的人员不在有效花名册中")
+                name = names[employee_id]
+        return {"id": int(result["id"]), "name": str(name)}
 
     def user_value(self, value, *, leader=False):
         raw = str(value or "").strip()
         provider = self.config.get("ADM_WORKFLOW_USER_OPTIONS")
         if not raw or not callable(provider):
             raise AdmError("负责组长不存在或人员目录不可用")
-        options = provider() or {}
-        candidates = options.get("leader" if leader else "handle") or []
-        matches = [item for item in candidates if raw in {str(item.get("id") or ""), str(item.get("name") or "")}]
+        if self._person_options is None:
+            self._person_options = provider() or {}
+        candidates = [
+            item for item in self._person_options.get("leader" if leader else "handle", [])
+            if not item.get("disabled")
+        ]
+        matches = [item for item in candidates if raw == str(item.get("id") or "")]
+        if not matches:
+            matches = [
+                item for item in candidates
+                if raw in {item.get("name"), item.get("accountName"), item.get("username")}
+            ]
         if len(matches) != 1:
-            raise AdmError("负责组长必须填写唯一有效的账号ID或姓名")
+            raise AdmError("负责组长必须填写唯一有效的账号ID、账号或姓名")
         return self.user(matches[0]["id"], leader=leader)
 
     def department(self, code):

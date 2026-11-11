@@ -795,6 +795,12 @@ class MySqlAuthStore:
             (keyword.strip(), token, token, token, token, keyword.strip(), max(1, min(limit, 100))),
         )
 
+    def list_active_employee_bindings(self) -> dict[int, int]:
+        rows = self._fetchall(
+            "SELECT sys_user_id,employee_id FROM sys_user_employee_binding WHERE status='ACTIVE'"
+        )
+        return {int(row["sys_user_id"]): int(row["employee_id"]) for row in rows}
+
     def get_employee_binding(
         self, user_id: int, database: str, table: str,
     ) -> dict[str, Any] | None:
@@ -1399,6 +1405,13 @@ class MemoryAuthStore:
             )
         ]
         return deepcopy(rows[:limit])
+
+    def list_active_employee_bindings(self) -> dict[int, int]:
+        return {
+            user_id: int(row["employee_id"])
+            for user_id, row in self.employee_bindings.items()
+            if row.get("status") == "ACTIVE"
+        }
 
     def get_employee_binding(
         self, user_id: int, database: str, table: str,
