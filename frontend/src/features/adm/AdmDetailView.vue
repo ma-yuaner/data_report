@@ -3,8 +3,7 @@
     <main class="v05-main">
       <section class="v05-page v05-detail">
         <div class="detail-back-actions">
-          <button class="back" @click="router.push('/adm/cases')">← 返回台账</button>
-          <button class="back" @click="returnWorkbench">← 返回工作台</button>
+          <a-button type="link" @click="returnToLedger">← 返回任务台账</a-button>
         </div>
         <a-alert v-if="error" type="error" show-icon :message="error" style="margin-bottom: 16px" />
         <a-alert v-if="configError" type="warning" show-icon :message="configError" />
@@ -1056,12 +1055,17 @@ function openMasterBasicInfo() {
   if (!canEditMasterBasic.value) readOnlyNotice('主单基础信息')
   masterInfoOpen.value = true
 }
-function returnWorkbench() {
+function returnToLedger() {
+  if (!route.query.returnPage) {
+    void router.push({ name: 'adm-cases' })
+    return
+  }
   const page = Math.max(1, Number(route.query.returnPage || 1))
   const metric = String(route.query.returnMetric || '')
   void router.push({
-    path: '/adm/workbench',
+    name: 'adm-cases',
     query: {
+      scope: 'mine',
       ...(page > 1 ? { page: String(page) } : {}),
       ...(metric ? { workMetric: metric } : {}),
     },

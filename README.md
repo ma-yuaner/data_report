@@ -46,7 +46,7 @@ ADM责任流转V2：已增加协调人、接收确认式转交、责任分段、
 
 <!-- BEGIN:CURRENT_MENU -->
 <details>
-<summary>完整菜单：50个页面入口、3个禁用预留项</summary>
+<summary>完整菜单：49个页面入口、3个禁用预留项</summary>
 
 ```text
 工作台  [/home]
@@ -97,8 +97,7 @@ ADM责任流转V2：已增加协调人、接收确认式转交、责任分段、
   通知管理  [/monitoring/notifications]
   问题诊断  [/monitoring/diagnostics]
 ADM 控制台
-  我的工作台  [/adm/workbench]
-  ADM 台账  [/adm/cases]
+  ADM 任务台账  [/adm]
 问题中心  [/problems]
 数据资产  [/data-assets]
 归档功能

@@ -157,8 +157,7 @@
           <a-sub-menu v-if="canSeeMenu('adm.center')" key="adm">
             <template #icon><ControlOutlined /></template>
             <template #title>ADM 控制台</template>
-            <a-menu-item key="/adm/workbench">我的工作台</a-menu-item>
-            <a-menu-item key="/adm/cases">ADM 台账</a-menu-item>
+            <a-menu-item key="/adm">ADM 任务台账</a-menu-item>
           </a-sub-menu>
           <a-menu-item v-if="canSeeMenu('problems')" key="/problems"
             ><template #icon><WarningOutlined /></template>问题中心</a-menu-item
@@ -287,8 +286,8 @@ const route = useRoute()
 const router = useRouter()
 const loggingOut = ref(false)
 const selectedKeys = computed(() => [
-  route.path.startsWith('/adm/cases/')
-    ? '/adm/cases'
+  (route.path === '/adm/cases' || route.path.startsWith('/adm/cases/'))
+    ? '/adm'
     : route.path === '/analysis/profit'
       ? '/analysis/issue'
       : route.path,
