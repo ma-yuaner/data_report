@@ -2,7 +2,7 @@
   <div class="v05-app embedded">
     <main class="v05-main">
       <section class="v05-page v05-detail">
-        <div class="detail-back-actions">
+        <div v-if="!panel" class="detail-back-actions">
           <a-button type="link" @click="returnToLedger">← 返回任务台账</a-button>
         </div>
         <a-alert v-if="error" type="error" show-icon :message="error" style="margin-bottom: 16px" />
@@ -763,6 +763,7 @@ import {
   errorText,
   label,
   type AdmCaseDetail,
+  type AdmCasePanel,
   type AdmCaseRow,
   type AdmConfig,
   type AdmLine,
@@ -775,7 +776,10 @@ const route = useRoute(),
   router = useRouter(),
   auth = useAuthStore(),
   exportTasks = useComprehensiveExportStore()
-const caseId = Number(route.params.caseId || route.query.admId || 0)
+const props = defineProps<{ panel?: AdmCasePanel }>()
+const emit = defineEmits<{ close: []; changed: []; openCase: [caseId: number] }>()
+const caseId = props.panel?.caseId ?? Number(route.params.caseId || route.query.admId || 0)
+const initialLineId = props.panel ? props.panel.lineId : Number(route.query.lineId) || undefined
 const emptyRecord = (): AdmCaseDetail => ({
   case: {
     id: 0,
@@ -818,7 +822,7 @@ const hasRecord = computed(() => Number(record.value.case.id) > 0)
 const isLegacyReadOnly = computed(
   () => record.value.case.sourceType === 'LEGACY' || record.value.case.caseStatus === 'HISTORICAL',
 )
-const selectedLineId = ref<number | null>(Number(route.query.lineId) || null),
+const selectedLineId = ref<number | null>(initialLineId ?? null),
   selectedIds = ref<number[]>([]),
   selectedStage = ref(''),
   drawerOpen = ref(false),
@@ -1112,6 +1116,7 @@ function openBasicInfo(line: AdmLine) {
   basicInfoOpen.value = true
 }
 function basicInfoSaved(detail: AdmCaseDetail) {
+  emit('changed')
   record.value = detail
   fullDetailLoaded.value = true
   basicInfoOpen.value = false
@@ -1288,9 +1293,11 @@ async function submitAddLine() {
       existingAmounts: addActiveLines.value.map((item) => ({ lineId: item.id, originalAmount: addLineAmounts[item.id] })),
     })
     addLineOpen.value = false
+    emit('changed')
     void message.success('订单已新增，明细金额已同步调整')
     if (targetCaseId !== caseId) {
-      await router.push(`/adm/cases/${targetCaseId}`)
+      if (props.panel) emit('openCase', targetCaseId)
+      else await router.push(`/adm/cases/${targetCaseId}`)
       return
     }
     await load()
@@ -1600,10 +1607,13 @@ async function submitAction() {
       deleteDraft: () => admApi.deleteDraft(caseId, actionForm.reason),
     }
     await calls[actionName.value]()
+    emit('changed')
     actionOpen.value = false
     void message.success('操作已保存')
-    if (actionName.value === 'deleteDraft') await router.push('/adm/cases')
-    else await load()
+    if (actionName.value === 'deleteDraft') {
+      if (props.panel) emit('close')
+      else await router.push('/adm/cases')
+    } else await load()
   } catch (e) {
     actionError.value = errorText(e)
   } finally {
@@ -1614,6 +1624,7 @@ async function publishDraft() {
   try {
     saving.value = true
     await admApi.publishDraft(caseId)
+    emit('changed')
     void message.success('草稿已发布，现已进入正式办理流程')
     selectedIds.value = []
     await load()
@@ -1628,6 +1639,7 @@ async function decidePendingTransfer(accepted: boolean) {
   try {
     saving.value = true
     await admApi.decideTransfer(caseId, selectedLine.value.id, pendingTargetTransfer.value.id, accepted)
+    emit('changed')
     void message.success('已接受转派')
     await load()
   } catch (e) {
@@ -1648,6 +1660,7 @@ async function runSimple(name: string) {
     else if (name === 'checkDifference') await admApi.checkDifference(caseId, id)
     else if (name === 'close') await admApi.close(caseId)
     void message.success('操作成功')
+    emit('changed')
     await load()
   } catch (e) {
     void message.error(errorText(e))
@@ -1659,6 +1672,7 @@ async function exportSelected() {
   try {
     saving.value = true
     const task = await exportTasks.createBackground('adm_operator_excel', { lineIds: selectedIds.value })
+    emit('changed')
     selectedIds.value = []
     void message.success(
       task.reused ? '相同ADM导出任务正在进行，已打开导出任务' : '已接单并生成导出任务，请在页头“导出任务”下载',
@@ -1732,6 +1746,7 @@ async function uploadScopedAttachment(scope: 'CASE' | 'LINE') {
   try {
     saving.value = true
     await admApi.upload(caseId, file, category, scope === 'LINE' ? selectedLine.value?.id : undefined)
+    emit('changed')
     if (scope === 'CASE') {
       masterAttachmentFile.value = null
       if (masterAttachmentInput.value) masterAttachmentInput.value.value = ''
@@ -1773,6 +1788,7 @@ function voidAttachment(item: Fields) {
     cancelText: '取消',
     async onOk() {
       await admApi.voidAttachment(caseId, item.id, '负责人确认作废错误附件')
+      emit('changed')
       await load()
     },
   })
@@ -1780,14 +1796,15 @@ function voidAttachment(item: Fields) {
 onMounted(async () => {
   if (!caseId) return
   const configRequest = loadPeople()
-  const taskAction = String(route.query.taskAction || '')
-  await Promise.all([load(!!taskAction), configRequest])
-  if (route.query.addLine === '1' && canAddLine.value) void openAddLine()
-  const requestedStatus = String(route.query.lineStatus || '')
+  const taskAction = props.panel?.taskAction ?? (props.panel ? '' : String(route.query.taskAction || ''))
+  const openLine = !!taskAction || !!(props.panel && initialLineId)
+  await Promise.all([load(openLine), configRequest])
+  if ((props.panel ? props.panel.addLine : route.query.addLine === '1') && canAddLine.value) void openAddLine()
+  const requestedStatus = props.panel?.lineStatus ?? (props.panel ? '' : String(route.query.lineStatus || ''))
   if (record.value.lines.some((line) => line.lineStatus === requestedStatus)) lineFilter.status = requestedStatus
-  if (!taskAction) return
+  if (!openLine) return
   const line = selectedLine.value
-  if (!line || Number(line.id) !== Number(route.query.lineId)) {
+  if (!line || Number(line.id) !== initialLineId) {
     if (hasRecord.value) void message.warning('该订单明细已变化，请从详情重新选择')
     return
   }

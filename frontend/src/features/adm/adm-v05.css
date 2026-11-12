@@ -154,3 +154,12 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+.adm-stage-breakdown {
+  margin: 0;
+  padding-inline-start: 18px;
+}
+.stage-list > .ant-btn {
+  justify-self: start;
+  padding-inline: 0;
+}

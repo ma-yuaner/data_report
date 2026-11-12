@@ -151,3 +151,11 @@ export const diffMatchTone = (value: unknown) => {
   return status.startsWith('MATCHED_') || status === 'MATCHED' ? 'green' : status === 'NOT_REQUIRED' ? 'blue' : 'red'
 }
 export const errorText = (error: unknown) => (error as { message?: string })?.message || '请求失败，请重试'
+
+export interface AdmCasePanel {
+  caseId: number
+  lineId?: number
+  lineStatus?: string
+  taskAction?: string
+  addLine?: boolean
+}

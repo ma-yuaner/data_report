@@ -148,9 +148,17 @@
                     </td>
                     <td>
                       <div class="stage-list">
-                        <span v-for="stage in stageSummary(record)" :key="stage.label"
+                        <span v-for="stage in stageSummary(record).slice(0, 2)" :key="stage.label"
                           ><i></i>{{ stage.label }}<b>{{ stage.count }}</b></span
                         >
+                        <a-popover v-if="stageSummary(record).length > 2" trigger="click" title="阶段分布">
+                          <template #content>
+                            <ul class="adm-stage-breakdown">
+                              <li v-for="stage in stageSummary(record)" :key="stage.label">{{ stage.label }}：{{ stage.count }}</li>
+                            </ul>
+                          </template>
+                          <a-button type="link" size="small" aria-label="查看完整阶段分布">+{{ stageSummary(record).length - 2 }}</a-button>
+                        </a-popover>
                       </div>
                     </td>
                     <td>
@@ -604,6 +612,22 @@
       </p>
       <a-alert v-if="importError" type="error" show-icon :message="importError"
     /></a-modal>
+    <a-drawer
+      :open="!!casePanel"
+      title="ADM 详情"
+      width="min(1440px, 100vw)"
+      :mask-closable="false"
+      @close="closeCasePanel"
+    >
+      <AdmDetailView
+        v-if="casePanel"
+        :key="casePanel.caseId"
+        :panel="casePanel"
+        @close="closeCasePanel"
+        @changed="casePanelChanged = true"
+        @open-case="openCasePanel"
+      />
+    </a-drawer>
   </div>
 </template>
 
@@ -615,6 +639,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
 import { createOperationIdentifier } from '@/utils/operationIdentifier'
 import PageHeader from '@/components/PageHeader.vue'
+import AdmDetailView from './AdmDetailView.vue'
 import AdmMasterBasicModal from './AdmMasterBasicModal.vue'
 import {
   admApi,
@@ -622,6 +647,7 @@ import {
   errorText,
   label,
   type AdmCaseDetail,
+  type AdmCasePanel,
   type AdmCaseRow,
   type AdmConfig,
   type AdmLedgerLine,
@@ -668,6 +694,20 @@ function loadConfig(refresh = false) {
     (e) => { configError.value = `人员与权限配置加载失败：${errorText(e)}` },
   ).finally(() => { configRequest = undefined })
   return configRequest
+}
+const casePanel = ref<AdmCasePanel | null>(null)
+const casePanelChanged = ref(false)
+function openCasePanel(caseId: number, options: Omit<AdmCasePanel, 'caseId'> = {}) {
+  if (caseId > 0) casePanel.value = { caseId, ...options }
+}
+function closeCasePanel() {
+  casePanel.value = null
+  if (casePanelChanged.value) {
+    casePanelChanged.value = false
+    void load()
+    if (workQueue.value) void loadWorkQueue()
+    if (globalOrdersOpen.value) void loadGlobalOrders()
+  }
 }
 async function load() {
   const seq = ++request
@@ -912,11 +952,7 @@ function closeWorkQueue() {
 }
 function openQueueRecord(row: Fields) {
   if (workQueue.value === 'transfer') openTask({ ...row, kind: 'transferHistory' })
-  else void router.push({
-    path: `/adm/cases/${row.caseId}`,
-    query: { returnPage: String(workPage.value), ...(workMetric.value ? { returnMetric: workMetric.value } : {}) },
-  })
-  closeWorkQueue()
+  else openCasePanel(Number(row.caseId))
 }
 function openWorkMetric(key: 'close' | 'transfer') {
   workQueue.value = key
@@ -924,15 +960,10 @@ function openWorkMetric(key: 'close' | 'transfer') {
   resetWorkQueuePage()
 }
 function openTask(t: Fields) {
-  void router.push({
-    path: `/adm/cases/${t.caseId}`,
-    query: {
-      lineId: t.lineId,
-      taskAction: t.lineId ? t.kind : undefined,
-      addLine: t.kind === 'recovered' ? '1' : undefined,
-      returnPage: String(workPage.value),
-      ...(workMetric.value ? { returnMetric: workMetric.value } : {}),
-    },
+  openCasePanel(Number(t.caseId), {
+    lineId: Number(t.lineId) || undefined,
+    taskAction: t.lineId ? String(t.kind || '') : undefined,
+    addLine: t.kind === 'recovered',
   })
 }
 const canCreate = computed(() => !!auth.user?.isAdmin || !!config.value?.permissions.create),
@@ -1228,8 +1259,7 @@ function openGlobalOrders(key: string) {
   void loadGlobalOrders()
 }
 function openGlobalLine(caseId: number, lineId: number) {
-  globalOrdersOpen.value = false
-  void router.push({ path: `/adm/cases/${caseId}`, query: { lineId } })
+  openCasePanel(Number(caseId), { lineId: Number(lineId) })
 }
 function lineStatusTone(status: string) {
   return status === 'COMPLETED'
@@ -1327,7 +1357,7 @@ function showMasterReadOnlyNotice(record: AdmCaseRow) {
 function openCase(record: AdmCaseRow, status?: string) {
   const stages = ledgerStages(record)
   const lineStatus = status || (stages.length === 1 ? stages[0].status : undefined)
-  void router.push({ path: `/adm/cases/${record.id}`, query: { lineStatus } })
+  openCasePanel(Number(record.id), { lineStatus })
 }
 function canEditMasterRow(record: AdmCaseRow) {
   const allowed = !!(
@@ -1478,7 +1508,8 @@ async function createCase() {
     } else {
       void message.success(`主单已保存：${r.case.internalNo}`)
     }
-    await router.push(`/adm/cases/${r.case.id}`)
+    casePanelChanged.value = true
+    openCasePanel(Number(r.case.id))
   } catch (e) {
     createError.value = errorText(e)
   } finally {
