@@ -23,10 +23,7 @@
           <a-alert v-if="record.case.masterRecoveryStatus" type="info" show-icon class="block"
             :message="masterRecoveryText[record.case.masterRecoveryStatus]"
             :description="[record.case.recoveryLocators, record.case.masterRecoveryDueAt].filter(Boolean).join(' · ')" />
-          <div v-if="!isLegacyReadOnly" class="detail-page-actions">
-            <button :disabled="!canAddLine" class="primary" @click="openAddLine">＋ 新增订单明细</button>
-          </div>
-          <div class="v05-summary">
+          <div class="v05-summary adm-detail-summary">
             <div>
               <span :class="['pill', statusTone]">● {{ hasRecord ? label(record.case.caseStatus) : '暂无数据' }}</span>
               <span :class="['source-badge', sourceTone(record.case.sourceType)]">{{ sourceText(record.case.sourceType) }}</span>
@@ -61,6 +58,7 @@
               </div>
             </dl>
             <div class="summary-actions">
+              <a-button v-if="!isLegacyReadOnly" type="primary" :disabled="!canAddLine" @click="openAddLine">新增订单明细</a-button>
               <a-button @click="openMasterBasicInfo">{{ canEditMasterBasic ? '编辑基础信息' : '查看基础信息' }}</a-button>
               <a-button :loading="loading" @click="openMasterOperations">操作记录</a-button><a-button :disabled="loading" @click="() => load()">刷新</a-button
               ><a-button v-if="isCaseOwner && canCreate && record.case.caseStatus === 'DRAFT'" type="primary" @click="publishDraft">
@@ -234,14 +232,15 @@
             v-if="selectedLine"
             v-model:open="drawerOpen"
             title="订单处理详情"
-            width="940"
+            width="min(960px, 100vw)"
+            root-class-name="adm-order-drawer"
             ><div class="drawer-line-head">
               <div>
                 <h2>{{ selectedLine.ticketNo || '未填写票号' }} · 订单处理</h2>
                 <p>OTA {{ selectedLine.otaOrderNo || '未填写' }} · PNR {{ selectedLine.pnr || '未填写' }} · 内部明细 {{ selectedLine.lineInternalNo }}</p>
                 <small>{{ selectedLine.departmentName }} · {{ selectedLine.leaderName || '未分配组长' }} · {{ selectedLine.operatorName || '未分配操作员' }} · 当前任务：{{ nextTask(selectedLine) }}</small>
               </div>
-              <div class="drawer-head-actions"><button @click="openBasicInfo(selectedLine)">{{ canEditLineBasic(selectedLine) ? '编辑基础信息' : '查看基础信息' }}</button><span :class="['pill', lineTone(selectedLine.lineStatus)]">{{ label(selectedLine.lineStatus) }}</span></div>
+              <div class="drawer-head-actions"><a-button @click="openBasicInfo(selectedLine)">{{ canEditLineBasic(selectedLine) ? '编辑基础信息' : '查看基础信息' }}</a-button><span :class="['pill', lineTone(selectedLine.lineStatus)]">{{ label(selectedLine.lineStatus) }}</span></div>
             </div>
             <a-alert
               v-if="record.case.caseStatus === 'DRAFT'"
@@ -250,16 +249,9 @@
               message="草稿尚未进入办理流程；发布后才可分配、接单和处理明细。"
               style="margin-bottom: 14px"
             />
-            <div class="drawer-tabs">
-              <button
-                v-for="tab in drawerTabs"
-                :key="tab"
-                :class="{ active: drawerTab === tab }"
-                @click="drawerTab = tab"
-              >
-                {{ tab }}
-              </button>
-            </div>
+            <a-tabs v-model:active-key="drawerTab" class="adm-order-tabs" aria-label="订单处理分类">
+              <a-tab-pane v-for="tab in drawerTabs" :key="tab" :tab="tab" />
+            </a-tabs>
             <div class="drawer-body">
               <section v-if="drawerTab === '处理决定与结果'">
                 <p class="permission">当前为{{ canEditLineRecord(selectedLine) ? '可编辑' : '只读查看' }}模式；只显示当前角色和订单状态允许的操作，所有提交均写入操作记录。</p>
@@ -491,8 +483,8 @@
     <AdmMasterBasicModal :open="masterInfoOpen" :detail="record" :editable="canEditMasterBasic" @close="masterInfoOpen = false" @saved="basicInfoSaved" />
     <AdmLineBasicModal :open="basicInfoOpen" :detail="record" :line="selectedLine" :editable="!!selectedLine && canEditLineBasic(selectedLine)" :config="config" @close="basicInfoOpen = false" @saved="basicInfoSaved" />
 
-    <a-modal v-model:open="addLineOpen" :title="isRecoveryAllocation && addAmountStep ? '订单金额分摊' : '新增订单明细'" width="1080px" :footer="null" wrap-class-name="v05-modal"
-      ><p class="context">
+    <a-modal v-model:open="addLineOpen" :title="isRecoveryAllocation && addAmountStep ? '订单金额分摊' : '新增订单明细'" width="min(1080px, 96vw)" :footer="null" wrap-class-name="v05-modal adm-form-modal"
+      ><p class="context adm-form-context">
         <b>{{ addTarget.case.admNo }}</b
         > 系统记录 {{ addTarget.case.internalNo }} {{ addTarget.case.issuerName }} 原币总金额 {{ addTarget.case.currency }}
         {{ addTarget.case.originalAmount }} 处理截止 {{ addTarget.case.replyDeadline || '未设置' }}
@@ -513,7 +505,8 @@
       />
       <a-alert v-if="addTarget.case.lineDefaults" type="info" show-icon class="block"
         :message="`继承主单：${addTarget.case.lineDefaults.departmentName} · ${addTarget.case.lineDefaults.leaderName} · ${addTarget.case.lineDefaults.diffTypeName}`" />
-      <div v-if="!isRecoveryAllocation || !addAmountStep" class="v05-form-grid">
+      <div v-if="!isRecoveryAllocation || !addAmountStep" class="v05-form-grid adm-grouped-form">
+        <h3>订单信息与归属</h3>
         <label v-if="!isRecoveryAllocation" class="wide"
           ><span class="form-field-label">所属 ADM 主单 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
             v-model:value="addTargetCaseId"
@@ -553,7 +546,9 @@
         ><label v-if="!isRecoveryAllocation"><span class="form-field-label">ADM金额（原币） <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="addLineForm.originalAmount" /></label
         ><label v-if="!isRecoveryAllocation">币种（继承主单）<a-input :value="addTarget.case.currency" readonly /></label
         ><label v-if="!isRecoveryAllocation">ADM金额（人民币，系统换算）<a-input :value="`¥ ${addLineCnyAmount}`" readonly /></label
-        ><label class="wide"
+        >
+        <h3>情况说明与差异</h3>
+        <label class="wide"
           >订单情况说明（选填）<a-textarea
             v-model:value="addLineForm.investigationNote"
             :rows="2"
@@ -617,8 +612,8 @@
       </template>
       <a-alert v-if="addLineError" type="error" show-icon :message="addLineError" class="block" />
       <div class="v05-modal-actions">
-        <button @click="addLineOpen = false">取消</button
-        ><a-button v-if="isRecoveryAllocation && addAmountStep" @click="addAmountStep = false">返回订单信息</a-button>
+        <a-button @click="addLineOpen = false">取消</a-button>
+        <a-button v-if="isRecoveryAllocation && addAmountStep" @click="addAmountStep = false">返回订单信息</a-button>
         <a-button v-if="isRecoveryAllocation && !addAmountStep" type="primary"
           :disabled="!addLineForm.leaderId" @click="addAmountStep = true">下一步：金额分摊</a-button>
         <a-button v-else type="primary" :loading="saving" :disabled="!addLineReady" @click="submitAddLine">保存新增订单</a-button>
@@ -631,7 +626,8 @@
       :confirm-loading="saving"
       ok-text="确定"
       cancel-text="取消"
-      wrap-class-name="v05-modal"
+      width="min(720px, 96vw)"
+      wrap-class-name="v05-modal adm-form-modal"
       @ok="submitAction"
     >
       <a-form layout="vertical">

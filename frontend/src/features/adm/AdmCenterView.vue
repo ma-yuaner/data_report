@@ -1,198 +1,203 @@
 <template>
   <div class="v05-app embedded">
     <main class="v05-main v05-page">
-      <header class="v05-top">
-        <div><h1>ADM 任务台账</h1><p>按当前责任办理待办，也可查看全部主单与订单明细。</p></div>
+      <PageHeader eyebrow="" title="ADM 任务台账" description="按当前责任办理待办，也可查看全部主单与订单明细。">
         <a-space wrap>
           <a-button v-if="canCreate" @click="openImport">跨主单批量导入</a-button>
           <a-button v-if="canCreate" type="primary" @click="openCreate">新建 ADM 主单</a-button>
         </a-space>
-      </header>
-      <section class="v05-card adm-flow" aria-label="ADM 业务流转">
-        <strong>业务流转</strong>
-        <ol><li v-for="step in workflowSteps" :key="step">{{ step }}</li></ol>
-      </section>
-      <a-tabs :active-key="isWorkbench ? 'mine' : 'all'" @change="switchScope">
-        <a-tab-pane key="mine" tab="我的待办" />
-        <a-tab-pane key="all" tab="全部记录" />
-      </a-tabs>
-      <section v-if="isWorkbench">
-        <div class="v05-toolbar">
-          <a-space wrap>
-            <a-select :value="workMetric" aria-label="待办阶段" style="width: 180px"
-              :options="workPhaseOptions" @change="selectWorkPhase" />
-            <a-button v-if="canCloseWorkQueue" @click="openWorkMetric('close')">可以结案</a-button>
-            <a-button v-if="canTransferWorkQueue" @click="openWorkMetric('transfer')">转派记录</a-button>
-            <a-button v-if="canOperatorWork" :disabled="!exportCandidates.length" @click="openExportSelection">接单并导出</a-button>
-            <a-button v-if="canOperatorWork" @click="operatorImportOpen = true">导入处理结果</a-button>
-            <a-button :disabled="loading" @click="load">刷新</a-button>
-          </a-space>
-        </div>
-        <a-alert v-if="error" type="error" show-icon :message="error" style="margin-top: 16px" />
-        <a-alert v-if="configError" type="warning" show-icon :message="configError" />
-        <a-alert v-if="workbenchSummary.truncated" type="warning" show-icon
-          :message="`当前显示前 ${workbenchItems.length} 条任务，共 ${workbenchSummary.total} 条；分类数仅统计已加载任务。`" />
-        <a-space v-if="batchRows.length" wrap class="block">
-          <span>已选 {{ batchRows.length }} 条</span>
-          <a-button v-for="action in batchActions" :key="action" @click="openWorkbenchBatch(action)">
-            {{ workbenchActionLabels[action] }}
-          </a-button>
-          <span v-if="!batchActions.length">请选择同一阶段且可执行同一操作的任务</span>
-          <a-button type="link" @click="workSelection = []">清除选择</a-button>
-        </a-space>
-        <div class="v05-work-list">
-          <p v-if="loading" class="v05-card v05-empty" role="status">正在读取 ADM 任务…</p>
-          <p v-else-if="error" class="v05-card v05-empty"><a-button @click="load">重试</a-button></p>
-          <div v-else-if="pagedTasks.length" class="work-task-table">
-            <div class="work-task-row work-task-head">
-              <a-checkbox aria-label="选择当前页任务"
-                :checked="!!pagedTasks.length && pagedTasks.every((task) => workSelection.includes(workTaskKey(task)))"
-                @change="selectWorkbenchPage" />
-              <span>ADM / 内部明细</span><span>任务类型</span><span>当前责任分配</span><span>当前需要处理</span><span>处理截止</span><span>操作</span>
-            </div>
-            <div v-for="task in pagedTasks" :key="workTaskKey(task)" class="work-task-row">
-              <a-checkbox :aria-label="`选择 ${task.lineInternalNo || task.admNo}`"
-                :checked="workSelection.includes(workTaskKey(task))"
-                @change="toggleWorkbenchTask(task)" />
-              <div>
-                <a-button type="link" @click="openTask(task)">{{ task.admNo || task.internalNo }}</a-button>
-                <small>{{ task.lineInternalNo || '主单' }}</small>
-                <a-tag v-if="task.leaderOverdueAt" color="red">组长分派超 3 天</a-tag>
-                <a-tag v-if="task.operatorOverdueAt" color="red">操作员分派超 3 天</a-tag>
-                <a-tag v-if="task.hasTransfer || task.transferId" color="blue">转派</a-tag>
-              </div>
-              <span class="work-task-type">{{ task.role }}任务：{{ task.title }}</span>
-              <span>{{ task.assignment }}</span>
-              <span>{{ task.requiredAction }}</span>
-              <b :class="{ danger: task.overdue }">{{ dateText(task.deadline) }}</b>
-              <a-button
-                v-if="canAcceptTask(task)"
-                type="primary"
-                :loading="acceptingLines.has(Number(task.lineId))"
-                @click="acceptTask(task)"
-              >接单</a-button>
-              <a-button v-else-if="task.kind === 'leaderRecovery'" type="primary" @click="openWorkbenchBatch('recovery', [task])">恢复判断</a-button>
-              <a-button v-else-if="task.kind === 'ownerRecovery'" type="primary" @click="openWorkbenchBatch('startRecovery', [task])">正在恢复</a-button>
-              <a-button v-else-if="task.kind === 'recovered'" type="primary" @click="openTask(task)">录入明细</a-button>
-              <a-button v-else-if="task.kind === 'transferAccept'" type="primary" @click="openWorkbenchBatch('transferAccept', [task])">确认转派</a-button>
-              <a-button v-else-if="task.kind === 'assign' || task.kind === 'assignLeader'" type="primary"
-                @click="openWorkbenchBatch(task.kind, [task])">{{ workbenchActionLabels[task.kind] }}</a-button>
-            </div>
-          </div>
-          <div v-if="workbenchReady && !loading && !error && !visibleTasks.length" class="v05-card v05-empty">
-            {{ workMetric ? '当前筛选下没有待办任务' : '当前账号暂无需要处理的ADM任务' }}
-          </div>
-        </div>
-        <div v-if="workbenchReady && !error && visibleTasks.length" class="v05-pager">
-          <a-pagination v-model:current="workPage" :page-size="workPageSize" :total="visibleTasks.length"
-            :show-size-changer="false" :disabled="loading" :show-total="taskTotalText" />
-        </div>
-      </section>
-
-      <section v-else>
-        <a-alert v-if="error" type="error" show-icon :message="error" style="margin-top: 16px" />
-        <a-alert v-if="configError" type="warning" show-icon :message="configError" />
-        <div class="v05-card">
+      </PageHeader>
+      <a-card title="业务流转" class="adm-flow" aria-label="ADM 业务流转">
+        <ol class="adm-flow-steps">
+          <li v-for="(step, index) in workflowSteps" :key="step">
+            <span class="adm-flow-number" aria-hidden="true">{{ index + 1 }}</span>
+            <strong>{{ step }}</strong>
+          </li>
+        </ol>
+      </a-card>
+      <div class="v05-card adm-ledger-panel">
+        <a-tabs :active-key="isWorkbench ? 'mine' : 'all'" @change="switchScope">
+          <a-tab-pane key="mine" tab="我的待办" />
+          <a-tab-pane key="all" tab="全部记录" />
+        </a-tabs>
+        <section v-if="isWorkbench">
           <div class="v05-toolbar">
             <a-space wrap>
-              <a-input v-model:value="filters.search" allow-clear aria-label="搜索 ADM 台账"
-                placeholder="ADM 单号、内部主单编号、下发方" style="width: min(300px, 65vw)" @press-enter="query" />
-              <a-select v-model:value="filters.status" aria-label="主单状态" style="width: 140px"
-                :options="[{ value: '', label: '全部状态' }, ...(config?.caseStatuses || []).map((status) => ({ value: status, label: label(status) }))]"
-                @change="query" />
-              <a-button type="primary" :loading="loading" @click="query">查询</a-button>
-              <a-button @click="resetFilters">重置</a-button>
-              <a-select :value="metric" aria-label="主单范围" style="width: 150px"
-                :options="masterScopeOptions" @change="selectMetric" />
-              <a-button @click="openGlobalOrders('all')">订单明细</a-button>
+              <a-select :value="workMetric" aria-label="待办阶段" style="width: 180px"
+                :options="workPhaseOptions" @change="selectWorkPhase" />
+              <a-button v-if="canCloseWorkQueue" @click="openWorkMetric('close')">可以结案</a-button>
+              <a-button v-if="canTransferWorkQueue" @click="openWorkMetric('transfer')">转派记录</a-button>
+              <a-button v-if="canOperatorWork" :disabled="!exportCandidates.length" @click="openExportSelection">接单并导出</a-button>
+              <a-button v-if="canOperatorWork" @click="operatorImportOpen = true">导入处理结果</a-button>
+              <a-button :disabled="loading" @click="load">刷新</a-button>
             </a-space>
           </div>
-          <div class="v05-table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>ADM 单号 / 下发方</th>
-                  <th>金额</th>
-                  <th>处理截止</th>
-                  <th>订单进度</th>
-                  <th>阶段分布</th>
-                  <th>当前状态</th>
-                  <th>结案阻断</th>
-                  <th>风险标签</th>
-                  <th>最近更新</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="record in shownRows" :key="record.id">
-                  <td>
-                    <button class="link" @click="openMasterInfo(record)">{{ record.admNo }}</button
-                    ><small>{{ label(record.issuerType) }} · {{ record.issuerName }}</small
-                    ><small>系统记录：{{ record.internalNo }}</small>
-                    <span :class="['source-badge', sourceTone(record.sourceType)]">{{ sourceText(record.sourceType) }}</span>
-                  </td>
-                  <td>
-                    <b>{{ record.currency }} {{ record.originalAmount }}</b
-                    ><small>折合人民币 ¥ {{ record.cnyAmount }}</small>
-                  </td>
-                  <td>
-                    {{ dateText(record.replyDeadline) }}<small>{{ riskText(record) }}</small>
-                  </td>
-                  <td>
-                    <div class="progress"><i :style="{ width: progressWidth(record) }"></i></div>
-                    <small>{{ Number(record.completedLineCount || 0) }} / {{ activeLineCount(record) }} 已完成</small>
-                  </td>
-                  <td>
-                    <div class="stage-list">
-                      <span v-for="stage in stageSummary(record)" :key="stage.label"
-                        ><i></i>{{ stage.label }}<b>{{ stage.count }}</b></span
-                      >
-                    </div>
-                  </td>
-                  <td>
-                    <span :class="['pill', statusTone(record.caseStatus)]">● {{ label(record.caseStatus) }}</span>
-                  </td>
-                  <td>{{ blockerText(record) }}</td>
-                  <td>
-                    <span :class="['pill', riskTone(record)]">{{ riskText(record) }}</span>
-                  </td>
-                  <td>{{ dateText(record.updatedAt) }}</td>
-                  <td>
-                    <div class="record-actions master-record-actions">
-                      <a-button type="primary" @click="openCase(record)">{{ ledgerDetailText(record) }}</a-button>
-                      <a-dropdown v-if="ledgerStages(record).length > 1" :trigger="['click']">
-                        <a-button>按阶段查看</a-button>
-                        <template #overlay>
-                          <a-menu @click="({ key }: { key: string | number }) => openCase(record, String(key))">
-                            <a-menu-item v-for="stage in ledgerStages(record)" :key="stage.status">
-                              {{ stage.title }}（{{ stage.count }}）
-                            </a-menu-item>
-                          </a-menu>
-                        </template>
-                      </a-dropdown>
-                    </div>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-            <div v-if="loading" class="empty" role="status">正在读取 ADM 台账…</div>
-            <div v-else-if="error" class="empty"><button @click="load">重试读取台账</button></div>
-            <div v-else-if="ledgerReady && !rows.length" class="empty">暂无符合条件的 ADM 主单</div>
+          <a-alert v-if="error" type="error" show-icon :message="error" style="margin-top: 16px" />
+          <a-alert v-if="configError" type="warning" show-icon :message="configError" />
+          <a-alert v-if="workbenchSummary.truncated" type="warning" show-icon
+            :message="`当前显示前 ${workbenchItems.length} 条任务，共 ${workbenchSummary.total} 条；分类数仅统计已加载任务。`" />
+          <a-space v-if="batchRows.length" wrap class="block">
+            <span>已选 {{ batchRows.length }} 条</span>
+            <a-button v-for="action in batchActions" :key="action" @click="openWorkbenchBatch(action)">
+              {{ workbenchActionLabels[action] }}
+            </a-button>
+            <span v-if="!batchActions.length">请选择同一阶段且可执行同一操作的任务</span>
+            <a-button type="link" @click="workSelection = []">清除选择</a-button>
+          </a-space>
+          <div class="v05-work-list">
+            <p v-if="loading" class="v05-card v05-empty" role="status">正在读取 ADM 任务…</p>
+            <p v-else-if="error" class="v05-card v05-empty"><a-button @click="load">重试</a-button></p>
+            <div v-else-if="pagedTasks.length" class="work-task-table">
+              <div class="work-task-row work-task-head">
+                <a-checkbox aria-label="选择当前页任务"
+                  :checked="!!pagedTasks.length && pagedTasks.every((task) => workSelection.includes(workTaskKey(task)))"
+                  @change="selectWorkbenchPage" />
+                <span>ADM / 内部明细</span><span>任务类型</span><span>当前责任分配</span><span>当前需要处理</span><span>处理截止</span><span>操作</span>
+              </div>
+              <div v-for="task in pagedTasks" :key="workTaskKey(task)" class="work-task-row">
+                <a-checkbox :aria-label="`选择 ${task.lineInternalNo || task.admNo}`"
+                  :checked="workSelection.includes(workTaskKey(task))"
+                  @change="toggleWorkbenchTask(task)" />
+                <div>
+                  <a-button type="link" @click="openTask(task)">{{ task.admNo || task.internalNo }}</a-button>
+                  <small>{{ task.lineInternalNo || '主单' }}</small>
+                  <a-tag v-if="task.leaderOverdueAt" color="red">组长分派超 3 天</a-tag>
+                  <a-tag v-if="task.operatorOverdueAt" color="red">操作员分派超 3 天</a-tag>
+                  <a-tag v-if="task.hasTransfer || task.transferId" color="blue">转派</a-tag>
+                </div>
+                <span class="work-task-type">{{ task.role }}任务：{{ task.title }}</span>
+                <span>{{ task.assignment }}</span>
+                <span>{{ task.requiredAction }}</span>
+                <b :class="{ danger: task.overdue }">{{ dateText(task.deadline) }}</b>
+                <a-button
+                  v-if="canAcceptTask(task)"
+                  type="primary"
+                  :loading="acceptingLines.has(Number(task.lineId))"
+                  @click="acceptTask(task)"
+                >接单</a-button>
+                <a-button v-else-if="task.kind === 'leaderRecovery'" type="primary" @click="openWorkbenchBatch('recovery', [task])">恢复判断</a-button>
+                <a-button v-else-if="task.kind === 'ownerRecovery'" type="primary" @click="openWorkbenchBatch('startRecovery', [task])">正在恢复</a-button>
+                <a-button v-else-if="task.kind === 'recovered'" type="primary" @click="openTask(task)">录入明细</a-button>
+                <a-button v-else-if="task.kind === 'transferAccept'" type="primary" @click="openWorkbenchBatch('transferAccept', [task])">确认转派</a-button>
+                <a-button v-else-if="task.kind === 'assign' || task.kind === 'assignLeader'" type="primary"
+                  @click="openWorkbenchBatch(task.kind, [task])">{{ workbenchActionLabels[task.kind] }}</a-button>
+              </div>
+            </div>
+            <div v-if="workbenchReady && !loading && !error && !visibleTasks.length" class="v05-card v05-empty">
+              {{ workMetric ? '当前筛选下没有待办任务' : '当前账号暂无需要处理的ADM任务' }}
+            </div>
           </div>
-          <div class="v05-pager">
-            <a-pagination
-              :current="page"
-              :page-size="pageSize"
-              :total="total"
-              :disabled="loading || !!error"
-              :show-total="recordTotalText"
-              :page-size-options="['10', '20', '50', '100']"
-              show-size-changer
-              @change="changeLedgerPage"
-            />
+          <div v-if="workbenchReady && !error && visibleTasks.length" class="v05-pager">
+            <a-pagination v-model:current="workPage" :page-size="workPageSize" :total="visibleTasks.length"
+              :show-size-changer="false" :disabled="loading" :show-total="taskTotalText" />
           </div>
-        </div>
-      </section>
+        </section>
+
+        <section v-else>
+          <a-alert v-if="error" type="error" show-icon :message="error" style="margin-top: 16px" />
+          <a-alert v-if="configError" type="warning" show-icon :message="configError" />
+          <div>
+            <div class="v05-toolbar">
+              <a-space wrap>
+                <a-input v-model:value="filters.search" allow-clear aria-label="搜索 ADM 台账"
+                  placeholder="ADM 单号、内部主单编号、下发方" style="width: min(300px, 65vw)" @press-enter="query" />
+                <a-select v-model:value="filters.status" aria-label="主单状态" style="width: 140px"
+                  :options="[{ value: '', label: '全部状态' }, ...(config?.caseStatuses || []).map((status) => ({ value: status, label: label(status) }))]"
+                  @change="query" />
+                <a-button type="primary" :loading="loading" @click="query">查询</a-button>
+                <a-button @click="resetFilters">重置</a-button>
+                <a-select :value="metric" aria-label="主单范围" style="width: 150px"
+                  :options="masterScopeOptions" @change="selectMetric" />
+                <a-button @click="openGlobalOrders('all')">订单明细</a-button>
+              </a-space>
+            </div>
+            <div class="v05-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>ADM 单号 / 下发方</th>
+                    <th>金额</th>
+                    <th>处理截止</th>
+                    <th>订单进度</th>
+                    <th>阶段分布</th>
+                    <th>当前状态</th>
+                    <th>结案阻断</th>
+                    <th>风险标签</th>
+                    <th>最近更新</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="record in shownRows" :key="record.id">
+                    <td>
+                      <button class="link" @click="openMasterInfo(record)">{{ record.admNo }}</button
+                      ><small>{{ label(record.issuerType) }} · {{ record.issuerName }}</small
+                      ><small>系统记录：{{ record.internalNo }}</small>
+                      <span :class="['source-badge', sourceTone(record.sourceType)]">{{ sourceText(record.sourceType) }}</span>
+                    </td>
+                    <td>
+                      <b>{{ record.currency }} {{ record.originalAmount }}</b
+                      ><small>折合人民币 ¥ {{ record.cnyAmount }}</small>
+                    </td>
+                    <td>
+                      {{ dateText(record.replyDeadline) }}<small>{{ riskText(record) }}</small>
+                    </td>
+                    <td>
+                      <div class="progress"><i :style="{ width: progressWidth(record) }"></i></div>
+                      <small>{{ Number(record.completedLineCount || 0) }} / {{ activeLineCount(record) }} 已完成</small>
+                    </td>
+                    <td>
+                      <div class="stage-list">
+                        <span v-for="stage in stageSummary(record)" :key="stage.label"
+                          ><i></i>{{ stage.label }}<b>{{ stage.count }}</b></span
+                        >
+                      </div>
+                    </td>
+                    <td>
+                      <span :class="['pill', statusTone(record.caseStatus)]">● {{ label(record.caseStatus) }}</span>
+                    </td>
+                    <td>{{ blockerText(record) }}</td>
+                    <td>
+                      <span :class="['pill', riskTone(record)]">{{ riskText(record) }}</span>
+                    </td>
+                    <td>{{ dateText(record.updatedAt) }}</td>
+                    <td>
+                      <div class="record-actions master-record-actions">
+                        <a-button type="primary" @click="openCase(record)">{{ ledgerDetailText(record) }}</a-button>
+                        <a-dropdown v-if="ledgerStages(record).length > 1" :trigger="['click']">
+                          <a-button>按阶段查看</a-button>
+                          <template #overlay>
+                            <a-menu @click="({ key }: { key: string | number }) => openCase(record, String(key))">
+                              <a-menu-item v-for="stage in ledgerStages(record)" :key="stage.status">
+                                {{ stage.title }}（{{ stage.count }}）
+                              </a-menu-item>
+                            </a-menu>
+                          </template>
+                        </a-dropdown>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <div v-if="loading" class="empty" role="status">正在读取 ADM 台账…</div>
+              <div v-else-if="error" class="empty"><button @click="load">重试读取台账</button></div>
+              <div v-else-if="ledgerReady && !rows.length" class="empty">暂无符合条件的 ADM 主单</div>
+            </div>
+            <div class="v05-pager">
+              <a-pagination
+                :current="page"
+                :page-size="pageSize"
+                :total="total"
+                :disabled="loading || !!error"
+                :show-total="recordTotalText"
+                :page-size-options="['10', '20', '50', '100']"
+                show-size-changer
+                @change="changeLedgerPage"
+              />
+            </div>
+          </div>
+        </section>
+      </div>
     </main>
 
     <a-modal v-model:open="workbenchBatchOpen" :title="workbenchActionLabels[workbenchBatchAction]"
@@ -486,9 +491,9 @@
     <a-modal
       v-model:open="createOpen"
       title="新建 ADM 主单"
-      width="1180px"
+      width="min(1040px, 96vw)"
       :footer="null"
-      wrap-class-name="v05-modal"
+      wrap-class-name="v05-modal adm-form-modal"
       ><a-alert
         type="info"
         show-icon
@@ -503,7 +508,8 @@
       >
         <template #action><a-button size="small" @click="retryCreateReferences">重试</a-button></template>
       </a-alert>
-      <div class="v05-form-grid">
+      <div class="v05-form-grid adm-grouped-form">
+          <h3>主单信息</h3>
           <label><span class="form-field-label">ADM 单号 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.admNo" /></label
           ><label
             ><span class="form-field-label">下发方类型 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
@@ -517,6 +523,7 @@
           ><label
             ><span class="form-field-label">关联航司 <span class="form-required-mark" aria-hidden="true">*</span></span>
               <a-input aria-required="true" v-model:value="form.airlineName" /></label>
+          <h3>金额与汇率</h3>
           <label><span class="form-field-label">原币币种 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
               v-model:value="form.currency"
               :options="currencyOptions"
@@ -532,7 +539,9 @@
             >汇率日期 / 来源<a-input
               :value="fxSnapshot ? `${fxSnapshot.sourceUpdatedAt || '即时'} / ${fxSnapshot.actualSource}` : '—'"
               readonly /></label
-          ><label><span class="form-field-label">下发日期 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.issuedDate" type="date" /></label
+          >
+          <h3>时限与责任分配</h3>
+          <label><span class="form-field-label">下发日期 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.issuedDate" type="date" /></label
           ><label><span class="form-field-label">处理截止 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.replyDeadline" type="datetime-local" /></label
           ><label>
             <span class="form-field-label">归属部门 <span class="form-required-mark" aria-hidden="true">*</span></span>
@@ -548,7 +557,9 @@
           </label><label class="wide">
             <span class="form-field-label">细分差异原因 <span class="form-required-mark" aria-hidden="true">*</span></span>
             <a-textarea aria-required="true" v-model:value="form.differenceReason" :rows="2" />
-          </label><label class="wide">备注（选填）<a-textarea v-model:value="form.remark" :rows="2" /></label
+          </label>
+          <h3>备注与附件</h3>
+          <label class="wide">备注（选填）<a-textarea v-model:value="form.remark" :rows="2" /></label
           ><label class="wide"
             >主单公共附件（选填）<input type="file" multiple @change="pickMasterFiles" /><span>{{
               masterFiles.map((file) => file.name).join('、') || '未选择附件'
@@ -603,6 +614,7 @@ import { message } from 'ant-design-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
 import { createOperationIdentifier } from '@/utils/operationIdentifier'
+import PageHeader from '@/components/PageHeader.vue'
 import AdmMasterBasicModal from './AdmMasterBasicModal.vue'
 import {
   admApi,

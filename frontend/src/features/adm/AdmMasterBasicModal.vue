@@ -1,10 +1,11 @@
 <template>
-  <a-modal :open="open" width="920px" :footer="null" wrap-class-name="v05-modal adm-basic-info-modal" @cancel="close">
+  <a-modal :open="open" width="min(920px, 96vw)" :footer="null" wrap-class-name="v05-modal adm-basic-info-modal adm-form-modal" @cancel="close">
     <div v-if="detail" class="prototype-info-modal">
       <header class="prototype-info-head">
         <div><h2>{{ editable ? '编辑 ADM 主单基础信息' : 'ADM 主单基础信息' }}</h2><p>{{ detail.case.admNo }} · 系统记录 {{ detail.case.internalNo }}</p></div>
       </header>
-      <div v-if="editable" class="v05-form-grid prototype-edit-grid">
+      <div v-if="editable" class="v05-form-grid prototype-edit-grid adm-grouped-form">
+        <h3>主单信息</h3>
         <label>系统主单ID<a-input :value="detail.case.internalNo" readonly /></label>
         <label>当前状态<a-input :value="label(detail.case.caseStatus)" readonly /></label>
         <label><span class="form-field-label">ADM单号 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.admNo" /></label>
@@ -12,6 +13,7 @@
         <label v-if="detail.case.lineDefaults || form.issuerType === 'AIRLINE'" class="wide"><span class="form-field-label">下发方名称 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.issuerName" /></label>
         <label v-else class="wide"><span class="form-field-label">下发方名称 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true" v-model:value="form.issuerCode" show-search :filter-option="filterOption" :options="issuerOptions" @change="issuerSelected" /></label>
         <label>ADM负责人<a-input :value="detail.case.coordinatorName || '—'" readonly /></label>
+        <h3>金额与时限</h3>
         <label>原币币种<a-input :value="detail.case.currency" readonly /></label>
         <label>原币总金额<a-input :value="`${detail.case.currency} ${detail.case.originalAmount}`" readonly /></label>
         <label>人民币总金额<a-input :value="`¥ ${detail.case.cnyAmount}`" readonly /></label>

@@ -1,12 +1,14 @@
 <template>
-  <a-modal :open="open" width="920px" :footer="null" wrap-class-name="v05-modal adm-basic-info-modal" @cancel="close">
+  <a-modal :open="open" width="min(920px, 96vw)" :footer="null" wrap-class-name="v05-modal adm-basic-info-modal adm-form-modal" @cancel="close">
     <div v-if="detail && line" class="prototype-info-modal">
       <header class="prototype-info-head"><div><h2>{{ editable ? '编辑订单基础信息' : '订单基础信息' }}</h2><p>{{ detail.case.admNo }} · {{ line.lineInternalNo }}</p></div></header>
-      <div v-if="editable" class="v05-form-grid prototype-edit-grid">
+      <div v-if="editable" class="v05-form-grid prototype-edit-grid adm-grouped-form">
+        <h3>订单标识</h3>
         <label>系统主单ID<a-input :value="detail.case.internalNo" readonly /></label><label>内部明细ID<a-input :value="line.lineInternalNo" readonly /></label>
         <label>OTA平台<a-select v-model:value="form.otaCode" allow-clear :options="options.ota" @change="(v?: string) => pick('ota', v)" /></label><label>OTA订单号<a-input v-model:value="form.otaOrderNo" /></label>
         <label v-if="!detail.case.masterRecoveryStatus">供应商<a-select v-model:value="form.supplierCode" allow-clear :options="options.supplier" @change="(v?: string) => pick('supplier', v)" /></label><label v-if="detail.case.masterRecoveryStatus">供应商（继承主单）<a-input :value="line.supplierName" readonly /></label><label>航司<a-input v-model:value="form.airlineName" :readonly="!!detail.case.masterRecoveryStatus" /></label>
         <label>票号<a-input v-model:value="form.ticketNo" /></label><label>PNR编码<a-input v-model:value="form.pnr" /></label>
+        <h3>责任与处理信息</h3>
         <label><span class="form-field-label">业务归属部门 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true" v-model:value="form.departmentCode" :disabled="!!detail.case.lineDefaults" :options="departmentOptions" @change="(v: string) => pick('department', v)" /></label><label><span class="form-field-label">负责组长 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true" :disabled="!!detail.case.lineDefaults || !canChangeAdmLeader(line)" v-model:value="form.leaderId" :options="leaderOptions" show-search option-filter-prop="label" placeholder="搜索姓名、部门或账号" @change="pickLeader" /></label>
         <label>操作人员<a-input :value="line.operatorName || '未分配'" readonly /></label><label>截止时间（继承主单）<a-input :value="detail.case.replyDeadline || '—'" readonly /></label>
         <label>本笔ADM金额（原币）<a-input :value="`${detail.case.currency} ${line.originalAmount}`" readonly /></label><label>本笔ADM金额（人民币）<a-input :value="`¥ ${line.cnyAmount}`" readonly /></label>
