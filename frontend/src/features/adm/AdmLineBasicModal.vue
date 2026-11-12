@@ -3,12 +3,16 @@
     <div v-if="detail && line" class="prototype-info-modal">
       <header class="prototype-info-head"><div><h2>{{ editable ? '编辑订单基础信息' : '订单基础信息' }}</h2><p>{{ detail.case.admNo }} · {{ line.lineInternalNo }}</p></div></header>
       <div v-if="editable && simpleEdit" class="v05-form-grid prototype-edit-grid adm-grouped-form">
-        <label>平台<a-select v-model:value="form.otaCode" allow-clear show-search option-filter-prop="label"
+        <label><span>平台 <span class="form-required-mark">*</span></span><a-select v-model:value="form.otaCode" aria-required="true" show-search option-filter-prop="label"
           :options="options.ota" @change="(value?: string) => pick('ota', value)" /></label>
         <label>航司<a-input v-model:value="form.airlineName" :maxlength="100" /></label>
-        <label>PNR<a-input v-model:value="form.pnr" aria-required="true" :maxlength="500" /></label>
+        <label><span>PNR <span class="form-required-mark">*</span></span><a-input v-model:value="form.pnr" aria-required="true" :maxlength="500" /></label>
         <label>票号<a-input v-model:value="form.ticketNo" :maxlength="500" /></label>
-        <label>本笔金额<a-input :value="`${detail.case.currency} ${line.originalAmount}`" readonly /></label>
+        <label><span>原币金额 <span class="form-required-mark">*</span></span>
+          <a-input v-model:value="form.originalAmount" :addon-before="detail.case.currency" inputmode="decimal" aria-required="true" />
+        </label>
+        <label>折算人民币<a-input :value="admCnyPreview(form.originalAmount, detail.fxSnapshot?.rateValue)" addon-before="¥" readonly /></label>
+        <p>主单汇率 {{ detail.fxSnapshot?.rateValue || '—' }}</p>
       </div>
       <div v-else-if="editable" class="v05-form-grid prototype-edit-grid adm-grouped-form">
         <h3>订单标识</h3>
@@ -60,7 +64,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
-import { admApi, admPersonOptions, canChangeAdmLeader, errorText, type AdmCaseDetail, type AdmConfig, type AdmLine, type Fields, type Option } from './api'
+import { admApi, admCnyPreview, admPersonOptions, amountInCents, canChangeAdmLeader, errorText, type AdmCaseDetail, type AdmConfig, type AdmLine, type Fields, type Option } from './api'
 const props = defineProps<{ open: boolean; detail: AdmCaseDetail | null; line: AdmLine | null; editable: boolean; simpleEdit: boolean; canAdjustAmount: boolean; config: AdmConfig | null }>()
 const emit = defineEmits<{ close: []; saved: [detail: AdmCaseDetail]; adjustAmount: [] }>()
 const saving = ref(false), masters = reactive<Record<string, Option[]>>({ department: [], diffType: [], ota: [], supplier: [] }), form = reactive<Fields>({})
@@ -81,6 +85,34 @@ function close() { emit('close') }
 function pick(kind: string, value?: string) { const item = masters[kind].find(option => option.code === value); const nameKey = `${kind}Name`; form[nameKey] = item?.name || '' }
 function pickLeader(value: number) { form.leaderName = props.config?.people.leader.find(item => Number(item.id) === Number(value))?.name || '' }
 async function previewAttachment(item: Fields) { if (!props.detail) return; try { const response = await admApi.file(props.detail.case.id, item.id, 'preview'); const url = URL.createObjectURL(response.data); window.open(url, '_blank', 'noopener'); window.setTimeout(() => URL.revokeObjectURL(url), 60_000) } catch (error) { void message.error(errorText(error)) } }
-async function save() { if (!props.detail || !props.line || saving.value) return; saving.value = true; try { const detail = await admApi.updateLine(props.detail.case.id, props.line.id, { ...form, versionNo: props.line.versionNo }); emit('saved', detail); void message.success('订单基础信息已保存') } catch (error) { void message.error(errorText(error)) } finally { saving.value = false } }
-watch(() => [props.open, props.line?.id], async ([open]) => { if (!open) return; reset(); if (props.editable) { const kinds = props.simpleEdit ? ['ota'] : ['department', 'diffType', 'ota', 'supplier']; const results = await Promise.allSettled(kinds.map(kind => admApi.options(kind))); results.forEach((result, index) => { if (result.status === 'fulfilled') masters[kinds[index]] = result.value }) } }, { immediate: true })
+async function save() {
+  if (!props.detail || !props.line || saving.value) return
+  const { originalAmount, ...fields } = form
+  if (props.simpleEdit && (!fields.otaCode || !String(fields.pnr || '').trim() || (amountInCents(originalAmount) ?? 0n) <= 0n)) {
+    void message.warning('请填写平台、PNR 和大于零的原币金额')
+    return
+  }
+  saving.value = true
+  try {
+    const detail = await admApi.updateLine(props.detail.case.id, props.line.id, {
+      ...fields, ...(props.simpleEdit ? { originalAmount } : {}), versionNo: props.line.versionNo,
+    })
+    emit('saved', detail)
+    void message.success('订单基础信息已保存')
+  } catch (error) {
+    void message.error(errorText(error))
+  } finally {
+    saving.value = false
+  }
+}
+watch(() => [props.open, props.line?.id], async ([open]) => {
+  if (!open) return
+  reset()
+  form.originalAmount = (amountInCents(props.line?.originalAmount) ?? 0n) > 0n ? String(props.line?.originalAmount) : ''
+  if (props.editable) {
+    const kinds = props.simpleEdit ? ['ota'] : ['department', 'diffType', 'ota', 'supplier']
+    const results = await Promise.allSettled(kinds.map(kind => admApi.options(kind)))
+    results.forEach((result, index) => { if (result.status === 'fulfilled') masters[kinds[index]] = result.value })
+  }
+}, { immediate: true })
 </script>

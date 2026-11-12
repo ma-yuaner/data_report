@@ -107,7 +107,7 @@
                 <a-button v-else-if="task.kind === 'collection'" type="primary" @click="openDirectTask(task, 'collection')">登记回款</a-button>
                 <a-button v-else-if="task.kind === 'diff'" type="primary"
                   :loading="acceptingLines.has(Number(task.lineId))" @click="checkTaskDifference(task)">匹配差异单</a-button>
-                <a-button v-if="task.lineId" type="link" @click="openDirectTask(task, 'basic')">查看明细</a-button>
+                <a-button v-if="task.lineId && task.kind !== 'assign'" type="link" @click="openDirectTask(task, 'basic')">查看明细</a-button>
                 </div>
               </div>
             </div>
@@ -256,14 +256,11 @@
             <a-radio value="request">需要恢复，交回 ADM 负责人</a-radio>
           </a-radio-group>
         </a-form-item>
-        <a-form-item v-if="workbenchBatchAction === 'recovery' && workbenchBatchForm.recoveryAction === 'request'"
-          label="GDS-PCC-PNR" required>
-          <a-textarea v-model:value="workbenchBatchForm.locators" placeholder="1G-5S75-13124N,1A-BKK247-123NE" />
-        </a-form-item>
-        <template v-if="workbenchBatchAction === 'recovery' && workbenchBatchForm.recoveryAction === 'skip'">
+        <template v-if="workbenchBatchAction === 'recovery'">
           <a-form-item v-for="task in workbenchBatchRows" :key="task.caseId"
-            :label="`PNR · ${task.admNo || task.internalNo}`" required>
-            <a-input v-model:value="workbenchBatchForm.pnrs[task.caseId]" :maxlength="500" />
+            :label="`GDS-PCC-PNR · ${task.admNo || task.internalNo}`" required>
+            <a-textarea v-model:value="workbenchBatchForm.locators[task.caseId]" :maxlength="2000"
+              placeholder="多条用逗号分隔，例如 1G-5S75-13124N,1A-BKK247-123NE" />
           </a-form-item>
         </template>
         <a-alert v-if="workbenchBatchAction === 'startRecovery'" type="info" show-icon
@@ -674,7 +671,6 @@
         @close="closeCasePanel"
         @changed="casePanelChanged = true"
         @open-case="openCasePanel"
-        @open-order="openGlobalLine"
       />
     </a-drawer>
   </div>
@@ -1092,7 +1088,7 @@ function openWorkbenchBatch(action: string, rows = batchRows.value) {
   workbenchBatchError.value = ''
   Object.assign(workbenchBatchForm, {
     targetUserId: undefined, targetRole: action === 'transfer' && !rows.every(canTransferOperator) ? 'LEADER' : 'OPERATOR',
-    reason: '', handoverNote: '', recoveryAction: undefined, locators: '', pnrs: {}, accepted: true,
+    reason: '', handoverNote: '', recoveryAction: undefined, locators: {}, accepted: true,
   })
   workbenchBatchOpen.value = true
 }
@@ -1100,9 +1096,9 @@ async function submitWorkbenchBatch() {
   if (workbenchBatchBusy.value) return
   const action = workbenchBatchAction.value
   const form = { ...workbenchBatchForm }
-  if (action === 'recovery' && form.recoveryAction === 'skip' &&
-      workbenchBatchRows.value.some(task => !String(form.pnrs[task.caseId] || '').trim())) {
-    workbenchBatchError.value = '请填写每张主单的 PNR'
+  if (action === 'recovery' && (!form.recoveryAction ||
+      workbenchBatchRows.value.some(task => !String(form.locators[task.caseId] || '').trim()))) {
+    workbenchBatchError.value = '请选择是否恢复，并填写每张主单的 GDS-PCC-PNR'
     return
   }
   if (action === 'transfer' && form.targetRole === 'OPERATOR' && !workbenchBatchRows.value.every(canTransferOperator)) {
@@ -1129,7 +1125,7 @@ async function submitWorkbenchBatch() {
         }
         if (action === 'recovery' || action === 'startRecovery')
           await admApi.masterRecovery(caseId, action === 'startRecovery' ? 'start' : form.recoveryAction,
-            form.recoveryAction === 'skip' ? form.pnrs[caseId] : form.locators)
+            form.locators[caseId])
       } catch (e) {
         failures.push(task)
         errors.push(`${task.lineInternalNo || task.admNo}：${errorText(e)}`)
@@ -1358,9 +1354,6 @@ function openGlobalOrders(key: string) {
   ordersTotal.value = 0
   globalOrdersOpen.value = true
   void loadGlobalOrders()
-}
-function openGlobalLine(caseId: number, lineId: number) {
-  openCasePanel(Number(caseId), { lineId: Number(lineId) })
 }
 function lineStatusTone(status: string) {
   return status === 'COMPLETED'

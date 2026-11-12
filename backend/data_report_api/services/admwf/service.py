@@ -425,6 +425,14 @@ class AdmWorkflowService:
             raise AdmError("当前订单状态只允许查看基础信息", 409, "ADM_ACTION_BLOCKED")
         payload = body or {}
         expected_version = payload.get("versionNo")
+        supplement = "originalAmount" in payload and bool(stored["case"].get("master_recovery_status"))
+        if supplement:
+            payload = {
+                "otaCode": line.get("ota_code"), "otaOrderNo": line.get("ota_order_no"),
+                "pnr": line.get("pnr"), "ticketNo": line.get("ticket_no"),
+                "investigationNote": line.get("investigation_note"),
+                **payload,
+            }
         if expected_version is not None:
             try:
                 expected_version = int(expected_version)
@@ -440,7 +448,7 @@ class AdmWorkflowService:
                 "differenceReason": line["difference_reason"],
             }
         normalized = normalize_line({
-            "originalAmount": line["original_amount"],
+            "originalAmount": payload["originalAmount"] if supplement else line["original_amount"],
             "otaCode": payload.get("otaCode"), "otaName": payload.get("otaName"),
             "otaOrderNo": payload.get("otaOrderNo"),
             "supplierCode": payload.get("supplierCode"), "supplierName": payload.get("supplierName"),
@@ -485,10 +493,14 @@ class AdmWorkflowService:
             normalized["airlineCode"] = line.get("airline_code") if normalized["airlineName"] == line.get("airline_name") else None
         if leader_edit:
             normalized["pnr"] = text(normalized["pnr"], "PNR", 500)
+        if supplement:
+            if not normalized["otaCode"] or not normalized["pnr"] or normalized["originalAmount"] <= 0:
+                raise AdmError("请填写平台、PNR 和大于零的原币金额")
         return _json_value(self.repository.update_line_basic(
             int(case_id), int(line_id), normalized, actor,
             **({"leader_only": True} if leader_edit else {}),
             **({"expected_version": expected_version} if expected_version is not None else {}),
+            **({"supplement": True} if supplement else {}),
         ))
 
     def master_leader_transfer(self, user, case_id, body):
@@ -514,7 +526,7 @@ class AdmWorkflowService:
         actor = self._actor(user)
         locators = None
         line = None
-        if action == "request":
+        if action in {"request", "skip"}:
             raw = text(body.get("locators"), "GDS-PCC-PNR", 2000)
             entries = [item.strip().upper() for item in raw.replace("，", ",").split(",")]
             if not all(re.fullmatch(r"[A-Z0-9]{2}-[A-Z0-9]{3,8}-[A-Z0-9]{5,8}", item) for item in entries):
@@ -527,8 +539,8 @@ class AdmWorkflowService:
             case = stored["case"]
             intake = case["lineDefaults"].get("masterIntake") or {}
             legacy_defaults = not intake
-            pnr = text(body.get("pnr") or body.get("locators"), "PNR", 500)
-            line = normalize_line({**case["lineDefaults"], "originalAmount": case["original_amount"], "pnr": pnr,
+            pnr = entries[0].rsplit("-", 1)[1]
+            line = normalize_line({**case["lineDefaults"], "originalAmount": "0", "pnr": pnr,
                                    "airlineCode": intake.get("airlineCode"), "airlineName": case.get("airline_name"),
                                    "supplierCode": intake.get("supplierCode"), "supplierName": intake.get("supplierName")},
                                   stored["fxSnapshot"]["rate_value"],
@@ -560,6 +572,7 @@ class AdmWorkflowService:
         if not fx:
             raise AdmError("主单冻结汇率不存在", 500, "ADM_REFERENCE_INVALID")
         batch = "lines" in body
+        supplement = body.get("supplement") is True and not batch and bool(recovery_status)
         raw_lines = body.get("lines") if batch else [body.get("line")]
         if not isinstance(raw_lines, list) or not 1 <= len(raw_lines) <= 200:
             raise AdmError("每次可录入 1 至 200 条订单明细")
@@ -581,8 +594,10 @@ class AdmWorkflowService:
                                   department_required=legacy_defaults, diff_type_required=legacy_defaults)
             if line["originalAmount"] <= 0:
                 raise AdmError(f"第{index}条订单金额必须大于0")
-            if batch:
+            if batch or supplement:
                 line["pnr"] = text(line["pnr"], f"第{index}条PNR", 500)
+            if supplement and not line["otaCode"]:
+                raise AdmError("请选择平台")
             if not defaults:
                 department = self.catalog.department(line["departmentCode"])
                 line.update(departmentCode=department["code"], departmentName=department["name"])
@@ -632,6 +647,7 @@ class AdmWorkflowService:
             int(case_id), lines if batch else lines[0], amounts, actor, reason or "首次录入订单明细",
             **({"leader_only": True} if leader_only and (batch or recovery_status == "NOT_REQUIRED") else {}),
             **({"case_version": case_version} if batch else {}),
+            **({"supplement": True} if supplement else {}),
         ))
 
     def config_payload(self, user):
@@ -777,6 +793,7 @@ class AdmWorkflowService:
         saved = self.repository.assign_operator(
             int(case_id), int(line_id), operator, actor,
             reason=text((body or {}).get("reason"), "分配说明", 1000, required=False),
+            **({"allow_override": True} if user.get("is_admin") else {}),
         )
         return _json_value(saved)
 

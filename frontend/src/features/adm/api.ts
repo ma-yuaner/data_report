@@ -9,6 +9,14 @@ export function amountInCents(value: unknown): bigint | null {
 export function centsText(amount: bigint) {
   return `${amount / 100n}.${String(amount % 100n).padStart(2, '0')}`
 }
+export function admCnyPreview(amount: unknown, rate: unknown) {
+  const cents = amountInCents(amount)
+  const parts = /^(\d+)(?:\.(\d+))?$/.exec(String(rate ?? ''))
+  if (cents === null || !parts) return '—'
+  const fraction = parts[2] || ''
+  const divisor = 10n ** BigInt(fraction.length)
+  return centsText((cents * BigInt(parts[1] + fraction) + divisor / 2n) / divisor)
+}
 export interface Option { code: string; name: string; ticketingCode?: string | null }
 export function formatAdmAirline(code: string, ticketingCode?: string | null) {
   return ticketingCode ? `${code}（${ticketingCode}）` : code
@@ -107,8 +115,7 @@ export const admApi = {
   masterLeaderTransfer: (caseId: number, body: Fields) =>
     data<AdmCaseDetail>(http.post(`${casePath(caseId)}/master-leader-transfer`, body)),
   masterRecovery: (caseId: number, action: string, value?: string) =>
-    data<AdmCaseDetail>(http.post(`${casePath(caseId)}/master-recovery`,
-      action === 'skip' ? { action, pnr: value } : { action, locators: value })),
+    data<AdmCaseDetail>(http.post(`${casePath(caseId)}/master-recovery`, { action, locators: value })),
   assignOperator: (caseId: number, lineId: number, body: Fields) => data<Fields>(http.post(`${linePath(caseId, lineId)}/assign-operator`, body)),
   changeLeader: (caseId: number, lineId: number, body: Fields) => data<Fields>(http.post(`${linePath(caseId, lineId)}/change-leader`, body)),
   accept: (caseId: number, lineId: number) => data<Fields>(http.post(`${linePath(caseId, lineId)}/accept`, {})),

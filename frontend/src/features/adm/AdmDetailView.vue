@@ -59,9 +59,6 @@
               </div>
             </dl>
             <div class="summary-actions">
-              <a-button v-if="!isLegacyReadOnly" type="primary" :disabled="!canAddLine" @click="openAddLine">
-                {{ canBatchAddLines ? '分组录入订单' : '新增订单明细' }}
-              </a-button>
               <a-button @click="openMasterBasicInfo">{{ canEditMasterBasic ? '编辑基础信息' : '查看基础信息' }}</a-button>
               <a-button :loading="loading" @click="openMasterOperations">操作记录</a-button><a-button :disabled="loading" @click="() => load()">刷新</a-button
               ><a-button v-if="isCaseOwner && canCreate && record.case.caseStatus === 'DRAFT'" type="primary" @click="publishDraft">
@@ -113,21 +110,8 @@
             message="当前新ADM表中还没有主单。请返回ADM台账新建主单并录入第一笔订单；进入已有主单详情后才会显示“新增订单”。"
             style="margin-bottom: 16px"
           />
-          <div class="v05-blocker">
-            <b>结案阻断</b><span>{{ blockerSummary }}</span
-            ><button @click="selectFirstBlocker">查看阻断订单</button>
-          </div>
-          <div class="v05-metrics compact">
-            <button
-              v-for="item in stageMetrics"
-              :key="item.key"
-              :class="{ selected: selectedStage === item.key }"
-              @click="selectDetailStage(item.key)"
-            >
-              <span>{{ item.title }}</span
-              ><strong>{{ item.value }}</strong>
-            </button>
-          </div>
+          <a-alert v-if="usesOrderSupplement && !isLegacyReadOnly && !orderAmountsMatch" type="warning" show-icon class="block"
+            :message="`订单明细原币合计 ${record.case.currency} ${centsText(orderAmountTotal)}，主单原币总额 ${record.case.originalAmount}。金额一致后可分配或转派。`" />
           <div class="v05-detail-grid" style="grid-template-columns: minmax(0, 1fr)">
             <div class="v05-card v05-orders">
               <div class="detail-card-head">
@@ -136,9 +120,7 @@
                   <small>清除筛选后显示当前 ADM 下全部订单</small>
                 </div>
                 <div class="v05-actions">
-                  <button v-if="record.case.caseStatus === 'ACTIVE' && selectedIds.length" @click="exportSelected">
-                    接单并导出（{{ selectedIds.length }}）
-                  </button>
+                  <a-button v-if="canAddLine" type="primary" @click="openAddLine">新增订单明细</a-button>
                 </div>
               </div>
               <div class="order-filters">
@@ -146,7 +128,7 @@
                   placeholder="订单号、票号、PNR" style="min-width: 180px; flex: 1" />
                 <a-select v-model:value="lineFilter.status" aria-label="明细状态" style="width: 155px"
                   :options="[{ value: '', label: '全部状态' }, ...(config?.lineStatuses || []).map((status) => ({ value: status, label: label(status) }))]"
-                  @change="selectedStage = ''" />
+ />
                 <a-select v-model:value="lineFilter.dept" aria-label="归属部门" style="width: 155px"
                   :options="[{ value: '', label: '全部部门' }, ...departmentNames.map((name) => ({ value: name, label: name }))]" />
                 <a-select v-model:value="lineFilter.leader" aria-label="负责组长" style="width: 155px"
@@ -157,7 +139,6 @@
                 <table>
                   <thead>
                     <tr>
-                      <th></th>
                       <th>票号 / OTA订单号 / 内部明细</th>
                       <th>业务归属 / 组长</th>
                       <th>操作人员</th>
@@ -175,19 +156,11 @@
                       @click="selectedLineId = line.id"
                     >
                       <td>
-                        <input
-                          v-if="canExportLine(line)"
-                          type="checkbox"
-                          :checked="selectedIds.includes(line.id)"
-                          @click.stop
-                          @change="toggleSelected(line.id)"
-                        />
-                      </td>
-                      <td>
                         <button class="link" @click.stop="openBasicInfo(line)">
                           {{ line.ticketNo || '未填写票号' }}</button
                         ><small>OTA：{{ line.otaOrderNo || '未填写' }} · PNR：{{ line.pnr || '未填写' }}</small
                         ><small>内部明细：{{ line.lineInternalNo }}</small>
+                        <small>{{ line.otaName || '未填写平台' }} · {{ record.case.currency }} {{ line.originalAmount }} / ¥ {{ line.cnyAmount }}</small>
                       </td>
                       <td>
                         {{ line.departmentName }}<small>组长：{{ line.leaderName || '未分配' }}</small>
@@ -215,15 +188,15 @@
                     </td>
                       <td>
                         <div class="record-actions order-record-actions">
-                          <a-button type="primary" @click.stop="openLineDrawer(line)">办理订单</a-button
-                          ><a-button v-if="isCaseOwner && canAssignLeader && record.case.caseStatus === 'ACTIVE' && canChangeAdmLeader(line)" @click.stop="openLineTask(line, 'leader')">{{ line.lineStatus === 'PENDING_LEADER' ? '分配组长' : '更换组长' }}</a-button
-                          ><a-button v-if="canAssignOperator && Number(line.leaderId) === myId && line.lineStatus === 'PENDING_OPERATOR'" @click.stop="openLineTask(line, 'assign')">分配操作员</a-button
-                          ><a-button v-if="canTransferOrder(line)" @click.stop="openLineTask(line, 'transfer')">转派</a-button>
+                          <a-button v-if="canEditLineBasic(line)" @click.stop="openBasicInfo(line)">补充资料</a-button
+                          ><a-button v-if="isCaseOwner && canAssignLeader && record.case.caseStatus === 'ACTIVE' && canChangeAdmLeader(line)" :disabled="!lineOperationReady(line)" @click.stop="openLineTask(line, 'leader')">{{ line.lineStatus === 'PENDING_LEADER' ? '分配组长' : '更换组长' }}</a-button
+                          ><a-button v-if="canAssignOperator && Number(line.leaderId) === myId && line.lineStatus === 'PENDING_OPERATOR'" :disabled="!lineOperationReady(line)" @click.stop="openLineTask(line, 'assign')">分配操作员</a-button
+                          ><a-button v-if="canTransferOrder(line)" :disabled="!lineOperationReady(line)" @click.stop="openLineTask(line, 'transfer')">转派</a-button>
                         </div>
                       </td>
                     </tr>
                     <tr v-if="!visibleLines.length">
-                      <td colspan="8" class="empty">{{ record.lines.length ? '当前筛选下没有订单明细' : '暂无订单明细' }}</td>
+                      <td colspan="7" class="empty">{{ record.lines.length ? '当前筛选下没有订单明细' : '暂无订单明细' }}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -492,14 +465,31 @@
     </a-modal>
     <AdmMasterBasicModal :open="masterInfoOpen" :detail="record" :editable="canEditMasterBasic" @close="masterInfoOpen = false" @saved="basicInfoSaved" />
     <AdmLineBasicModal :open="basicInfoOpen" :detail="record" :line="selectedLine" :editable="!!selectedLine && canEditLineBasic(selectedLine)"
-      :simple-edit="!!selectedLine && isUnassignedOrderLeader(selectedLine) && !canEditMasterBasic"
-      :can-adjust-amount="!!selectedLine && canAdjustLineAmount(selectedLine) && !activeLines.some(item => blockedAmountStates.includes(item.lineStatus))"
+      :simple-edit="usesOrderSupplement && selectedLine?.lineStatus === 'PENDING_OPERATOR' && !selectedLine.operatorId"
+      :can-adjust-amount="!usesOrderSupplement && !!selectedLine && canAdjustLineAmount(selectedLine) && !activeLines.some(item => blockedAmountStates.includes(item.lineStatus))"
       :config="config" @close="closeBasicInfo" @saved="basicInfoSaved" @adjust-amount="openBasicAmountAdjustment" />
-    <AdmBatchLinesModal :open="batchLinesOpen" :detail="record" :config="config" :actor-id="myId"
-      @close="batchLinesOpen = false" @saved="batchLinesSaved" />
 
-    <a-modal v-model:open="addLineOpen" :title="isRecoveryAllocation && addAmountStep ? '订单金额分摊' : '新增订单明细'" width="min(1080px, 96vw)" :footer="null" wrap-class-name="v05-modal adm-form-modal"
-      ><p class="context adm-form-context">
+    <a-modal v-model:open="addLineOpen" title="新增订单明细" width="min(1080px, 96vw)" :footer="null" wrap-class-name="v05-modal adm-form-modal"
+      :closable="!saving" :keyboard="!saving" :mask-closable="false">
+      <a-form v-if="usesOrderSupplement" layout="vertical" :disabled="saving">
+        <p>主单 {{ record.case.admNo }}</p>
+        <div class="v05-form-grid">
+          <a-form-item label="平台" required>
+            <a-select v-model:value="addLineForm.otaCode" show-search option-filter-prop="label"
+              :options="addOtaOptions" @change="(v: string) => selectAddOption('ota', v)" />
+          </a-form-item>
+          <a-form-item label="PNR" required><a-input v-model:value="addLineForm.pnr" :maxlength="500" /></a-form-item>
+          <a-form-item label="原币金额" required>
+            <a-input v-model:value="addLineForm.originalAmount" :addon-before="record.case.currency" inputmode="decimal" />
+          </a-form-item>
+          <a-form-item label="折算人民币">
+            <a-input :value="admCnyPreview(addLineForm.originalAmount, record.fxSnapshot?.rateValue)" addon-before="¥" readonly />
+          </a-form-item>
+        </div>
+        <p>主单汇率 {{ record.fxSnapshot?.rateValue || '—' }}</p>
+      </a-form>
+      <template v-else>
+      <p class="context adm-form-context">
         <b>{{ addTarget.case.admNo }}</b
         > 系统记录 {{ addTarget.case.internalNo }} {{ addTarget.case.issuerName }} 原币总金额 {{ addTarget.case.currency }}
         {{ addTarget.case.originalAmount }} 处理截止 {{ addTarget.case.replyDeadline || '未设置' }}
@@ -512,7 +502,7 @@
           : '首笔订单金额沿用主单总金额。' "
         class="block"
       />
-      <a-alert v-if="!isRecoveryAllocation"
+      <a-alert
         type="warning"
         show-icon
         message="先选择订单所属的 ADM 主单；币种、截止时间和冻结汇率均继承所选主单。"
@@ -520,9 +510,9 @@
       />
       <a-alert v-if="addTarget.case.lineDefaults" type="info" show-icon class="block"
         :message="`继承主单：${[addTarget.case.lineDefaults.departmentName, addTarget.case.lineDefaults.leaderName, addTarget.case.lineDefaults.diffTypeName].filter(Boolean).join(' · ')}`" />
-      <div v-if="!isRecoveryAllocation || !addAmountStep" class="v05-form-grid adm-grouped-form">
+      <div class="v05-form-grid adm-grouped-form">
         <h3>订单信息与归属</h3>
-        <label v-if="!isRecoveryAllocation" class="wide"
+        <label class="wide"
           ><span class="form-field-label">所属 ADM 主单 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
             v-model:value="addTargetCaseId"
             show-search
@@ -532,7 +522,7 @@
         >
         <label>OTA订单号（选填）<a-input v-model:value="addLineForm.otaOrderNo" /></label
         ><label>票号（选填）<a-input v-model:value="addLineForm.ticketNo" /></label
-        ><label v-if="!isRecoveryAllocation">PNR编码（选填）<a-input v-model:value="addLineForm.pnr" /></label
+        ><label>PNR编码（选填）<a-input v-model:value="addLineForm.pnr" /></label
         ><label
           >OTA平台（选填）<a-select
             v-model:value="addLineForm.otaCode"
@@ -545,22 +535,22 @@
             show-search
             :options="addDepartmentOptions"
             @change="(v: string) => selectAddOption('department', v)" /></label
-        ><label v-if="!addTarget.case.lineDefaults || isRecoveryAllocation"
+        ><label v-if="!addTarget.case.lineDefaults"
           ><span class="form-field-label">负责组长 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
             v-model:value="addLineForm.leaderId"
             :options="addLeaderOptions"
             @change="selectAddLeader" /></label
-        ><label v-if="!isRecoveryAllocation">截止时间（继承主单）<a-input :value="addTarget.case.replyDeadline" readonly /></label
-        ><label v-if="!isRecoveryAllocation"
+        ><label>截止时间（继承主单）<a-input :value="addTarget.case.replyDeadline" readonly /></label
+        ><label
           >供应商（选填）<a-select
             v-model:value="addLineForm.supplierCode"
             allow-clear
             :options="addSupplierOptions"
             @change="(v?: string) => selectAddOption('supplier', v)" /></label
-        ><label v-if="!isRecoveryAllocation">航司（选填）<a-input v-model:value="addLineForm.airlineName" /></label
-        ><label v-if="!isRecoveryAllocation"><span class="form-field-label">ADM金额（原币） <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="addLineForm.originalAmount" /></label
-        ><label v-if="!isRecoveryAllocation">币种（继承主单）<a-input :value="addTarget.case.currency" readonly /></label
-        ><label v-if="!isRecoveryAllocation">ADM金额（人民币，系统换算）<a-input :value="`¥ ${addLineCnyAmount}`" readonly /></label
+        ><label>航司（选填）<a-input v-model:value="addLineForm.airlineName" /></label
+        ><label><span class="form-field-label">ADM金额（原币） <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="addLineForm.originalAmount" /></label
+        ><label>币种（继承主单）<a-input :value="addTarget.case.currency" readonly /></label
+        ><label>ADM金额（人民币，系统换算）<a-input :value="`¥ ${addLineCnyAmount}`" readonly /></label
         >
         <h3>情况说明与差异</h3>
         <label class="wide"
@@ -575,17 +565,8 @@
             :options="addDiffTypeOptions"
             @change="(v: string) => selectAddOption('diffType', v)" /></label
         ><label v-if="!addTarget.case.lineDefaults" class="wide"><span class="form-field-label">细分差异原因 <span class="form-required-mark" aria-hidden="true">*</span></span><a-textarea aria-required="true" v-model:value="addLineForm.differenceReason" :rows="3" /></label
-        ><label v-if="!isRecoveryAllocation && needsAddLineReason" class="wide"><span class="form-field-label">新增及金额调整说明 <span class="form-required-mark" aria-hidden="true">*</span></span><a-textarea aria-required="true" v-model:value="addLineForm.reason" :rows="2" /></label>
+        ><label v-if="needsAddLineReason" class="wide"><span class="form-field-label">新增及金额调整说明 <span class="form-required-mark" aria-hidden="true">*</span></span><a-textarea aria-required="true" v-model:value="addLineForm.reason" :rows="2" /></label>
       </div>
-      <template v-if="!isRecoveryAllocation || addAmountStep">
-      <a-form v-if="isRecoveryAllocation" layout="vertical">
-        <a-form-item label="本笔订单原币金额" required>
-          <a-input v-model:value="addLineForm.originalAmount" :addon-before="addTarget.case.currency" />
-        </a-form-item>
-        <a-form-item v-if="needsAddLineReason" label="金额调整说明" required>
-          <a-textarea v-model:value="addLineForm.reason" :rows="2" />
-        </a-form-item>
-      </a-form>
       <h3>现有有效明细调整后金额</h3>
       <div class="amount-adjustments">
         <label v-for="line in addActiveLines" :key="line.id"
@@ -627,11 +608,8 @@
       </template>
       <a-alert v-if="addLineError" type="error" show-icon :message="addLineError" class="block" />
       <div class="v05-modal-actions">
-        <a-button @click="addLineOpen = false">取消</a-button>
-        <a-button v-if="isRecoveryAllocation && addAmountStep" @click="addAmountStep = false">返回订单信息</a-button>
-        <a-button v-if="isRecoveryAllocation && !addAmountStep" type="primary"
-          :disabled="!addLineForm.leaderId" @click="addAmountStep = true">下一步：金额分摊</a-button>
-        <a-button v-else type="primary" :loading="saving" :disabled="!addLineReady" @click="submitAddLine">保存新增订单</a-button>
+        <a-button :disabled="saving" @click="addLineOpen = false">取消</a-button>
+        <a-button type="primary" :loading="saving" :disabled="!addLineReady" @click="submitAddLine">保存新增订单</a-button>
       </div></a-modal
     >
 
@@ -778,11 +756,11 @@ import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
 import { Drawer, Modal, message } from 'ant-design-vue'
 import AdmOperationTimeline from './AdmOperationTimeline.vue'
 import AdmLineBasicModal from './AdmLineBasicModal.vue'
-import AdmBatchLinesModal from './AdmBatchLinesModal.vue'
 import AdmMasterBasicModal from './AdmMasterBasicModal.vue'
 import {
   admApi,
   admPersonOptions,
+  admCnyPreview,
   amountInCents,
   centsText,
   canChangeAdmLeader,
@@ -804,7 +782,7 @@ const route = useRoute(),
   auth = useAuthStore(),
   exportTasks = useComprehensiveExportStore()
 const props = defineProps<{ panel?: AdmCasePanel; initialConfig?: AdmConfig | null }>()
-const emit = defineEmits<{ close: []; changed: []; openCase: [caseId: number]; openOrder: [caseId: number, lineId: number] }>()
+const emit = defineEmits<{ close: []; changed: []; openCase: [caseId: number] }>()
 const caseId = props.panel?.caseId ?? Number(route.params.caseId || route.query.admId || 0)
 const initialLineId = props.panel ? props.panel.lineId : Number(route.query.lineId) || undefined
 const orderOnly = !!props.panel?.lineId
@@ -856,8 +834,6 @@ const isLegacyReadOnly = computed(
   () => record.value.case.sourceType === 'LEGACY' || record.value.case.caseStatus === 'HISTORICAL',
 )
 const selectedLineId = ref<number | null>(initialLineId ?? null),
-  selectedIds = ref<number[]>([]),
-  selectedStage = ref(''),
   drawerOpen = ref(false),
   drawerTab = ref(taskTabs[props.panel?.taskAction || ''] || '处理决定与结果'),
   basicInfoOpen = ref(false),
@@ -886,8 +862,18 @@ const masterRecoveryText: Record<string, string> = {
   RECOVERED: '编码已恢复，组长可录入订单',
   NOT_REQUIRED: '无需恢复编码',
 }
-const batchLinesOpen = ref(false)
-const canBatchAddLines = computed(() => {
+const usesOrderSupplement = computed(() => !!record.value.case.masterRecoveryStatus)
+const orderAmountTotal = computed(() => activeLines.value.reduce(
+  (sum, line) => sum + (amountInCents(line.originalAmount) ?? 0n), 0n,
+))
+const orderAmountsMatch = computed(() => orderAmountTotal.value === amountInCents(record.value.case.originalAmount))
+function lineOperationReady(line: AdmLine) {
+  return !usesOrderSupplement.value || (
+    orderAmountsMatch.value && !!line.otaCode && !!String(line.pnr || '').trim() &&
+    (amountInCents(line.originalAmount) ?? 0n) > 0n
+  )
+}
+const canAddAsLeader = computed(() => {
   const master = record.value.case
   return hasRecord.value && master.caseStatus === 'ACTIVE' && !isLegacyReadOnly.value &&
     ['RECOVERED', 'NOT_REQUIRED'].includes(master.masterRecoveryStatus) &&
@@ -896,7 +882,7 @@ const canBatchAddLines = computed(() => {
 const canAddLine = computed(() => {
   const master = record.value.case
   if (!hasRecord.value || isLegacyReadOnly.value || !['DRAFT', 'ACTIVE'].includes(master.caseStatus)) return false
-  if (canBatchAddLines.value) return true
+  if (canAddAsLeader.value) return true
   if (master.masterRecoveryStatus && master.masterRecoveryStatus !== 'NOT_REQUIRED') return false
   return isCaseOwner.value && (canCreate.value || canManage.value)
 })
@@ -974,42 +960,6 @@ function legacyValue(field: string) {
   const raw = String(value)
   return legacyEnumLabels[field]?.[raw] ? `${raw}（${legacyEnumLabels[field][raw]}）` : raw
 }
-const stageGroups: Record<string, string[]> = {
-  todo: ['PENDING_LEADER', 'PENDING_OPERATOR', 'PENDING_ACCEPT'],
-  processing: ['PROCESSING'],
-  review: ['PENDING_REVIEW'],
-  difference: ['WAITING_DIFF'],
-  collection: ['WAITING_COLLECTION'],
-  completed: ['COMPLETED'],
-}
-const stageMetrics = computed(() => [
-  {
-    key: 'todo',
-    title: '待办',
-    value: activeLines.value.filter((l) => stageGroups.todo.includes(l.lineStatus)).length,
-  },
-  {
-    key: 'processing',
-    title: '处理中',
-    value: activeLines.value.filter((l) => stageGroups.processing.includes(l.lineStatus)).length,
-  },
-  {
-    key: 'review',
-    title: '待审核',
-    value: activeLines.value.filter((l) => stageGroups.review.includes(l.lineStatus)).length,
-  },
-  {
-    key: 'difference',
-    title: '待匹配差异单',
-    value: activeLines.value.filter((l) => stageGroups.difference.includes(l.lineStatus)).length,
-  },
-  {
-    key: 'collection',
-    title: '待回款',
-    value: activeLines.value.filter((l) => stageGroups.collection.includes(l.lineStatus)).length,
-  },
-  { key: 'completed', title: '已完成', value: completedCount.value },
-])
 const lineFilter = reactive({ q: '', status: '', dept: '', leader: '' }),
   departmentNames = computed(() => [
     ...new Set((record.value?.lines || []).map((l) => String(l.departmentName || '')).filter(Boolean)),
@@ -1020,7 +970,6 @@ const lineFilter = reactive({ q: '', status: '', dept: '', leader: '' }),
 const visibleLines = computed(() =>
   (record.value?.lines || []).filter(
     (line) =>
-      (!selectedStage.value || stageGroups[selectedStage.value]?.includes(line.lineStatus)) &&
       (!lineFilter.q ||
         `${line.lineInternalNo}${line.ticketNo || ''}${line.otaOrderNo || ''}${line.pnr || ''}`
           .toLowerCase()
@@ -1030,31 +979,13 @@ const visibleLines = computed(() =>
       (!lineFilter.leader || line.leaderName === lineFilter.leader),
   ),
 )
-function selectDetailStage(key: string) {
-  lineFilter.status = ''
-  selectedStage.value = selectedStage.value === key ? '' : key
-}
 function clearLineFilters() {
   Object.assign(lineFilter, { q: '', status: '', dept: '', leader: '' })
-  selectedStage.value = ''
 }
 const blockingLines = computed(() => record.value.lines.filter(
   (line) => !['COMPLETED', 'VOIDED', 'HISTORICAL'].includes(line.lineStatus),
 ))
 const canCloseCurrentCase = computed(() => !!record.value.lines.length && !blockingLines.value.length)
-const blockerSummary = computed(() => {
-  if (!hasRecord.value) return '暂无主单数据，选择或新建ADM主单后显示结案阻断'
-  if (isLegacyReadOnly.value) return '旧系统历史记录只读，不进入新系统任务、审核、回款或结案流程'
-  if (record.value.case.caseStatus === 'CLOSED') return '主单已结案'
-  if (record.value.case.caseStatus === 'VOIDED') return '主单已作废'
-  if (record.value.case.caseStatus === 'DRAFT') return '发布草稿后进入处理流程'
-  if (!record.value.lines.length) return '暂无订单明细'
-  const pending = blockingLines.value
-  if (!pending.length) return '全部有效订单及前置事项均已完成，可以结案'
-  const counts = new Map<string, number>()
-  pending.forEach((line) => counts.set(label(line.lineStatus), (counts.get(label(line.lineStatus)) || 0) + 1))
-  return [...counts].map(([name, count]) => `${count}笔${name}`).join('；')
-})
 const lineRisk = computed(() => {
   const deadline = record.value?.case.replyDeadline
   if (!deadline) return '未设期限'
@@ -1123,38 +1054,6 @@ function returnToLedger() {
     },
   })
 }
-function canExportLine(line: AdmLine) {
-  return (
-    record.value.case.caseStatus === 'ACTIVE' &&
-    Number(line.operatorId) === myId.value &&
-    ['PENDING_ACCEPT', 'PROCESSING'].includes(line.lineStatus)
-  )
-}
-function toggleSelected(id: number) {
-  selectedIds.value = selectedIds.value.includes(id)
-    ? selectedIds.value.filter((item) => item !== id)
-    : [...selectedIds.value, id]
-}
-function selectFirstBlocker() {
-  clearLineFilters()
-  const line = activeLines.value.find((item) => item.lineStatus !== 'COMPLETED')
-  if (!line) {
-    void message.info('当前没有阻断结案的订单')
-    return
-  }
-  openLineDrawer(line)
-}
-async function openLineDrawer(line: AdmLine) {
-  if (props.panel) {
-    emit('openOrder', caseId, Number(line.id))
-    return
-  }
-  if (!fullDetailLoaded.value) await load(true)
-  if (!hasRecord.value || error.value) return
-  selectedLineId.value = line.id
-  drawerTab.value = canReview.value && line.lineStatus === 'PENDING_REVIEW' ? '审核处理' : '处理决定与结果'
-  drawerOpen.value = true
-}
 async function openLineTask(line: AdmLine, action: string) {
   if (!fullDetailLoaded.value) await load(true)
   const current = record.value.lines.find((item) => Number(item.id) === Number(line.id))
@@ -1191,7 +1090,6 @@ const addLineOpen = ref(false),
   addLineError = ref(''),
   addTargetCaseId = ref<number>(caseId),
   addTargetLoading = ref(false),
-  addAmountStep = ref(false),
   addTarget = ref<AdmCaseDetail>(record.value),
   addCases = ref<AdmCaseRow[]>([]),
   addLineForm = reactive<Fields>({}),
@@ -1233,10 +1131,13 @@ const addLineBalanced = computed(
     Number.isFinite(addLineTotal.value) &&
     Math.abs(addLineTotal.value - Number(addTarget.value.case.originalAmount || 0)) < 0.005,
 )
-const isRecoveryAllocation = computed(() => addTarget.value.case.masterRecoveryStatus === 'RECOVERED')
 const needsAddLineReason = computed(() => !addTarget.value.case.lineDefaults || !!addActiveLines.value.length)
 const addLineReady = computed(
   () =>
+    usesOrderSupplement.value
+      ? !!addLineForm.otaCode && !!String(addLineForm.pnr || '').trim() &&
+        (amountInCents(addLineForm.originalAmount) ?? 0n) > 0n
+      :
     !addTargetLoading.value && Number(addTarget.value.case.id) === Number(addTargetCaseId.value) &&
     addLineBalanced.value &&
     Number(addLineForm.originalAmount) > 0 &&
@@ -1245,7 +1146,6 @@ const addLineReady = computed(
       !!addLineForm.departmentCode && !!addLineForm.leaderId && !!addLineForm.diffTypeCode &&
       !!String(addLineForm.differenceReason || '').trim()
     )) &&
-    (!isRecoveryAllocation.value || !!addLineForm.leaderId) &&
     (!needsAddLineReason.value || !!String(addLineForm.reason || '').trim()),
 )
 function selectAddOption(kind: string, code?: string) {
@@ -1269,10 +1169,6 @@ async function loadSelectableCases() {
     .filter((item) => ['DRAFT', 'ACTIVE'].includes(item.caseStatus))
 }
 async function openAddLine() {
-  if (canBatchAddLines.value) {
-    batchLinesOpen.value = true
-    return
-  }
   addLineError.value = ''
   Object.keys(addLineForm).forEach((key) => delete addLineForm[key])
   Object.keys(addLineAmounts).forEach((key) => delete addLineAmounts[Number(key)])
@@ -1296,21 +1192,23 @@ async function openAddLine() {
     pnr: '',
     reason: '',
   })
-  addAmountStep.value = false
   addTargetRequest++
   addTargetLoading.value = false
   addTargetCaseId.value = caseId
   addTarget.value = record.value
-  if (isRecoveryAllocation.value) addLineForm.leaderId = record.value.case.lineDefaults?.leaderId
-  resetAddLineAmounts()
+  if (usesOrderSupplement.value) {
+    const used = new Set(record.value.lines.map(line => String(line.pnr || '').trim().toUpperCase()))
+    addLineForm.pnr = String(record.value.case.recoveryLocators || '').split(',')
+      .map(locator => locator.split('-').at(-1)?.trim() || '').find(pnr => pnr && !used.has(pnr.toUpperCase())) || ''
+  } else resetAddLineAmounts()
   addLineOpen.value = true
   try {
     const [selectableCases, department, diffType, ota, supplier] = await Promise.all([
-      isRecoveryAllocation.value ? Promise.resolve([]) : loadSelectableCases(),
+      usesOrderSupplement.value ? Promise.resolve([]) : loadSelectableCases(),
       addTarget.value.case.lineDefaults ? Promise.resolve([]) : admApi.options('department', '', 200),
       addTarget.value.case.lineDefaults ? Promise.resolve([]) : admApi.options('diffType', '', 200),
       admApi.options('ota', '', 200),
-      isRecoveryAllocation.value ? Promise.resolve([]) : admApi.options('supplier', '', 200),
+      usesOrderSupplement.value ? Promise.resolve([]) : admApi.options('supplier', '', 200),
     ])
     addCases.value = selectableCases
     if (!addCases.value.some((item) => Number(item.id) === caseId)) addCases.value.unshift(record.value.case)
@@ -1318,12 +1216,6 @@ async function openAddLine() {
   } catch (e) {
     addLineError.value = errorText(e)
   }
-}
-function batchLinesSaved(detail: AdmCaseDetail) {
-  batchLinesOpen.value = false
-  record.value = detail
-  fullDetailLoaded.value = true
-  emit('changed')
 }
 function resetAddLineAmounts() {
   Object.keys(addLineAmounts).forEach((key) => delete addLineAmounts[Number(key)])
@@ -1355,7 +1247,7 @@ async function selectAddCase(id: number) {
   }
 }
 async function submitAddLine() {
-  if (!addLineReady.value) return
+  if (!addLineReady.value || saving.value) return
   addLineError.value = ''
   saving.value = true
   try {
@@ -1364,11 +1256,12 @@ async function submitAddLine() {
     await admApi.addLine(targetCaseId, {
       line,
       reason,
-      existingAmounts: addActiveLines.value.map((item) => ({ lineId: item.id, originalAmount: addLineAmounts[item.id] })),
+      supplement: usesOrderSupplement.value,
+      existingAmounts: usesOrderSupplement.value ? [] : addActiveLines.value.map((item) => ({ lineId: item.id, originalAmount: addLineAmounts[item.id] })),
     })
     addLineOpen.value = false
     emit('changed')
-    void message.success('订单已新增，明细金额已同步调整')
+    void message.success('订单明细已新增')
     if (targetCaseId !== caseId) {
       if (props.panel) emit('openCase', targetCaseId)
       else await router.push(`/adm/cases/${targetCaseId}`)
@@ -1697,7 +1590,6 @@ async function publishDraft() {
     await admApi.publishDraft(caseId)
     emit('changed')
     void message.success('草稿已发布，现已进入正式办理流程')
-    selectedIds.value = []
     await load()
   } catch (e) {
     void message.error(errorText(e))
@@ -1739,23 +1631,6 @@ async function runSimple(name: string) {
     saving.value = false
   }
 }
-async function exportSelected() {
-  try {
-    saving.value = true
-    const task = await exportTasks.createBackground('adm_operator_excel', { lineIds: selectedIds.value })
-    emit('changed')
-    selectedIds.value = []
-    void message.success(
-      task.reused ? '相同ADM导出任务正在进行，已打开导出任务' : '已接单并生成导出任务，请在页头“导出任务”下载',
-    )
-    await load()
-  } catch (e) {
-    void message.error(errorText(e))
-  } finally {
-    saving.value = false
-  }
-}
-
 const attachmentCategoryLabels: Record<string, string> = {
   ADM_ORIGINAL: 'ADM原始附件',
   APPEAL: '申诉附件',
