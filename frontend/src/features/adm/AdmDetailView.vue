@@ -1,6 +1,6 @@
 <template>
   <div class="v05-app embedded">
-    <main class="v05-main">
+    <main v-if="!directAction" class="v05-main">
       <section class="v05-page v05-detail">
         <div v-if="!panel" class="detail-back-actions">
           <a-button type="link" @click="returnToLedger">← 返回任务台账</a-button>
@@ -59,7 +59,9 @@
               </div>
             </dl>
             <div class="summary-actions">
-              <a-button v-if="!isLegacyReadOnly" type="primary" :disabled="!canAddLine" @click="openAddLine">新增订单明细</a-button>
+              <a-button v-if="!isLegacyReadOnly" type="primary" :disabled="!canAddLine" @click="openAddLine">
+                {{ canBatchAddLines ? '分组录入订单' : '新增订单明细' }}
+              </a-button>
               <a-button @click="openMasterBasicInfo">{{ canEditMasterBasic ? '编辑基础信息' : '查看基础信息' }}</a-button>
               <a-button :loading="loading" @click="openMasterOperations">操作记录</a-button><a-button :disabled="loading" @click="() => load()">刷新</a-button
               ><a-button v-if="isCaseOwner && canCreate && record.case.caseStatus === 'DRAFT'" type="primary" @click="publishDraft">
@@ -213,7 +215,7 @@
                     </td>
                       <td>
                         <div class="record-actions order-record-actions">
-                          <a-button type="primary" @click.stop="openLineDrawer(line)">订单处理详情</a-button
+                          <a-button type="primary" @click.stop="openLineDrawer(line)">办理订单</a-button
                           ><a-button v-if="isCaseOwner && canAssignLeader && record.case.caseStatus === 'ACTIVE' && canChangeAdmLeader(line)" @click.stop="openLineTask(line, 'leader')">{{ line.lineStatus === 'PENDING_LEADER' ? '分配组长' : '更换组长' }}</a-button
                           ><a-button v-if="canAssignOperator && Number(line.leaderId) === myId && line.lineStatus === 'PENDING_OPERATOR'" @click.stop="openLineTask(line, 'assign')">分配操作员</a-button
                           ><a-button v-if="canTransferOrder(line)" @click.stop="openLineTask(line, 'transfer')">转派</a-button>
@@ -489,7 +491,12 @@
       <AdmOperationTimeline :items="caseOperationLogs" empty-text="当前主单暂无操作记录" />
     </a-modal>
     <AdmMasterBasicModal :open="masterInfoOpen" :detail="record" :editable="canEditMasterBasic" @close="masterInfoOpen = false" @saved="basicInfoSaved" />
-    <AdmLineBasicModal :open="basicInfoOpen" :detail="record" :line="selectedLine" :editable="!!selectedLine && canEditLineBasic(selectedLine)" :config="config" @close="basicInfoOpen = false" @saved="basicInfoSaved" />
+    <AdmLineBasicModal :open="basicInfoOpen" :detail="record" :line="selectedLine" :editable="!!selectedLine && canEditLineBasic(selectedLine)"
+      :simple-edit="!!selectedLine && isUnassignedOrderLeader(selectedLine) && !canEditMasterBasic"
+      :can-adjust-amount="!!selectedLine && canAdjustLineAmount(selectedLine) && !activeLines.some(item => blockedAmountStates.includes(item.lineStatus))"
+      :config="config" @close="closeBasicInfo" @saved="basicInfoSaved" @adjust-amount="openBasicAmountAdjustment" />
+    <AdmBatchLinesModal :open="batchLinesOpen" :detail="record" :config="config" :actor-id="myId"
+      @close="batchLinesOpen = false" @saved="batchLinesSaved" />
 
     <a-modal v-model:open="addLineOpen" :title="isRecoveryAllocation && addAmountStep ? '订单金额分摊' : '新增订单明细'" width="min(1080px, 96vw)" :footer="null" wrap-class-name="v05-modal adm-form-modal"
       ><p class="context adm-form-context">
@@ -632,11 +639,16 @@
       v-model:open="actionOpen"
       :title="actionTitles[actionName] || '办理操作'"
       :confirm-loading="saving"
+      :closable="!saving"
+      :keyboard="!saving"
+      :mask-closable="false"
+      :cancel-button-props="{ disabled: saving }"
       ok-text="确定"
       cancel-text="取消"
       width="min(720px, 96vw)"
       wrap-class-name="v05-modal adm-form-modal"
       @ok="submitAction"
+      @cancel="closeDirectAction"
     >
       <a-form layout="vertical">
         <a-alert v-if="assignmentAction && (configError || config?.people.rosterAvailable === false)" type="warning" show-icon
@@ -668,6 +680,9 @@
             ><a-radio value="NEEDED">需要恢复</a-radio><a-radio value="NOT_NEEDED">无需恢复</a-radio></a-radio-group
           ></a-form-item
         >
+        <a-form-item v-if="actionName === 'recovery' && actionForm.decision === 'NOT_NEEDED'" label="PNR" required>
+          <a-input v-model:value="actionForm.pnr" :maxlength="500" />
+        </a-form-item>
         <a-form-item v-if="actionName === 'appeal'" label="申诉原因" required
           ><a-textarea v-model:value="actionForm.appealReason"
         /></a-form-item>
@@ -737,7 +752,8 @@
             show-icon
             message="必须一次填写全部有效明细，合计仍须等于主单金额。"
             class="block" /><a-form-item v-for="line in activeLines" :key="line.id" :label="line.lineInternalNo"
-            ><a-input v-model:value="actionForm.amounts[line.id]" :addon-before="record?.case.currency" /></a-form-item
+            ><a-input v-model:value="actionForm.amounts[line.id]" :readonly="!canAdjustLineAmount(line)"
+              :addon-before="record?.case.currency" /></a-form-item
         ></template>
         <a-form-item v-if="needsReason" :label="reasonLabel" :required="reasonRequired"
           ><a-textarea v-model:value="actionForm.reason"
@@ -762,10 +778,13 @@ import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
 import { Drawer, Modal, message } from 'ant-design-vue'
 import AdmOperationTimeline from './AdmOperationTimeline.vue'
 import AdmLineBasicModal from './AdmLineBasicModal.vue'
+import AdmBatchLinesModal from './AdmBatchLinesModal.vue'
 import AdmMasterBasicModal from './AdmMasterBasicModal.vue'
 import {
   admApi,
   admPersonOptions,
+  amountInCents,
+  centsText,
   canChangeAdmLeader,
   diffMatchLabel,
   errorText,
@@ -784,11 +803,12 @@ const route = useRoute(),
   router = useRouter(),
   auth = useAuthStore(),
   exportTasks = useComprehensiveExportStore()
-const props = defineProps<{ panel?: AdmCasePanel }>()
+const props = defineProps<{ panel?: AdmCasePanel; initialConfig?: AdmConfig | null }>()
 const emit = defineEmits<{ close: []; changed: []; openCase: [caseId: number]; openOrder: [caseId: number, lineId: number] }>()
 const caseId = props.panel?.caseId ?? Number(route.params.caseId || route.query.admId || 0)
 const initialLineId = props.panel ? props.panel.lineId : Number(route.query.lineId) || undefined
 const orderOnly = !!props.panel?.lineId
+const directAction = props.panel?.directAction
 const taskTabs: Record<string, string> = {
   review: '审核处理', diff: '负责人跟进', collection: '负责人跟进',
   transferAccept: '转派记录', transferHistory: '转派记录',
@@ -826,7 +846,7 @@ const emptyRecord = (): AdmCaseDetail => ({
   legacySource: null,
 })
 const record = ref<AdmCaseDetail>(emptyRecord()),
-  config = ref<AdmConfig | null>(null),
+  config = ref<AdmConfig | null>(props.initialConfig || null),
   loading = ref(false),
   saving = ref(false),
   error = ref(''),
@@ -866,11 +886,17 @@ const masterRecoveryText: Record<string, string> = {
   RECOVERED: '编码已恢复，组长可录入订单',
   NOT_REQUIRED: '无需恢复编码',
 }
+const batchLinesOpen = ref(false)
+const canBatchAddLines = computed(() => {
+  const master = record.value.case
+  return hasRecord.value && master.caseStatus === 'ACTIVE' && !isLegacyReadOnly.value &&
+    ['RECOVERED', 'NOT_REQUIRED'].includes(master.masterRecoveryStatus) &&
+    canAssignOperator.value && Number(master.lineDefaults?.leaderId) === myId.value
+})
 const canAddLine = computed(() => {
   const master = record.value.case
   if (!hasRecord.value || isLegacyReadOnly.value || !['DRAFT', 'ACTIVE'].includes(master.caseStatus)) return false
-  if (master.masterRecoveryStatus === 'RECOVERED')
-    return canAssignOperator.value && Number(master.lineDefaults?.leaderId) === myId.value
+  if (canBatchAddLines.value) return true
   if (master.masterRecoveryStatus && master.masterRecoveryStatus !== 'NOT_REQUIRED') return false
   return isCaseOwner.value && (canCreate.value || canManage.value)
 })
@@ -880,8 +906,21 @@ const canEditMasterBasic = computed(
     !activeLines.value.some((line) => line.reviewStatus === 'APPROVED' || line.lineStatus === 'COMPLETED'),
 )
 function canEditLineBasic(line: AdmLine) {
-  return canEditMasterBasic.value && line.reviewStatus !== 'APPROVED' &&
-    !['COMPLETED', 'HISTORICAL', 'VOIDED'].includes(line.lineStatus)
+  if (line.reviewStatus === 'APPROVED' || ['COMPLETED', 'HISTORICAL', 'VOIDED'].includes(line.lineStatus)) return false
+  return canEditMasterBasic.value || isUnassignedOrderLeader(line)
+}
+function isUnassignedOrderLeader(line: AdmLine) {
+  return record.value.case.caseStatus === 'ACTIVE' && canAssignOperator.value &&
+    Number(line.leaderId) === myId.value && line.lineStatus === 'PENDING_OPERATOR' && !line.operatorId
+}
+const blockedAmountStates = ['PENDING_REVIEW', 'WAITING_DIFF', 'WAITING_COLLECTION', 'COMPLETED', 'HISTORICAL']
+function canAdjustLineAmount(line: AdmLine) {
+  return (record.value.case.caseStatus === 'ACTIVE' && isCaseOwner.value && (canManage.value || canReview.value)) ||
+    isUnassignedOrderLeader(line)
+}
+function openBasicAmountAdjustment() {
+  basicInfoOpen.value = false
+  openAction('rebalance')
 }
 function canEditLineRecord(line: AdmLine) {
   if (record.value.case.caseStatus !== 'ACTIVE') return false
@@ -1132,10 +1171,18 @@ function openBasicInfo(line: AdmLine) {
   if (!canEditLineBasic(line)) readOnlyNotice('订单基础信息')
   basicInfoOpen.value = true
 }
+function closeDirectAction() {
+  if (directAction) emit('close')
+}
+function closeBasicInfo() {
+  basicInfoOpen.value = false
+  closeDirectAction()
+}
 function basicInfoSaved(detail: AdmCaseDetail) {
   emit('changed')
   record.value = detail
   fullDetailLoaded.value = true
+  closeDirectAction()
   basicInfoOpen.value = false
   masterInfoOpen.value = false
 }
@@ -1222,6 +1269,10 @@ async function loadSelectableCases() {
     .filter((item) => ['DRAFT', 'ACTIVE'].includes(item.caseStatus))
 }
 async function openAddLine() {
+  if (canBatchAddLines.value) {
+    batchLinesOpen.value = true
+    return
+  }
   addLineError.value = ''
   Object.keys(addLineForm).forEach((key) => delete addLineForm[key])
   Object.keys(addLineAmounts).forEach((key) => delete addLineAmounts[Number(key)])
@@ -1267,6 +1318,12 @@ async function openAddLine() {
   } catch (e) {
     addLineError.value = errorText(e)
   }
+}
+function batchLinesSaved(detail: AdmCaseDetail) {
+  batchLinesOpen.value = false
+  record.value = detail
+  fullDetailLoaded.value = true
+  emit('changed')
 }
 function resetAddLineAmounts() {
   Object.keys(addLineAmounts).forEach((key) => delete addLineAmounts[Number(key)])
@@ -1518,14 +1575,6 @@ const appealPartyName = computed(() => {
   if (type === record.value.case.issuerType) return record.value.case.issuerName
   return ({ PLATFORM: line?.otaName, AIRLINE: line?.airlineName, SUPPLIER: line?.supplierName } as Fields)[type]
 })
-function amountInCents(value: unknown): bigint | null {
-  const parts = /^(\d+)(?:\.(\d{1,2}))?$/.exec(String(value ?? '').trim())
-  if (!parts) return null
-  return BigInt(parts[1]) * 100n + BigInt((parts[2] || '').padEnd(2, '0'))
-}
-function centsText(amount: bigint) {
-  return `${amount / 100n}.${String(amount % 100n).padStart(2, '0')}`
-}
 const collectionBalance = computed(() => {
   const expected = amountInCents(selectedLine.value?.expectedCollectionAmount) ?? 0n
   const collected = amountInCents(selectedLine.value?.collectedAmount) ?? 0n
@@ -1548,7 +1597,7 @@ function openAction(name: string) {
   actionError.value = ''
   Object.keys(actionForm).forEach((key) => delete actionForm[key])
   if (name === 'transfer') actionForm.targetRole = canAssignOperator.value && Number(selectedLine.value?.leaderId) === myId.value ? 'LEADER' : 'OPERATOR'
-  if (name === 'recovery') actionForm.decision = 'NEEDED'
+  if (name === 'recovery') Object.assign(actionForm, { decision: 'NEEDED', pnr: selectedLine.value?.pnr || '' })
   if (name === 'review') Object.assign(actionForm, { result: 'APPROVED', collectionRequired: undefined, returnType: 'SUPPLEMENT' })
   if (name === 'collection') {
     actionForm.receivedDate = new Date().toISOString().slice(0, 10)
@@ -1578,6 +1627,10 @@ async function submitAction() {
   }
   if (actionName.value === 'appeal' && !actionForm.appealTarget) {
     actionError.value = '请选择申诉对象'
+    return
+  }
+  if (actionName.value === 'recovery' && actionForm.decision === 'NOT_NEEDED' && !String(actionForm.pnr || '').trim()) {
+    actionError.value = '请填写 PNR'
     return
   }
   if (actionName.value === 'appealResult' && !actionForm.result) {
@@ -1627,7 +1680,8 @@ async function submitAction() {
     emit('changed')
     actionOpen.value = false
     void message.success('操作已保存')
-    if (actionName.value === 'deleteDraft') {
+    if (directAction) emit('close')
+    else if (actionName.value === 'deleteDraft') {
       if (props.panel) emit('close')
       else await router.push('/adm/cases')
     } else await load()
@@ -1812,10 +1866,43 @@ function voidAttachment(item: Fields) {
 }
 onMounted(async () => {
   if (!caseId) return
-  const configRequest = loadPeople()
+  const stopNotice = directAction ? message.loading('正在读取订单…', 0) : undefined
+  const configRequest = config.value ? Promise.resolve() : loadPeople()
   const taskAction = props.panel?.taskAction ?? (props.panel ? '' : String(route.query.taskAction || ''))
   const openLine = orderOnly || !!taskAction
-  await Promise.all([load(openLine), configRequest])
+  const needsFullDetail = directAction ? ['basic', 'collection'].includes(directAction) : openLine
+  await Promise.all([load(needsFullDetail), configRequest])
+  stopNotice?.()
+  if (directAction) {
+    const line = selectedLine.value
+    if (!line) {
+      void message.warning(error.value || '该订单明细已变化，请刷新待办')
+      emit('close')
+      return
+    }
+    if (directAction === 'basic') {
+      basicInfoOpen.value = true
+      return
+    }
+    const operatorActions = (
+      isCurrentOperator.value && line.lineStatus === 'PROCESSING' && (
+        (directAction === 'recovery' && line.recoveryStatus === 'UNDECIDED') ||
+        (['appeal', 'noAppeal'].includes(directAction) && line.appealStatus === 'UNDECIDED' && line.recoveryStatus !== 'UNDECIDED') ||
+        (directAction === 'appealResult' && line.appealStatus === 'IN_PROGRESS')
+      )
+    )
+    const ownerActions = isCaseOwner.value && (
+      (directAction === 'review' && canReview.value && line.lineStatus === 'PENDING_REVIEW') ||
+      (directAction === 'collection' && canCollection.value && line.lineStatus === 'WAITING_COLLECTION')
+    )
+    if (record.value.case.caseStatus !== 'ACTIVE' || (!operatorActions && !ownerActions)) {
+      void message.warning('订单状态或当前责任已变化，请刷新待办')
+      emit('close')
+      return
+    }
+    openAction(directAction)
+    return
+  }
   if ((props.panel ? props.panel.addLine : route.query.addLine === '1') && canAddLine.value) void openAddLine()
   const requestedStatus = props.panel?.lineStatus ?? (props.panel ? '' : String(route.query.lineStatus || ''))
   if (record.value.lines.some((line) => line.lineStatus === requestedStatus)) lineFilter.status = requestedStatus

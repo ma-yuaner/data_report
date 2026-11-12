@@ -405,18 +405,33 @@ class AdmWorkflowService:
         return _json_value(self.repository.update_case_basic(int(case_id), data, actor))
 
     def update_line(self, user, case_id, line_id, body):
-        actor = self._assigned_owner_actor(
-            user, case_id, "编辑订单基础信息", "adm.create", "adm.manage", "adm.review",
-        )
         stored = self.repository.get_case(int(case_id))
+        if not stored:
+            raise AdmError("ADM主单不存在", 404, "ADM_NOT_FOUND")
+        actor = self._actor(user)
         line = next((item for item in stored["lines"] if int(item["id"]) == int(line_id)), None)
         if not line:
             raise AdmError("ADM订单明细不存在", 404, "ADM_NOT_FOUND")
+        owner = stored["case"]["coordinator_id"] == actor["id"] and any(
+            has(user, permission) for permission in ("adm.create", "adm.manage", "adm.review")
+        )
+        leader_edit = (
+            not owner and line["leader_id"] == actor["id"] and line["line_status"] == "PENDING_OPERATOR"
+            and not line.get("operator_id") and any(has(user, permission) for permission in ("adm.assign_operator", "adm.assign"))
+        )
+        if not owner and not leader_edit:
+            raise AdmError("只有ADM负责人或尚未分配操作员的当前组长可以编辑", 403, "ADM_FORBIDDEN")
         if line["line_status"] in {"COMPLETED", "HISTORICAL", "VOIDED"}:
             raise AdmError("当前订单状态只允许查看基础信息", 409, "ADM_ACTION_BLOCKED")
         payload = body or {}
+        expected_version = payload.get("versionNo")
+        if expected_version is not None:
+            try:
+                expected_version = int(expected_version)
+            except (TypeError, ValueError):
+                raise AdmError("订单版本无效，请刷新后重试") from None
         defaults = stored["case"].get("lineDefaults") or {}
-        if defaults:
+        if defaults or leader_edit:
             payload = {
                 **payload,
                 "departmentCode": line["department_code"], "departmentName": line["department_name"],
@@ -439,7 +454,7 @@ class AdmWorkflowService:
         }, stored["fxSnapshot"]["rate_value"], department_required=not defaults.get("masterIntake"),
             diff_type_required=not defaults.get("masterIntake"))
         ota = self.catalog.optional_master("ota", normalized["otaCode"])
-        supplier = self.catalog.optional_master("supplier", normalized["supplierCode"])
+        supplier = None if defaults or leader_edit else self.catalog.optional_master("supplier", normalized["supplierCode"])
         department_code = normalized["departmentCode"]
         department = (
             {"code": department_code, "name": MASTER_DEPARTMENTS.get(department_code, "")}
@@ -460,12 +475,21 @@ class AdmWorkflowService:
             leaderId=leader["id"], leaderName=leader["name"],
             diffTypeCode=diff_type["code"], diffTypeName=diff_type["name"],
         )
-        if stored["case"].get("master_recovery_status"):
+        if defaults or leader_edit:
             normalized.update(
                 supplierCode=line.get("supplier_code"), supplierName=line.get("supplier_name"),
-                airlineCode=line.get("airline_code"), airlineName=line.get("airline_name"),
             )
-        return _json_value(self.repository.update_line_basic(int(case_id), int(line_id), normalized, actor))
+        if "airlineName" not in payload:
+            normalized.update(airlineCode=line.get("airline_code"), airlineName=line.get("airline_name"))
+        else:
+            normalized["airlineCode"] = line.get("airline_code") if normalized["airlineName"] == line.get("airline_name") else None
+        if leader_edit:
+            normalized["pnr"] = text(normalized["pnr"], "PNR", 500)
+        return _json_value(self.repository.update_line_basic(
+            int(case_id), int(line_id), normalized, actor,
+            **({"leader_only": True} if leader_edit else {}),
+            **({"expected_version": expected_version} if expected_version is not None else {}),
+        ))
 
     def master_leader_transfer(self, user, case_id, body):
         require_any(user, "adm.assign_operator", "adm.assign")
@@ -501,56 +525,94 @@ class AdmWorkflowService:
             if not stored or not stored["case"].get("lineDefaults") or not stored.get("fxSnapshot"):
                 raise AdmError("主单资料或冻结汇率不存在")
             case = stored["case"]
-            legacy_defaults = not case["lineDefaults"].get("masterIntake")
-            line = normalize_line({**case["lineDefaults"], "originalAmount": case["original_amount"]},
+            intake = case["lineDefaults"].get("masterIntake") or {}
+            legacy_defaults = not intake
+            pnr = text(body.get("pnr") or body.get("locators"), "PNR", 500)
+            line = normalize_line({**case["lineDefaults"], "originalAmount": case["original_amount"], "pnr": pnr,
+                                   "airlineCode": intake.get("airlineCode"), "airlineName": case.get("airline_name"),
+                                   "supplierCode": intake.get("supplierCode"), "supplierName": intake.get("supplierName")},
                                   stored["fxSnapshot"]["rate_value"],
                                   department_required=legacy_defaults, diff_type_required=legacy_defaults)
         return _json_value(self.repository.master_recovery(int(case_id), action, actor, locators=locators, line=line))
 
     def add_line(self, user, case_id, body):
+        body = body or {}
         stored = self.repository.get_case(int(case_id))
         if not stored:
             raise AdmError("ADM主单不存在", 404, "ADM_NOT_FOUND")
         case = stored["case"]
-        if case.get("master_recovery_status") == "RECOVERED":
+        defaults = case.get("lineDefaults")
+        recovery_status = case.get("master_recovery_status")
+        actor = self._actor(user)
+        leader_only = (
+            recovery_status in {"RECOVERED", "NOT_REQUIRED"} and defaults
+            and actor["id"] == defaults["leaderId"]
+            and any(has(user, permission) for permission in ("adm.assign_operator", "adm.assign"))
+        )
+        if recovery_status == "RECOVERED":
             require_any(user, "adm.assign_operator", "adm.assign")
             actor = self._actor(user)
             if actor["id"] != case["lineDefaults"]["leaderId"]:
                 raise AdmError("只有该主单的负责组长可以补录订单", 403, "ADM_FORBIDDEN")
-        else:
+        elif not leader_only:
             actor = self._owner_actor(user, case_id, "新增订单", "adm.create", "adm.manage")
         fx = stored.get("fxSnapshot")
         if not fx:
             raise AdmError("主单冻结汇率不存在", 500, "ADM_REFERENCE_INVALID")
-        raw_line = (body or {}).get("line")
-        defaults = stored["case"].get("lineDefaults")
-        if defaults and isinstance(raw_line, dict):
-            selected_leader = raw_line.get("leaderId") if case.get("master_recovery_status") == "RECOVERED" else None
-            raw_line = {**raw_line, **defaults}
-            if selected_leader:
-                raw_line["leaderId"] = selected_leader
+        batch = "lines" in body
+        raw_lines = body.get("lines") if batch else [body.get("line")]
+        if not isinstance(raw_lines, list) or not 1 <= len(raw_lines) <= 200:
+            raise AdmError("每次可录入 1 至 200 条订单明细")
+        if batch and not defaults:
+            raise AdmError("批量录入仅适用于可继承资料的主单")
+        case_version = None
+        if batch:
+            try:
+                case_version = int(body.get("caseVersion"))
+            except (TypeError, ValueError):
+                raise AdmError("缺少主单版本，请刷新后重试") from None
+        lines, leaders, ota_options = [], {}, {}
         legacy_defaults = not (defaults or {}).get("masterIntake")
-        line = normalize_line(raw_line, fx["rate_value"],
-                              department_required=legacy_defaults, diff_type_required=legacy_defaults)
-        if line["originalAmount"] <= 0:
-            raise AdmError("新增订单金额必须大于0")
-        if not defaults:
-            department = self.catalog.department(line["departmentCode"])
-            line.update(departmentCode=department["code"], departmentName=department["name"])
-            diff_type = self.catalog.diff_type(line["diffTypeCode"])
-            line.update(diffTypeCode=diff_type["code"], diffTypeName=diff_type["name"])
-        leader = self.catalog.user(line["leaderId"], leader=True)
-        line.update(leaderId=leader["id"], leaderName=leader["name"])
-        if line["otaCode"]:
-            ota = self.catalog.optional_master("ota", line["otaCode"])
-            line.update(otaCode=ota["code"], otaName=ota["name"])
-        elif line["otaName"]:
-            raise AdmError("选择OTA时必须同时提供OTA编码")
-        if line["supplierCode"]:
-            supplier = self.catalog.optional_master("supplier", line["supplierCode"])
-            line.update(supplierCode=supplier["code"], supplierName=supplier["name"])
-        elif line["supplierName"]:
-            raise AdmError("选择供应商时必须同时提供供应商编码")
+        for index, raw in enumerate(raw_lines, 1):
+            if defaults and isinstance(raw, dict):
+                selected_leader = raw.get("leaderId") if leader_only else None
+                raw = {**raw, **defaults, "leaderId": selected_leader or defaults["leaderId"]}
+            line = normalize_line(raw, fx["rate_value"], index,
+                                  department_required=legacy_defaults, diff_type_required=legacy_defaults)
+            if line["originalAmount"] <= 0:
+                raise AdmError(f"第{index}条订单金额必须大于0")
+            if batch:
+                line["pnr"] = text(line["pnr"], f"第{index}条PNR", 500)
+            if not defaults:
+                department = self.catalog.department(line["departmentCode"])
+                line.update(departmentCode=department["code"], departmentName=department["name"])
+                diff_type = self.catalog.diff_type(line["diffTypeCode"])
+                line.update(diffTypeCode=diff_type["code"], diffTypeName=diff_type["name"])
+            leader_id = line["leaderId"]
+            if leader_id not in leaders:
+                leaders[leader_id] = self.catalog.user(leader_id, leader=True)
+            leader = leaders[leader_id]
+            line.update(leaderId=leader["id"], leaderName=leader["name"])
+            if line["otaCode"]:
+                ota_code = line["otaCode"]
+                if ota_code not in ota_options:
+                    ota_options[ota_code] = self.catalog.optional_master("ota", ota_code)
+                ota = ota_options[ota_code]
+                line.update(otaCode=ota["code"], otaName=ota["name"])
+            elif line["otaName"]:
+                raise AdmError("选择OTA时必须同时提供OTA编码")
+            if line["supplierCode"] and not defaults:
+                supplier = self.catalog.optional_master("supplier", line["supplierCode"])
+                line.update(supplierCode=supplier["code"], supplierName=supplier["name"])
+            elif line["supplierName"] and not defaults:
+                raise AdmError("选择供应商时必须同时提供供应商编码")
+            if defaults:
+                intake = defaults.get("masterIntake") or {}
+                line.update(supplierCode=intake.get("supplierCode"), supplierName=intake.get("supplierName"))
+                master_airline = case.get("airline_name")
+                if not line["airlineName"] or line["airlineName"] == master_airline:
+                    line.update(airlineName=master_airline, airlineCode=intake.get("airlineCode"))
+            lines.append(line)
         raw_amounts = (body or {}).get("existingAmounts")
         if not isinstance(raw_amounts, list):
             raise AdmError("请提交全部现有有效明细的调整后金额")
@@ -566,7 +628,11 @@ class AdmWorkflowService:
             if amounts[line_id] <= 0:
                 raise AdmError("调整后每条有效明细金额必须大于0")
         reason = text((body or {}).get("reason"), "新增订单及金额调整说明", 1000, required=not defaults or bool(amounts))
-        return _json_value(self.repository.add_line(int(case_id), line, amounts, actor, reason or "首次录入订单明细"))
+        return _json_value(self.repository.add_line(
+            int(case_id), lines if batch else lines[0], amounts, actor, reason or "首次录入订单明细",
+            **({"leader_only": True} if leader_only and (batch or recovery_status == "NOT_REQUIRED") else {}),
+            **({"case_version": case_version} if batch else {}),
+        ))
 
     def config_payload(self, user):
         require(user, "adm.view")
@@ -910,6 +976,8 @@ class AdmWorkflowService:
                 row_errors.append("当前阶段不允许修改恢复编码决定")
             if decision_changed and not decision:
                 row_errors.append("恢复编码决定必须为需要恢复编码或无需恢复编码")
+            if decision_changed and decision == "NOT_NEEDED" and not supplement["pnr"]:
+                row_errors.append("选择无需恢复编码时必须填写 PNR")
             if confirmation_changed and row["recoveryConfirmation"] != "已查看并处理":
                 row_errors.append("恢复编码处理确认值无效")
             if confirmation_changed and recovery not in {"WAITING", "REMINDER_DUE"}:
@@ -1019,6 +1087,7 @@ class AdmWorkflowService:
         return _json_value(self.repository.decide_recovery(
             int(case_id), int(line_id), decision, self._actor(user), reason=reason,
             allow_override=bool(user.get("is_admin")),
+            pnr=text((body or {}).get("pnr"), "PNR", 500, required=False),
         ))
 
     def confirm_recovery(self, user, case_id, line_id):
@@ -1199,7 +1268,20 @@ class AdmWorkflowService:
         ))
 
     def rebalance_lines(self, user, case_id, body):
-        actor = self._owner_actor(user, case_id, "调整明细金额", "adm.manage", "adm.review")
+        stored = self.repository.get_case(int(case_id))
+        if not stored:
+            raise AdmError("ADM主单不存在", 404, "ADM_NOT_FOUND")
+        actor = self._actor(user)
+        owner_allowed = any(has(user, permission) for permission in ("adm.manage", "adm.review")) and (
+            user.get("is_admin") or stored["case"]["coordinator_id"] == actor["id"]
+        )
+        if not owner_allowed:
+            require_any(user, "adm.assign_operator", "adm.assign")
+            if not any(
+                line["leader_id"] == actor["id"] and line["line_status"] == "PENDING_OPERATOR"
+                and not line.get("operator_id") for line in stored["lines"]
+            ):
+                raise AdmError("组长只能调整本人尚未分配的订单金额", 403, "ADM_FORBIDDEN")
         raw_lines = (body or {}).get("lines")
         if not isinstance(raw_lines, list) or not raw_lines:
             raise AdmError("请提交全部有效明细金额")
@@ -1212,9 +1294,12 @@ class AdmWorkflowService:
             if line_id <= 0 or line_id in amounts:
                 raise AdmError("明细ID重复或无效")
             amounts[line_id] = money(item.get("originalAmount"), "明细原币金额")
+            if not owner_allowed and amounts[line_id] <= 0:
+                raise AdmError("有效明细金额必须大于0")
         return _json_value(self.repository.rebalance_lines(
             int(case_id), amounts, actor,
             text((body or {}).get("reason"), "金额调整原因", 1000),
+            **({"leader_only": True} if not owner_allowed else {}),
         ))
 
     def close_case(self, user, case_id):

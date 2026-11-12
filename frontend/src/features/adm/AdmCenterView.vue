@@ -60,18 +60,15 @@
                 <a-checkbox aria-label="选择当前页任务"
                   :checked="!!pagedTasks.length && pagedTasks.every((task) => workSelection.includes(workTaskKey(task)))"
                   @change="selectWorkbenchPage" />
-                <span>ADM / 内部明细</span><span>任务类型</span><span>当前责任分配</span><span>当前需要处理</span><span>处理截止</span><span>操作</span>
+                <span>ADM 主单</span><span>任务类型</span><span>当前责任分配</span><span>当前需要处理</span><span>处理截止</span><span>操作</span>
               </div>
               <div v-for="task in pagedTasks" :key="workTaskKey(task)" class="work-task-row">
                 <a-checkbox :aria-label="`选择 ${task.lineInternalNo || task.admNo}`"
                   :checked="workSelection.includes(workTaskKey(task))"
                   @change="toggleWorkbenchTask(task)" />
                 <div>
-                  <a-button type="link" @click="openCasePanel(Number(task.caseId))">{{ task.admNo || task.internalNo }}</a-button>
-                  <div v-if="task.lineId">
-                    <a-button type="link" size="small" @click="openTaskOrder(task)">{{ task.lineInternalNo }}</a-button>
-                  </div>
-                  <small v-else>主单</small>
+                  <a-button type="link" class="adm-compact-identity" :title="taskCaseLabel(task)"
+                    @click="openCasePanel(Number(task.caseId))">{{ taskCaseLabel(task) }}</a-button>
                   <a-tag v-if="task.leaderOverdueAt" color="red">组长分派超 3 天</a-tag>
                   <a-tag v-if="task.operatorOverdueAt" color="red">操作员分派超 3 天</a-tag>
                   <a-tag v-if="task.hasTransfer || task.transferId" color="blue">转派</a-tag>
@@ -80,6 +77,7 @@
                 <span>{{ task.assignment }}</span>
                 <span>{{ task.requiredAction }}</span>
                 <b :class="{ danger: task.overdue }">{{ dateText(task.deadline) }}</b>
+                <div class="work-task-actions">
                 <a-button
                   v-if="canAcceptTask(task)"
                   type="primary"
@@ -92,6 +90,25 @@
                 <a-button v-else-if="task.kind === 'transferAccept'" type="primary" @click="openWorkbenchBatch('transferAccept', [task])">确认转派</a-button>
                 <a-button v-else-if="task.kind === 'assign' || task.kind === 'assignLeader'" type="primary"
                   @click="openWorkbenchBatch(task.kind, [task])">{{ workbenchActionLabels[task.kind] }}</a-button>
+                <template v-else-if="isOperatorProcessing(task)">
+                  <a-button v-if="task.recoveryStatus === 'UNDECIDED'" type="primary" @click="openDirectTask(task, 'recovery')">恢复判断</a-button>
+                  <template v-else-if="task.appealStatus === 'UNDECIDED'">
+                    <a-button type="primary" @click="openDirectTask(task, 'appeal')">申诉</a-button>
+                    <a-button @click="openDirectTask(task, 'noAppeal')">不申诉</a-button>
+                  </template>
+                  <a-button v-else-if="task.appealStatus === 'IN_PROGRESS'" type="primary"
+                    @click="openDirectTask(task, 'appealResult')">登记申诉结果</a-button>
+                  <a-button v-else-if="['SUCCEEDED', 'FAILED', 'NO_APPEAL'].includes(task.appealStatus)" type="primary"
+                    :loading="acceptingLines.has(Number(task.lineId))" @click="submitTaskReview(task)">提交审核</a-button>
+                  <a-button v-if="['SUPPLEMENT', 'WITHDRAWN'].includes(taskReturnMode(task)) || task.reviewStatus === 'WITHDRAWN'"
+                    @click="openTaskOrder(task)">补充处理资料</a-button>
+                </template>
+                <a-button v-else-if="task.kind === 'review'" type="primary" @click="openDirectTask(task, 'review')">审核</a-button>
+                <a-button v-else-if="task.kind === 'collection'" type="primary" @click="openDirectTask(task, 'collection')">登记回款</a-button>
+                <a-button v-else-if="task.kind === 'diff'" type="primary"
+                  :loading="acceptingLines.has(Number(task.lineId))" @click="checkTaskDifference(task)">匹配差异单</a-button>
+                <a-button v-if="task.lineId" type="link" @click="openDirectTask(task, 'basic')">查看明细</a-button>
+                </div>
               </div>
             </div>
             <div v-if="workbenchReady && !loading && !error && !visibleTasks.length" class="v05-card v05-empty">
@@ -243,6 +260,12 @@
           label="GDS-PCC-PNR" required>
           <a-textarea v-model:value="workbenchBatchForm.locators" placeholder="1G-5S75-13124N,1A-BKK247-123NE" />
         </a-form-item>
+        <template v-if="workbenchBatchAction === 'recovery' && workbenchBatchForm.recoveryAction === 'skip'">
+          <a-form-item v-for="task in workbenchBatchRows" :key="task.caseId"
+            :label="`PNR · ${task.admNo || task.internalNo}`" required>
+            <a-input v-model:value="workbenchBatchForm.pnrs[task.caseId]" :maxlength="500" />
+          </a-form-item>
+        </template>
         <a-alert v-if="workbenchBatchAction === 'startRecovery'" type="info" show-icon
           :message="workbenchBatchRows[0]?.recoveryLocators || ''"
           description="在 GDS 操作后确认正在恢复。从确认时起 48 小时后自动交回组长。" />
@@ -431,7 +454,7 @@
               </td>
               <td>{{ lineTask(item.lineStatus) }}</td>
               <td>
-                <button class="primary" @click="openGlobalLine(item.caseId, item.id)">查看详情</button>
+                <button class="primary" @click="openDirectTask({ caseId: item.caseId, lineId: item.id }, 'basic')">查看明细</button>
               </td>
             </tr>
           </tbody>
@@ -510,6 +533,9 @@
     <a-modal
       v-model:open="createOpen"
       title="新建 ADM 主单"
+      :closable="!saving"
+      :keyboard="!saving"
+      :mask-closable="false"
       width="min(1040px, 96vw)"
       :footer="null"
       wrap-class-name="v05-modal adm-form-modal"
@@ -631,7 +657,10 @@
       </p>
       <a-alert v-if="importError" type="error" show-icon :message="importError"
     /></a-modal>
+    <AdmDetailView v-if="casePanel?.directAction" :key="casePanelKey" :panel="casePanel" :initial-config="config"
+      @close="closeCasePanel" @changed="casePanelChanged = true" />
     <a-drawer
+      v-else
       :open="!!casePanel"
       :title="casePanel?.lineId ? '订单处理详情' : 'ADM 详情'"
       :width="casePanel?.lineId ? 'min(960px, 100vw)' : 'min(1440px, 100vw)'"
@@ -989,6 +1018,9 @@ function openTaskOrder(t: Fields) {
     taskAction: String(t.kind || ''),
   })
 }
+function openDirectTask(task: Fields, action: NonNullable<AdmCasePanel['directAction']>) {
+  openCasePanel(Number(task.caseId), { lineId: Number(task.lineId), directAction: action })
+}
 const canCreate = computed(() => !!auth.user?.isAdmin || !!config.value?.permissions.create),
   canOperatorWork = computed(() => !!auth.user?.isAdmin || !!config.value?.permissions.handle),
   exportCandidates = computed(() => {
@@ -999,6 +1031,22 @@ const canCreate = computed(() => !!auth.user?.isAdmin || !!config.value?.permiss
     return [...unique.values()]
   })
 const workSelection = ref<string[]>([])
+const taskCaseNumbers = computed(() => {
+  const groups = new Map<number, Set<number>>()
+  for (const task of tasks.value) {
+    const number = Number(/-(\d+)$/.exec(String(task.lineInternalNo || ''))?.[1])
+    if (!task.lineId || !Number.isSafeInteger(number) || number <= 0) continue
+    const caseId = Number(task.caseId)
+    if (!groups.has(caseId)) groups.set(caseId, new Set())
+    groups.get(caseId)?.add(number)
+  }
+  return groups
+})
+function taskCaseLabel(task: Fields) {
+  const numbers = [...(taskCaseNumbers.value.get(Number(task.caseId)) || [])].sort((a, b) => a - b)
+  const master = task.admNo || task.internalNo
+  return numbers.length ? `${master}（${numbers.map(number => String(number).padStart(2, '0')).join('、')}）` : master
+}
 const workTaskKey = (task: Fields) => `${task.caseId}-${task.lineId || 0}-${task.kind}-${task.transferId || 0}`
 const batchRows = computed(() => visibleTasks.value.filter((task) => workSelection.value.includes(workTaskKey(task))))
 const canTransferLeader = (task: Fields) => !['transferAccept', 'masterTransferWait'].includes(task.kind) && Number(task.leaderId) === myId.value &&
@@ -1044,7 +1092,7 @@ function openWorkbenchBatch(action: string, rows = batchRows.value) {
   workbenchBatchError.value = ''
   Object.assign(workbenchBatchForm, {
     targetUserId: undefined, targetRole: action === 'transfer' && !rows.every(canTransferOperator) ? 'LEADER' : 'OPERATOR',
-    reason: '', handoverNote: '', recoveryAction: undefined, locators: '', accepted: true,
+    reason: '', handoverNote: '', recoveryAction: undefined, locators: '', pnrs: {}, accepted: true,
   })
   workbenchBatchOpen.value = true
 }
@@ -1052,6 +1100,11 @@ async function submitWorkbenchBatch() {
   if (workbenchBatchBusy.value) return
   const action = workbenchBatchAction.value
   const form = { ...workbenchBatchForm }
+  if (action === 'recovery' && form.recoveryAction === 'skip' &&
+      workbenchBatchRows.value.some(task => !String(form.pnrs[task.caseId] || '').trim())) {
+    workbenchBatchError.value = '请填写每张主单的 PNR'
+    return
+  }
   if (action === 'transfer' && form.targetRole === 'OPERATOR' && !workbenchBatchRows.value.every(canTransferOperator)) {
     workbenchBatchError.value = '选中明细中有尚未分配操作员的记录，请转派给组长或重新选择'
     return
@@ -1075,7 +1128,8 @@ async function submitWorkbenchBatch() {
           else await admApi.masterLeaderTransfer(caseId, { accepted: form.accepted, reason: form.reason })
         }
         if (action === 'recovery' || action === 'startRecovery')
-          await admApi.masterRecovery(caseId, action === 'startRecovery' ? 'start' : form.recoveryAction, form.locators)
+          await admApi.masterRecovery(caseId, action === 'startRecovery' ? 'start' : form.recoveryAction,
+            form.recoveryAction === 'skip' ? form.pnrs[caseId] : form.locators)
       } catch (e) {
         failures.push(task)
         errors.push(`${task.lineInternalNo || task.admNo}：${errorText(e)}`)
@@ -1093,6 +1147,29 @@ async function submitWorkbenchBatch() {
   }
 }
 const acceptingLines = reactive(new Set<number>())
+function isOperatorProcessing(task: Fields) {
+  return task.status === 'PROCESSING' && canOperatorWork.value && Number(task.operatorId) === myId.value
+}
+async function runWorkbenchLineAction(task: Fields, action: (caseId: number, lineId: number) => Promise<unknown>, success: string) {
+  const lineId = Number(task.lineId)
+  if (!lineId || acceptingLines.has(lineId)) return
+  acceptingLines.add(lineId)
+  try {
+    await action(Number(task.caseId), lineId)
+    void message.success(success)
+  } catch (e) {
+    void message.error(errorText(e))
+  } finally {
+    if (isWorkbench.value) await load()
+    acceptingLines.delete(lineId)
+  }
+}
+function submitTaskReview(task: Fields) {
+  return runWorkbenchLineAction(task, admApi.submitReview, '已提交 ADM 负责人审核')
+}
+function checkTaskDifference(task: Fields) {
+  return runWorkbenchLineAction(task, admApi.checkDifference, '差异单核验已执行')
+}
 function canAcceptTask(task: Fields) {
   return task.kind === 'accept' && canOperatorWork.value && Number(task.operatorId) === myId.value
 }
@@ -1102,7 +1179,8 @@ async function acceptTask(task: Fields) {
   acceptingLines.add(lineId)
   try {
     await admApi.accept(Number(task.caseId), lineId)
-    void message.success('已接单，可在「本人待办理」继续处理')
+    if (workMetric.value === 'accept') selectWorkPhase('process')
+    void message.success('已接单，可在待办行直接办理')
   } catch (e) {
     void message.error(`接单失败：${errorText(e)}`)
   } finally {
@@ -1430,6 +1508,7 @@ function createMasterLookup(kind: 'supplier' | 'airline', name: string) {
   let timer: ReturnType<typeof setTimeout> | undefined
   let request = 0
   let query = ''
+  const cached = new Map<string, { until: number; options: Array<{ value: string; label: string }> }>()
   const lookup = reactive({
     loading: false,
     error: '',
@@ -1438,15 +1517,27 @@ function createMasterLookup(kind: 'supplier' | 'airline', name: string) {
       query = value
       const current = ++request
       clearTimeout(timer)
-      lookup.loading = true
       lookup.error = ''
+      const key = value.trim().toLowerCase()
+      const previous = cached.get(key)
+      if (previous && Date.now() < previous.until) {
+        lookup.options = previous.options
+        lookup.loading = false
+        return
+      }
+      lookup.loading = true
       lookup.options = []
       timer = setTimeout(async () => {
         try {
           const rows = await admApi.options(kind, value, 100)
-          if (current === request) lookup.options = rows.map(({ code, name, ticketingCode }) => ({
+          const options = rows.map(({ code, name, ticketingCode }) => ({
             value: code, label: kind === 'airline' ? formatAdmAirline(code, ticketingCode) : `${name}（${code}）`,
           }))
+          if (current === request) {
+            if (cached.size >= 32) cached.clear()
+            cached.set(key, { until: Date.now() + referenceTtl, options })
+            lookup.options = options
+          }
         } catch (e) {
           if (current === request) lookup.error = `${name}读取失败：${errorText(e)}`
         } finally {
@@ -1512,6 +1603,7 @@ function pickMasterFiles(e: Event) {
 }
 function openCreate() {
   masterFiles.value = []
+  createIdempotencyKey = createOperationIdentifier()
   Object.assign(form, {
     admNo: '',
     issuerType: 'SUPPLIER',
@@ -1538,6 +1630,7 @@ function openCreate() {
   void loadExchangeRate()
 }
 let fxRequest = 0
+let createIdempotencyKey = ''
 async function loadExchangeRate() {
   const seq = ++fxRequest
   const currency = String(form.currency || '')
@@ -1563,31 +1656,34 @@ async function createCase() {
   createError.value = ''
   try {
     const { supplier, airline, ...fields } = form
+    const files = [...masterFiles.value]
     const r = await admApi.create({
       ...fields, supplierCode: supplier?.value ?? null, airlineCode: airline?.value ?? null, masterOnly: true,
-    }, createOperationIdentifier())
-    const attachmentErrors: string[] = []
-    for (const file of masterFiles.value) {
-      try {
-        await admApi.upload(Number(r.case.id), file, 'ADM_ORIGINAL')
-      } catch (e) {
-        attachmentErrors.push(`${file.name}：${errorText(e)}`)
-      }
-    }
+    }, createIdempotencyKey)
     createOpen.value = false
-    if (attachmentErrors.length) {
-      void message.warning(
-        `主单已保存：${r.case.internalNo}；部分附件上传失败，可进入详情重新上传`,
-      )
-    } else {
-      void message.success(`主单已保存：${r.case.internalNo}`)
-    }
     casePanelChanged.value = true
     openCasePanel(Number(r.case.id))
+    void message.success(`主单已保存：${r.case.internalNo}${files.length ? '，附件正在上传' : ''}`)
+    if (files.length) void uploadCreatedCaseFiles(Number(r.case.id), files)
   } catch (e) {
     createError.value = errorText(e)
   } finally {
     saving.value = false
+  }
+}
+async function uploadCreatedCaseFiles(caseId: number, files: File[]) {
+  const failed: string[] = []
+  for (const file of files) {
+    try {
+      await admApi.upload(caseId, file, 'ADM_ORIGINAL')
+    } catch {
+      failed.push(file.name)
+    }
+  }
+  if (failed.length) {
+    void message.warning(`附件上传失败：${failed.join('、')}。请在主单详情重新上传。`)
+  } else {
+    void message.success('主单附件已上传')
   }
 }
 const importOpen = ref(false),

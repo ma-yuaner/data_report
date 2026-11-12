@@ -163,3 +163,16 @@
   justify-self: start;
   padding-inline: 0;
 }
+.adm-compact-identity.ant-btn {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.work-task-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}

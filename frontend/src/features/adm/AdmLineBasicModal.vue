@@ -2,11 +2,19 @@
   <a-modal :open="open" width="min(920px, 96vw)" :footer="null" wrap-class-name="v05-modal adm-basic-info-modal adm-form-modal" @cancel="close">
     <div v-if="detail && line" class="prototype-info-modal">
       <header class="prototype-info-head"><div><h2>{{ editable ? '编辑订单基础信息' : '订单基础信息' }}</h2><p>{{ detail.case.admNo }} · {{ line.lineInternalNo }}</p></div></header>
-      <div v-if="editable" class="v05-form-grid prototype-edit-grid adm-grouped-form">
+      <div v-if="editable && simpleEdit" class="v05-form-grid prototype-edit-grid adm-grouped-form">
+        <label>平台<a-select v-model:value="form.otaCode" allow-clear show-search option-filter-prop="label"
+          :options="options.ota" @change="(value?: string) => pick('ota', value)" /></label>
+        <label>航司<a-input v-model:value="form.airlineName" :maxlength="100" /></label>
+        <label>PNR<a-input v-model:value="form.pnr" aria-required="true" :maxlength="500" /></label>
+        <label>票号<a-input v-model:value="form.ticketNo" :maxlength="500" /></label>
+        <label>本笔金额<a-input :value="`${detail.case.currency} ${line.originalAmount}`" readonly /></label>
+      </div>
+      <div v-else-if="editable" class="v05-form-grid prototype-edit-grid adm-grouped-form">
         <h3>订单标识</h3>
         <label>系统主单ID<a-input :value="detail.case.internalNo" readonly /></label><label>内部明细ID<a-input :value="line.lineInternalNo" readonly /></label>
         <label>OTA平台<a-select v-model:value="form.otaCode" allow-clear :options="options.ota" @change="(v?: string) => pick('ota', v)" /></label><label>OTA订单号<a-input v-model:value="form.otaOrderNo" /></label>
-        <label v-if="!detail.case.masterRecoveryStatus">供应商<a-select v-model:value="form.supplierCode" allow-clear :options="options.supplier" @change="(v?: string) => pick('supplier', v)" /></label><label v-if="detail.case.masterRecoveryStatus">供应商（继承主单）<a-input :value="line.supplierName" readonly /></label><label>航司<a-input v-model:value="form.airlineName" :readonly="!!detail.case.masterRecoveryStatus" /></label>
+        <label v-if="!detail.case.masterRecoveryStatus">供应商<a-select v-model:value="form.supplierCode" allow-clear :options="options.supplier" @change="(v?: string) => pick('supplier', v)" /></label><label v-if="detail.case.masterRecoveryStatus">供应商（继承主单）<a-input :value="line.supplierName" readonly /></label><label>航司<a-input v-model:value="form.airlineName" :maxlength="100" /></label>
         <label>票号<a-input v-model:value="form.ticketNo" /></label><label>PNR编码<a-input v-model:value="form.pnr" /></label>
         <h3>责任与处理信息</h3>
         <label><span class="form-field-label">业务归属部门 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true" v-model:value="form.departmentCode" :disabled="!!detail.case.lineDefaults" :options="departmentOptions" @change="(v: string) => pick('department', v)" /></label><label><span class="form-field-label">负责组长 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true" :disabled="!!detail.case.lineDefaults || !canChangeAdmLeader(line)" v-model:value="form.leaderId" :options="leaderOptions" show-search option-filter-prop="label" placeholder="搜索姓名、部门或账号" @change="pickLeader" /></label>
@@ -40,8 +48,11 @@
           </template>
         </a-list>
       </section>
-      <a-alert v-if="editable" type="info" show-icon message="订单金额涉及主单分配平衡，请使用完整处理记录中的金额调整功能。" class="block" />
-      <footer class="prototype-info-footer"><a-button @click="close">关闭</a-button><a-button v-if="editable" type="primary" :loading="saving" @click="save">保存基础信息</a-button></footer>
+      <footer class="prototype-info-footer">
+        <a-button @click="close">关闭</a-button>
+        <a-button v-if="canAdjustAmount" :disabled="saving" @click="emit('adjustAmount')">调整明细金额</a-button>
+        <a-button v-if="editable" type="primary" :loading="saving" @click="save">保存基础信息</a-button>
+      </footer>
     </div>
   </a-modal>
 </template>
@@ -50,8 +61,8 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { admApi, admPersonOptions, canChangeAdmLeader, errorText, type AdmCaseDetail, type AdmConfig, type AdmLine, type Fields, type Option } from './api'
-const props = defineProps<{ open: boolean; detail: AdmCaseDetail | null; line: AdmLine | null; editable: boolean; config: AdmConfig | null }>()
-const emit = defineEmits<{ close: []; saved: [detail: AdmCaseDetail] }>()
+const props = defineProps<{ open: boolean; detail: AdmCaseDetail | null; line: AdmLine | null; editable: boolean; simpleEdit: boolean; canAdjustAmount: boolean; config: AdmConfig | null }>()
+const emit = defineEmits<{ close: []; saved: [detail: AdmCaseDetail]; adjustAmount: [] }>()
 const saving = ref(false), masters = reactive<Record<string, Option[]>>({ department: [], diffType: [], ota: [], supplier: [] }), form = reactive<Fields>({})
 const map = (items: Option[], plain = false) => items.map(item => ({ value: item.code, label: plain ? item.name : `${item.name}（${item.code}）` }))
 const options = computed(() => ({ department: map(masters.department), diffType: map(masters.diffType, true), ota: map(masters.ota), supplier: map(masters.supplier) }))
@@ -70,6 +81,6 @@ function close() { emit('close') }
 function pick(kind: string, value?: string) { const item = masters[kind].find(option => option.code === value); const nameKey = `${kind}Name`; form[nameKey] = item?.name || '' }
 function pickLeader(value: number) { form.leaderName = props.config?.people.leader.find(item => Number(item.id) === Number(value))?.name || '' }
 async function previewAttachment(item: Fields) { if (!props.detail) return; try { const response = await admApi.file(props.detail.case.id, item.id, 'preview'); const url = URL.createObjectURL(response.data); window.open(url, '_blank', 'noopener'); window.setTimeout(() => URL.revokeObjectURL(url), 60_000) } catch (error) { void message.error(errorText(error)) } }
-async function save() { if (!props.detail || !props.line) return; saving.value = true; try { const detail = await admApi.updateLine(props.detail.case.id, props.line.id, form); emit('saved', detail); void message.success('订单基础信息已保存') } catch (error) { void message.error(errorText(error)) } finally { saving.value = false } }
-watch(() => [props.open, props.line?.id], async ([open]) => { if (!open) return; reset(); if (props.editable) { const kinds = ['department', 'diffType', 'ota', 'supplier']; const results = await Promise.allSettled(kinds.map(kind => admApi.options(kind))); results.forEach((result, index) => { if (result.status === 'fulfilled') masters[kinds[index]] = result.value }) } }, { immediate: true })
+async function save() { if (!props.detail || !props.line || saving.value) return; saving.value = true; try { const detail = await admApi.updateLine(props.detail.case.id, props.line.id, { ...form, versionNo: props.line.versionNo }); emit('saved', detail); void message.success('订单基础信息已保存') } catch (error) { void message.error(errorText(error)) } finally { saving.value = false } }
+watch(() => [props.open, props.line?.id], async ([open]) => { if (!open) return; reset(); if (props.editable) { const kinds = props.simpleEdit ? ['ota'] : ['department', 'diffType', 'ota', 'supplier']; const results = await Promise.allSettled(kinds.map(kind => admApi.options(kind))); results.forEach((result, index) => { if (result.status === 'fulfilled') masters[kinds[index]] = result.value }) } }, { immediate: true })
 </script>

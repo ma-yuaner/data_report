@@ -1,6 +1,14 @@
 import { http, type ApiEnvelope } from '@/api/http'
 
 export type Fields = Record<string, any>
+export function amountInCents(value: unknown): bigint | null {
+  const parts = /^(\d+)(?:\.(\d{1,2}))?$/.exec(String(value ?? '').trim())
+  if (!parts) return null
+  return BigInt(parts[1]) * 100n + BigInt((parts[2] || '').padEnd(2, '0'))
+}
+export function centsText(amount: bigint) {
+  return `${amount / 100n}.${String(amount % 100n).padStart(2, '0')}`
+}
 export interface Option { code: string; name: string; ticketingCode?: string | null }
 export function formatAdmAirline(code: string, ticketingCode?: string | null) {
   return ticketingCode ? `${code}（${ticketingCode}）` : code
@@ -98,8 +106,9 @@ export const admApi = {
   importCommit: (batchNo: string) => data<Fields>(http.post(`${base}/imports/${encodeURIComponent(batchNo)}/commit`, {})),
   masterLeaderTransfer: (caseId: number, body: Fields) =>
     data<AdmCaseDetail>(http.post(`${casePath(caseId)}/master-leader-transfer`, body)),
-  masterRecovery: (caseId: number, action: string, locators?: string) =>
-    data<AdmCaseDetail>(http.post(`${casePath(caseId)}/master-recovery`, { action, locators })),
+  masterRecovery: (caseId: number, action: string, value?: string) =>
+    data<AdmCaseDetail>(http.post(`${casePath(caseId)}/master-recovery`,
+      action === 'skip' ? { action, pnr: value } : { action, locators: value })),
   assignOperator: (caseId: number, lineId: number, body: Fields) => data<Fields>(http.post(`${linePath(caseId, lineId)}/assign-operator`, body)),
   changeLeader: (caseId: number, lineId: number, body: Fields) => data<Fields>(http.post(`${linePath(caseId, lineId)}/change-leader`, body)),
   accept: (caseId: number, lineId: number) => data<Fields>(http.post(`${linePath(caseId, lineId)}/accept`, {})),
@@ -162,4 +171,5 @@ export interface AdmCasePanel {
   lineStatus?: string
   taskAction?: string
   addLine?: boolean
+  directAction?: 'basic' | 'recovery' | 'appeal' | 'noAppeal' | 'appealResult' | 'review' | 'collection'
 }

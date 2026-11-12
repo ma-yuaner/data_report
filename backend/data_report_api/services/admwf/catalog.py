@@ -1,8 +1,15 @@
 """Server-side validation bridges for ADM reference data."""
 
 from decimal import Decimal
+from threading import Lock
+from time import monotonic
 
 from .policy import AdmError, has
+
+_REFERENCE_CACHE_TTL = 600
+_REFERENCE_CACHE_LIMIT = 20000
+_REFERENCE_CACHE = {}
+_REFERENCE_CACHE_LOCKS = {"supplier": Lock(), "airline": Lock()}
 
 
 class AdmCatalog:
@@ -62,6 +69,32 @@ class AdmCatalog:
 
     def _query_all(self, sql, params, *, erp=False):
         return self._query(sql, params, many=True, erp=erp)
+
+    def _reference_cache_key(self, kind):
+        roster = kind == "supplier"
+        keys = ("ERP_MYSQL_HOST", "ERP_MYSQL_PORT", "ERP_MYSQL_USER")
+        if roster:
+            keys += ("ERP_ROSTER_MYSQL_HOST", "ERP_ROSTER_MYSQL_PORT", "ERP_ROSTER_MYSQL_USER",
+                     "ERP_ROSTER_DATABASE", "ERP_MYSQL_DATABASE", "MYSQL_HOST", "MYSQL_PORT", "MYSQL_USER")
+        return (kind, *(self.config.get(key) for key in keys))
+
+    def _cached_reference_options(self, kind, sql, params, raw, size):
+        key = self._reference_cache_key(kind)
+        kwargs = {"erp": True} if kind == "airline" else {}
+        with _REFERENCE_CACHE_LOCKS[kind]:
+            entry = _REFERENCE_CACHE.get(key)
+            if entry is None or monotonic() >= entry[0]:
+                rows = self._query_all(sql, ("%",) * (len(params) - 1) + (_REFERENCE_CACHE_LIMIT + 1,), **kwargs)
+                snapshot = rows if len(rows) <= _REFERENCE_CACHE_LIMIT else None
+                entry = _REFERENCE_CACHE[key] = (monotonic() + _REFERENCE_CACHE_TTL, snapshot)
+        rows = entry[1]
+        if rows is None:
+            return self._query_all(sql, params, **kwargs)
+        needle = raw.casefold()
+        return [
+            row for row in rows
+            if any(needle in str(row.get(field) or "").casefold() for field in ("code", "name", "ticketingCode"))
+        ][:size]
 
     def _hotel_query_all(self, sql, params=()):
         """Read HOTEL-owned reference dictionaries with its dedicated account."""
@@ -294,8 +327,11 @@ class AdmCatalog:
         }
         key, message = mapping[kind]
         resolver = self.config.get(key)
+        cached = _REFERENCE_CACHE.get(self._reference_cache_key(kind)) if kind in _REFERENCE_CACHE_LOCKS else None
         if callable(resolver):
             result = resolver(code)
+        elif cached and monotonic() < cached[0] and cached[1] is not None:
+            result = next((row for row in cached[1] if str(row["code"]).casefold() == str(code).casefold()), None)
         elif kind == "ota":
             result = self._query_one(
                 "SELECT ota_code AS code,ota_cname AS name FROM sibe_ota "
@@ -390,12 +426,13 @@ class AdmCatalog:
                 normalized.insert(0, {"code": "CNY", "name": "CNY"})
             return normalized[:size]
         if kind == "airline":
-            return self._query_all(
+            return self._cached_reference_options(
+                kind,
                 "SELECT airline_code AS code,COALESCE(NULLIF(airline_cname,''),airline_code) AS name,"
                 "ticketing_code AS ticketingCode FROM sibedb.base_airline WHERE status=1 "
                 "AND (airline_code LIKE %s ESCAPE '\\\\' OR airline_cname LIKE %s ESCAPE '\\\\' "
                 "OR ticketing_code LIKE %s ESCAPE '\\\\') ORDER BY airline_code LIMIT %s",
-                (like, like, like, size), erp=True,
+                (like, like, like, size), raw, size,
             )
         table = {
             "ota": ("sibe_ota", "ota_code", "ota_cname"),
@@ -403,9 +440,13 @@ class AdmCatalog:
         }.get(kind)
         if table:
             table_name, code_name, display_name = table
-            return self._query_all(
+            sql = (
                 f"SELECT {code_name} AS code,{display_name} AS name FROM {table_name} "
                 f"WHERE status=1 AND ({code_name} LIKE %s ESCAPE '\\\\' OR {display_name} LIKE %s ESCAPE '\\\\') "
-                f"ORDER BY {display_name},{code_name} LIMIT %s", (like, like, size),
+                f"ORDER BY {display_name},{code_name} LIMIT %s"
             )
+            params = (like, like, size)
+            if kind == "supplier":
+                return self._cached_reference_options(kind, sql, params, raw, size)
+            return self._query_all(sql, params)
         raise AdmError("不支持的ADM基础资料类型")
