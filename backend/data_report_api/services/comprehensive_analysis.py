@@ -15,6 +15,8 @@ from ..shared.periods import parse_analysis_period
 from .data_source import DataSource
 
 BUSINESSES = ("issue", "refund", "change", "ancillary")
+TEAM_FIVE_FILTER = "team-five"
+TEAM_FIVE_OPERATORS = ("袁国明", "钟小琳", "梁建锋", "师煜成", "何润鑫", "刘鑫", "李晓彤", "林清权")
 DIMENSIONS = {
     "platform": ("ota_code", "ota_cname"),
     "site": ("ota_code", "ota_site_code", "ota_site_cname"),
@@ -242,7 +244,10 @@ class ComprehensiveAnalysisService:
             raise ValueError("不支持的分组维度")
         if sort not in SORT_FIELDS:
             raise ValueError("不支持的排序方式")
-        filters = filters or {}
+        filters = dict(filters or {})
+        team_five = filters.get("policy") == TEAM_FIVE_FILTER
+        if team_five:
+            del filters["policy"]
         for key in DIMENSIONS:
             token = filters.get(key)
             if not token:
@@ -314,6 +319,8 @@ class ComprehensiveAnalysisService:
                                 options[key][values] = {'value': dimension_value(row, key), 'label': dimension_label(row, key)}
                             tokens[key] = options[key][values]['value']
                         if any(filters.get(key) and tokens[key] != filters[key] for key in DIMENSIONS):
+                            continue
+                        if team_five and row["policy_operator"] not in TEAM_FIVE_OPERATORS:
                             continue
                         overall.add(row)
                         trend[row['dt']].add(row)

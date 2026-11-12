@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from .comprehensive_analysis import BUSINESSES, DIMENSIONS
+from .comprehensive_analysis import BUSINESSES, DIMENSIONS, TEAM_FIVE_FILTER, TEAM_FIVE_OPERATORS
 from ..shared.periods import parse_analysis_period
 from .data_source import DataSource
 
@@ -183,6 +183,9 @@ def parse_detail_filters(filters: dict[str, str | None]) -> dict[str, list[str |
         token = filters.get(key)
         if not token:
             continue
+        if key == "policy" and token == TEAM_FIVE_FILTER:
+            result[key] = list(TEAM_FIVE_OPERATORS)
+            continue
         try:
             values = json.loads(token)
             if not isinstance(values, list) or len(values) != len(fields):
@@ -241,6 +244,11 @@ def build_detail_queries(
     }
     for key, expressions in mappings.items():
         if key not in filters:
+            continue
+        if key == "policy" and len(filters[key]) > 1:
+            placeholders = ", ".join("%s" for _ in filters[key])
+            conditions.append(f"NULLIF(TRIM(src.{spec.policy_field}),'') IN ({placeholders})")
+            parameters.extend(filters[key])
             continue
         for expression, value_index in expressions:
             condition, values = normalized_condition(expression, filters[key][value_index])

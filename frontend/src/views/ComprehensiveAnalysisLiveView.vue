@@ -214,8 +214,13 @@ const signedCount = (amount: number | null | undefined) => amount == null ? '—
 const changeClass = (amount: string | null | undefined) => ({ positive: amount != null && Number(amount) > 0, negative: amount != null && Number(amount) < 0 })
 const chartNumber = (amount: string | null | undefined) => amount == null ? null : Number(amount)
 const isBusinessKey = (key: unknown): key is BusinessKey => businesses.some(b => b.key === key)
-const filterOptions = (key: DimensionKey) => [{ label: '全部' + dimensions.find(d => d.key === key)!.label, value: '' }, ...(data.value?.options[key] || [])]
-function optionLabel(key: DimensionKey, value: string) { return data.value?.options[key].find(o => o.value === value)?.label || JSON.parse(value).filter(Boolean).join(' · ') || '未知' }
+const teamFiveOption = { label: '五部人员', value: 'team-five' }
+const filterOptions = (key: DimensionKey) => [
+  { label: '全部' + dimensions.find(d => d.key === key)!.label, value: '' },
+  ...(key === 'policy' ? [teamFiveOption] : []),
+  ...(data.value?.options[key] || []),
+]
+function optionLabel(key: DimensionKey, value: string) { return filterOptions(key).find(o => o.value === value)?.label || JSON.parse(value).filter(Boolean).join(' · ') || '未知' }
 function scopeText(scope: FilterScope) { return dimensions.filter(dimension => scope[dimension.key]).map(dimension => `${dimension.label}：${optionLabel(dimension.key, scope[dimension.key])}`).join(' · ') || '全部范围' }
 
 type WorkspaceView = 'diagnosis' | 'daily' | 'detail'
