@@ -25,10 +25,18 @@
             <a-space wrap>
               <a-select :value="workMetric" aria-label="待办阶段" style="width: 180px"
                 :options="workPhaseOptions" @change="selectWorkPhase" />
-              <a-button v-if="canCloseWorkQueue" @click="openWorkMetric('close')">可以结案</a-button>
-              <a-button v-if="canTransferWorkQueue" @click="openWorkMetric('transfer')">转派记录</a-button>
-              <a-button v-if="canOperatorWork" :disabled="!exportCandidates.length" @click="openExportSelection">接单并导出</a-button>
-              <a-button v-if="canOperatorWork" @click="operatorImportOpen = true">导入处理结果</a-button>
+              <a-button v-if="canCloseWorkQueue" @click="openWorkMetric('close')">
+                可以结案 {{ workbenchSummary.closableCaseCount ?? '—' }}
+              </a-button>
+              <a-button v-if="canTransferWorkQueue" @click="openWorkMetric('transfer')">
+                转派记录 {{ workbenchSummary.pendingTransferCount ?? '—' }}
+              </a-button>
+              <a-button v-if="canOperatorWork" :disabled="loading || !!error || !exportCandidates.length" @click="openExportSelection">
+                接单并导出 {{ workbenchReady && !error ? exportCandidates.length : '—' }}
+              </a-button>
+              <a-button v-if="canOperatorWork" @click="operatorImportOpen = true">
+                导入处理结果<span v-if="operatorImportPreview?.canCommit"> {{ operatorImportPreview.validRows }}</span>
+              </a-button>
               <a-button :disabled="loading" @click="load">刷新</a-button>
             </a-space>
           </div>
@@ -59,8 +67,11 @@
                   :checked="workSelection.includes(workTaskKey(task))"
                   @change="toggleWorkbenchTask(task)" />
                 <div>
-                  <a-button type="link" @click="openTask(task)">{{ task.admNo || task.internalNo }}</a-button>
-                  <small>{{ task.lineInternalNo || '主单' }}</small>
+                  <a-button type="link" @click="openCasePanel(Number(task.caseId))">{{ task.admNo || task.internalNo }}</a-button>
+                  <div v-if="task.lineId">
+                    <a-button type="link" size="small" @click="openTaskOrder(task)">{{ task.lineInternalNo }}</a-button>
+                  </div>
+                  <small v-else>主单</small>
                   <a-tag v-if="task.leaderOverdueAt" color="red">组长分派超 3 天</a-tag>
                   <a-tag v-if="task.operatorOverdueAt" color="red">操作员分派超 3 天</a-tag>
                   <a-tag v-if="task.hasTransfer || task.transferId" color="blue">转派</a-tag>
@@ -77,7 +88,7 @@
                 >接单</a-button>
                 <a-button v-else-if="task.kind === 'leaderRecovery'" type="primary" @click="openWorkbenchBatch('recovery', [task])">恢复判断</a-button>
                 <a-button v-else-if="task.kind === 'ownerRecovery'" type="primary" @click="openWorkbenchBatch('startRecovery', [task])">正在恢复</a-button>
-                <a-button v-else-if="task.kind === 'recovered'" type="primary" @click="openTask(task)">录入明细</a-button>
+                <a-button v-else-if="task.kind === 'recovered'" type="primary" @click="openCasePanel(Number(task.caseId), { addLine: true })">录入明细</a-button>
                 <a-button v-else-if="task.kind === 'transferAccept'" type="primary" @click="openWorkbenchBatch('transferAccept', [task])">确认转派</a-button>
                 <a-button v-else-if="task.kind === 'assign' || task.kind === 'assignLeader'" type="primary"
                   @click="openWorkbenchBatch(task.kind, [task])">{{ workbenchActionLabels[task.kind] }}</a-button>
@@ -613,18 +624,19 @@
     /></a-modal>
     <a-drawer
       :open="!!casePanel"
-      title="ADM 详情"
-      width="min(1440px, 100vw)"
+      :title="casePanel?.lineId ? '订单处理详情' : 'ADM 详情'"
+      :width="casePanel?.lineId ? 'min(960px, 100vw)' : 'min(1440px, 100vw)'"
       :mask-closable="false"
       @close="closeCasePanel"
     >
       <AdmDetailView
         v-if="casePanel"
-        :key="casePanel.caseId"
+        :key="casePanelKey"
         :panel="casePanel"
         @close="closeCasePanel"
         @changed="casePanelChanged = true"
         @open-case="openCasePanel"
+        @open-order="openGlobalLine"
       />
     </a-drawer>
   </div>
@@ -695,9 +707,12 @@ function loadConfig(refresh = false) {
   return configRequest
 }
 const casePanel = ref<AdmCasePanel | null>(null)
+const casePanelKey = ref(0)
 const casePanelChanged = ref(false)
 function openCasePanel(caseId: number, options: Omit<AdmCasePanel, 'caseId'> = {}) {
-  if (caseId > 0) casePanel.value = { caseId, ...options }
+  if (caseId <= 0 || !Number.isFinite(caseId)) return
+  casePanel.value = { caseId, ...options }
+  casePanelKey.value++
 }
 function closeCasePanel() {
   casePanel.value = null
@@ -950,7 +965,7 @@ function closeWorkQueue() {
   queueRequest++
 }
 function openQueueRecord(row: Fields) {
-  if (workQueue.value === 'transfer') openTask({ ...row, kind: 'transferHistory' })
+  if (workQueue.value === 'transfer' && row.lineId) openTaskOrder({ ...row, kind: 'transferHistory' })
   else openCasePanel(Number(row.caseId))
 }
 function openWorkMetric(key: 'close' | 'transfer') {
@@ -958,11 +973,10 @@ function openWorkMetric(key: 'close' | 'transfer') {
   queueStatus.value = 'pending'
   resetWorkQueuePage()
 }
-function openTask(t: Fields) {
+function openTaskOrder(t: Fields) {
   openCasePanel(Number(t.caseId), {
-    lineId: Number(t.lineId) || undefined,
-    taskAction: t.lineId ? String(t.kind || '') : undefined,
-    addLine: t.kind === 'recovered',
+    lineId: Number(t.lineId),
+    taskAction: String(t.kind || ''),
   })
 }
 const canCreate = computed(() => !!auth.user?.isAdmin || !!config.value?.permissions.create),

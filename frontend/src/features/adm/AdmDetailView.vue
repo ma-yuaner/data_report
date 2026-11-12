@@ -11,15 +11,16 @@
           v-if="loading && !hasRecord"
           type="info"
           show-icon
-          message="正在读取 ADM 主单详情…"
+          :message="orderOnly ? '正在读取订单处理详情…' : '正在读取 ADM 主单详情…'"
           style="margin-bottom: 16px"
         />
         <div v-if="!caseId" class="v05-card v05-empty">
           <h1>ADM 详情</h1>
           <p>请从 ADM 台账或我的工作台选择要查看的单据。</p>
         </div>
-        <button v-else-if="!loading && !hasRecord" @click="() => load()">重试读取详情</button>
+        <button v-else-if="!loading && !hasRecord" @click="() => load(orderOnly || fullDetailLoaded)">重试读取详情</button>
         <template v-if="hasRecord">
+          <template v-if="!orderOnly">
           <a-alert v-if="record.case.masterRecoveryStatus" type="info" show-icon class="block"
             :message="masterRecoveryText[record.case.masterRecoveryStatus]"
             :description="[record.case.recoveryLocators, record.case.masterRecoveryDueAt].filter(Boolean).join(' · ')" />
@@ -228,19 +229,26 @@
             </div>
           </div>
 
-          <a-drawer
+          </template>
+          <a-alert v-if="orderOnly && !selectedLine" type="warning" show-icon message="该订单明细已变化，请返回台账重新选择" />
+          <component
+            :is="orderOnly ? 'div' : Drawer"
             v-if="selectedLine"
-            v-model:open="drawerOpen"
-            title="订单处理详情"
-            width="min(960px, 100vw)"
-            root-class-name="adm-order-drawer"
+            v-bind="orderOnly
+              ? { class: 'adm-order-drawer' }
+              : { open: drawerOpen, title: '订单处理详情', width: 'min(960px, 100vw)', rootClassName: 'adm-order-drawer' }"
+            @update:open="drawerOpen = $event"
             ><div class="drawer-line-head">
               <div>
                 <h2>{{ selectedLine.ticketNo || '未填写票号' }} · 订单处理</h2>
                 <p>OTA {{ selectedLine.otaOrderNo || '未填写' }} · PNR {{ selectedLine.pnr || '未填写' }} · 内部明细 {{ selectedLine.lineInternalNo }}</p>
                 <small>{{ selectedLine.departmentName }} · {{ selectedLine.leaderName || '未分配组长' }} · {{ selectedLine.operatorName || '未分配操作员' }} · 当前任务：{{ nextTask(selectedLine) }}</small>
               </div>
-              <div class="drawer-head-actions"><a-button @click="openBasicInfo(selectedLine)">{{ canEditLineBasic(selectedLine) ? '编辑基础信息' : '查看基础信息' }}</a-button><span :class="['pill', lineTone(selectedLine.lineStatus)]">{{ label(selectedLine.lineStatus) }}</span></div>
+              <div class="drawer-head-actions">
+                <a-button v-if="orderOnly" @click="emit('openCase', caseId)">查看 ADM 主单</a-button>
+                <a-button @click="openBasicInfo(selectedLine)">{{ canEditLineBasic(selectedLine) ? '编辑基础信息' : '查看基础信息' }}</a-button>
+                <span :class="['pill', lineTone(selectedLine.lineStatus)]">{{ label(selectedLine.lineStatus) }}</span>
+              </div>
             </div>
             <a-alert
               v-if="record.case.caseStatus === 'DRAFT'"
@@ -471,7 +479,7 @@
                 <a-button type="link" @click="openMasterOperations">查看主单操作记录</a-button>
                 <AdmOperationTimeline :items="lineRecords('operationLogs')" empty-text="当前订单暂无操作记录" />
               </section>
-            </div></a-drawer
+            </div></component
           >
         </template>
       </section>
@@ -751,7 +759,7 @@ import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
-import { Modal, message } from 'ant-design-vue'
+import { Drawer, Modal, message } from 'ant-design-vue'
 import AdmOperationTimeline from './AdmOperationTimeline.vue'
 import AdmLineBasicModal from './AdmLineBasicModal.vue'
 import AdmMasterBasicModal from './AdmMasterBasicModal.vue'
@@ -777,9 +785,14 @@ const route = useRoute(),
   auth = useAuthStore(),
   exportTasks = useComprehensiveExportStore()
 const props = defineProps<{ panel?: AdmCasePanel }>()
-const emit = defineEmits<{ close: []; changed: []; openCase: [caseId: number] }>()
+const emit = defineEmits<{ close: []; changed: []; openCase: [caseId: number]; openOrder: [caseId: number, lineId: number] }>()
 const caseId = props.panel?.caseId ?? Number(route.params.caseId || route.query.admId || 0)
 const initialLineId = props.panel ? props.panel.lineId : Number(route.query.lineId) || undefined
+const orderOnly = !!props.panel?.lineId
+const taskTabs: Record<string, string> = {
+  review: '审核处理', diff: '负责人跟进', collection: '负责人跟进',
+  transferAccept: '转派记录', transferHistory: '转派记录',
+}
 const emptyRecord = (): AdmCaseDetail => ({
   case: {
     id: 0,
@@ -826,7 +839,7 @@ const selectedLineId = ref<number | null>(initialLineId ?? null),
   selectedIds = ref<number[]>([]),
   selectedStage = ref(''),
   drawerOpen = ref(false),
-  drawerTab = ref('处理决定与结果'),
+  drawerTab = ref(taskTabs[props.panel?.taskAction || ''] || '处理决定与结果'),
   basicInfoOpen = ref(false),
   masterInfoOpen = ref(false)
 const drawerTabs = ['处理决定与结果', '附件', '审核处理', '负责人跟进', '转派记录', '操作记录']
@@ -1093,6 +1106,10 @@ function selectFirstBlocker() {
   openLineDrawer(line)
 }
 async function openLineDrawer(line: AdmLine) {
+  if (props.panel) {
+    emit('openOrder', caseId, Number(line.id))
+    return
+  }
   if (!fullDetailLoaded.value) await load(true)
   if (!hasRecord.value || error.value) return
   selectedLineId.value = line.id
@@ -1314,7 +1331,7 @@ async function load(full = fullDetailLoaded.value) {
   try {
     record.value = full ? await admApi.detail(caseId) : await admApi.summary(caseId)
     fullDetailLoaded.value = full
-    if (!selectedLineId.value || !record.value.lines.some((line) => Number(line.id) === Number(selectedLineId.value)))
+    if (!orderOnly && (!selectedLineId.value || !record.value.lines.some((line) => Number(line.id) === Number(selectedLineId.value))))
       selectedLineId.value = record.value.lines[0]?.id || null
   } catch (e) {
     record.value = emptyRecord()
@@ -1797,11 +1814,15 @@ onMounted(async () => {
   if (!caseId) return
   const configRequest = loadPeople()
   const taskAction = props.panel?.taskAction ?? (props.panel ? '' : String(route.query.taskAction || ''))
-  const openLine = !!taskAction || !!(props.panel && initialLineId)
+  const openLine = orderOnly || !!taskAction
   await Promise.all([load(openLine), configRequest])
   if ((props.panel ? props.panel.addLine : route.query.addLine === '1') && canAddLine.value) void openAddLine()
   const requestedStatus = props.panel?.lineStatus ?? (props.panel ? '' : String(route.query.lineStatus || ''))
   if (record.value.lines.some((line) => line.lineStatus === requestedStatus)) lineFilter.status = requestedStatus
+  if (orderOnly) {
+    if (!taskAction && canReview.value && selectedLine.value?.lineStatus === 'PENDING_REVIEW') drawerTab.value = '审核处理'
+    return
+  }
   if (!openLine) return
   const line = selectedLine.value
   if (!line || Number(line.id) !== initialLineId) {
@@ -1817,10 +1838,6 @@ onMounted(async () => {
       openAction('assign')
       return
     }
-  }
-  const taskTabs: Record<string, string> = {
-    review: '审核处理', diff: '负责人跟进', collection: '负责人跟进',
-    transferAccept: '转派记录', transferHistory: '转派记录',
   }
   drawerTab.value = taskTabs[taskAction] || '处理决定与结果'
   drawerOpen.value = true
