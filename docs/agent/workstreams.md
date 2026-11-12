@@ -45,6 +45,8 @@
 
 ## ADM 新建主单字典与可选字段（2026-11-12，ADM-MASTER-INTAKE-20261112 R2）
 
+R4 用户确认使用 `ERP_MYSQL` 连接及 `sibedb.base_airline`。搜索与保存查码统一采用该连接和库，仍使用 `airline_code` 与 `ticketing_code`。旧 API 对航司类型报 400 的现象已用旧提交隔离复现。新查询的连接与参数已隔离验证，目标 MySQL 及 247 运行版本待验。SQL 归档 ADM-QUERY-006。
+
 R3 用户修订：航司字典指定为 `sibebd.base_airline`，以 `airline_code` 选择和保存，`ticketing_code` 为括号内的出票代码，如 CI（297）。罚单原因类型按原 13 项改为必选。旧主单中旧口径的航司三字码不用于新展示。39 项 ADM 回归、Vue 类型与模板检查、Flask 合成字典绑定和 13 项保存回读通过。SQL 归档 ADM-QUERY-005，实库和部署待验。
 
 基线 `b712aad`。供应商和航司读取 ERP 启用资料，保存名称及编码快照，航司三字代码取 ERP 的 `airline_code_3digit`。币种下拉可搜索，罚单原因类型按用户给出的 13 项单选、可留空。新建差异类型可留空。新版请求由所选资料派生展示值，取消下发方名称必填；旧版请求仍沿用原校验。

@@ -20,47 +20,48 @@ class AdmCatalog:
             raise AdmError(message)
         return result
 
-    def _query_one(self, sql, params):
+    def _query(self, sql, params, *, many, erp=False):
         import pymysql
+
+        if erp:
+            connection_args = {
+                "host": self.config.get("ERP_MYSQL_HOST"),
+                "port": self.config.get("ERP_MYSQL_PORT") or 3306,
+                "user": self.config.get("ERP_MYSQL_USER"),
+                "password": self.config.get("ERP_MYSQL_PASSWORD", ""),
+                "database": "sibedb",
+            }
+            if not connection_args["host"] or not connection_args["user"]:
+                raise AdmError("ADM航司 ERP 数据源尚未配置", 503, "ADM_REFERENCE_UNAVAILABLE")
+        else:
+            connection_args = {
+                "host": self.config.get("ERP_ROSTER_MYSQL_HOST") or self.config.get("ERP_MYSQL_HOST") or self.config.get("MYSQL_HOST"),
+                "port": self.config.get("ERP_ROSTER_MYSQL_PORT") or self.config.get("ERP_MYSQL_PORT") or self.config.get("MYSQL_PORT", 3306),
+                "user": self.config.get("ERP_ROSTER_MYSQL_USER") or self.config.get("ERP_MYSQL_USER") or self.config.get("MYSQL_USER"),
+                "password": self.config.get("ERP_ROSTER_MYSQL_PASSWORD") or self.config.get("ERP_MYSQL_PASSWORD") or self.config.get("MYSQL_PASSWORD", ""),
+                "database": self.config.get("ERP_ROSTER_DATABASE") or self.config.get("ERP_MYSQL_DATABASE") or "sibedb",
+            }
         try:
+            connection_args["port"] = int(connection_args["port"])
             connection = pymysql.connect(
-                host=self.config.get("ERP_ROSTER_MYSQL_HOST") or self.config.get("ERP_MYSQL_HOST") or self.config.get("MYSQL_HOST"),
-                port=int(self.config.get("ERP_ROSTER_MYSQL_PORT") or self.config.get("ERP_MYSQL_PORT") or self.config.get("MYSQL_PORT", 3306)),
-                user=self.config.get("ERP_ROSTER_MYSQL_USER") or self.config.get("ERP_MYSQL_USER") or self.config.get("MYSQL_USER"),
-                password=self.config.get("ERP_ROSTER_MYSQL_PASSWORD") or self.config.get("ERP_MYSQL_PASSWORD") or self.config.get("MYSQL_PASSWORD", ""),
-                database=self.config.get("ERP_ROSTER_DATABASE") or self.config.get("ERP_MYSQL_DATABASE") or "sibedb",
+                **connection_args,
                 charset="utf8mb4", cursorclass=pymysql.cursors.DictCursor,
                 connect_timeout=10, read_timeout=30, write_timeout=30,
             )
             try:
                 with connection.cursor() as cursor:
                     cursor.execute(sql, params)
-                    return cursor.fetchone()
+                    return cursor.fetchall() if many else cursor.fetchone()
             finally:
                 connection.close()
         except Exception as exc:
             raise AdmError("ADM基础资料暂不可用", 503, "ADM_REFERENCE_UNAVAILABLE") from exc
 
-    def _query_all(self, sql, params):
-        import pymysql
-        try:
-            connection = pymysql.connect(
-                host=self.config.get("ERP_ROSTER_MYSQL_HOST") or self.config.get("ERP_MYSQL_HOST") or self.config.get("MYSQL_HOST"),
-                port=int(self.config.get("ERP_ROSTER_MYSQL_PORT") or self.config.get("ERP_MYSQL_PORT") or self.config.get("MYSQL_PORT", 3306)),
-                user=self.config.get("ERP_ROSTER_MYSQL_USER") or self.config.get("ERP_MYSQL_USER") or self.config.get("MYSQL_USER"),
-                password=self.config.get("ERP_ROSTER_MYSQL_PASSWORD") or self.config.get("ERP_MYSQL_PASSWORD") or self.config.get("MYSQL_PASSWORD", ""),
-                database=self.config.get("ERP_ROSTER_DATABASE") or self.config.get("ERP_MYSQL_DATABASE") or "sibedb",
-                charset="utf8mb4", cursorclass=pymysql.cursors.DictCursor,
-                connect_timeout=10, read_timeout=30, write_timeout=30,
-            )
-            try:
-                with connection.cursor() as cursor:
-                    cursor.execute(sql, params)
-                    return cursor.fetchall()
-            finally:
-                connection.close()
-        except Exception as exc:
-            raise AdmError("ADM基础资料暂不可用", 503, "ADM_REFERENCE_UNAVAILABLE") from exc
+    def _query_one(self, sql, params, *, erp=False):
+        return self._query(sql, params, many=False, erp=erp)
+
+    def _query_all(self, sql, params, *, erp=False):
+        return self._query(sql, params, many=True, erp=erp)
 
     def _hotel_query_all(self, sql, params=()):
         """Read HOTEL-owned reference dictionaries with its dedicated account."""
@@ -303,8 +304,8 @@ class AdmCatalog:
         elif kind == "airline":
             result = self._query_one(
                 "SELECT airline_code AS code,COALESCE(NULLIF(airline_cname,''),airline_code) AS name,"
-                "ticketing_code AS ticketingCode FROM sibebd.base_airline WHERE airline_code=%s AND status=1 LIMIT 1",
-                (code,),
+                "ticketing_code AS ticketingCode FROM sibedb.base_airline WHERE airline_code=%s AND status=1 LIMIT 1",
+                (code,), erp=True,
             )
         else:
             result = self._query_one(
@@ -391,10 +392,10 @@ class AdmCatalog:
         if kind == "airline":
             return self._query_all(
                 "SELECT airline_code AS code,COALESCE(NULLIF(airline_cname,''),airline_code) AS name,"
-                "ticketing_code AS ticketingCode FROM sibebd.base_airline WHERE status=1 "
+                "ticketing_code AS ticketingCode FROM sibedb.base_airline WHERE status=1 "
                 "AND (airline_code LIKE %s ESCAPE '\\\\' OR airline_cname LIKE %s ESCAPE '\\\\' "
                 "OR ticketing_code LIKE %s ESCAPE '\\\\') ORDER BY airline_code LIMIT %s",
-                (like, like, like, size),
+                (like, like, like, size), erp=True,
             )
         table = {
             "ota": ("sibe_ota", "ota_code", "ota_cname"),
