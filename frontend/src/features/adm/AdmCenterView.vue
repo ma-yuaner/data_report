@@ -1,29 +1,32 @@
 <template>
   <div class="v05-app embedded">
     <main class="v05-main">
+      <header class="v05-top">
+        <div><h1>ADM 任务台账</h1><p>按当前责任办理待办，也可查看全部主单与订单明细。</p></div>
+        <a-space wrap>
+          <a-button v-if="canCreate" @click="openImport">跨主单批量导入</a-button>
+          <a-button v-if="canCreate" type="primary" @click="openCreate">新建 ADM 主单</a-button>
+        </a-space>
+      </header>
+      <section class="v05-card adm-flow" aria-label="ADM 业务流转">
+        <strong>业务流转</strong>
+        <ol><li v-for="step in workflowSteps" :key="step">{{ step }}</li></ol>
+      </section>
+      <a-tabs :active-key="isWorkbench ? 'mine' : 'all'" @change="switchScope">
+        <a-tab-pane key="mine" tab="我的待办" />
+        <a-tab-pane key="all" tab="全部记录" />
+      </a-tabs>
       <section v-if="isWorkbench" class="v05-page">
-        <header class="v05-top">
-          <div>
-            <h1>我的工作台</h1>
-            <p>{{ roleHint }}</p>
-          </div>
-          <div class="v05-actions">
-            <button :disabled="!canOperatorWork || !exportCandidates.length" @click="openExportSelection">
-              接单并导出（可选 {{ exportCandidates.length }}）</button
-            ><button v-if="canOperatorWork" @click="operatorImportOpen = true">导入处理结果</button
-            ><button :disabled="loading" @click="load">刷新任务</button>
-          </div>
-        </header>
-        <div v-if="workbenchReady" class="v05-metrics">
-          <button
-            v-for="item in workMetrics"
-            :key="item.key"
-            :class="{ selected: workMetric === item.key }"
-            @click="openWorkMetric(item.key)"
-          >
-            <span>{{ item.title }}</span
-            ><strong>{{ item.value }}</strong>
-          </button>
+        <div class="v05-toolbar">
+          <a-space wrap>
+            <a-select :value="workMetric" aria-label="待办阶段" style="width: 180px"
+              :options="workPhaseOptions" @change="selectWorkPhase" />
+            <a-button v-if="canCloseWorkQueue" @click="openWorkMetric('close')">可以结案</a-button>
+            <a-button v-if="canTransferWorkQueue" @click="openWorkMetric('transfer')">转派记录</a-button>
+            <a-button v-if="canOperatorWork" :disabled="!exportCandidates.length" @click="openExportSelection">接单并导出</a-button>
+            <a-button v-if="canOperatorWork" @click="operatorImportOpen = true">导入处理结果</a-button>
+            <a-button :disabled="loading" @click="load">刷新</a-button>
+          </a-space>
         </div>
         <a-alert v-if="error" type="error" show-icon :message="error" style="margin-top: 16px" />
         <a-alert v-if="configError" type="warning" show-icon :message="configError" />
@@ -87,41 +90,6 @@
       </section>
 
       <section v-else class="v05-page">
-        <header class="v05-top">
-          <div>
-            <h1>ADM 台账</h1>
-            <p>查看公司 ADM 全貌、处理进度、结案阻断与当前风险。</p>
-          </div>
-          <div class="v05-actions">
-            <button :disabled="!canCreate" @click="openImport">跨主单批量导入</button
-            ><button :disabled="!canCreate" class="primary" @click="openCreate">＋ 新建 ADM</button>
-          </div>
-        </header>
-        <p class="v05-label">主单指标 · 点击筛选台账</p>
-        <div v-if="ledgerReady" class="v05-metrics">
-          <button
-            v-for="item in masterMetrics"
-            :key="item.key"
-            :class="{ selected: metric === item.key }"
-            @click="selectMetric(item.key)"
-          >
-            <span>{{ item.title }}</span
-            ><strong>{{ item.value }}</strong>
-          </button>
-        </div>
-        <p class="v05-label">订单指标 · 点击查看订单清单</p>
-        <div v-if="ledgerReady" class="v05-metrics">
-          <button
-            v-for="item in orderMetrics"
-            :key="item.key"
-            :disabled="loading || !!error"
-            :class="{ selected: orderMetric === item.key }"
-            @click="openGlobalOrders(item.key)"
-          >
-            <span>{{ item.title }}</span
-            ><strong>{{ item.value }}</strong>
-          </button>
-        </div>
         <a-alert v-if="error" type="error" show-icon :message="error" style="margin-top: 16px" />
         <a-alert v-if="configError" type="warning" show-icon :message="configError" />
         <div class="v05-card">
@@ -134,6 +102,9 @@
                 @change="query" />
               <a-button type="primary" :loading="loading" @click="query">查询</a-button>
               <a-button @click="resetFilters">重置</a-button>
+              <a-select :value="metric" aria-label="主单范围" style="width: 150px"
+                :options="masterScopeOptions" @change="selectMetric" />
+              <a-button @click="openGlobalOrders('all')">订单明细</a-button>
             </a-space>
           </div>
           <div class="v05-table-wrap">
@@ -386,7 +357,12 @@
       width="1180px"
       :footer="null"
       wrap-class-name="v05-modal global-orders-modal"
-      ><div class="v05-table-wrap global-order-table">
+      ><a-space class="block">
+        <a-select :value="orderMetric" aria-label="订单明细范围" style="width: 200px"
+          :options="orderMetrics.map(({ key, title }) => ({ value: key, label: title }))"
+          @change="(value: unknown) => openGlobalOrders(String(value))" />
+      </a-space>
+      <div class="v05-table-wrap global-order-table">
         <table>
           <thead>
             <tr>
@@ -647,10 +623,9 @@ const route = useRoute(),
   router = useRouter(),
   auth = useAuthStore(),
   exportTasks = useComprehensiveExportStore(),
-  isWorkbench = computed(() => route.meta.admView === 'workbench')
+  isWorkbench = computed(() => route.query.scope === 'mine')
 const config = ref<AdmConfig | null>(null),
   rows = ref<AdmCaseRow[]>([]),
-  ledgerSummary = ref<Fields>({}),
   workbenchItems = ref<Fields[]>([]),
   workbenchSummary = ref<Fields>({}),
   ledgerReady = ref(false),
@@ -706,7 +681,6 @@ async function load() {
     if (seq !== request) return
     rows.value = result.items
     total.value = result.pagination.total
-    ledgerSummary.value = result.summary || {}
     ledgerReady.value = true
   } catch (e) {
     if (seq === request) error.value = errorText(e)
@@ -757,15 +731,6 @@ const taskKind = (s: string) =>
       WAITING_COLLECTION: 'collection',
     }) as Fields
   )[s] || 'other'
-const availableRoles = computed(() => {
-  if (auth.user?.isAdmin) return ['ADM负责人', '组长', '操作人员']
-  const p = config.value?.permissions,
-    roles: string[] = []
-  if (p?.review || p?.create || p?.collection || p?.diffMatch || p?.close || p?.assignLeader) roles.push('ADM负责人')
-  if (p?.assign || p?.assignOperator) roles.push('组长')
-  if (p?.handle) roles.push('操作人员')
-  return roles
-})
 const tasks = computed<Fields[]>(() =>
   workbenchItems.value.map((line): Fields => {
     const masterStages: Fields = {
@@ -840,60 +805,30 @@ const dueKind = (t: Fields) => {
   const d = new Date(t.deadline).getTime() - now()
   return d < 0 ? 'late' : d < 86400000 ? 'soon' : 'normal'
 }
-const roleHint = computed(() =>
-  !config.value
-    ? '按当前账号的权限展示 ADM 任务。'
-    : availableRoles.value.length
-    ? '合并展示当前账号需要处理的全部ADM任务，每笔任务标明本次办理职责。'
-    : '当前账号仅有查看权限，可前往ADM台账查看数据。',
-)
-const workMetrics = computed(() => {
-  const due = (k: string) => tasks.value.filter((t) => dueKind(t) === k).length,
-    items: Fields[] = []
-  if (availableRoles.value.includes('ADM负责人'))
-    items.push(
-      { key: 'assignLeader', title: '待分配组长', value: tasks.value.filter((t) => t.kind === 'assignLeader').length },
-      { key: 'review', title: '待审核', value: tasks.value.filter((t) => t.kind === 'review').length },
-      { key: 'diff', title: '待匹配差异单', value: tasks.value.filter((t) => t.kind === 'diff').length },
-      { key: 'collection', title: '待回款跟进', value: tasks.value.filter((t) => t.kind === 'collection').length },
-    )
-  if (auth.user?.isAdmin || config.value?.permissions.close)
-    items.push({ key: 'close', title: '可以结案', value: Number(workbenchSummary.value.closableCaseCount || 0) })
-  if (availableRoles.value.includes('组长')) {
-    items.push(
-      { key: 'assign', title: '待分配操作员', value: tasks.value.filter((t) => t.kind === 'assign').length },
-      { key: 'leaderRecovery', title: '待恢复判断', value: tasks.value.filter((t) => t.kind === 'leaderRecovery').length },
-      { key: 'recovered', title: '已恢复待录入', value: tasks.value.filter((t) => t.kind === 'recovered').length },
-      { key: 'leaderFollowup', title: '组长跟进', value: tasks.value.filter((t) => t.kind === 'leaderFollowup').length },
-    )
-  }
-  if (availableRoles.value.includes('ADM负责人')) {
-    items.push({ key: 'ownerRecovery', title: '待 GDS 操作', value: tasks.value.filter((t) => t.kind === 'ownerRecovery').length })
-  }
-  if (availableRoles.value.some((role) => role === '组长' || role === '操作人员'))
-    items.push({ key: 'transfer', title: '转派申请', value: Number(workbenchSummary.value.pendingTransferCount || 0) })
-  if (availableRoles.value.includes('操作人员'))
-    items.push(
-      { key: 'transferAccept', title: '待确认转派', value: tasks.value.filter((t) => t.kind === 'transferAccept').length },
-      { key: 'accept', title: '待接单', value: tasks.value.filter((t) => t.kind === 'accept').length },
-      { key: 'process', title: '本人待办理', value: tasks.value.filter((t) => t.kind === 'process').length },
-      {
-        key: 'codeReminder',
-        title: '编码恢复提醒',
-        value: tasks.value.filter((item) => item.recoveryStatus === 'REMINDER_DUE').length,
-      },
-      {
-        key: 'appeal',
-        title: '申诉中',
-        value: tasks.value.filter((item) => item.appealStatus === 'IN_PROGRESS').length,
-      },
-    )
-  items.push(
-    { key: 'soon', title: '即将超时', value: due('soon') },
-    { key: 'late', title: '已超时', value: due('late') },
-  )
-  return items
-})
+const workflowSteps = ['新建主单', '恢复判断', '分配与接单', '订单办理', '负责人审核', '差异或回款', '结案']
+const canCloseWorkQueue = computed(() => auth.user?.isAdmin || config.value?.permissions.close)
+const canTransferWorkQueue = computed(() => auth.user?.isAdmin || config.value?.permissions.assignOperator ||
+  config.value?.permissions.assign || config.value?.permissions.handle)
+const workPhaseOptions = [
+  { value: '', label: '全部待办阶段' },
+  ...Object.entries({
+    assignLeader: '待分配组长', leaderRecovery: '待恢复判断', ownerRecovery: '待 GDS 操作',
+    recovering: '正在恢复', recovered: '已恢复待录入', assign: '待分配操作员',
+    accept: '待接单', process: '本人待办理', appeal: '申诉中', review: '待审核',
+    diff: '待匹配差异单', collection: '待回款跟进', transferAccept: '待确认转派',
+    masterTransferWait: '等待组长确认转派', masterLeaderFollowup: '组长恢复跟进', leaderFollowup: '组长订单跟进',
+    codeReminder: '编码恢复提醒', soon: '即将超时', late: '已超时',
+  }).map(([value, label]) => ({ value, label })),
+]
+function selectWorkPhase(value: unknown) {
+  workSelection.value = []
+  workMetric.value = String(value ?? '')
+  workPage.value = 1
+}
+function switchScope(value: string | number) {
+  if ((value === 'mine') === isWorkbench.value) return
+  void router.push({ name: 'adm-cases', query: value === 'mine' ? { scope: 'mine' } : {} })
+}
 const visibleTasks = computed(() => {
   if (!workMetric.value) return tasks.value
   if (['soon', 'late'].includes(workMetric.value)) return tasks.value.filter((t) => dueKind(t) === workMetric.value)
@@ -924,7 +859,7 @@ const queueColumns = computed(() => [
   { title: '操作', key: 'action' },
 ])
 function transferStatusText(row: Fields) {
-  if (row.transferStatus === 'PENDING') return row.actionable ? '待目标操作员确认' : '待确认 · 当前状态不可处理'
+  if (row.transferStatus === 'PENDING') return row.actionable ? '待接收人确认' : '待确认 · 当前状态不可处理'
   return ({ ACCEPTED: '已接受', REJECTED: '已拒绝' } as Record<string, string>)[row.transferStatus] || label(row.transferStatus)
 }
 async function loadWorkQueue() {
@@ -971,16 +906,10 @@ function openQueueRecord(row: Fields) {
   })
   closeWorkQueue()
 }
-function openWorkMetric(key: string) {
-  if (key === 'close' || key === 'transfer') {
-    workQueue.value = key
-    queueStatus.value = 'pending'
-    resetWorkQueuePage()
-    return
-  }
-  workSelection.value = []
-  workMetric.value = workMetric.value === key ? '' : key
-  workPage.value = 1
+function openWorkMetric(key: 'close' | 'transfer') {
+  workQueue.value = key
+  queueStatus.value = 'pending'
+  resetWorkQueuePage()
 }
 function openTask(t: Fields) {
   void router.push({
@@ -1238,47 +1167,22 @@ async function commitOperatorImport() {
     operatorImportBusy.value = false
   }
 }
-const isPendingCase = (r: AdmCaseRow) =>
-    ['DRAFT', 'PENDING'].includes(r.caseStatus) ||
-    Number(r.pendingOperatorCount || 0) + Number(r.pendingAcceptCount || 0) > 0,
-  isOpenCase = (r: AdmCaseRow) => !['CLOSED', 'VOIDED'].includes(r.caseStatus)
-const masterMetrics = computed(() => [
-  { key: 'range', title: '范围内主单', value: Number(ledgerSummary.value.caseCount ?? total.value) },
-  { key: 'pending', title: '待处理主单', value: Number(ledgerSummary.value.pendingCaseCount ?? rows.value.filter(isPendingCase).length) },
-  { key: 'open', title: '未结案主单', value: Number(ledgerSummary.value.openCaseCount ?? rows.value.filter(isOpenCase).length) },
-  { key: 'soon', title: '即将超时主单', value: Number(ledgerSummary.value.soonCaseCount ?? rows.value.filter((r) => riskText(r) === '即将超时').length) },
-  { key: 'late', title: '已超时主单', value: Number(ledgerSummary.value.overdueCaseCount ?? rows.value.filter((r) => riskText(r) === '已超时').length) },
-])
+const masterScopeOptions = [
+  { value: '', label: '全部主单范围' }, { value: 'pending', label: '待处理主单' },
+  { value: 'open', label: '未结案主单' }, { value: 'soon', label: '即将超时' },
+  { value: 'late', label: '已超时' },
+]
 const openLineCount = (r: AdmCaseRow) =>
   Math.max(
     0,
     Number(r.lineCount || 0) - Number(r.completedLineCount || 0) - Number(r.voidedLineCount || 0) -
       Number(r.historicalLineCount || 0),
   )
-const sumRows = (selector: (row: AdmCaseRow) => number) => rows.value.reduce((sum, row) => sum + selector(row), 0)
-const orderMetrics = computed(() => [
-  { key: 'all', title: '订单明细', value: Number(ledgerSummary.value.lineCount ?? sumRows((r) => Number(r.lineCount || 0))) },
-  {
-    key: 'pending',
-    title: '待处理订单明细',
-    value: Number(ledgerSummary.value.pendingLineCount ?? sumRows((r) => Number(r.pendingLeaderCount || 0) + Number(r.pendingOperatorCount || 0) + Number(r.pendingAcceptCount || 0))),
-  },
-  {
-    key: 'open',
-    title: '未完成订单明细',
-    value: Number(ledgerSummary.value.openLineCount ?? sumRows(openLineCount)),
-  },
-  {
-    key: 'soon',
-    title: '即将超时订单明细',
-    value: Number(ledgerSummary.value.soonLineCount ?? sumRows((r) => (riskText(r) === '即将超时' ? openLineCount(r) : 0))),
-  },
-  {
-    key: 'late',
-    title: '已超时订单明细',
-    value: Number(ledgerSummary.value.overdueLineCount ?? sumRows((r) => (riskText(r) === '已超时' ? openLineCount(r) : 0))),
-  },
-])
+const orderMetrics = [
+  { key: 'all', title: '全部订单明细' }, { key: 'pending', title: '待处理订单明细' },
+  { key: 'open', title: '未完成订单明细' }, { key: 'soon', title: '即将超时订单明细' },
+  { key: 'late', title: '已超时订单明细' },
+]
 const globalOrdersOpen = ref(false),
   globalOrders = ref<AdmLedgerLine[]>([]),
   ordersPage = ref(1),
@@ -1340,13 +1244,13 @@ function lineTask(status: string) {
   )
 }
 function selectMetric(k: string) {
-  metric.value = metric.value === k ? '' : k
+  metric.value = k
   page.value = 1
   void load()
 }
 const activeLineCount = (r: AdmCaseRow) => Math.max(0, Number(r.lineCount || 0) - Number(r.voidedLineCount || 0)),
   progressWidth = (r: AdmCaseRow) =>
-    `${activeLineCount(r) ? Math.min(100, (Number(r.completedLineCount || 0) / activeLineCount(r)) * 100) : 100}%`
+    `${activeLineCount(r) ? Math.min(100, (Number(r.completedLineCount || 0) / activeLineCount(r)) * 100) : 0}%`
 function stageSummary(row: AdmCaseRow) {
   return [
     { label: '待办', count: Number(row.pendingLeaderCount || 0) + Number(row.pendingOperatorCount || 0) + Number(row.pendingAcceptCount || 0) },
@@ -1371,19 +1275,25 @@ function ledgerStages(row: AdmCaseRow) {
 function ledgerDetailText(row: AdmCaseRow) {
   if (row.caseStatus === 'DRAFT') return '草稿详情'
   if (row.caseStatus !== 'ACTIVE') return 'ADM 详情'
-  if (!Number(row.lineCount)) return '主单详情 · 待录入订单'
+  if (!activeLineCount(row)) return '主单详情'
   const stages = ledgerStages(row)
   if (stages.length === 1) return `查看${stages[0].title}明细`
   if (!stages.length && canCloseLedgerCase(row)) return '查看结案'
   return '订单明细'
 }
 function canCloseLedgerCase(row: AdmCaseRow) {
-  return Number(row.lineCount) > 0 && !!config.value?.permissions.close &&
+  return activeLineCount(row) > Number(row.historicalLineCount || 0) && !!config.value?.permissions.close &&
     Number(row.coordinatorId) === myId.value && !openLineCount(row)
 }
 function blockerText(row: AdmCaseRow) {
   if (row.caseStatus !== 'ACTIVE') return '—'
-  if (!Number(row.lineCount)) return '暂无订单明细'
+  if (!activeLineCount(row)) {
+    const recovery = ({
+      LEADER_DECISION: '待组长判断恢复编码', OWNER_RECOVERY: '待负责人恢复编码',
+      RECOVERING: '正在恢复编码', RECOVERED: '已恢复，待组长录入明细',
+    } as Record<string, string>)[row.masterRecoveryStatus]
+    return recovery || '暂无有效订单明细'
+  }
   const stages = ledgerStages(row)
   if (!stages.length) return openLineCount(row) ? '存在未完成明细' : '全部有效订单已完成'
   return stages.slice(0, 2).map(({ title, count }) => `${count}笔${title}`).join('；')
@@ -1623,8 +1533,12 @@ watch(
   },
   { immediate: true },
 )
-watch(() => route.name, (name) => {
-  if (name !== 'adm-workbench' && name !== 'adm-cases') return
+watch(isWorkbench, () => {
+  if (route.name !== 'adm-cases') return
+  workSelection.value = []
+  const requestedPage = Number(route.query.page)
+  workPage.value = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1
+  workMetric.value = isWorkbench.value ? String(route.query.workMetric || '') : ''
   ordersRequest++
   globalOrdersOpen.value = false
   orderMetric.value = ''
@@ -1632,7 +1546,7 @@ watch(() => route.name, (name) => {
   void load()
 }, { immediate: true })
 watch([workPage, workMetric], ([currentPage, currentMetric]) => {
-  if (route.name !== 'adm-workbench') return
+  if (route.name !== 'adm-cases' || !isWorkbench.value) return
   const nextQuery: Fields = { ...route.query }
   if (currentPage > 1) nextQuery.page = String(currentPage)
   else delete nextQuery.page
@@ -1645,7 +1559,9 @@ watch(() => route.name === 'adm-cases' && route.query.create === '1', async (cre
   if (!create) return
   await loadConfig()
   if (route.name === 'adm-cases' && route.query.create === '1' && config.value?.permissions.create) {
-    await router.replace({ path: '/adm/cases' })
+    const nextQuery = { ...route.query }
+    delete nextQuery.create
+    await router.replace({ query: nextQuery })
     openCreate()
   }
 }, { immediate: true })
