@@ -26,7 +26,8 @@
         <div><span>QUICK ACCESS</span><h2>从哪里开始</h2></div>
         <p>按工作目标进入模块，只有打开分析页后才查询对应数据。</p>
       </div>
-      <div class="workspace-entry-grid">
+      <a-empty v-if="!quickEntries.length" description="暂无可用快捷入口" />
+      <div v-else class="workspace-entry-grid">
         <button v-for="entry in quickEntries" :key="entry.to" type="button" class="workspace-entry" @click="router.push(entry.to)">
           <span class="workspace-entry-icon" :style="{ color: entry.color, background: entry.background }"><component :is="entry.icon" /></span>
           <span class="workspace-entry-copy"><small>{{ entry.eyebrow }}</small><strong>{{ entry.title }}</strong><em>{{ entry.description }}</em></span>
@@ -35,8 +36,9 @@
       </div>
     </section>
 
-    <div class="workspace-bottom-grid">
-      <section class="workspace-card workspace-flow-card">
+    <div v-if="showWorkflow || showDataPrinciples" class="workspace-bottom-grid"
+      :style="showWorkflow && showDataPrinciples ? undefined : { gridTemplateColumns: '1fr' }">
+      <section v-if="showWorkflow" class="workspace-card workspace-flow-card">
         <div class="workspace-card-title"><div><span>WORKFLOW</span><h2>推荐分析路径</h2></div><CompassOutlined /></div>
         <div class="workspace-flow">
           <div><b>01</b><span><strong>看全局</strong><small>经营总览确认出退改增整体利润</small></span></div>
@@ -47,7 +49,7 @@
         </div>
       </section>
 
-      <section class="workspace-card workspace-principle-card">
+      <section v-if="showDataPrinciples" class="workspace-card workspace-principle-card">
         <div class="workspace-card-title"><div><span>DATA PRINCIPLE</span><h2>当前数据口径</h2></div><SafetyCertificateOutlined /></div>
         <ul>
           <li><span>经营分析</span><strong>MySQL ADS 实际同步数据</strong></li>
@@ -60,10 +62,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  ApartmentOutlined, ArrowRightOutlined, BarChartOutlined, CheckCircleFilled,
+  ApartmentOutlined, ArrowRightOutlined, BarChartOutlined, CheckCircleFilled, ClockCircleOutlined,
   CompassOutlined, DashboardOutlined, DatabaseOutlined, DeploymentUnitOutlined, SafetyCertificateOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons-vue'
@@ -79,7 +81,8 @@ const todayText = new Intl.DateTimeFormat('zh-CN', {
   timeZone: 'Asia/Shanghai', year: 'numeric', month: 'long', day: 'numeric', weekday: 'long',
 }).format(new Date())
 
-const quickEntries = [
+const entries = [
+  { to: '/adm/cases?scope=mine', eyebrow: 'ADM', title: 'ADM 控制台', description: '查看并处理分配给我的 ADM 任务', icon: CompassOutlined, color: '#396ec4', background: '#edf4ff' },
   { to: '/resource-governance/gds', eyebrow: 'GDS GOVERNANCE', title: 'GDS资源治理', description: '分析GDS、PCC查询量、航段数与查定比', icon: DeploymentUnitOutlined, color: '#267b89', background: '#eaf7f8' },
   { to: '/resource-governance/ota', eyebrow: 'OTA QUALITY', title: 'OTA渠道质量', description: '分析平台查询、验价与生单接口成功率', icon: DeploymentUnitOutlined, color: '#396ec4', background: '#edf4ff' },
   { to: '/overview', eyebrow: 'OVERVIEW', title: '经营总览', description: '查看今日出、退、改、增利润全貌', icon: DashboardOutlined, color: '#2f6edb', background: '#edf4ff' },
@@ -89,14 +92,16 @@ const quickEntries = [
   { to: '/data-assets', eyebrow: 'DATA ASSETS', title: '数据资产', description: '查看数据表、字段覆盖和资产状态', icon: DatabaseOutlined, color: '#19866a', background: '#eaf8f3' },
 ]
 
-onMounted(() => {
-  window.setTimeout(() => {
-    void Promise.allSettled([
-      import('@/views/OverviewView.vue'),
-      import('@/views/ComprehensiveAnalysisLiveView.vue'),
-      import('@/views/RiskMonthlyAnalysisView.vue'),
-      import('@/features/resource-governance/ResourceGovernancePage.vue'),
-    ])
-  }, 800)
-})
+function canOpen(path: string) {
+  const user = authStore.user
+  const { meta } = router.resolve(path)
+  return Boolean(user && (user.isAdmin || (
+    meta.menuCode && user.menuCodes?.includes(String(meta.menuCode))
+    && (!meta.permission || user.permissions?.includes(String(meta.permission)))
+  )))
+}
+
+const quickEntries = computed(() => entries.filter(entry => canOpen(entry.to)))
+const showWorkflow = computed(() => ['/overview', '/analysis/comprehensive', '/risk-analysis'].every(canOpen))
+const showDataPrinciples = computed(() => canOpen('/overview') || canOpen('/analysis/comprehensive'))
 </script>
