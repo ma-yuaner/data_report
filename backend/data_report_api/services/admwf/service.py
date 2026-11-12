@@ -9,7 +9,10 @@ import uuid
 
 from .attachments import AdmAttachmentStorage
 from .catalog import AdmCatalog
-from .domain import MASTER_DEPARTMENTS, appeal_target, business_date, business_datetime, money, normalize_create, normalize_line, text
+from .domain import (
+    MASTER_DEPARTMENTS, PENALTY_REASON_TYPES, appeal_target, business_date, business_datetime,
+    money, normalize_create, normalize_line, text,
+)
 from .excel import (
     AdmDailyWorkbook, StoredUpload, _diff_label, _operator_actions, _operator_label,
     _operator_stage,
@@ -250,20 +253,38 @@ class AdmWorkflowService:
             category = body.get("businessCategory")
             if category not in ("票务", "客服", "业务"):
                 raise AdmError("业务分类请选择票务、客服或业务")
-            airline_name = text(body.get("airlineName"), "航司", 100)
+            airline = (
+                self.catalog.optional_master("airline", text(body.get("airlineCode"), "航司", 32))
+                if "airlineCode" in body else None
+            )
+            airline_name = airline["name"] if airline else text(body.get("airlineName"), "航司", 100)
+            supplier_code = text(body.get("supplierCode"), "供应商编码", 64, required=False)
+            supplier = self.catalog.optional_master("supplier", supplier_code) if supplier_code else None
             supplier_source = body.get("issuerType") == "SUPPLIER"
-            supplier_name = text(body.get("supplierName"), "供应商名称", 200, required=supplier_source)
+            supplier_name = supplier["name"] if supplier else None
+            if "supplierCode" not in body:
+                supplier_name = text(body.get("supplierName"), "供应商名称", 200, required=False)
+            penalty_reason = text(body.get("penaltyReasonType"), "罚单原因类型", 32, required=False)
+            if penalty_reason and penalty_reason not in PENALTY_REASON_TYPES:
+                raise AdmError("请选择有效的罚单原因类型")
             master_intake = {
+                "supplierCode": supplier["code"] if supplier else None,
                 "supplierName": supplier_name,
+                "airlineCode": airline["code"] if airline else None,
+                "airlineCode3": airline["code3"] if airline else None,
                 "ticketNo": text(body.get("ticketNo"), "票号", 500, required=False),
                 "businessCategory": category,
+                "penaltyReasonType": penalty_reason,
             }
-            body = {**body, "issuerName": supplier_name if supplier_source else airline_name}
-        data = normalize_create(body, fx["rateValue"], master_only=master_only)
+            issuer = supplier if supplier_source else airline
+            body = {**body, "airlineName": airline_name, "issuerCode": issuer["code"] if issuer else None,
+                    "issuerName": supplier_name if supplier_source else airline_name}
+        data = normalize_create(body, fx["rateValue"], master_only=master_only, issuer_name_required=master_intake is None)
         if master_only:
             data["airlineName"] = text(body.get("airlineName"), "航司", 100)
             leader = self.catalog.user(body.get("leaderId"), leader=True)
-            diff_type = self.catalog.diff_type(text(body.get("diffTypeCode"), "差异类型", 64))
+            diff_code = text(body.get("diffTypeCode"), "差异类型", 64, required=master_intake is None)
+            diff_type = self.catalog.diff_type(diff_code) if diff_code else {"code": "", "name": ""}
             data["lineDefaults"] = {
                 "leaderId": leader["id"], "leaderName": leader["name"],
                 "diffTypeCode": diff_type["code"], "diffTypeName": diff_type["name"],
@@ -283,7 +304,7 @@ class AdmWorkflowService:
             if not issuer:
                 raise AdmError("下发方编码不能为空")
             data.update(issuerCode=issuer["code"], issuerName=issuer["name"])
-        else:
+        elif master_intake is None:
             data["issuerCode"] = None
         for position, line in enumerate(data["lines"], 1):
             department = self.catalog.department(line["departmentCode"])
@@ -351,17 +372,20 @@ class AdmWorkflowService:
         if case["case_status"] not in {"DRAFT", "ACTIVE"}:
             raise AdmError("当前主单状态只允许查看基础信息", 409, "ADM_ACTION_BLOCKED")
         payload = body or {}
-        if (case.get("lineDefaults") or {}).get("masterIntake"):
-            payload = {**payload, "issuerType": case["issuer_type"], "issuerName": case["issuer_name"]}
+        master_intake = (case.get("lineDefaults") or {}).get("masterIntake")
+        if master_intake:
+            payload = {**payload, "issuerType": case["issuer_type"], "issuerName": case["issuer_name"],
+                       "issuerCode": case["issuer_code"]}
         issuer_type = text(payload.get("issuerType"), "下发方类型", 32)
         if issuer_type not in {"SUPPLIER", "PLATFORM", "AIRLINE"}:
             raise AdmError("下发方类型必须为供应商、平台或航司")
         issuer_code = text(payload.get("issuerCode"), "下发方编码", 64, required=False)
-        issuer_name = text(payload.get("issuerName"), "下发方名称", 200)
+        issuer_name = text(payload.get("issuerName"), "下发方名称", 200, required=not master_intake) or ""
         if case.get("lineDefaults"):
             if issuer_type == "PLATFORM":
                 raise AdmError("下发方类型必须为供应商或航司")
-            issuer_code = None
+            if not master_intake:
+                issuer_code = None
         elif issuer_type in {"SUPPLIER", "PLATFORM"}:
             issuer = self.catalog.optional_master("supplier" if issuer_type == "SUPPLIER" else "ota", issuer_code)
             if not issuer:
@@ -412,7 +436,8 @@ class AdmWorkflowService:
             "diffTypeCode": payload.get("diffTypeCode"), "diffTypeName": payload.get("diffTypeName"),
             "differenceReason": payload.get("differenceReason"),
             "investigationNote": payload.get("investigationNote"),
-        }, stored["fxSnapshot"]["rate_value"], department_required=not defaults.get("masterIntake"))
+        }, stored["fxSnapshot"]["rate_value"], department_required=not defaults.get("masterIntake"),
+            diff_type_required=not defaults.get("masterIntake"))
         ota = self.catalog.optional_master("ota", normalized["otaCode"])
         supplier = self.catalog.optional_master("supplier", normalized["supplierCode"])
         department_code = normalized["departmentCode"]
@@ -426,7 +451,7 @@ class AdmWorkflowService:
             if normalized["leaderId"] == line["leader_id"]
             else self.catalog.user(normalized["leaderId"], leader=True)
         )
-        diff_type = self.catalog.diff_type(normalized["diffTypeCode"])
+        diff_type = self.catalog.diff_type(normalized["diffTypeCode"]) if normalized["diffTypeCode"] else {"code": "", "name": ""}
         normalized.update(
             otaCode=ota["code"] if ota else None, otaName=ota["name"] if ota else None,
             supplierCode=supplier["code"] if supplier else None,
@@ -476,9 +501,10 @@ class AdmWorkflowService:
             if not stored or not stored["case"].get("lineDefaults") or not stored.get("fxSnapshot"):
                 raise AdmError("主单资料或冻结汇率不存在")
             case = stored["case"]
+            legacy_defaults = not case["lineDefaults"].get("masterIntake")
             line = normalize_line({**case["lineDefaults"], "originalAmount": case["original_amount"]},
                                   stored["fxSnapshot"]["rate_value"],
-                                  department_required=not case["lineDefaults"].get("masterIntake"))
+                                  department_required=legacy_defaults, diff_type_required=legacy_defaults)
         return _json_value(self.repository.master_recovery(int(case_id), action, actor, locators=locators, line=line))
 
     def add_line(self, user, case_id, body):
@@ -503,8 +529,9 @@ class AdmWorkflowService:
             raw_line = {**raw_line, **defaults}
             if selected_leader:
                 raw_line["leaderId"] = selected_leader
+        legacy_defaults = not (defaults or {}).get("masterIntake")
         line = normalize_line(raw_line, fx["rate_value"],
-                              department_required=not (defaults or {}).get("masterIntake"))
+                              department_required=legacy_defaults, diff_type_required=legacy_defaults)
         if line["originalAmount"] <= 0:
             raise AdmError("新增订单金额必须大于0")
         if not defaults:
@@ -562,6 +589,7 @@ class AdmWorkflowService:
                 "HISTORICAL", "VOIDED",
             ],
             "issuerTypes": ["PLATFORM", "SUPPLIER", "AIRLINE"],
+            "penaltyReasonTypes": PENALTY_REASON_TYPES,
             "appealTargets": [{"value": code, "label": name} for code, name in APPEAL_TARGETS.items()],
             "appealResults": ["SUCCEEDED", "FAILED"],
             "problemAttributions": ["HUMAN", "PLATFORM", "SYSTEM"],

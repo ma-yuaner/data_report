@@ -142,7 +142,7 @@
                   <tr v-for="record in shownRows" :key="record.id">
                     <td>
                       <button class="link" @click="openMasterInfo(record)">{{ record.admNo }}</button
-                      ><small>{{ label(record.issuerType) }} · {{ record.issuerName }}</small
+                      ><small>{{ [label(record.issuerType), record.issuerName].filter(Boolean).join(' · ') }}</small
                       ><small>系统记录：{{ record.internalNo }}</small>
                       <span :class="['source-badge', sourceTone(record.sourceType)]">{{ sourceText(record.sourceType) }}</span>
                     </td>
@@ -535,19 +535,25 @@
               v-model:value="form.issuerType"
               :options="issuerOptions" /></label
           ><label>
-            供应商名称<a-input v-model:value="form.supplierName" :maxlength="200" />
+            供应商名称<a-select v-model:value="form.supplier" label-in-value allow-clear show-search
+              :filter-option="false" :loading="supplierLookup.loading" :options="supplierLookup.options"
+              placeholder="搜索供应商名称或编码" @search="supplierLookup.search" />
           </label><label>
             <span class="form-field-label">航司 <span class="form-required-mark" aria-hidden="true">*</span></span>
-            <a-input aria-required="true" v-model:value="form.airlineName" :maxlength="100" />
+            <a-select aria-required="true" v-model:value="form.airline" label-in-value show-search
+              :filter-option="false" :loading="airlineLookup.loading" :options="airlineLookup.options"
+              placeholder="搜索航司名称或代码" @search="airlineLookup.search" />
           </label><label>票号<a-input v-model:value="form.ticketNo" :maxlength="500" /></label>
           <label>
             <span class="form-field-label">业务分类 <span class="form-required-mark" aria-hidden="true">*</span></span>
             <a-select aria-required="true" v-model:value="form.businessCategory" :options="businessCategoryOptions" />
-          </label>
+          </label><label>罚单原因类型<a-select v-model:value="form.penaltyReasonType" allow-clear
+            :options="(config?.penaltyReasonTypes || []).map((value) => ({ value, label: value }))" /></label>
           <h3>金额与汇率</h3>
           <label><span class="form-field-label">原币币种 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
               v-model:value="form.currency"
               :options="currencyOptions"
+              show-search option-filter-prop="label"
               :loading="referenceLoading.currency"
               @change="loadExchangeRate" /></label
           ><label><span class="form-field-label">原币总金额 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.originalAmount" /></label
@@ -569,8 +575,8 @@
             <a-select aria-required="true" v-model:value="form.leaderId" :options="leaderOptions"
               show-search option-filter-prop="label" placeholder="搜索姓名、部门或账号" />
           </label><label>
-            <span class="form-field-label">差异类型 <span class="form-required-mark" aria-hidden="true">*</span></span>
-            <a-select aria-required="true" v-model:value="form.diffTypeCode" :options="diffTypeOptions"
+            差异类型
+            <a-select v-model:value="form.diffTypeCode" :options="diffTypeOptions" allow-clear
               :loading="referenceLoading.diffType" show-search option-filter-prop="label" />
           </label><label class="wide">
             <span class="form-field-label">细分差异原因 <span class="form-required-mark" aria-hidden="true">*</span></span>
@@ -1416,8 +1422,44 @@ const referenceLoadedAt: Partial<Record<CreateReferenceKind, number>> = {}
 const referenceRequests: Partial<Record<CreateReferenceKind, Promise<void>>> = {}
 const referenceLoading = reactive<Partial<Record<CreateReferenceKind, boolean>>>({})
 const referenceErrors = reactive<Partial<Record<CreateReferenceKind, string>>>({})
+function createMasterLookup(kind: 'supplier' | 'airline', name: string) {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let request = 0
+  let query = ''
+  const lookup = reactive({
+    loading: false,
+    error: '',
+    options: [] as Array<{ value: string; label: string }>,
+    search(value: string) {
+      query = value
+      const current = ++request
+      clearTimeout(timer)
+      lookup.loading = true
+      lookup.error = ''
+      lookup.options = []
+      timer = setTimeout(async () => {
+        try {
+          const rows = await admApi.options(kind, value, 100)
+          if (current === request) lookup.options = rows.map(({ code, name, code3 }) => ({
+            value: code, label: `${name}（${[code, code3].filter(Boolean).join(' / ')}）`,
+          }))
+        } catch (e) {
+          if (current === request) lookup.error = `${name}读取失败：${errorText(e)}`
+        } finally {
+          if (current === request) lookup.loading = false
+        }
+      }, value ? 250 : 0)
+    },
+    retry() { if (lookup.error) lookup.search(query) },
+  })
+  onBeforeUnmount(() => { clearTimeout(timer); request++ })
+  return lookup
+}
+const supplierLookup = createMasterLookup('supplier', '供应商')
+const airlineLookup = createMasterLookup('airline', '航司')
 const referenceError = computed(() => {
-  return [...masterReferenceKinds.map((kind) => referenceErrors[kind]), fxError.value].filter(Boolean).join('；')
+  return [...masterReferenceKinds.map((kind) => referenceErrors[kind]), supplierLookup.error, airlineLookup.error, fxError.value]
+    .filter(Boolean).join('；')
 })
 function loadCreateReference(kind: CreateReferenceKind) {
   if (referenceRequests[kind]) return referenceRequests[kind]
@@ -1439,6 +1481,8 @@ function loadCreateReference(kind: CreateReferenceKind) {
   return pending
 }
 function retryCreateReferences() {
+  supplierLookup.retry()
+  airlineLookup.retry()
   masterReferenceKinds.forEach((kind) => { if (referenceErrors[kind]) void loadCreateReference(kind) })
   if (fxError.value) void loadExchangeRate()
 }
@@ -1466,10 +1510,11 @@ function openCreate() {
   Object.assign(form, {
     admNo: '',
     issuerType: 'SUPPLIER',
-    supplierName: '',
-    airlineName: '',
+    supplier: undefined,
+    airline: undefined,
     ticketNo: '',
     businessCategory: undefined,
+    penaltyReasonType: undefined,
     currency: 'CNY',
     originalAmount: '',
     issuedDate: '',
@@ -1482,6 +1527,8 @@ function openCreate() {
   createError.value = ''
   createOpen.value = true
   void loadConfig(true)
+  supplierLookup.search('')
+  airlineLookup.search('')
   masterReferenceKinds.forEach((kind) => { void loadCreateReference(kind) })
   void loadExchangeRate()
 }
@@ -1506,7 +1553,10 @@ async function createCase() {
   saving.value = true
   createError.value = ''
   try {
-    const r = await admApi.create({ ...form, masterOnly: true }, createOperationIdentifier())
+    const { supplier, airline, ...fields } = form
+    const r = await admApi.create({
+      ...fields, supplierCode: supplier?.value ?? null, airlineCode: airline?.value ?? null, masterOnly: true,
+    }, createOperationIdentifier())
     const attachmentErrors: string[] = []
     for (const file of masterFiles.value) {
       try {

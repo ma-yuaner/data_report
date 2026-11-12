@@ -289,6 +289,7 @@ class AdmCatalog:
         mapping = {
             "ota": ("ADMWF_OTA_RESOLVER", "OTA不存在或OTA资料不可用"),
             "supplier": ("ADMWF_SUPPLIER_RESOLVER", "供应商不存在或供应商资料不可用"),
+            "airline": ("ADMWF_AIRLINE_RESOLVER", "航司不存在或航司资料不可用"),
         }
         key, message = mapping[kind]
         resolver = self.config.get(key)
@@ -299,6 +300,12 @@ class AdmCatalog:
                 "SELECT ota_code AS code,ota_cname AS name FROM sibe_ota "
                 "WHERE ota_code=%s AND status=1 LIMIT 1", (code,),
             )
+        elif kind == "airline":
+            result = self._query_one(
+                "SELECT airline_code AS code,COALESCE(NULLIF(airline_cname,''),airline_code) AS name,"
+                "airline_code_3digit AS code3 FROM base_airline WHERE airline_code=%s AND status=1 LIMIT 1",
+                (code,),
+            )
         else:
             result = self._query_one(
                 "SELECT supplier_code AS code,supplier_cname AS name FROM sibe_supplier "
@@ -306,7 +313,10 @@ class AdmCatalog:
             )
         if not result:
             raise AdmError(message)
-        return {"code": str(result["code"]), "name": str(result["name"])}
+        option = {"code": str(result["code"]), "name": str(result["name"])}
+        if kind == "airline":
+            option["code3"] = str(result.get("code3") or "").strip() or None
+        return option
 
     def optional_master_value(self, kind, value):
         raw = str(value or "").strip()
@@ -378,6 +388,14 @@ class AdmCatalog:
             if (not raw or "CNY".casefold().find(raw.casefold()) >= 0) and not any(item["code"] == "CNY" for item in normalized):
                 normalized.insert(0, {"code": "CNY", "name": "CNY"})
             return normalized[:size]
+        if kind == "airline":
+            return self._query_all(
+                "SELECT airline_code AS code,COALESCE(NULLIF(airline_cname,''),airline_code) AS name,"
+                "airline_code_3digit AS code3 FROM base_airline WHERE status=1 "
+                "AND (airline_code LIKE %s ESCAPE '\\\\' OR airline_cname LIKE %s ESCAPE '\\\\' "
+                "OR airline_code_3digit LIKE %s ESCAPE '\\\\') ORDER BY airline_cname,airline_code LIMIT %s",
+                (like, like, like, size),
+            )
         table = {
             "ota": ("sibe_ota", "ota_code", "ota_cname"),
             "supplier": ("sibe_supplier", "supplier_code", "supplier_cname"),

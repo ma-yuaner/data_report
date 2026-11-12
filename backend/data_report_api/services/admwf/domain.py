@@ -9,6 +9,10 @@ from .policy import APPEAL_TARGETS, AdmError
 TWO_PLACES = Decimal("0.01")
 ISSUER_TYPES = frozenset({"SUPPLIER", "PLATFORM", "AIRLINE"})
 MASTER_DEPARTMENTS = {"ADM_AIR_TICKET": "机票", "ADM_TICKETING": "票务", "ADM_CUSTOMER_SERVICE": "客服"}
+PENALTY_REASON_TYPES = (
+    "虚假预定", "重复预定", "收回退票费用", "收回改签费用", "客人弃程使用", "收回返点", "补收票款",
+    "违规订位", "未删除无效航段", "违规出票", "旅游代码缺失", "取消率过高", "其他",
+)
 OPTIONAL_LINE_TEXT = (
     "otaCode", "otaName", "otaOrderNo", "supplierCode", "supplierName",
     "airlineCode", "airlineName", "ticketNo", "pnr", "investigationNote",
@@ -73,7 +77,7 @@ def business_datetime(value, field):
     return result.replace(microsecond=0)
 
 
-def normalize_line(raw, rate, position=1, *, department_required=True):
+def normalize_line(raw, rate, position=1, *, department_required=True, diff_type_required=True):
     if not isinstance(raw, dict):
         raise AdmError(f"第{position}条明细格式无效")
     try:
@@ -92,8 +96,10 @@ def normalize_line(raw, rate, position=1, *, department_required=True):
                                required=department_required) or "",
         "leaderId": raw.get("leaderId"),
         "leaderName": text(raw.get("leaderName"), f"第{position}条负责组长", 100),
-        "diffTypeCode": text(raw.get("diffTypeCode"), f"第{position}条差异类型编码", 64),
-        "diffTypeName": text(raw.get("diffTypeName"), f"第{position}条差异类型名称", 200),
+        "diffTypeCode": text(raw.get("diffTypeCode"), f"第{position}条差异类型编码", 64,
+                             required=diff_type_required) or "",
+        "diffTypeName": text(raw.get("diffTypeName"), f"第{position}条差异类型名称", 200,
+                             required=diff_type_required) or "",
         "differenceReason": text(raw.get("differenceReason"), f"第{position}条细分差异原因", 1000),
     }
     try:
@@ -108,7 +114,7 @@ def normalize_line(raw, rate, position=1, *, department_required=True):
     return line
 
 
-def normalize_create(body, rate, *, master_only=False):
+def normalize_create(body, rate, *, master_only=False, issuer_name_required=True):
     if not isinstance(body, dict):
         raise AdmError("请求内容格式无效")
     issuer_type = text(body.get("issuerType"), "下发方类型", 32)
@@ -149,7 +155,7 @@ def normalize_create(body, rate, *, master_only=False):
         "admNo": text(body.get("admNo"), "ADM单号", 100),
         "issuerType": issuer_type,
         "issuerCode": text(body.get("issuerCode"), "下发方编码", 64, required=False),
-        "issuerName": text(body.get("issuerName"), "下发方名称", 200),
+        "issuerName": text(body.get("issuerName"), "下发方名称", 200, required=issuer_name_required) or "",
         "currency": currency,
         "originalAmount": original_amount,
         "cnyAmount": cny_amount,

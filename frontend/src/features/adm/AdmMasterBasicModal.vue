@@ -14,6 +14,7 @@
           <label>供应商名称<a-input :value="intake.supplierName || '—'" readonly /></label>
           <label>票号<a-input :value="intake.ticketNo || '—'" readonly /></label>
           <label>业务分类<a-input :value="intake.businessCategory" readonly /></label>
+          <label>罚单原因类型<a-input :value="intake.penaltyReasonType || '—'" readonly /></label>
         </template>
         <template v-else>
           <label><span class="form-field-label">下发方类型 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true" v-model:value="form.issuerType" :options="detail.case.lineDefaults ? issuerTypes.filter((item) => item.value !== 'PLATFORM') : issuerTypes" @change="issuerChanged" /></label>
@@ -29,6 +30,7 @@
         <label><span class="form-field-label">主单回复截止时间 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.replyDeadline" type="datetime-local" /></label>
         <template v-if="detail.case.lineDefaults">
           <label>航司<a-input :value="detail.case.airlineName" readonly /></label>
+          <label v-if="intake">航司三字代码<a-input :value="intake.airlineCode3 || '—'" readonly /></label>
           <label v-if="!intake">归属部门<a-input :value="detail.case.lineDefaults.departmentName" readonly /></label>
           <label>负责组长<a-input :value="detail.case.lineDefaults.leaderName" readonly /></label>
           <label>差异类型<a-input :value="detail.case.lineDefaults.diffTypeName" readonly /></label>
@@ -43,6 +45,7 @@
           <dl><dt>供应商名称</dt><dd>{{ intake.supplierName || '—' }}</dd></dl>
           <dl><dt>票号</dt><dd>{{ intake.ticketNo || '—' }}</dd></dl>
           <dl><dt>业务分类</dt><dd>{{ intake.businessCategory }}</dd></dl>
+          <dl><dt>罚单原因类型</dt><dd>{{ intake.penaltyReasonType || '—' }}</dd></dl>
         </template>
         <dl v-else><dt>下发方名称</dt><dd>{{ detail.case.issuerName }}</dd></dl>
         <dl><dt>ADM负责人</dt><dd>{{ detail.case.coordinatorName || '—' }}</dd></dl>
@@ -52,6 +55,7 @@
         <dl><dt>订单完成情况</dt><dd>{{ completed }} / {{ activeLines }}</dd></dl><dl><dt>最近更新</dt><dd>{{ detail.case.updatedAt || '—' }}</dd></dl>
         <template v-if="detail.case.lineDefaults">
           <dl><dt>航司</dt><dd>{{ detail.case.airlineName || '—' }}</dd></dl>
+          <dl v-if="intake"><dt>航司三字代码</dt><dd>{{ intake.airlineCode3 || '—' }}</dd></dl>
           <dl v-if="!intake"><dt>归属部门</dt><dd>{{ detail.case.lineDefaults.departmentName }}</dd></dl>
           <dl><dt>负责组长</dt><dd>{{ detail.case.lineDefaults.leaderName }}</dd></dl>
           <dl><dt>差异类型</dt><dd>{{ detail.case.lineDefaults.diffTypeName }}</dd></dl>

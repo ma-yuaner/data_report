@@ -1,7 +1,7 @@
 import { http, type ApiEnvelope } from '@/api/http'
 
 export type Fields = Record<string, any>
-export interface Option { code: string; name: string }
+export interface Option { code: string; name: string; code3?: string | null }
 export interface Person {
   id: string
   name: string
@@ -29,6 +29,7 @@ export interface FxSnapshot extends Fields {
   rateField: string
 }
 export interface AdmConfig extends Fields {
+  penaltyReasonTypes: string[]
   masterDepartments: Array<{ value: string; label: string }>
   caseStatuses: string[]; lineStatuses: string[]; issuerTypes: string[]
   sourceTypes: string[]
