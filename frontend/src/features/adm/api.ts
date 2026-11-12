@@ -1,7 +1,10 @@
 import { http, type ApiEnvelope } from '@/api/http'
 
 export type Fields = Record<string, any>
-export interface Option { code: string; name: string; code3?: string | null }
+export interface Option { code: string; name: string; ticketingCode?: string | null }
+export function formatAdmAirline(code: string, ticketingCode?: string | null) {
+  return ticketingCode ? `${code}（${ticketingCode}）` : code
+}
 export interface Person {
   id: string
   name: string

@@ -264,14 +264,14 @@ class AdmWorkflowService:
             supplier_name = supplier["name"] if supplier else None
             if "supplierCode" not in body:
                 supplier_name = text(body.get("supplierName"), "供应商名称", 200, required=False)
-            penalty_reason = text(body.get("penaltyReasonType"), "罚单原因类型", 32, required=False)
-            if penalty_reason and penalty_reason not in PENALTY_REASON_TYPES:
+            penalty_reason = text(body.get("penaltyReasonType"), "罚单原因类型", 32)
+            if penalty_reason not in PENALTY_REASON_TYPES:
                 raise AdmError("请选择有效的罚单原因类型")
             master_intake = {
                 "supplierCode": supplier["code"] if supplier else None,
                 "supplierName": supplier_name,
                 "airlineCode": airline["code"] if airline else None,
-                "airlineCode3": airline["code3"] if airline else None,
+                "ticketingCode": airline["ticketingCode"] if airline else None,
                 "ticketNo": text(body.get("ticketNo"), "票号", 500, required=False),
                 "businessCategory": category,
                 "penaltyReasonType": penalty_reason,

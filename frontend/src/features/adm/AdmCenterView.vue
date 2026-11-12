@@ -547,8 +547,11 @@
           <label>
             <span class="form-field-label">业务分类 <span class="form-required-mark" aria-hidden="true">*</span></span>
             <a-select aria-required="true" v-model:value="form.businessCategory" :options="businessCategoryOptions" />
-          </label><label>罚单原因类型<a-select v-model:value="form.penaltyReasonType" allow-clear
-            :options="(config?.penaltyReasonTypes || []).map((value) => ({ value, label: value }))" /></label>
+          </label><label>
+            <span class="form-field-label">罚单原因类型 <span class="form-required-mark" aria-hidden="true">*</span></span>
+            <a-select aria-required="true" v-model:value="form.penaltyReasonType" placeholder="请选择罚单原因类型"
+              :options="(config?.penaltyReasonTypes || []).map((value) => ({ value, label: value }))" />
+          </label>
           <h3>金额与汇率</h3>
           <label><span class="form-field-label">原币币种 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
               v-model:value="form.currency"
@@ -662,6 +665,7 @@ import {
   admApi,
   admPersonOptions,
   errorText,
+  formatAdmAirline,
   label,
   type AdmCaseDetail,
   type AdmCasePanel,
@@ -1440,8 +1444,8 @@ function createMasterLookup(kind: 'supplier' | 'airline', name: string) {
       timer = setTimeout(async () => {
         try {
           const rows = await admApi.options(kind, value, 100)
-          if (current === request) lookup.options = rows.map(({ code, name, code3 }) => ({
-            value: code, label: `${name}（${[code, code3].filter(Boolean).join(' / ')}）`,
+          if (current === request) lookup.options = rows.map(({ code, name, ticketingCode }) => ({
+            value: code, label: kind === 'airline' ? formatAdmAirline(code, ticketingCode) : `${name}（${code}）`,
           }))
         } catch (e) {
           if (current === request) lookup.error = `${name}读取失败：${errorText(e)}`
@@ -1458,7 +1462,7 @@ function createMasterLookup(kind: 'supplier' | 'airline', name: string) {
 const supplierLookup = createMasterLookup('supplier', '供应商')
 const airlineLookup = createMasterLookup('airline', '航司')
 const referenceError = computed(() => {
-  return [...masterReferenceKinds.map((kind) => referenceErrors[kind]), supplierLookup.error, airlineLookup.error, fxError.value]
+  return [...masterReferenceKinds.map((kind) => referenceErrors[kind]), supplierLookup.error, airlineLookup.error, configError.value, fxError.value]
     .filter(Boolean).join('；')
 })
 function loadCreateReference(kind: CreateReferenceKind) {
@@ -1483,6 +1487,7 @@ function loadCreateReference(kind: CreateReferenceKind) {
 function retryCreateReferences() {
   supplierLookup.retry()
   airlineLookup.retry()
+  if (configError.value) void loadConfig(true)
   masterReferenceKinds.forEach((kind) => { if (referenceErrors[kind]) void loadCreateReference(kind) })
   if (fxError.value) void loadExchangeRate()
 }
@@ -1550,6 +1555,10 @@ async function loadExchangeRate() {
 }
 async function createCase() {
   if (saving.value) return
+  if (!form.penaltyReasonType) {
+    createError.value = '请选择罚单原因类型'
+    return
+  }
   saving.value = true
   createError.value = ''
   try {
