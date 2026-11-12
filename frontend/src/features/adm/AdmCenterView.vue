@@ -1,6 +1,6 @@
 <template>
   <div class="v05-app embedded">
-    <main class="v05-main">
+    <main class="v05-main v05-page">
       <header class="v05-top">
         <div><h1>ADM 任务台账</h1><p>按当前责任办理待办，也可查看全部主单与订单明细。</p></div>
         <a-space wrap>
@@ -16,7 +16,7 @@
         <a-tab-pane key="mine" tab="我的待办" />
         <a-tab-pane key="all" tab="全部记录" />
       </a-tabs>
-      <section v-if="isWorkbench" class="v05-page">
+      <section v-if="isWorkbench">
         <div class="v05-toolbar">
           <a-space wrap>
             <a-select :value="workMetric" aria-label="待办阶段" style="width: 180px"
@@ -89,7 +89,7 @@
         </div>
       </section>
 
-      <section v-else class="v05-page">
+      <section v-else>
         <a-alert v-if="error" type="error" show-icon :message="error" style="margin-top: 16px" />
         <a-alert v-if="configError" type="warning" show-icon :message="configError" />
         <div class="v05-card">
