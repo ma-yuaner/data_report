@@ -245,21 +245,38 @@ class AdmWorkflowService:
         currency = text((body or {}).get("currency"), "主单原币币种", 3).upper()
         fx = self.catalog.fx(currency)
         master_only = source_type == "MANUAL" and (body or {}).get("masterOnly") is True
+        master_intake = None
+        if master_only and ("businessCategory" in body or "departmentCode" not in body):
+            category = body.get("businessCategory")
+            if category not in ("票务", "客服", "业务"):
+                raise AdmError("业务分类请选择票务、客服或业务")
+            airline_name = text(body.get("airlineName"), "航司", 100)
+            supplier_source = body.get("issuerType") == "SUPPLIER"
+            supplier_name = text(body.get("supplierName"), "供应商名称", 200, required=supplier_source)
+            master_intake = {
+                "supplierName": supplier_name,
+                "ticketNo": text(body.get("ticketNo"), "票号", 500, required=False),
+                "businessCategory": category,
+            }
+            body = {**body, "issuerName": supplier_name if supplier_source else airline_name}
         data = normalize_create(body, fx["rateValue"], master_only=master_only)
         if master_only:
             data["airlineName"] = text(body.get("airlineName"), "航司", 100)
-            department_code = text(body.get("departmentCode"), "归属部门", 64)
-            department_name = MASTER_DEPARTMENTS.get(department_code)
-            if not department_name:
-                raise AdmError("归属部门请选择机票、票务或客服")
             leader = self.catalog.user(body.get("leaderId"), leader=True)
             diff_type = self.catalog.diff_type(text(body.get("diffTypeCode"), "差异类型", 64))
             data["lineDefaults"] = {
-                "departmentCode": department_code, "departmentName": department_name,
                 "leaderId": leader["id"], "leaderName": leader["name"],
                 "diffTypeCode": diff_type["code"], "diffTypeName": diff_type["name"],
                 "differenceReason": text(body.get("differenceReason"), "细分差异原因", 1000),
             }
+            if master_intake is not None:
+                data["lineDefaults"].update(departmentCode="", departmentName="", masterIntake=master_intake)
+            else:
+                department_code = text(body.get("departmentCode"), "归属部门", 64)
+                department_name = MASTER_DEPARTMENTS.get(department_code)
+                if not department_name:
+                    raise AdmError("归属部门请选择机票、票务或客服")
+                data["lineDefaults"].update(departmentCode=department_code, departmentName=department_name)
         if not master_only and data["issuerType"] in {"PLATFORM", "SUPPLIER"}:
             issuer_kind = "ota" if data["issuerType"] == "PLATFORM" else "supplier"
             issuer = self.catalog.optional_master(issuer_kind, data["issuerCode"])
@@ -334,6 +351,8 @@ class AdmWorkflowService:
         if case["case_status"] not in {"DRAFT", "ACTIVE"}:
             raise AdmError("当前主单状态只允许查看基础信息", 409, "ADM_ACTION_BLOCKED")
         payload = body or {}
+        if (case.get("lineDefaults") or {}).get("masterIntake"):
+            payload = {**payload, "issuerType": case["issuer_type"], "issuerName": case["issuer_name"]}
         issuer_type = text(payload.get("issuerType"), "下发方类型", 32)
         if issuer_type not in {"SUPPLIER", "PLATFORM", "AIRLINE"}:
             raise AdmError("下发方类型必须为供应商、平台或航司")
@@ -372,7 +391,8 @@ class AdmWorkflowService:
         if line["line_status"] in {"COMPLETED", "HISTORICAL", "VOIDED"}:
             raise AdmError("当前订单状态只允许查看基础信息", 409, "ADM_ACTION_BLOCKED")
         payload = body or {}
-        if stored["case"].get("lineDefaults"):
+        defaults = stored["case"].get("lineDefaults") or {}
+        if defaults:
             payload = {
                 **payload,
                 "departmentCode": line["department_code"], "departmentName": line["department_name"],
@@ -392,13 +412,13 @@ class AdmWorkflowService:
             "diffTypeCode": payload.get("diffTypeCode"), "diffTypeName": payload.get("diffTypeName"),
             "differenceReason": payload.get("differenceReason"),
             "investigationNote": payload.get("investigationNote"),
-        }, stored["fxSnapshot"]["rate_value"])
+        }, stored["fxSnapshot"]["rate_value"], department_required=not defaults.get("masterIntake"))
         ota = self.catalog.optional_master("ota", normalized["otaCode"])
         supplier = self.catalog.optional_master("supplier", normalized["supplierCode"])
         department_code = normalized["departmentCode"]
         department = (
-            {"code": department_code, "name": MASTER_DEPARTMENTS[department_code]}
-            if department_code in MASTER_DEPARTMENTS
+            {"code": department_code, "name": MASTER_DEPARTMENTS.get(department_code, "")}
+            if not department_code or department_code in MASTER_DEPARTMENTS
             else self.catalog.department(department_code)
         )
         leader = (
@@ -457,7 +477,8 @@ class AdmWorkflowService:
                 raise AdmError("主单资料或冻结汇率不存在")
             case = stored["case"]
             line = normalize_line({**case["lineDefaults"], "originalAmount": case["original_amount"]},
-                                  stored["fxSnapshot"]["rate_value"])
+                                  stored["fxSnapshot"]["rate_value"],
+                                  department_required=not case["lineDefaults"].get("masterIntake"))
         return _json_value(self.repository.master_recovery(int(case_id), action, actor, locators=locators, line=line))
 
     def add_line(self, user, case_id, body):
@@ -482,7 +503,8 @@ class AdmWorkflowService:
             raw_line = {**raw_line, **defaults}
             if selected_leader:
                 raw_line["leaderId"] = selected_leader
-        line = normalize_line(raw_line, fx["rate_value"])
+        line = normalize_line(raw_line, fx["rate_value"],
+                              department_required=not (defaults or {}).get("masterIntake"))
         if line["originalAmount"] <= 0:
             raise AdmError("新增订单金额必须大于0")
         if not defaults:

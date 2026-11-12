@@ -504,7 +504,7 @@
         class="block"
       />
       <a-alert v-if="addTarget.case.lineDefaults" type="info" show-icon class="block"
-        :message="`继承主单：${addTarget.case.lineDefaults.departmentName} · ${addTarget.case.lineDefaults.leaderName} · ${addTarget.case.lineDefaults.diffTypeName}`" />
+        :message="`继承主单：${[addTarget.case.lineDefaults.departmentName, addTarget.case.lineDefaults.leaderName, addTarget.case.lineDefaults.diffTypeName].filter(Boolean).join(' · ')}`" />
       <div v-if="!isRecoveryAllocation || !addAmountStep" class="v05-form-grid adm-grouped-form">
         <h3>订单信息与归属</h3>
         <label v-if="!isRecoveryAllocation" class="wide"

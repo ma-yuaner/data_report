@@ -520,17 +520,19 @@
           <h3>主单信息</h3>
           <label><span class="form-field-label">ADM 单号 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.admNo" /></label
           ><label
-            ><span class="form-field-label">下发方类型 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
+            ><span class="form-field-label">ADM 来源 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
               v-model:value="form.issuerType"
-              :options="issuerOptions"
-              @change="form.issuerName = ''" /></label
+              :options="issuerOptions" /></label
           ><label>
-            <span class="form-field-label">{{ form.issuerType === 'SUPPLIER' ? '供应商名称' : '航司名称' }} <span class="form-required-mark" aria-hidden="true">*</span></span>
-            <a-input aria-required="true" v-model:value="form.issuerName" />
+            供应商名称<a-input v-model:value="form.supplierName" :maxlength="200" />
+          </label><label>
+            <span class="form-field-label">航司 <span class="form-required-mark" aria-hidden="true">*</span></span>
+            <a-input aria-required="true" v-model:value="form.airlineName" :maxlength="100" />
+          </label><label>票号<a-input v-model:value="form.ticketNo" :maxlength="500" /></label>
+          <label>
+            <span class="form-field-label">业务分类 <span class="form-required-mark" aria-hidden="true">*</span></span>
+            <a-select aria-required="true" v-model:value="form.businessCategory" :options="businessCategoryOptions" />
           </label>
-          ><label
-            ><span class="form-field-label">关联航司 <span class="form-required-mark" aria-hidden="true">*</span></span>
-              <a-input aria-required="true" v-model:value="form.airlineName" /></label>
           <h3>金额与汇率</h3>
           <label><span class="form-field-label">原币币种 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
               v-model:value="form.currency"
@@ -552,9 +554,6 @@
           <label><span class="form-field-label">下发日期 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.issuedDate" type="date" /></label
           ><label><span class="form-field-label">处理截止 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.replyDeadline" type="datetime-local" /></label
           ><label>
-            <span class="form-field-label">归属部门 <span class="form-required-mark" aria-hidden="true">*</span></span>
-            <a-select aria-required="true" v-model:value="form.departmentCode" :options="config?.masterDepartments || []" />
-          </label><label>
             <span class="form-field-label">负责组长 <span class="form-required-mark" aria-hidden="true">*</span></span>
             <a-select aria-required="true" v-model:value="form.leaderId" :options="leaderOptions"
               show-search option-filter-prop="label" placeholder="搜索姓名、部门或账号" />
@@ -1430,8 +1429,8 @@ function retryCreateReferences() {
   if (fxError.value) void loadExchangeRate()
 }
 const issuerOptions = [
-    { value: 'SUPPLIER', label: '供应商' },
     { value: 'AIRLINE', label: '航司' },
+    { value: 'SUPPLIER', label: '供应商' },
   ],
   currencyOptions = computed(() => {
     const rows = masters.currency.length ? masters.currency : [{ code: 'CNY', name: 'CNY' }]
@@ -1439,6 +1438,7 @@ const issuerOptions = [
   }),
   diffTypeOptions = computed(() => masters.diffType.map((i) => ({ value: i.code, label: i.name }))),
   leaderOptions = computed(() => admPersonOptions(config.value?.people.leader || []))
+const businessCategoryOptions = ['票务', '客服', '业务'].map((value) => ({ value, label: value }))
 const masterCnyAmount = computed(() => {
   if (!fxSnapshot.value) return '—'
   const amount = Number(form.originalAmount || 0), rate = Number(fxSnapshot.value.rateValue)
@@ -1452,14 +1452,15 @@ function openCreate() {
   Object.assign(form, {
     admNo: '',
     issuerType: 'SUPPLIER',
-    issuerName: '',
+    supplierName: '',
     airlineName: '',
+    ticketNo: '',
+    businessCategory: undefined,
     currency: 'CNY',
     originalAmount: '',
     issuedDate: '',
     replyDeadline: '',
     remark: '',
-    departmentCode: undefined,
     leaderId: undefined,
     diffTypeCode: undefined,
     differenceReason: '',

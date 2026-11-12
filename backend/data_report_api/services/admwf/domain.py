@@ -73,7 +73,7 @@ def business_datetime(value, field):
     return result.replace(microsecond=0)
 
 
-def normalize_line(raw, rate, position=1):
+def normalize_line(raw, rate, position=1, *, department_required=True):
     if not isinstance(raw, dict):
         raise AdmError(f"第{position}条明细格式无效")
     try:
@@ -86,8 +86,10 @@ def normalize_line(raw, rate, position=1):
     line = {
         "originalAmount": amount,
         "cnyAmount": (amount * fx_rate).quantize(TWO_PLACES, rounding=ROUND_HALF_UP),
-        "departmentCode": text(raw.get("departmentCode"), f"第{position}条业务部门编码", 64),
-        "departmentName": text(raw.get("departmentName"), f"第{position}条业务部门名称", 200),
+        "departmentCode": text(raw.get("departmentCode"), f"第{position}条业务部门编码", 64,
+                               required=department_required) or "",
+        "departmentName": text(raw.get("departmentName"), f"第{position}条业务部门名称", 200,
+                               required=department_required) or "",
         "leaderId": raw.get("leaderId"),
         "leaderName": text(raw.get("leaderName"), f"第{position}条负责组长", 100),
         "diffTypeCode": text(raw.get("diffTypeCode"), f"第{position}条差异类型编码", 64),
