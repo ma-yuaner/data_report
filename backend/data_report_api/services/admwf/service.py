@@ -14,7 +14,7 @@ from .domain import (
     money, normalize_create, normalize_line, text,
 )
 from .excel import (
-    AdmDailyWorkbook, StoredUpload, _diff_label, _operator_actions, _operator_label,
+    AdmMasterWorkbook, StoredUpload, _diff_label, _operator_actions, _operator_label,
     _operator_stage,
 )
 from .policy import APPEAL_TARGETS, AdmError, business_now, display_name, has, identity, require
@@ -71,15 +71,17 @@ class AdmWorkflowService:
         self.repository = repository or AdmWorkflowRepository(config)
         self.catalog = catalog or AdmCatalog(config)
         self.attachment_storage = AdmAttachmentStorage(config)
-        self.daily_workbook = AdmDailyWorkbook(config)
+        self.daily_workbook = AdmMasterWorkbook(config)
 
     def import_template(self, user):
         require(user, "adm.create")
-        diff_types = self.catalog.options("diffType", "", 200)
-        return self.daily_workbook.template([item["name"] for item in diff_types])
+        return self.daily_workbook.template()
 
     def _normalize_import_group(self, rows):
         first = rows[0]
+        if "businessCategory" in first:
+            return self._normalize_master_import(first)
+
         issuer_map = {"平台": "PLATFORM", "供应商": "SUPPLIER", "航司": "AIRLINE"}
         issuer_type = issuer_map.get(first["issuerType"].strip(), first["issuerType"].strip().upper())
         issuer_name = first["issuerName"].strip()
@@ -135,6 +137,34 @@ class AdmWorkflowService:
         normalize_create(body, fx["rateValue"])
         return body
 
+    def _import_reference(self, kind, value, required=True):
+        raw = str(value or "").strip()
+        if not raw:
+            if required: raise AdmError("航司不能为空" if kind == "airline" else "供应商名称不能为空")
+            return None
+        normalized = raw.replace("（", "(").replace("）", ")").replace(" ", "").casefold()
+        search = raw.split("（")[0].split("(")[0].strip()
+        matches = []
+        for item in self.catalog.options(kind, search, 200):
+            values = [item["code"], item["name"], f"{item['code']}({item.get('ticketingCode') or ''})"]
+            if normalized in [str(value).replace(" ", "").casefold() for value in values]: matches.append(item)
+        if len(matches) != 1: raise AdmError("航司资料不存在或不唯一" if kind == "airline" else "供应商资料不存在或不唯一")
+        return matches[0]
+
+    def _normalize_master_import(self, row):
+        source = {"航司": "AIRLINE", "供应商": "SUPPLIER"}.get(row["issuerType"], row["issuerType"].upper())
+        if source not in {"AIRLINE", "SUPPLIER"}: raise AdmError("ADM来源请选择航司或供应商")
+        airline = self._import_reference("airline", row["airline"])
+        supplier = self._import_reference("supplier", row["supplier"], required=source == "SUPPLIER")
+        leader = self.catalog.user_value(row["leader"], leader=True)
+        diff_type = self.catalog.diff_type_value(row["diffType"]) if row["diffType"] else None
+        body = {key: row[key] for key in ("admNo", "currency", "originalAmount", "issuedDate", "replyDeadline",
+                                                "remark", "ticketNo", "businessCategory", "penaltyReasonType", "differenceReason")}
+        body.update(masterOnly=True, issuerType=source, airlineCode=airline["code"], leaderId=leader["id"],
+                    supplierCode=supplier["code"] if supplier else None, diffTypeCode=diff_type["code"] if diff_type else None)
+        self._prepare_create_case(body, "EXCEL")
+        return body
+
     def _validate_import(self, parsed):
         bodies, errors, summaries = [], [], []
         for group in parsed["groups"]:
@@ -180,7 +210,7 @@ class AdmWorkflowService:
             path.unlink(missing_ok=True)
             raise
         return {
-            "batchId": batch_id, "batchNo": batch_no, "templateVersion": "DAILY19_V1",
+            "batchId": batch_id, "batchNo": batch_no, "templateVersion": parsed.get("templateVersion", "DAILY19_V1"),
             "totalRows": len(parsed["rows"]), "validRows": len(parsed["rows"]) - failed_rows,
             "failedRows": failed_rows, "groups": summaries, "canCommit": not errors,
         }
@@ -217,7 +247,7 @@ class AdmWorkflowService:
                     idempotency_key=f"admwf-import:{batch['batch_no']}:{position}",
                     import_batch_id=batch["id"],
                 )
-                success_rows += len(body["lines"])
+                success_rows += 1 if body.get("masterOnly") else len(body["lines"])
                 created.append({
                     "caseId": result["case"]["id"], "internalNo": result["case"]["internalNo"],
                     "admNo": result["case"]["admNo"], "lineCount": len(result["lines"]),
@@ -245,9 +275,18 @@ class AdmWorkflowService:
     def create_case(self, user, body, *, source_type="MANUAL", idempotency_key=None,
                     import_batch_id=None):
         require(user, "adm.create")
+        data, fx, master_only = self._prepare_create_case(body, source_type)
+        result = self.repository.create_case(
+            data, fx, self._actor(user), source_type=source_type, idempotency_key=idempotency_key,
+            import_batch_id=import_batch_id,
+            case_status="DRAFT" if not master_only and source_type == "MANUAL" and (body or {}).get("saveAsDraft") is True else "ACTIVE",
+        )
+        return _json_value(result)
+
+    def _prepare_create_case(self, body, source_type="MANUAL"):
         currency = text((body or {}).get("currency"), "主单原币币种", 3).upper()
         fx = self.catalog.fx(currency)
-        master_only = source_type == "MANUAL" and (body or {}).get("masterOnly") is True
+        master_only = source_type in {"MANUAL", "EXCEL"} and (body or {}).get("masterOnly") is True
         master_intake = None
         if master_only and ("businessCategory" in body or "departmentCode" not in body):
             category = body.get("businessCategory")
@@ -323,12 +362,8 @@ class AdmWorkflowService:
                 line.update(supplierCode=supplier["code"], supplierName=supplier["name"])
             elif line["supplierName"]:
                 raise AdmError(f"第{position}条明细选择供应商时必须同时提供供应商编码")
-        result = self.repository.create_case(
-            data, fx, self._actor(user), source_type=source_type, idempotency_key=idempotency_key,
-            import_batch_id=import_batch_id,
-            case_status="DRAFT" if not master_only and source_type == "MANUAL" and (body or {}).get("saveAsDraft") is True else "ACTIVE",
-        )
-        return _json_value(result)
+        return data, fx, master_only
+
 
     def publish_draft(self, user, case_id):
         actor = self._owner_actor(user, case_id, "发布草稿", "adm.create", "adm.review")

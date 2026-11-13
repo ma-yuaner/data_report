@@ -3,7 +3,7 @@
     <main class="v05-main v05-page">
       <PageHeader eyebrow="" title="ADM 任务台账" description="按当前责任办理待办，也可查看全部主单与订单明细。">
         <a-space wrap>
-          <a-button v-if="canCreate" @click="openImport">跨主单批量导入</a-button>
+          <a-button v-if="canCreate" @click="openImport">批量新增主单</a-button>
           <a-button v-if="canCreate" type="primary" @click="openCreate">新建 ADM 主单</a-button>
         </a-space>
       </PageHeader>
@@ -656,14 +656,14 @@
     </a-modal>
     <a-modal
       v-model:open="importOpen"
-      title="跨主单批量导入（19列）"
+      title="批量新增 ADM 主单（15列）"
       :confirm-loading="importBusy"
       :ok-button-props="{ disabled: !preview?.canCommit }"
       @ok="commitImport"
       wrap-class-name="v05-modal"
-      ><p>一行就是一条明细；同一ADM主单的多笔明细请分多行填写，并重复相同ADM单号及一致的主单字段。系统会为每行自动生成不同的内部明细ID。</p>
-      <p class="hint">模板自带两行同主单示例；ADM单号以“【示例】”开头的行会在预检时自动忽略。同号但不同主单请拆成两次上传。</p>
-      <p class="hint">当前19列模板只导入主单和明细，不导入附件；建单后请在ADM详情中分别上传主单公共附件或明细附件。</p>
+      ><p>每行创建一张主单；供应商、航司、组长及币种按正式基础资料校验。先预检，确认无误后提交。</p>
+      <p class="hint">新版模板一行新增一张 ADM 主单，示例行自动忽略；同一文件的 ADM 单号不能重复。导入后由负责组长判断恢复编码。</p>
+      <p class="hint">新版15列模板不要求平台、PNR、归属部门或明细金额；差异类型选填、罚单原因类型必填。附件在建单后从 ADM 详情上传。</p>
       <div class="v05-actions">
         <button @click="downloadTemplate">下载 Excel 模板</button
         ><input type="file" accept=".xlsx" @change="selectImport" /><button
@@ -717,6 +717,7 @@ import { createOperationIdentifier } from '@/utils/operationIdentifier'
 import PageHeader from '@/components/PageHeader.vue'
 import AdmDetailView from './AdmDetailView.vue'
 import { showDifferenceResult } from './differenceResult'
+import { taskStages, matchesTaskStage } from './taskStages'
 import AdmMasterBasicModal from './AdmMasterBasicModal.vue'
 import {
   admApi,
@@ -963,17 +964,12 @@ const workflowSteps = ['新建主单', '恢复判断', '分配与接单', '订�
 const canCloseWorkQueue = computed(() => auth.user?.isAdmin || config.value?.permissions.close)
 const canTransferWorkQueue = computed(() => auth.user?.isAdmin || config.value?.permissions.assignOperator ||
   config.value?.permissions.assign || config.value?.permissions.handle)
-const workPhaseOptions = [
-  { value: '', label: '全部待办阶段' },
-  ...Object.entries({
-    assignLeader: '待分配组长', leaderRecovery: '待恢复判断', ownerRecovery: '待 GDS 操作',
-    recovering: '正在恢复', recovered: '已恢复待录入', assign: '待分配操作员',
-    accept: '待接单', process: '本人待办理', appeal: '申诉中', review: '待审核',
-    diff: '待匹配差异单', collection: '待回款跟进', transferAccept: '待确认转派',
-    masterTransferWait: '等待组长确认转派', masterLeaderFollowup: '组长恢复跟进', leaderFollowup: '组长订单跟进',
-    codeReminder: '编码恢复提醒', soon: '即将超时', late: '已超时',
-  }).map(([value, label]) => ({ value, label })),
-]
+const workPhaseOptions = computed(() => [
+  { value: '', label: `全部待办阶段（${tasks.value.length}）` },
+  ...Object.entries(taskStages).map(([value, label]) => ({ value,
+    label: `${label}（${tasks.value.filter(task => matchesTaskStage(task, value, now())).length}）`,
+  })),
+])
 function selectWorkPhase(value: unknown) {
   workSelection.value = []
   workMetric.value = String(value ?? '')
@@ -983,13 +979,7 @@ function switchScope(value: string | number) {
   if ((value === 'mine') === isWorkbench.value) return
   void router.push({ name: 'adm-cases', query: value === 'mine' ? { scope: 'mine' } : {} })
 }
-const visibleTasks = computed(() => {
-  if (!workMetric.value) return tasks.value
-  if (['soon', 'late'].includes(workMetric.value)) return tasks.value.filter((t) => dueKind(t) === workMetric.value)
-  if (workMetric.value === 'codeReminder') return tasks.value.filter((t) => t.recoveryStatus === 'REMINDER_DUE')
-  if (workMetric.value === 'appeal') return tasks.value.filter((t) => t.appealStatus === 'IN_PROGRESS')
-  return tasks.value.filter((t) => t.kind === workMetric.value)
-})
+const visibleTasks = computed(() => tasks.value.filter(task => matchesTaskStage(task, workMetric.value, now())))
 const workPageSize = 20
 const requestedWorkPage = Number(route.query.page)
 const workPage = ref(Number.isSafeInteger(requestedWorkPage) && requestedWorkPage > 0 ? requestedWorkPage : 1)

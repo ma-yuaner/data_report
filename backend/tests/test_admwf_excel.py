@@ -5,7 +5,7 @@ import unittest
 from openpyxl import load_workbook
 
 from data_report_api.services.admwf.excel import (
-    AdmDailyWorkbook, HEADERS, OPERATOR_HEADERS, _operator_actions, _operator_stage,
+    AdmDailyWorkbook, MASTER_HEADERS, HEADERS, OPERATOR_HEADERS, _operator_actions, _operator_stage,
 )
 from data_report_api.services.admwf.catalog import AdmCatalog
 from data_report_api.services.admwf.policy import AdmError
@@ -52,12 +52,12 @@ class AdmDailyWorkbookTest(unittest.TestCase):
             }
             task = service.create_background(user, {"kind": "adm_import_template"})
             self.assertEqual(task["status"], "SUCCEEDED")
-            self.assertEqual(task["taskLabel"], "ADM跨主单导入模板")
+            self.assertEqual(task["taskLabel"], "ADM主单批量新增模板")
             path, name = service.download(user, task["id"])
-            self.assertEqual(name, "ADM日常建单19列模板.xlsx")
+            self.assertEqual(name, "ADM主单批量新增15列模板.xlsx")
             workbook = load_workbook(path, read_only=True)
             try:
-                self.assertEqual(tuple(cell.value for cell in workbook.active[1]), HEADERS)
+                self.assertEqual(tuple(cell.value for cell in workbook.active[1]), MASTER_HEADERS)
             finally:
                 workbook.close()
 
