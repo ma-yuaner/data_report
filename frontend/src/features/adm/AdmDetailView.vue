@@ -878,7 +878,7 @@ const orderAmountTotal = computed(() => activeLines.value.reduce(
 const orderAmountsMatch = computed(() => orderAmountTotal.value === amountInCents(record.value.case.originalAmount))
 function lineMaterialConfirmed(line: AdmLine) {
   return !usesOrderSupplement.value || line.materialConfirmed || record.value.operationLogs.some(log =>
-    Number(log.lineId) === Number(line.id) && log.eventType === 'UPDATE_LINE_BASIC_INFO' && log.note === '资料已确认')
+    Number(log.lineId) === Number(line.id) && log.eventType === 'UPDATE_LINE_BASIC_INFO' && log.operationNote === '资料已确认')
 }
 function lineOperationReady(line: AdmLine) {
   return !usesOrderSupplement.value || (orderAmountsMatch.value && lineMaterialConfirmed(line))

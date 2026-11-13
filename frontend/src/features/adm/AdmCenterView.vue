@@ -1127,7 +1127,7 @@ function canAssignLine(line: AdmCaseDetail['lines'][number]) {
   return line.lineStatus === 'PENDING_OPERATOR' && Number(line.leaderId) === myId.value &&
     (!assignmentDetail.value?.case.masterRecoveryStatus ||
       !!assignmentDetail.value?.operationLogs.some(log => Number(log.lineId) === Number(line.id) &&
-        log.eventType === 'UPDATE_LINE_BASIC_INFO' && log.note === '资料已确认'))
+        log.eventType === 'UPDATE_LINE_BASIC_INFO' && log.operationNote === '资料已确认'))
 }
 const assignmentOptions = computed(() => assignmentLines.value.filter(canAssignLine).map(line => ({
   value: Number(line.id),

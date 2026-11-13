@@ -182,7 +182,13 @@ class AdmMaterialConfirmationTest(unittest.TestCase):
         class Cursor:
             def __enter__(self): return self
             def __exit__(self, *args): pass
-            def execute(self, sql, params): self.sql = sql
+            def execute(self, sql, params):
+                import sqlite3
+                with sqlite3.connect(":memory:") as db:
+                    db.execute("CREATE TABLE admwf_operation_log(id INTEGER,line_id INTEGER,event_type TEXT,operation_note TEXT)")
+                    db.execute("CREATE TABLE admwf_case_line(case_id INTEGER,line_status TEXT,original_amount DECIMAL)")
+                    db.execute(sql.replace("%s", "?").replace(" FOR UPDATE", ""), params)
+                self.sql = sql
             def fetchone(self): return {"id": 1} if confirmed else None
             def fetchall(self): return [{"original_amount": Decimal(v)} for v in amounts]
         class Connection:
@@ -202,3 +208,26 @@ class AdmMaterialConfirmationTest(unittest.TestCase):
         with self.assertRaisesRegex(AdmError, "合计"):
             AdmWorkflowRepository._require_line_ready(self.connection(True, ["99"]),
                 {"id": 1, "master_recovery_status": "RECOVERED", "original_amount": Decimal("100")}, {"id": 2})
+
+
+class AdmMaterialSqlContractTest(unittest.TestCase):
+    def test_detail_confirmation_queries_use_real_log_column(self):
+        import ast
+        import inspect
+        import sqlite3
+        import textwrap
+        db = sqlite3.connect(":memory:")
+        self.addCleanup(db.close)
+        db.executescript("""
+            CREATE TABLE admwf_case_line(id INTEGER,case_id INTEGER,line_no INTEGER);
+            CREATE TABLE admwf_operation_log(id INTEGER,line_id INTEGER,event_type TEXT,operation_note TEXT);
+            INSERT INTO admwf_case_line VALUES(2,1,1);
+            INSERT INTO admwf_operation_log VALUES(1,2,'UPDATE_LINE_BASIC_INFO','资料已确认');
+        """)
+        for method in [AdmWorkflowRepository.get_case, AdmWorkflowRepository.get_case_summary]:
+            tree = ast.parse(textwrap.dedent(inspect.getsource(method)))
+            query = next(node.value for node in ast.walk(tree)
+                if isinstance(node, ast.Constant) and isinstance(node.value, str)
+                and node.value.startswith("SELECT l.*") and "material_confirmed" in node.value)
+            with self.subTest(method=method.__name__):
+                self.assertEqual(db.execute(query.replace("%s", "?"), (1,)).fetchone()[-1], 1)

@@ -370,7 +370,7 @@ class AdmWorkflowRepository:
             if not case:
                 return None
             legacy_source = self._load_legacy_source(cursor, case)
-            cursor.execute("SELECT l.*,EXISTS (SELECT 1 FROM admwf_operation_log ml WHERE ml.line_id=l.id AND ml.event_type='UPDATE_LINE_BASIC_INFO' AND ml.note='资料已确认') AS material_confirmed FROM admwf_case_line l WHERE l.case_id=%s ORDER BY l.line_no", (case_id,))
+            cursor.execute("SELECT l.*,EXISTS (SELECT 1 FROM admwf_operation_log ml WHERE ml.line_id=l.id AND ml.event_type='UPDATE_LINE_BASIC_INFO' AND ml.operation_note='资料已确认') AS material_confirmed FROM admwf_case_line l WHERE l.case_id=%s ORDER BY l.line_no", (case_id,))
             lines = cursor.fetchall()
             cursor.execute("SELECT * FROM admwf_fx_snapshot WHERE case_id=%s", (case_id,))
             fx = cursor.fetchone()
@@ -422,7 +422,7 @@ class AdmWorkflowRepository:
             if not case:
                 return None
             legacy_source = self._load_legacy_source(cursor, case)
-            cursor.execute("SELECT l.*,EXISTS (SELECT 1 FROM admwf_operation_log ml WHERE ml.line_id=l.id AND ml.event_type='UPDATE_LINE_BASIC_INFO' AND ml.note='资料已确认') AS material_confirmed FROM admwf_case_line l WHERE l.case_id=%s ORDER BY l.line_no", (case_id,))
+            cursor.execute("SELECT l.*,EXISTS (SELECT 1 FROM admwf_operation_log ml WHERE ml.line_id=l.id AND ml.event_type='UPDATE_LINE_BASIC_INFO' AND ml.operation_note='资料已确认') AS material_confirmed FROM admwf_case_line l WHERE l.case_id=%s ORDER BY l.line_no", (case_id,))
             lines = cursor.fetchall()
             cursor.execute("SELECT * FROM admwf_fx_snapshot WHERE case_id=%s", (case_id,))
             fx = cursor.fetchone()
@@ -814,7 +814,7 @@ class AdmWorkflowRepository:
                 f"{EFFECTIVE_LINE_STATUS} AS line_status,l.recovery_status,l.appeal_status,l.review_status,l.department_name,l.leader_name,l.operator_name,"
                 "c.reply_deadline,c.coordinator_id,l.leader_id,l.leader_overdue_at,l.operator_overdue_at,"
                 "(COALESCE(c.master_recovery_status,'')='' OR EXISTS (SELECT 1 FROM admwf_operation_log ml WHERE ml.line_id=l.id "
-                "AND ml.event_type='UPDATE_LINE_BASIC_INFO' AND ml.note='资料已确认')) AS material_confirmed,"
+                "AND ml.event_type='UPDATE_LINE_BASIC_INFO' AND ml.operation_note='资料已确认')) AS material_confirmed,"
                 "CASE WHEN l.leader_id=%s AND l.line_status NOT IN ('PENDING_LEADER','PENDING_OPERATOR') "
                 "AND NOT (COALESCE(l.operator_id,0)=%s AND l.line_status IN ('PROCESSING','PENDING_ACCEPT')) "
                 "AND NOT (c.coordinator_id=%s AND l.line_status IN ('PENDING_REVIEW','WAITING_DIFF','WAITING_COLLECTION')) "
@@ -915,7 +915,7 @@ class AdmWorkflowRepository:
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT id FROM admwf_operation_log WHERE line_id=%s AND event_type='UPDATE_LINE_BASIC_INFO' "
-                "AND note='资料已确认' LIMIT 1", (line["id"],),
+                "AND operation_note='资料已确认' LIMIT 1", (line["id"],),
             )
             if not cursor.fetchone():
                 raise AdmError("请先补充资料并点击已补充资料", 409, "ADM_ACTION_BLOCKED")
