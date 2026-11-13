@@ -1,7 +1,7 @@
 <template>
   <a-modal :open="open" width="min(920px, 96vw)" :footer="null" wrap-class-name="v05-modal adm-basic-info-modal adm-form-modal" @cancel="close">
     <div v-if="detail && line" class="prototype-info-modal">
-      <header class="prototype-info-head"><div><h2>{{ editable ? '编辑订单基础信息' : '订单基础信息' }}</h2><p>{{ detail.case.admNo }} · {{ line.lineInternalNo }}</p></div></header>
+      <header class="prototype-info-head"><div><h2>{{ editable ? '编辑订单基础信息' : '订单基础信息' }}</h2><p>{{ admLineDisplay(detail.case.admNo, line.lineInternalNo) }}</p></div></header>
       <div v-if="editable && simpleEdit" class="v05-form-grid prototype-edit-grid adm-grouped-form">
         <label><span>平台 <span class="form-required-mark">*</span></span><a-select v-model:value="form.otaCode" aria-required="true" show-search option-filter-prop="label"
           :options="options.ota" @change="(value?: string) => pick('ota', value)" /></label>
@@ -16,7 +16,7 @@
       </div>
       <div v-else-if="editable" class="v05-form-grid prototype-edit-grid adm-grouped-form">
         <h3>订单标识</h3>
-        <label>系统主单ID<a-input :value="detail.case.internalNo" readonly /></label><label>内部明细ID<a-input :value="line.lineInternalNo" readonly /></label>
+<label>内部明细ID<a-input :value="admLineDisplay(detail.case.admNo, line.lineInternalNo)" readonly /></label>
         <label>OTA平台<a-select v-model:value="form.otaCode" allow-clear :options="options.ota" @change="(v?: string) => pick('ota', v)" /></label><label>OTA订单号<a-input v-model:value="form.otaOrderNo" /></label>
         <label v-if="!detail.case.masterRecoveryStatus">供应商<a-select v-model:value="form.supplierCode" allow-clear :options="options.supplier" @change="(v?: string) => pick('supplier', v)" /></label><label v-if="detail.case.masterRecoveryStatus">供应商（继承主单）<a-input :value="line.supplierName" readonly /></label><label>航司<a-input v-model:value="form.airlineName" :maxlength="100" /></label>
         <label>票号<a-input v-model:value="form.ticketNo" /></label><label>PNR编码<a-input v-model:value="form.pnr" /></label>
@@ -30,8 +30,8 @@
         <label class="wide">订单情况说明<a-textarea v-model:value="form.investigationNote" :rows="3" /></label>
       </div>
       <div v-else class="basic-info-grid">
-        <dl><dt>系统主单ID</dt><dd>{{ detail.case.internalNo }}</dd></dl><dl><dt>ADM单号</dt><dd>{{ detail.case.admNo }}</dd></dl>
-        <dl><dt>内部明细ID</dt><dd>{{ line.lineInternalNo }}</dd></dl><dl><dt>OTA平台</dt><dd>{{ line.otaName || '未填写' }}</dd></dl>
+        <dl><dt>ADM单号</dt><dd>{{ detail.case.admNo }}</dd></dl>
+        <dl><dt>内部明细ID</dt><dd>{{ admLineDisplay(detail.case.admNo, line.lineInternalNo) }}</dd></dl><dl><dt>OTA平台</dt><dd>{{ line.otaName || '未填写' }}</dd></dl>
         <dl><dt>OTA订单号</dt><dd>{{ line.otaOrderNo || '未填写' }}</dd></dl><dl><dt>供应商</dt><dd>{{ line.supplierName || '未填写' }}</dd></dl>
         <dl><dt>航司</dt><dd>{{ line.airlineName || '未填写' }}</dd></dl><dl><dt>票号</dt><dd>{{ line.ticketNo || '未填写' }}</dd></dl>
         <dl><dt>PNR编码</dt><dd>{{ line.pnr || '未填写' }}</dd></dl><dl><dt>业务归属部门</dt><dd>{{ line.departmentName }}</dd></dl>
@@ -64,7 +64,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
-import { admApi, admCnyPreview, admPersonOptions, amountInCents, canChangeAdmLeader, errorText, type AdmCaseDetail, type AdmConfig, type AdmLine, type Fields, type Option } from './api'
+import { admLineDisplay, admApi, admCnyPreview, admPersonOptions, amountInCents, canChangeAdmLeader, errorText, type AdmCaseDetail, type AdmConfig, type AdmLine, type Fields, type Option } from './api'
 const props = defineProps<{ open: boolean; detail: AdmCaseDetail | null; line: AdmLine | null; editable: boolean; simpleEdit: boolean; canAdjustAmount: boolean; config: AdmConfig | null }>()
 const emit = defineEmits<{ close: []; saved: [detail: AdmCaseDetail]; adjustAmount: [] }>()
 const saving = ref(false), masters = reactive<Record<string, Option[]>>({ department: [], diffType: [], ota: [], supplier: [] }), form = reactive<Fields>({})

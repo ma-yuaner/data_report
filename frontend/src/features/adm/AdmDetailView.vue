@@ -33,7 +33,7 @@
                 <i>{{ label(record.case.issuerType) }}</i> {{ record.case.issuerName }} · 下发于
                 {{ record.case.issuedDate || '—' }}
               </p>
-              <small>系统记录：{{ record.case.internalNo }} · ADM负责人：{{ record.case.coordinatorName }}</small>
+              <small>ADM负责人：{{ record.case.coordinatorName }}</small>
             </div>
             <dl>
               <div>
@@ -159,7 +159,7 @@
                         <button class="link" @click.stop="openBasicInfo(line)">
                           {{ line.ticketNo || '未填写票号' }}</button
                         ><small>OTA：{{ line.otaOrderNo || '未填写' }} · PNR：{{ line.pnr || '未填写' }}</small
-                        ><small>内部明细：{{ line.lineInternalNo }}</small>
+                        ><small>内部明细：{{ admLineDisplay(record.case.admNo, line.lineInternalNo) }}</small>
                         <small>{{ line.otaName || '未填写平台' }} · {{ record.case.currency }} {{ line.originalAmount }} / ¥ {{ line.cnyAmount }}</small>
                       </td>
                       <td>
@@ -216,7 +216,7 @@
             ><div class="drawer-line-head">
               <div>
                 <h2>{{ selectedLine.ticketNo || '未填写票号' }} · 订单处理</h2>
-                <p>OTA {{ selectedLine.otaOrderNo || '未填写' }} · PNR {{ selectedLine.pnr || '未填写' }} · 内部明细 {{ selectedLine.lineInternalNo }}</p>
+                <p>OTA {{ selectedLine.otaOrderNo || '未填写' }} · PNR {{ selectedLine.pnr || '未填写' }} · 内部明细 {{ admLineDisplay(record.case.admNo, selectedLine.lineInternalNo) }}</p>
                 <small>{{ selectedLine.departmentName }} · {{ selectedLine.leaderName || '未分配组长' }} · {{ selectedLine.operatorName || '未分配操作员' }} · 当前任务：{{ nextTask(selectedLine) }}</small>
               </div>
               <div class="drawer-head-actions">
@@ -358,7 +358,7 @@
                 <div ref="lineAttachmentSection" class="attachment-scope-section">
                   <h3>当前明细附件</h3>
                   <p class="info">
-                    仅属于明细“{{ selectedLine.lineInternalNo }}”，不会显示在同一主单的其他明细中。适合存放申诉依据、处理证明、审核材料和回款凭证。
+                    仅属于明细“{{ admLineDisplay(record.case.admNo, selectedLine.lineInternalNo) }}”，不会显示在同一主单的其他明细中。适合存放申诉依据、处理证明、审核材料和回款凭证。
                   </p>
                   <div class="upload attachment-upload-box">
                     <div class="attachment-upload-row">
@@ -491,7 +491,7 @@
       <template v-else>
       <p class="context adm-form-context">
         <b>{{ addTarget.case.admNo }}</b
-        > 系统记录 {{ addTarget.case.internalNo }} {{ addTarget.case.issuerName }} 原币总金额 {{ addTarget.case.currency }}
+        > {{ addTarget.case.issuerName }} 原币总金额 {{ addTarget.case.currency }}
         {{ addTarget.case.originalAmount }} 处理截止 {{ addTarget.case.replyDeadline || '未设置' }}
       </p>
       <a-alert
@@ -594,7 +594,7 @@
             </thead>
             <tbody>
               <tr v-for="line in addActiveLines" :key="`saved-${line.id}`">
-                <td>{{ line.lineInternalNo }}</td>
+                <td>{{ admLineDisplay(record.case.admNo, line.lineInternalNo) }}</td>
                 <td>
                   {{ line.otaOrderNo || '未填写' }} / {{ line.ticketNo || '未填写' }} / {{ line.pnr || '未填写' }}
                 </td>
@@ -729,7 +729,7 @@
             type="warning"
             show-icon
             message="必须一次填写全部有效明细，合计仍须等于主单金额。"
-            class="block" /><a-form-item v-for="line in activeLines" :key="line.id" :label="line.lineInternalNo"
+            class="block" /><a-form-item v-for="line in activeLines" :key="line.id" :label="admLineDisplay(record.case.admNo, line.lineInternalNo)"
             ><a-input v-model:value="actionForm.amounts[line.id]" :readonly="!canAdjustLineAmount(line)"
               :addon-before="record?.case.currency" /></a-form-item
         ></template>
@@ -760,6 +760,7 @@ import AdmMasterBasicModal from './AdmMasterBasicModal.vue'
 import {
   admApi,
   admPersonOptions,
+  admLineDisplay,
   admCnyPreview,
   amountInCents,
   centsText,

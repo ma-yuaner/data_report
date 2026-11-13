@@ -2,11 +2,11 @@
   <a-modal :open="open" width="min(920px, 96vw)" :footer="null" wrap-class-name="v05-modal adm-basic-info-modal adm-form-modal" @cancel="close">
     <div v-if="detail" class="prototype-info-modal">
       <header class="prototype-info-head">
-        <div><h2>{{ editable ? '编辑 ADM 主单基础信息' : 'ADM 主单基础信息' }}</h2><p>{{ detail.case.admNo }} · 系统记录 {{ detail.case.internalNo }}</p></div>
+        <div><h2>{{ editable ? '编辑 ADM 主单基础信息' : 'ADM 主单基础信息' }}</h2><p>{{ detail.case.admNo }}</p></div>
       </header>
       <div v-if="editable" class="v05-form-grid prototype-edit-grid adm-grouped-form">
         <h3>主单信息</h3>
-        <label>系统主单ID<a-input :value="detail.case.internalNo" readonly /></label>
+
         <label>当前状态<a-input :value="label(detail.case.caseStatus)" readonly /></label>
         <label><span class="form-field-label">ADM单号 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.admNo" /></label>
         <template v-if="intake">
@@ -38,7 +38,7 @@
         <label class="wide">主单备注<a-textarea v-model:value="form.remark" :rows="3" /></label>
       </div>
       <div v-else class="basic-info-grid">
-        <dl><dt>系统主单ID</dt><dd>{{ detail.case.internalNo }}</dd></dl><dl><dt>ADM单号</dt><dd>{{ detail.case.admNo }}</dd></dl>
+        <dl><dt>ADM单号</dt><dd>{{ detail.case.admNo }}</dd></dl>
         <dl><dt>当前状态</dt><dd>{{ label(detail.case.caseStatus) }}</dd></dl><dl><dt>{{ intake ? 'ADM 来源' : '下发方类型' }}</dt><dd>{{ label(detail.case.issuerType) }}</dd></dl>
         <template v-if="intake">
           <dl><dt>供应商名称</dt><dd>{{ intake.supplierName || '—' }}</dd></dl>

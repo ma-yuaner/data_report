@@ -169,7 +169,7 @@
                     <td>
                       <button class="link" @click="openCasePanel(Number(record.id))">{{ record.admNo }}</button
                       ><small>{{ [label(record.issuerType), record.issuerName].filter(Boolean).join(' · ') }}</small
-                      ><small>系统记录：{{ record.internalNo }}</small>
+                      >
                       <span :class="['source-badge', sourceTone(record.sourceType)]">{{ sourceText(record.sourceType) }}</span>
                     </td>
                     <td>
@@ -343,7 +343,7 @@
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'identity'">
             <strong>{{ record.admNo || record.internalNo }}</strong>
-            <div>{{ record.lineInternalNo || record.internalNo }}</div>
+            <div v-if="record.lineInternalNo">{{ admLineDisplay(record.admNo, record.lineInternalNo) }}</div>
           </template>
           <template v-else-if="column.key === 'operators'">
             {{ record.fromOperatorName }} → {{ record.toOperatorName }}
@@ -412,7 +412,7 @@
             <tr v-for="item in filteredExportCandidates" :key="item.lineId">
               <td><a-checkbox :checked="selectedExportIds.includes(item.lineId)" @change="toggleExportItem(item.lineId)" /></td>
               <td>{{ exportTaskType(item) }}</td>
-              <td><b>{{ item.admNo || item.internalNo }}</b><small>{{ item.lineInternalNo }}</small></td>
+              <td><b>{{ item.admNo || item.internalNo }}</b><small>{{ admLineDisplay(item.admNo, item.lineInternalNo) }}</small></td>
               <td>{{ item.departmentName }}<small>{{ item.leaderName || '未分配组长' }}</small></td>
               <td>{{ item.operatorName || '未分配' }}</td><td>{{ dateText(item.deadline) }}</td>
             </tr>
@@ -454,7 +454,7 @@
                   <span class="order-cell-label">ADM单号</span>
                   <b class="order-cell-primary">{{ item.admNo || '未填写' }}</b>
                   <span class="order-cell-label">内部明细</span>
-                  <small class="order-cell-code">{{ item.lineInternalNo }}</small>
+                  <small class="order-cell-code">{{ admLineDisplay(item.admNo, item.lineInternalNo) }}</small>
                 </div>
               </td>
               <td class="order-reference-cell">
@@ -535,7 +535,7 @@
           <tbody>
             <tr v-for="item in operatorImportPreview.rows" :key="item.rowNumber">
               <td>{{ item.rowNumber }}</td>
-              <td>{{ item.lineInternalNo }}</td>
+              <td>{{ admLineDisplay(item.admNo, item.lineInternalNo) }}</td>
               <td>{{ item.action }}</td>
               <td>{{ item.status }}</td>
               <td>{{ item.reason }}</td>
@@ -717,6 +717,7 @@ import AdmMasterBasicModal from './AdmMasterBasicModal.vue'
 import {
   admApi,
   admPersonOptions,
+  admLineDisplay,
   amountInCents,
   errorText,
   formatAdmAirline,
@@ -1060,21 +1061,8 @@ const canCreate = computed(() => !!auth.user?.isAdmin || !!config.value?.permiss
     return [...unique.values()]
   })
 const workSelection = ref<string[]>([])
-const taskCaseNumbers = computed(() => {
-  const groups = new Map<number, Set<number>>()
-  for (const task of tasks.value) {
-    const number = Number(/-(\d+)$/.exec(String(task.lineInternalNo || ''))?.[1])
-    if (!task.lineId || !Number.isSafeInteger(number) || number <= 0) continue
-    const caseId = Number(task.caseId)
-    if (!groups.has(caseId)) groups.set(caseId, new Set())
-    groups.get(caseId)?.add(number)
-  }
-  return groups
-})
 function taskCaseLabel(task: Fields) {
-  const numbers = [...(taskCaseNumbers.value.get(Number(task.caseId)) || [])].sort((a, b) => a - b)
-  const master = task.admNo || task.internalNo
-  return numbers.length ? `${master}（${numbers.map(number => String(number).padStart(2, '0')).join('、')}）` : master
+  return task.admNo || '—'
 }
 const workTaskKey = (task: Fields) => `${task.caseId}-${task.lineId || 0}-${task.kind}-${task.transferId || 0}`
 const batchRows = computed(() => visibleTasks.value.filter((task) => workSelection.value.includes(workTaskKey(task))))
@@ -1131,7 +1119,7 @@ function canAssignLine(line: AdmCaseDetail['lines'][number]) {
 }
 const assignmentOptions = computed(() => assignmentLines.value.filter(canAssignLine).map(line => ({
   value: Number(line.id),
-  label: [line.lineInternalNo, line.otaName, line.pnr, line.originalAmount].filter(Boolean).join(' · '),
+  label: [admLineDisplay(assignmentDetail.value?.case.admNo, line.lineInternalNo), line.otaName, line.pnr, line.originalAmount].filter(Boolean).join(' · '),
 })))
 const assignmentRows = computed(() => assignmentLines.value.filter(line => canAssignLine(line) &&
   (assignmentMode.value === 'whole' ? assignmentLines.value.length === 1 : selectedAssignmentLines.value.includes(Number(line.id)))))

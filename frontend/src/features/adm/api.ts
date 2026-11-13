@@ -1,6 +1,10 @@
 import { http, type ApiEnvelope } from '@/api/http'
 
 export type Fields = Record<string, any>
+export function admLineDisplay(admNo: unknown, internalNo: unknown) {
+  const suffix = /-(\d+)$/.exec(String(internalNo || ''))?.[1]
+  return suffix ? `${admNo}-${String(Number(suffix)).padStart(2, '0')}` : String(admNo || '—')
+}
 export function amountInCents(value: unknown): bigint | null {
   const parts = /^(\d+)(?:\.(\d{1,2}))?$/.exec(String(value ?? '').trim())
   if (!parts) return null
