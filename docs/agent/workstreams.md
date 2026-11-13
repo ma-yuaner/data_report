@@ -1449,3 +1449,9 @@ RISK-ETL-056。用户确认 RLB18 自动通过核对，按原因在发布事务�
 服务器npm run build真实报告两处错误：AdmAnalysisView缺少PageHeader必填eyebrow；AdmDetailView使用formatAdmAirline但未导入。现分别补齐组件参数和已有api函数导入，没有改变业务流程或数据库。
 
 原因：之前使用vue-tsc --noEmit检查根solution tsconfig（files=[]），没有遍历project references，形成无效类型验证。因此上一轮「类型检查通过」的证据不足；此次以部署一致的vue-tsc -b --force --pretty false实跑通过为准，两个修改组件ESLint通过。AGENTS新增固定入口防止复发。Vite继续沿已知Windows稳定的esnext/不压缩路径验证，不冒充Linux Docker生产构建实测。服务器重建及部署仍待执行。
+
+## ADM迁移检查误报修复（2026-11-13）
+
+现场报ADM attribution columns require reviewed --apply migration。定位到检查器对admwf_case_line/admwf_appeal返回的全部information_schema列执行VARCHAR(32)判断，误把正常ID、时间、金额列判为未迁移。现只检查两张表的problem_attribution，保留真实类型/长度、缺列、缺注释检查，类型错误输出具体表列及实际类型。
+
+前次只验证新增列清单，没有走完整元数据入口，遗漏此反例。此次新增完整主函数check/apply元数据替身回归：正常混合类型、apply后检查、真实enum/短varchar拒绝、缺归因列、缺注释共5项；与运营14项测试合计19通过。未执行生产DDL，不能确认现场之前ALTER是否已生效。孤立hr-mail-worker提示非阻断，未清理容器、未添加remove-orphans。优先普通部署检查；确有具体归因列未扩展时才显式apply，避免盲目重复ALTER。

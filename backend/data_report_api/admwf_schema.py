@@ -24,8 +24,15 @@ def main():
         cursor.execute("SELECT TABLE_NAME AS table_name,COLUMN_NAME AS column_name,COLUMN_COMMENT AS column_comment,DATA_TYPE AS data_type,CHARACTER_MAXIMUM_LENGTH AS max_length FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name IN ("+','.join(['%s']*len(required))+")",tuple(required))
         rows=cursor.fetchall()
         actual={(row["table_name"],row["column_name"]):row["column_comment"] for row in rows}
-        if any(row["table_name"] in {"admwf_case_line","admwf_appeal"} and (row["data_type"]!="varchar" or int(row.get("max_length") or 0)<32) for row in rows):
-            raise SystemExit("ADM attribution columns require reviewed --apply migration")
+        invalid_attributions = [
+            f"{row['table_name']}.{row['column_name']}={row['data_type']}({row.get('max_length')})"
+            for row in rows
+            if row["table_name"] in {"admwf_case_line", "admwf_appeal"}
+            and row["column_name"] == "problem_attribution"
+            and (row["data_type"].lower() != "varchar" or int(row.get("max_length") or 0) < 32)
+        ]
+        if invalid_attributions:
+            raise SystemExit("ADM attribution columns require reviewed --apply migration: " + ", ".join(invalid_attributions))
         missing=[table+'.'+column for table,fields in required.items() for column in fields if (table,column) not in actual]
         uncommented=[table+'.'+column for table,fields in required.items() for column in fields if (table,column) in actual and not actual[(table,column)]]
         if missing or uncommented: raise SystemExit("ADM operations schema not ready; missing="+','.join(missing)+" uncommented="+','.join(uncommented)+". Run with --apply after review.")
