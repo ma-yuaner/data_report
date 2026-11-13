@@ -715,6 +715,7 @@ import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
 import { createOperationIdentifier } from '@/utils/operationIdentifier'
 import PageHeader from '@/components/PageHeader.vue'
 import AdmDetailView from './AdmDetailView.vue'
+import { showDifferenceResult } from './differenceResult'
 import AdmMasterBasicModal from './AdmMasterBasicModal.vue'
 import {
   admApi,
@@ -1274,13 +1275,14 @@ const acceptingLines = reactive(new Set<number>())
 function isOperatorProcessing(task: Fields) {
   return task.status === 'PROCESSING' && canOperatorWork.value && Number(task.operatorId) === myId.value
 }
-async function runWorkbenchLineAction(task: Fields, action: (caseId: number, lineId: number) => Promise<unknown>, success: string) {
+async function runWorkbenchLineAction(task: Fields, action: (caseId: number, lineId: number) => Promise<unknown>, success: string, onResult?: (result: Fields) => void) {
   const lineId = Number(task.lineId)
   if (!lineId || acceptingLines.has(lineId)) return
   acceptingLines.add(lineId)
   try {
-    await action(Number(task.caseId), lineId)
-    void message.success(success)
+    const result = await action(Number(task.caseId), lineId)
+    if (onResult) onResult(result as Fields)
+    else void message.success(success)
   } catch (e) {
     void message.error(errorText(e))
   } finally {
@@ -1292,7 +1294,7 @@ function submitTaskReview(task: Fields) {
   return runWorkbenchLineAction(task, admApi.submitReview, '已提交 ADM 负责人审核')
 }
 function checkTaskDifference(task: Fields) {
-  return runWorkbenchLineAction(task, admApi.checkDifference, '差异单核验已执行')
+  return runWorkbenchLineAction(task, admApi.checkDifference, '', result => showDifferenceResult(result, Number(task.lineId)))
 }
 function canAcceptTask(task: Fields) {
   return task.kind === 'accept' && canOperatorWork.value && Number(task.operatorId) === myId.value

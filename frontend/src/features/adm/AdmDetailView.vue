@@ -761,6 +761,7 @@
 </template>
 
 <script setup lang="ts">
+import { showDifferenceResult } from './differenceResult'
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -1641,9 +1642,9 @@ async function runSimple(name: string) {
     if (name === 'accept') await admApi.accept(caseId, id)
     else if (name === 'recoveryConfirm') await admApi.recoveryConfirm(caseId, id)
     else if (name === 'submitReview') await admApi.submitReview(caseId, id)
-    else if (name === 'checkDifference') await admApi.checkDifference(caseId, id)
+    else if (name === 'checkDifference') showDifferenceResult(await admApi.checkDifference(caseId, id), id)
     else if (name === 'close') await admApi.close(caseId)
-    void message.success('操作成功')
+    if (name !== 'checkDifference') void message.success('操作成功')
     emit('changed')
     await load()
   } catch (e) {
