@@ -49,6 +49,10 @@
                 <dt>人民币总金额</dt>
                 <dd>{{ hasRecord ? '¥ ' + record.case.cnyAmount : '—' }}</dd>
               </div>
+              <div v-if="record.case.recoveryLocators">
+                <dt>恢复编码（GDS-PCC-PNR）</dt>
+                <dd class="recovery-locators">{{ record.case.recoveryLocators }}</dd>
+              </div>
               <div>
                 <dt>处理截止</dt>
                 <dd>{{ record.case.replyDeadline || '—' }}</dd>
@@ -1887,4 +1891,8 @@ onMounted(async () => {
     grid-template-columns: 1fr;
   }
 }
+</style>
+
+<style scoped>
+.recovery-locators { white-space: pre-wrap; overflow-wrap: anywhere; }
 </style>

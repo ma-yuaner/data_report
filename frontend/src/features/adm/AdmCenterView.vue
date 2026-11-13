@@ -79,6 +79,7 @@
                 </span>
                 <span>{{ task.assignment }}</span>
                 <span>{{ task.requiredAction }}
+                  <small v-if="task.recoveryLocators">GDS-PCC-PNR：{{ task.recoveryLocators }}</small>
                   <small v-if="task.kind === 'recovering'">{{ recoveryCountdown(task.masterRecoveryDueAt) }}</small>
                 </span>
                 <b :class="{ danger: task.overdue }">{{ dateText(task.deadline) }}</b>
@@ -289,9 +290,12 @@
               placeholder="多条用逗号分隔，例如 1G-5S75-13124N,1A-BKK247-123NE" />
           </a-form-item>
         </template>
-        <a-alert v-if="workbenchBatchAction === 'startRecovery'" type="info" show-icon
-          :message="workbenchBatchRows[0]?.recoveryLocators || ''"
-          description="完成 GDS 恢复操作后点击确定，订单才进入正在恢复，并从本次确认开始计时 48 小时。" />
+        <template v-if="workbenchBatchAction === 'startRecovery'">
+          <a-alert v-for="task in workbenchBatchRows" :key="task.caseId" type="info" show-icon class="block"
+            :message="`${task.admNo} · 待恢复 GDS-PCC-PNR`"
+            :description="task.recoveryLocators || '未填写恢复编码，请先核对主单资料'" />
+          <p>请先完成以上全部 PNR 的 GDS 恢复操作，再点击确定。确认后进入正在恢复，并开始计时 48 小时。</p>
+        </template>
         <a-form-item v-if="workbenchBatchAction === 'transferAccept'" label="确认结果">
           <a-radio-group v-model:value="workbenchBatchForm.accepted">
             <a-radio :value="true">接受</a-radio><a-radio :value="false">拒绝</a-radio>
@@ -1196,7 +1200,8 @@ function openWorkbenchBatch(action: string, rows = batchRows.value) {
   selectedAssignmentLines.value = []
   Object.assign(workbenchBatchForm, {
     targetUserId: undefined, targetRole: action === 'transfer' && !rows.every(canTransferOperator) ? 'LEADER' : 'OPERATOR',
-    reason: '', handoverNote: '', recoveryAction: undefined, locators: {}, accepted: true,
+    reason: '', handoverNote: '', recoveryAction: undefined,
+    locators: Object.fromEntries(rows.map(task => [task.caseId, task.recoveryLocators || ''])), accepted: true,
   })
   workbenchBatchOpen.value = true
 }

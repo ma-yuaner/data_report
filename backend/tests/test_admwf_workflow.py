@@ -231,3 +231,53 @@ class AdmMaterialSqlContractTest(unittest.TestCase):
                 and node.value.startswith("SELECT l.*") and "material_confirmed" in node.value)
             with self.subTest(method=method.__name__):
                 self.assertEqual(db.execute(query.replace("%s", "?"), (1,)).fetchone()[-1], 1)
+
+
+class AdmMasterRecoveryRoutingTest(unittest.TestCase):
+    def repository(self, state="LEADER_DECISION", locators=None):
+        from contextlib import nullcontext
+        from data_report_api.services.admwf.policy import business_now
+        case = {"id": 1, "case_status": "ACTIVE", "master_recovery_status": state,
+                "coordinator_id": 9, "line_defaults_json": {"leaderId": 2},
+                "created_at": business_now(), "leader_first_action_at": business_now(),
+                "recovery_locators": locators}
+        class Cursor:
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def execute(self, sql, params):
+                if sql.startswith("UPDATE admwf_case SET master_recovery_status"):
+                    case["master_recovery_status"] = params[0]
+                    case["recovery_locators"] = params[1] or case["recovery_locators"]
+                    case["master_recovery_due_at"] = params[2]
+            def fetchone(self): return case
+        class Connection:
+            def cursor(self): return Cursor()
+        repo = AdmWorkflowRepository({})
+        repo.transaction = lambda: nullcontext(Connection())
+        repo._next_event_no = lambda *args: 1
+        repo.append_operation_log = lambda *args, **kwargs: None
+        repo.get_case = lambda *args, **kwargs: {"case": case}
+        repo.add_line = lambda *args, **kwargs: {"case": case, "lineAdded": True}
+        return repo
+
+    def test_needed_carries_locators_to_owner_before_countdown(self):
+        repo = self.repository()
+        result = repo.master_recovery(1, "request", {"id": 2, "name": "leader"}, locators="1G-5S75-ABC123,1A-BKK247-DEF456")
+        self.assertEqual(result["case"]["master_recovery_status"], "OWNER_RECOVERY")
+        self.assertEqual(result["case"]["recovery_locators"], "1G-5S75-ABC123,1A-BKK247-DEF456")
+        self.assertIsNone(result["case"]["master_recovery_due_at"])
+
+    def test_skip_adds_order_without_owner_recovery(self):
+        result = self.repository().master_recovery(1, "skip", {"id": 2, "name": "leader"}, locators="1G-5S75-ABC123", line={"pnr": "ABC123"})
+        self.assertEqual(result["case"]["master_recovery_status"], "NOT_REQUIRED")
+        self.assertTrue(result["lineAdded"])
+        self.assertIsNone(result["case"]["master_recovery_due_at"])
+
+    def test_owner_starts_only_with_saved_locators(self):
+        repo = self.repository("OWNER_RECOVERY", "1G-5S75-ABC123")
+        result = repo.master_recovery(1, "start", {"id": 9, "name": "owner"})
+        self.assertEqual(result["case"]["master_recovery_status"], "RECOVERING")
+        self.assertEqual(result["case"]["recovery_locators"], "1G-5S75-ABC123")
+        self.assertIsNotNone(result["case"]["master_recovery_due_at"])
+        with self.assertRaisesRegex(AdmError, "缺少"):
+            self.repository("OWNER_RECOVERY").master_recovery(1, "start", {"id": 9, "name": "owner"})

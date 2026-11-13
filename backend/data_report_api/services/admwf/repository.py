@@ -2210,6 +2210,8 @@ class AdmWorkflowRepository:
             case = cursor.fetchone()
             if not case or case["case_status"] != "ACTIVE" or case.get("master_recovery_status") != previous:
                 raise AdmError("当前主单状态已变化，不能办理恢复编码", 409, "ADM_ACTION_BLOCKED")
+            if action == "start" and not str(case.get("recovery_locators") or "").strip():
+                raise AdmError("主单缺少待恢复 GDS-PCC-PNR，请先核对恢复编码", 409, "ADM_ACTION_BLOCKED")
             defaults = self._case_payload(case).get("lineDefaults") or {}
             owner_id = case["coordinator_id"] if action == "start" else defaults.get("leaderId")
             if owner_id != actor["id"]:
