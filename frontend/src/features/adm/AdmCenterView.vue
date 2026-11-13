@@ -60,7 +60,7 @@
                 <a-checkbox aria-label="选择当前页任务"
                   :checked="!!pagedTasks.length && pagedTasks.every((task) => workSelection.includes(workTaskKey(task)))"
                   @change="selectWorkbenchPage" />
-                <span>ADM 主单</span><span>任务类型</span><span>当前责任分配</span><span>当前需要处理</span><span>处理截止</span><span>操作</span>
+                <span>ADM 主单</span><span>任务类型</span><span>转派状态</span><span>当前责任分配</span><span>当前需要处理</span><span>处理截止</span><span>操作</span>
               </div>
               <div v-for="task in pagedTasks" :key="workTaskKey(task)" class="work-task-row">
                 <a-checkbox :aria-label="`选择 ${task.lineInternalNo || task.admNo}`"
@@ -71,9 +71,13 @@
                     @click="openCasePanel(Number(task.caseId))">{{ taskCaseLabel(task) }}</a-button>
                   <a-tag v-if="task.leaderOverdueAt" color="red">组长分派超 3 天</a-tag>
                   <a-tag v-if="task.operatorOverdueAt" color="red">操作员分派超 3 天</a-tag>
-                  <a-tag v-if="task.hasTransfer || task.transferId" color="blue">转派</a-tag>
                 </div>
                 <span class="work-task-type">{{ task.role }}任务：{{ task.title }}</span>
+                <span>
+                  <a-tag v-if="['transferAccept', 'masterTransferWait'].includes(task.kind)" color="orange">待确认</a-tag>
+                  <a-tag v-else-if="task.hasTransfer || task.transferId" color="blue">有转派记录</a-tag>
+                  <template v-else>—</template>
+                </span>
                 <span>{{ task.assignment }}</span>
                 <span>{{ task.requiredAction }}</span>
                 <b :class="{ danger: task.overdue }">{{ dateText(task.deadline) }}</b>
@@ -86,7 +90,7 @@
                 >接单</a-button>
                 <a-button v-else-if="task.kind === 'leaderRecovery'" type="primary" @click="openWorkbenchBatch('recovery', [task])">恢复判断</a-button>
                 <a-button v-else-if="task.kind === 'ownerRecovery'" type="primary" @click="openWorkbenchBatch('startRecovery', [task])">正在恢复</a-button>
-                <a-button v-else-if="task.kind === 'recovered'" type="primary" @click="openCasePanel(Number(task.caseId), { addLine: true })">录入明细</a-button>
+                <a-button v-else-if="task.kind === 'recovered'" type="primary" @click="openWorkbenchBatch('assign', [task])">分配操作员</a-button>
                 <a-button v-else-if="task.kind === 'transferAccept'" type="primary" @click="openWorkbenchBatch('transferAccept', [task])">确认转派</a-button>
                 <a-button v-else-if="task.kind === 'assign' || task.kind === 'assignLeader'" type="primary"
                   @click="openWorkbenchBatch(task.kind, [task])">{{ workbenchActionLabels[task.kind] }}</a-button>
@@ -107,7 +111,13 @@
                 <a-button v-else-if="task.kind === 'collection'" type="primary" @click="openDirectTask(task, 'collection')">登记回款</a-button>
                 <a-button v-else-if="task.kind === 'diff'" type="primary"
                   :loading="acceptingLines.has(Number(task.lineId))" @click="checkTaskDifference(task)">匹配差异单</a-button>
-                <a-button v-if="task.lineId && task.kind !== 'assign'" type="link" @click="openDirectTask(task, 'basic')">查看明细</a-button>
+                <a-button v-if="task.kind === 'leaderFollowup'" @click="openTaskOrder(task)">跟进</a-button>
+                <a-button v-if="canEditWorkbenchLine(task)" @click="openDirectTask(task, 'edit')">编辑</a-button>
+                <a-button v-else-if="task.lineId && !['assign', 'leaderFollowup'].includes(task.kind)"
+                  type="link" @click="openDirectTask(task, 'basic')">查看明细</a-button>
+                <a-button v-if="task.lineId && !['assign', 'transferAccept'].includes(task.kind) &&
+                    (canTransferLeader(task) || canTransferOperator(task))"
+                  @click="openWorkbenchBatch('transfer', [task])">转派</a-button>
                 </div>
               </div>
             </div>
@@ -158,7 +168,7 @@
                 <tbody>
                   <tr v-for="record in shownRows" :key="record.id">
                     <td>
-                      <button class="link" @click="openMasterInfo(record)">{{ record.admNo }}</button
+                      <button class="link" @click="openCasePanel(Number(record.id))">{{ record.admNo }}</button
                       ><small>{{ [label(record.issuerType), record.issuerName].filter(Boolean).join(' · ') }}</small
                       ><small>系统记录：{{ record.internalNo }}</small>
                       <span :class="['source-badge', sourceTone(record.sourceType)]">{{ sourceText(record.sourceType) }}</span>
@@ -199,6 +209,7 @@
                     <td>{{ dateText(record.updatedAt) }}</td>
                     <td>
                       <div class="record-actions master-record-actions">
+                        <a-button v-if="canEditMasterRow(record)" @click="openMasterInfo(record)">编辑主单</a-button>
                         <a-button type="primary" @click="openCase(record)">{{ ledgerDetailText(record) }}</a-button>
                         <a-dropdown v-if="ledgerStages(record).length > 1" :trigger="['click']">
                           <a-button>按阶段查看</a-button>
@@ -241,7 +252,25 @@
       :mask-closable="!workbenchBatchBusy" :keyboard="!workbenchBatchBusy"
       :cancel-button-props="{ disabled: workbenchBatchBusy }" @ok="submitWorkbenchBatch">
       <a-form layout="vertical" :disabled="workbenchBatchBusy">
-        <a-form-item v-if="['assign', 'assignLeader', 'transfer'].includes(workbenchBatchAction)" label="目标人员" required>
+        <template v-if="workbenchBatchAction === 'assign'">
+          <a-form-item label="分配方式" required>
+            <a-radio-group v-model:value="assignmentMode" @change="changeAssignmentMode()">
+              <a-radio value="whole">整单</a-radio>
+              <a-radio value="split">分单</a-radio>
+            </a-radio-group>
+          </a-form-item>
+          <a-spin v-if="assignmentLoading" />
+          <a-form-item v-else-if="assignmentMode === 'split'" label="选择本次分配的订单明细" required>
+            <a-checkbox-group v-model:value="selectedAssignmentLines" :options="assignmentOptions" />
+          </a-form-item>
+          <a-alert v-if="assignmentMode && !assignmentLoading && assignmentProblem" type="info" show-icon
+            :message="assignmentProblem" class="block" />
+          <a-button v-if="assignmentMode && !assignmentLoading && (assignmentMode === 'split' || assignmentProblem)"
+            class="block" @click="openAssignmentDetails">{{ assignmentMode === 'split' ? '进入 ADM 详情分单' : '进入 ADM 详情补资料' }}</a-button>
+        </template>
+        <a-form-item v-if="['assignLeader', 'transfer'].includes(workbenchBatchAction) ||
+            (workbenchBatchAction === 'assign' && assignmentRows.length && !assignmentProblem && !assignmentLoading)"
+          :label="workbenchBatchAction === 'assign' ? '操作员' : '目标人员'" required>
           <a-radio-group v-if="workbenchBatchAction === 'transfer' && workbenchBatchRows.every(canTransferLeader)"
             v-model:value="workbenchBatchForm.targetRole" @change="workbenchBatchForm.targetUserId = undefined">
             <a-radio-button value="OPERATOR">操作员</a-radio-button>
@@ -689,6 +718,7 @@ import AdmMasterBasicModal from './AdmMasterBasicModal.vue'
 import {
   admApi,
   admPersonOptions,
+  amountInCents,
   errorText,
   formatAdmAirline,
   label,
@@ -751,6 +781,11 @@ function openCasePanel(caseId: number, options: Omit<AdmCasePanel, 'caseId'> = {
 }
 function closeCasePanel() {
   casePanel.value = null
+  if (resumeAssignment) {
+    resumeAssignment = undefined
+    workbenchBatchOpen.value = true
+    void changeAssignmentMode(false)
+  }
   if (casePanelChanged.value) {
     casePanelChanged.value = false
     void load()
@@ -1049,6 +1084,13 @@ const canTransferLeader = (task: Fields) => !['transferAccept', 'masterTransferW
   (auth.user?.isAdmin || config.value?.permissions.assignOperator)
 const canTransferOperator = (task: Fields) => !!task.operatorId &&
   (canTransferLeader(task) || (canOperatorWork.value && Number(task.operatorId) === myId.value))
+function canEditWorkbenchLine(task: Fields) {
+  return !!task.lineId && task.kind !== 'transferAccept' && task.reviewStatus !== 'APPROVED' && (
+    (task.status === 'PENDING_OPERATOR' && !task.operatorId && canTransferLeader(task)) ||
+    (Number(task.coordinatorId) === myId.value &&
+      (auth.user?.isAdmin || config.value?.permissions.create || config.value?.permissions.manage || config.value?.permissions.review))
+  )
+}
 const workbenchActionLabels: Record<string, string> = {
   assign: '分配操作员', assignLeader: '分配组长', accept: '接单', transfer: '转派',
   transferAccept: '确认转派', recovery: '恢复编码判断', startRecovery: '正在恢复',
@@ -1056,7 +1098,7 @@ const workbenchActionLabels: Record<string, string> = {
 const batchActions = computed(() => {
   const rows = batchRows.value
   if (!rows.length || !rows.every((task) => task.kind === rows[0].kind)) return []
-  const actions = ['assign', 'assignLeader', 'accept', 'transferAccept'].includes(rows[0].kind) ? [rows[0].kind] : []
+  const actions = ['assignLeader', 'accept', 'transferAccept'].includes(rows[0].kind) ? [rows[0].kind] : []
   if (rows.every((task) => task.kind !== 'transferAccept' && (canTransferLeader(task) || canTransferOperator(task)))) actions.push('transfer')
   return actions
 })
@@ -1077,6 +1119,61 @@ const workbenchBatchRows = ref<Fields[]>([])
 const workbenchBatchAction = ref('')
 const workbenchBatchError = ref('')
 const workbenchBatchForm = reactive<Fields>({})
+const assignmentMode = ref<'whole' | 'split'>()
+const assignmentDetail = ref<AdmCaseDetail | null>(null)
+const assignmentLoading = ref(false)
+const selectedAssignmentLines = ref<number[]>([])
+let assignmentRequest = 0
+let resumeAssignment: Fields | undefined
+const assignmentLines = computed(() => assignmentDetail.value?.lines.filter(line => line.lineStatus !== 'VOIDED') || [])
+function canAssignLine(line: AdmCaseDetail['lines'][number]) {
+  return line.lineStatus === 'PENDING_OPERATOR' && Number(line.leaderId) === myId.value &&
+    (!assignmentDetail.value?.case.masterRecoveryStatus ||
+      (!!line.otaCode && !!String(line.pnr || '').trim() && (amountInCents(line.originalAmount) ?? 0n) > 0n))
+}
+const assignmentOptions = computed(() => assignmentLines.value.filter(canAssignLine).map(line => ({
+  value: Number(line.id),
+  label: [line.lineInternalNo, line.otaName, line.pnr, line.originalAmount].filter(Boolean).join(' · '),
+})))
+const assignmentRows = computed(() => assignmentLines.value.filter(line => canAssignLine(line) &&
+  (assignmentMode.value === 'whole' ? assignmentLines.value.length === 1 : selectedAssignmentLines.value.includes(Number(line.id)))))
+const assignmentProblem = computed(() => {
+  const detail = assignmentDetail.value
+  if (!detail) return '请先读取主单明细。'
+  if (assignmentMode.value === 'whole' && assignmentLines.value.length > 1) return '该主单有多笔明细，请选择分单。'
+  if (!assignmentOptions.value.length) return '请先新增明细或补齐平台、PNR 和原币金额。'
+  const total = assignmentLines.value.reduce((sum, line) => sum + (amountInCents(line.originalAmount) ?? 0n), 0n)
+  if (total !== amountInCents(detail.case.originalAmount)) return '明细原币合计与主单不一致，请先调整。'
+  return ''
+})
+async function changeAssignmentMode(openSplitDetails = true) {
+  const task = workbenchBatchRows.value[0]
+  if (!task) return
+  const seq = ++assignmentRequest
+  assignmentDetail.value = null
+  selectedAssignmentLines.value = []
+  assignmentLoading.value = true
+  workbenchBatchError.value = ''
+  try {
+    const detail = await admApi.summary(Number(task.caseId))
+    if (seq === assignmentRequest) {
+      assignmentDetail.value = detail
+      if (openSplitDetails && workbenchBatchOpen.value && assignmentMode.value === 'split' && assignmentLines.value.length < 2)
+        openAssignmentDetails()
+    }
+  } catch (e) {
+    if (seq === assignmentRequest) workbenchBatchError.value = errorText(e)
+  } finally {
+    if (seq === assignmentRequest) assignmentLoading.value = false
+  }
+}
+function openAssignmentDetails() {
+  const task = workbenchBatchRows.value[0]
+  if (!task) return
+  resumeAssignment = task
+  workbenchBatchOpen.value = false
+  openCasePanel(Number(task.caseId))
+}
 const workbenchPeople = computed(() => admPersonOptions(
   (workbenchBatchAction.value === 'assignLeader' || workbenchBatchForm.targetRole === 'LEADER'
     ? config.value?.people.leader : config.value?.people.handle) || [],
@@ -1086,6 +1183,11 @@ function openWorkbenchBatch(action: string, rows = batchRows.value) {
   workbenchBatchRows.value = rows
   workbenchBatchAction.value = action
   workbenchBatchError.value = ''
+  assignmentRequest++
+  assignmentMode.value = undefined
+  assignmentDetail.value = null
+  assignmentLoading.value = false
+  selectedAssignmentLines.value = []
   Object.assign(workbenchBatchForm, {
     targetUserId: undefined, targetRole: action === 'transfer' && !rows.every(canTransferOperator) ? 'LEADER' : 'OPERATOR',
     reason: '', handoverNote: '', recoveryAction: undefined, locators: {}, accepted: true,
@@ -1096,6 +1198,14 @@ async function submitWorkbenchBatch() {
   if (workbenchBatchBusy.value) return
   const action = workbenchBatchAction.value
   const form = { ...workbenchBatchForm }
+  if (action === 'assign' && (!assignmentMode.value || assignmentLoading.value || assignmentProblem.value ||
+      !assignmentRows.value.length || !form.targetUserId)) {
+    workbenchBatchError.value = '请选择分配方式、可分配明细和操作员'
+    return
+  }
+  const rows = action === 'assign'
+    ? assignmentRows.value.map((line): Fields => ({ ...line, caseId: assignmentDetail.value!.case.id, lineId: line.id, kind: 'assign' }))
+    : workbenchBatchRows.value
   if (action === 'recovery' && (!form.recoveryAction ||
       workbenchBatchRows.value.some(task => !String(form.locators[task.caseId] || '').trim()))) {
     workbenchBatchError.value = '请选择是否恢复，并填写每张主单的 GDS-PCC-PNR'
@@ -1109,7 +1219,7 @@ async function submitWorkbenchBatch() {
   const errors: string[] = []
   workbenchBatchBusy.value = true
   try {
-    for (const task of workbenchBatchRows.value) {
+    for (const task of rows) {
       const caseId = Number(task.caseId), lineId = Number(task.lineId)
       try {
         if (action === 'assign') await admApi.assignOperator(caseId, lineId, { operatorId: form.targetUserId })
@@ -1131,9 +1241,16 @@ async function submitWorkbenchBatch() {
         errors.push(`${task.lineInternalNo || task.admNo}：${errorText(e)}`)
       }
     }
-    const success = workbenchBatchRows.value.length - failures.length
+    const success = rows.length - failures.length
     if (success) void message.success(`成功处理 ${success} 条`)
-    workbenchBatchRows.value = failures
+    if (action === 'assign') {
+      selectedAssignmentLines.value = failures.map(task => Number(task.lineId))
+      const succeeded = new Set(rows.filter(task => !failures.includes(task)).map(task => Number(task.lineId)))
+      if (assignmentDetail.value) assignmentDetail.value = {
+        ...assignmentDetail.value, lines: assignmentDetail.value.lines.map(line =>
+          succeeded.has(Number(line.id)) ? { ...line, lineStatus: 'PENDING_ACCEPT' } : line),
+      }
+    } else workbenchBatchRows.value = failures
     workSelection.value = failures.map(workTaskKey)
     workbenchBatchError.value = errors.join('；')
     if (!failures.length) workbenchBatchOpen.value = false

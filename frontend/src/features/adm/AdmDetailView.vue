@@ -464,9 +464,9 @@
       <AdmOperationTimeline :items="caseOperationLogs" empty-text="当前主单暂无操作记录" />
     </a-modal>
     <AdmMasterBasicModal :open="masterInfoOpen" :detail="record" :editable="canEditMasterBasic" @close="masterInfoOpen = false" @saved="basicInfoSaved" />
-    <AdmLineBasicModal :open="basicInfoOpen" :detail="record" :line="selectedLine" :editable="!!selectedLine && canEditLineBasic(selectedLine)"
+    <AdmLineBasicModal :open="basicInfoOpen" :detail="record" :line="selectedLine" :editable="directAction !== 'basic' && !!selectedLine && canEditLineBasic(selectedLine)"
       :simple-edit="usesOrderSupplement && selectedLine?.lineStatus === 'PENDING_OPERATOR' && !selectedLine.operatorId"
-      :can-adjust-amount="!usesOrderSupplement && !!selectedLine && canAdjustLineAmount(selectedLine) && !activeLines.some(item => blockedAmountStates.includes(item.lineStatus))"
+      :can-adjust-amount="directAction !== 'basic' && !usesOrderSupplement && !!selectedLine && canAdjustLineAmount(selectedLine) && !activeLines.some(item => blockedAmountStates.includes(item.lineStatus))"
       :config="config" @close="closeBasicInfo" @saved="basicInfoSaved" @adjust-amount="openBasicAmountAdjustment" />
 
     <a-modal v-model:open="addLineOpen" title="新增订单明细" width="min(1080px, 96vw)" :footer="null" wrap-class-name="v05-modal adm-form-modal"
@@ -1745,7 +1745,7 @@ onMounted(async () => {
   const configRequest = config.value ? Promise.resolve() : loadPeople()
   const taskAction = props.panel?.taskAction ?? (props.panel ? '' : String(route.query.taskAction || ''))
   const openLine = orderOnly || !!taskAction
-  const needsFullDetail = directAction ? ['basic', 'collection'].includes(directAction) : openLine
+  const needsFullDetail = directAction ? ['basic', 'edit', 'collection'].includes(directAction) : openLine
   await Promise.all([load(needsFullDetail), configRequest])
   stopNotice?.()
   if (directAction) {
@@ -1755,7 +1755,12 @@ onMounted(async () => {
       emit('close')
       return
     }
-    if (directAction === 'basic') {
+    if (directAction === 'basic' || directAction === 'edit') {
+      if (directAction === 'edit' && !canEditLineBasic(line)) {
+        void message.warning('当前明细已不可编辑，请刷新待办')
+        emit('close')
+        return
+      }
       basicInfoOpen.value = true
       return
     }

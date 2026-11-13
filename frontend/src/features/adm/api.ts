@@ -178,5 +178,5 @@ export interface AdmCasePanel {
   lineStatus?: string
   taskAction?: string
   addLine?: boolean
-  directAction?: 'basic' | 'recovery' | 'appeal' | 'noAppeal' | 'appealResult' | 'review' | 'collection'
+  directAction?: 'basic' | 'edit' | 'recovery' | 'appeal' | 'noAppeal' | 'appealResult' | 'review' | 'collection'
 }
