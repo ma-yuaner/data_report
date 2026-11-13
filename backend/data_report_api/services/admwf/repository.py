@@ -738,7 +738,7 @@ class AdmWorkflowRepository:
             )
             values.extend([actor_id, *owner_statuses])
         if capabilities.get("assignOperator"):
-            conditions.append("(l.leader_id=%s AND l.line_status NOT IN ('COMPLETED','VOIDED','HISTORICAL'))")
+            conditions.append("(l.leader_id=%s AND l.line_status IN ('PENDING_OPERATOR','PENDING_ACCEPT','PROCESSING'))")
             values.append(actor_id)
         if capabilities.get("handle"):
             conditions.append("(l.operator_id=%s AND l.line_status IN ('PENDING_ACCEPT','PROCESSING'))")

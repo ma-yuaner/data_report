@@ -110,7 +110,6 @@
                 <a-button size="small" v-else-if="task.kind === 'collection'" type="primary" @click="openDirectTask(task, 'collection')">登记回款</a-button>
                 <a-button size="small" v-else-if="task.kind === 'diff'" type="primary"
                   :loading="acceptingLines.has(Number(task.lineId))" @click="checkTaskDifference(task)">匹配差异单</a-button>
-                <a-button size="small" v-if="task.kind === 'leaderFollowup'" @click="openTaskOrder(task)">跟进</a-button>
                 <a-button size="small" v-if="canEditWorkbenchLine(task)" @click="openDirectTask(task, 'edit')">编辑</a-button>
                 <a-button size="small" v-else-if="task.lineId && !['assign', 'leaderFollowup'].includes(task.kind)"
                   type="link" @click="openCasePanel(Number(task.caseId))">详情</a-button>
@@ -877,7 +876,7 @@ const tasks = computed<Fields[]>(() =>
       OWNER_RECOVERY: ['ownerRecovery', 'ADM负责人', '在 GDS 操作后标记正在恢复'],
       RECOVERING: ['recovering', 'ADM负责人', '等待 48 小时自动恢复'],
       RECOVERED: ['recovered', '组长', '已恢复，录入订单明细'],
-      LEADER_FOLLOWUP: ['leaderFollowup', '组长', '跟进或转派单笔订单'],
+      LEADER_FOLLOWUP: ['leaderFollowup', '组长', '订单办理中'],
     }
     const stage = masterStages[line.taskType]
     if (stage) return {
@@ -1066,9 +1065,9 @@ function taskCaseLabel(task: Fields) {
 }
 const workTaskKey = (task: Fields) => `${task.caseId}-${task.lineId || 0}-${task.kind}-${task.transferId || 0}`
 const batchRows = computed(() => visibleTasks.value.filter((task) => workSelection.value.includes(workTaskKey(task))))
-const canTransferLeader = (task: Fields) => !['transferAccept', 'masterTransferWait'].includes(task.kind) && Number(task.leaderId) === myId.value &&
+const canTransferLeader = (task: Fields) => ['PENDING_OPERATOR', 'PENDING_ACCEPT', 'PROCESSING'].includes(task.status) && !['transferAccept', 'masterTransferWait'].includes(task.kind) && Number(task.leaderId) === myId.value &&
   (auth.user?.isAdmin || config.value?.permissions.assignOperator)
-const canTransferOperator = (task: Fields) => !!task.operatorId &&
+const canTransferOperator = (task: Fields) => ['PENDING_ACCEPT', 'PROCESSING'].includes(task.status) && !!task.operatorId &&
   (canTransferLeader(task) || (canOperatorWork.value && Number(task.operatorId) === myId.value))
 function canEditWorkbenchLine(task: Fields) {
   return !!task.lineId && task.kind !== 'transferAccept' && task.reviewStatus !== 'APPROVED' && (
