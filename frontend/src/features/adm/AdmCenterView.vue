@@ -60,7 +60,7 @@
                 <a-checkbox aria-label="选择当前页任务"
                   :checked="!!pagedTasks.length && pagedTasks.every((task) => workSelection.includes(workTaskKey(task)))"
                   @change="selectWorkbenchPage" />
-                <span>ADM 主单</span><span>任务类型</span><span>转派状态</span><span>当前责任分配</span><span>当前需要处理</span><span>处理截止</span><span>操作</span>
+                <span>ADM 主单</span><span>转派状态</span><span>当前责任分配</span><span>当前需要处理</span><span>处理截止</span><span>操作</span>
               </div>
               <div v-for="task in pagedTasks" :key="workTaskKey(task)" class="work-task-row">
                 <a-checkbox :aria-label="`选择 ${task.lineInternalNo || task.admNo}`"
@@ -72,7 +72,6 @@
                   <a-tag v-if="task.leaderOverdueAt" color="red">组长分派超 3 天</a-tag>
                   <a-tag v-if="task.operatorOverdueAt" color="red">操作员分派超 3 天</a-tag>
                 </div>
-                <span class="work-task-type">{{ task.role }}任务：{{ task.title }}</span>
                 <span>
                   <a-tag v-if="['transferAccept', 'masterTransferWait'].includes(task.kind)" color="orange">待确认</a-tag>
                   <a-tag v-else-if="task.hasTransfer || task.transferId" color="blue">有转派记录</a-tag>
@@ -82,40 +81,40 @@
                 <span>{{ task.requiredAction }}</span>
                 <b :class="{ danger: task.overdue }">{{ dateText(task.deadline) }}</b>
                 <div class="work-task-actions">
-                <a-button
+                <a-button size="small"
                   v-if="canAcceptTask(task)"
                   type="primary"
                   :loading="acceptingLines.has(Number(task.lineId))"
                   @click="acceptTask(task)"
                 >接单</a-button>
-                <a-button v-else-if="task.kind === 'leaderRecovery'" type="primary" @click="openWorkbenchBatch('recovery', [task])">恢复判断</a-button>
-                <a-button v-else-if="task.kind === 'ownerRecovery'" type="primary" @click="openWorkbenchBatch('startRecovery', [task])">正在恢复</a-button>
-                <a-button v-else-if="task.kind === 'recovered'" type="primary" @click="openWorkbenchBatch('assign', [task])">分配操作员</a-button>
-                <a-button v-else-if="task.kind === 'transferAccept'" type="primary" @click="openWorkbenchBatch('transferAccept', [task])">确认转派</a-button>
-                <a-button v-else-if="task.kind === 'assign' || task.kind === 'assignLeader'" type="primary"
+                <a-button size="small" v-else-if="task.kind === 'leaderRecovery'" type="primary" @click="openWorkbenchBatch('recovery', [task])">恢复判断</a-button>
+                <a-button size="small" v-else-if="task.kind === 'ownerRecovery'" type="primary" @click="openWorkbenchBatch('startRecovery', [task])">正在恢复</a-button>
+                <a-button size="small" v-else-if="task.kind === 'recovered'" type="primary" @click="openWorkbenchBatch('assign', [task])">分配操作员</a-button>
+                <a-button size="small" v-else-if="task.kind === 'transferAccept'" type="primary" @click="openWorkbenchBatch('transferAccept', [task])">确认转派</a-button>
+                <a-button size="small" v-else-if="task.kind === 'assign' || task.kind === 'assignLeader'" type="primary"
                   @click="openWorkbenchBatch(task.kind, [task])">{{ workbenchActionLabels[task.kind] }}</a-button>
                 <template v-else-if="isOperatorProcessing(task)">
-                  <a-button v-if="task.recoveryStatus === 'UNDECIDED'" type="primary" @click="openDirectTask(task, 'recovery')">恢复判断</a-button>
+                  <a-button size="small" v-if="task.recoveryStatus === 'UNDECIDED'" type="primary" @click="openDirectTask(task, 'recovery')">恢复判断</a-button>
                   <template v-else-if="task.appealStatus === 'UNDECIDED'">
-                    <a-button type="primary" @click="openDirectTask(task, 'appeal')">申诉</a-button>
-                    <a-button @click="openDirectTask(task, 'noAppeal')">不申诉</a-button>
+                    <a-button size="small" type="primary" @click="openDirectTask(task, 'appeal')">申诉</a-button>
+                    <a-button size="small" @click="openDirectTask(task, 'noAppeal')">不申诉</a-button>
                   </template>
-                  <a-button v-else-if="task.appealStatus === 'IN_PROGRESS'" type="primary"
+                  <a-button size="small" v-else-if="task.appealStatus === 'IN_PROGRESS'" type="primary"
                     @click="openDirectTask(task, 'appealResult')">登记申诉结果</a-button>
-                  <a-button v-else-if="['SUCCEEDED', 'FAILED', 'NO_APPEAL'].includes(task.appealStatus)" type="primary"
+                  <a-button size="small" v-else-if="['SUCCEEDED', 'FAILED', 'NO_APPEAL'].includes(task.appealStatus)" type="primary"
                     :loading="acceptingLines.has(Number(task.lineId))" @click="submitTaskReview(task)">提交审核</a-button>
-                  <a-button v-if="['SUPPLEMENT', 'WITHDRAWN'].includes(taskReturnMode(task)) || task.reviewStatus === 'WITHDRAWN'"
+                  <a-button size="small" v-if="['SUPPLEMENT', 'WITHDRAWN'].includes(taskReturnMode(task)) || task.reviewStatus === 'WITHDRAWN'"
                     @click="openTaskOrder(task)">补充处理资料</a-button>
                 </template>
-                <a-button v-else-if="task.kind === 'review'" type="primary" @click="openDirectTask(task, 'review')">审核</a-button>
-                <a-button v-else-if="task.kind === 'collection'" type="primary" @click="openDirectTask(task, 'collection')">登记回款</a-button>
-                <a-button v-else-if="task.kind === 'diff'" type="primary"
+                <a-button size="small" v-else-if="task.kind === 'review'" type="primary" @click="openDirectTask(task, 'review')">审核</a-button>
+                <a-button size="small" v-else-if="task.kind === 'collection'" type="primary" @click="openDirectTask(task, 'collection')">登记回款</a-button>
+                <a-button size="small" v-else-if="task.kind === 'diff'" type="primary"
                   :loading="acceptingLines.has(Number(task.lineId))" @click="checkTaskDifference(task)">匹配差异单</a-button>
-                <a-button v-if="task.kind === 'leaderFollowup'" @click="openTaskOrder(task)">跟进</a-button>
-                <a-button v-if="canEditWorkbenchLine(task)" @click="openDirectTask(task, 'edit')">编辑</a-button>
-                <a-button v-else-if="task.lineId && !['assign', 'leaderFollowup'].includes(task.kind)"
+                <a-button size="small" v-if="task.kind === 'leaderFollowup'" @click="openTaskOrder(task)">跟进</a-button>
+                <a-button size="small" v-if="canEditWorkbenchLine(task)" @click="openDirectTask(task, 'edit')">编辑</a-button>
+                <a-button size="small" v-else-if="task.lineId && !['assign', 'leaderFollowup'].includes(task.kind)"
                   type="link" @click="openCasePanel(Number(task.caseId))">详情</a-button>
-                <a-button v-if="task.lineId && !['assign', 'transferAccept'].includes(task.kind) &&
+                <a-button size="small" v-if="task.lineId && !['assign', 'transferAccept'].includes(task.kind) &&
                     (canTransferLeader(task) || canTransferOperator(task))"
                   @click="openWorkbenchBatch('transfer', [task])">转派</a-button>
                 </div>
