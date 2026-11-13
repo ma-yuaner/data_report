@@ -88,7 +88,7 @@
                   @click="acceptTask(task)"
                 >接单</a-button>
                 <a-button size="small" v-else-if="task.kind === 'leaderRecovery'" type="primary" @click="openWorkbenchBatch('recovery', [task])">恢复判断</a-button>
-                <a-button size="small" v-else-if="task.kind === 'ownerRecovery'" type="primary" @click="openWorkbenchBatch('startRecovery', [task])">正在恢复</a-button>
+                <a-button size="small" v-else-if="task.kind === 'ownerRecovery'" type="primary" @click="openWorkbenchBatch('startRecovery', [task])">已操作恢复</a-button>
                 <a-button size="small" v-else-if="task.kind === 'recovered'" type="primary" @click="openWorkbenchBatch('assign', [task])">分配操作员</a-button>
                 <a-button size="small" v-else-if="task.kind === 'transferAccept'" type="primary" @click="openWorkbenchBatch('transferAccept', [task])">确认转派</a-button>
                 <a-button size="small" v-else-if="task.kind === 'assign' || task.kind === 'assignLeader'" type="primary"
@@ -292,7 +292,7 @@
         </template>
         <a-alert v-if="workbenchBatchAction === 'startRecovery'" type="info" show-icon
           :message="workbenchBatchRows[0]?.recoveryLocators || ''"
-          description="在 GDS 操作后确认正在恢复。从确认时起 48 小时后自动交回组长。" />
+          description="完成 GDS 恢复操作后点击确定，订单才进入正在恢复，并从本次确认开始计时 48 小时。" />
         <a-form-item v-if="workbenchBatchAction === 'transferAccept'" label="确认结果">
           <a-radio-group v-model:value="workbenchBatchForm.accepted">
             <a-radio :value="true">接受</a-radio><a-radio :value="false">拒绝</a-radio>
@@ -873,7 +873,7 @@ const tasks = computed<Fields[]>(() =>
       MASTER_TRANSFER_ACCEPT: ['transferAccept', '组长', '确认是否接受组长转派'],
       MASTER_TRANSFER_WAIT: ['masterTransferWait', '组长', '等待目标组长确认转派'],
       LEADER_DECISION: ['leaderRecovery', '组长', '判断是否恢复编码'],
-      OWNER_RECOVERY: ['ownerRecovery', 'ADM负责人', '在 GDS 操作后标记正在恢复'],
+      OWNER_RECOVERY: ['ownerRecovery', 'ADM负责人', '待操作恢复编码，完成后点击已操作恢复'],
       RECOVERING: ['recovering', 'ADM负责人', '等待 48 小时自动恢复'],
       RECOVERED: ['recovered', '组长', '已恢复，录入订单明细'],
       LEADER_FOLLOWUP: ['leaderFollowup', '组长', '订单办理中'],
@@ -1078,7 +1078,7 @@ function canEditWorkbenchLine(task: Fields) {
 }
 const workbenchActionLabels: Record<string, string> = {
   assign: '分配操作员', assignLeader: '分配组长', accept: '接单', transfer: '转派',
-  transferAccept: '确认转派', recovery: '恢复编码判断', startRecovery: '正在恢复',
+  transferAccept: '确认转派', recovery: '恢复编码判断', startRecovery: '确认已操作恢复',
 }
 const batchActions = computed(() => {
   const rows = batchRows.value
