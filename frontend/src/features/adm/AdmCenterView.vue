@@ -78,7 +78,9 @@
                   <template v-else>—</template>
                 </span>
                 <span>{{ task.assignment }}</span>
-                <span>{{ task.requiredAction }}</span>
+                <span>{{ task.requiredAction }}
+                  <small v-if="task.kind === 'recovering'">{{ recoveryCountdown(task.masterRecoveryDueAt) }}</small>
+                </span>
                 <b :class="{ danger: task.overdue }">{{ dateText(task.deadline) }}</b>
                 <div class="work-task-actions">
                 <a-button size="small"
@@ -839,8 +841,22 @@ function resetFilters() {
   metric.value = ''
   query()
 }
+const countdownNow = ref(Date.now())
+const countdownTimer = setInterval(() => { countdownNow.value = Date.now() }, 1000)
+function recoveryCountdown(value: unknown) {
+  const raw = String(value || '')
+  if (!raw) return '恢复截止时间待同步'
+  const normalized = raw.replace(' ', 'T')
+  const timestamp = Date.parse(/[zZ]$|[+-]\d{2}:?\d{2}$/.test(normalized) ? normalized : normalized + '+08:00')
+  if (!Number.isFinite(timestamp)) return '恢复截止时间待同步'
+  const seconds = Math.ceil((timestamp - countdownNow.value) / 1000)
+  if (seconds <= 0) return '倒计时已结束，等待状态更新'
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor(seconds % 3600 / 60)
+  return `剩余 ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`
+}
 const myId = computed(() => Number(auth.user?.id)),
-  now = () => Date.now(),
+  now = () => countdownNow.value,
   dateText = (v: unknown) => (v ? String(v).replace('T', ' ').slice(0, 16) : '—')
 const sourceText = (value: unknown) => ({
     TEST: '测试数据', LEGACY: '旧系统数据 / 历史只读',
@@ -1874,6 +1890,7 @@ watch(() => route.name === 'adm-cases' && route.query.create === '1', async (cre
   }
 }, { immediate: true })
 onBeforeUnmount(() => {
+  clearInterval(countdownTimer)
   fxRequest++
   queueRequest++
   request++
