@@ -370,7 +370,7 @@ class AdmWorkflowRepository:
             if not case:
                 return None
             legacy_source = self._load_legacy_source(cursor, case)
-            cursor.execute("SELECT * FROM admwf_case_line WHERE case_id=%s ORDER BY line_no", (case_id,))
+            cursor.execute("SELECT l.*,EXISTS (SELECT 1 FROM admwf_operation_log ml WHERE ml.line_id=l.id AND ml.event_type='UPDATE_LINE_BASIC_INFO' AND ml.note='资料已确认') AS material_confirmed FROM admwf_case_line l WHERE l.case_id=%s ORDER BY l.line_no", (case_id,))
             lines = cursor.fetchall()
             cursor.execute("SELECT * FROM admwf_fx_snapshot WHERE case_id=%s", (case_id,))
             fx = cursor.fetchone()
@@ -422,7 +422,7 @@ class AdmWorkflowRepository:
             if not case:
                 return None
             legacy_source = self._load_legacy_source(cursor, case)
-            cursor.execute("SELECT * FROM admwf_case_line WHERE case_id=%s ORDER BY line_no", (case_id,))
+            cursor.execute("SELECT l.*,EXISTS (SELECT 1 FROM admwf_operation_log ml WHERE ml.line_id=l.id AND ml.event_type='UPDATE_LINE_BASIC_INFO' AND ml.note='资料已确认') AS material_confirmed FROM admwf_case_line l WHERE l.case_id=%s ORDER BY l.line_no", (case_id,))
             lines = cursor.fetchall()
             cursor.execute("SELECT * FROM admwf_fx_snapshot WHERE case_id=%s", (case_id,))
             fx = cursor.fetchone()
@@ -521,7 +521,7 @@ class AdmWorkflowRepository:
             return self.get_case(case_id, connection=connection)
 
     def update_line_basic(self, case_id, line_id, data, actor, *, leader_only=False, expected_version=None,
-                          supplement=False):
+                          supplement=False, confirm_material=False):
         with self.transaction() as connection:
             case, line = self._lock_case_and_line(connection, case_id, line_id)
             if expected_version is not None and line["version_no"] != expected_version:
@@ -596,7 +596,7 @@ class AdmWorkflowRepository:
             changed = [key for key in after if before.get(key) != after.get(key)]
             self.append_operation_log(
                 connection, case_id=case_id, line_id=line_id,
-                event_no=self._next_event_no(connection, case_id), event_type="UPDATE_LINE_BASIC_INFO",
+                event_no=self._next_event_no(connection, case_id), event_type="UPDATE_LINE_BASIC_INFO", note="资料已确认" if confirm_material else None,
                 operator_id=actor["id"], operator_name=actor["name"],
                 from_status=line["line_status"], to_status=next_status,
                 before_version=line["version_no"], after_version=line["version_no"] + 1,
@@ -813,6 +813,8 @@ class AdmWorkflowRepository:
                 "SELECT c.id AS case_id,l.id AS line_id,l.operator_id,c.adm_no,c.internal_no,l.line_internal_no,"
                 f"{EFFECTIVE_LINE_STATUS} AS line_status,l.recovery_status,l.appeal_status,l.review_status,l.department_name,l.leader_name,l.operator_name,"
                 "c.reply_deadline,c.coordinator_id,l.leader_id,l.leader_overdue_at,l.operator_overdue_at,"
+                "EXISTS (SELECT 1 FROM admwf_operation_log ml WHERE ml.line_id=l.id "
+                "AND ml.event_type='UPDATE_LINE_BASIC_INFO' AND ml.note='资料已确认') AS material_confirmed,"
                 "CASE WHEN l.leader_id=%s AND l.line_status NOT IN ('PENDING_LEADER','PENDING_OPERATOR') "
                 "AND NOT (COALESCE(l.operator_id,0)=%s AND l.line_status IN ('PROCESSING','PENDING_ACCEPT')) "
                 "AND NOT (c.coordinator_id=%s AND l.line_status IN ('PENDING_REVIEW','WAITING_DIFF','WAITING_COLLECTION')) "
@@ -910,8 +912,13 @@ class AdmWorkflowRepository:
     def _require_line_ready(connection, case, line):
         if not case.get("master_recovery_status"):
             return
-        if not line.get("ota_code") or not str(line.get("pnr") or "").strip() or line["original_amount"] <= 0:
-            raise AdmError("请先在 ADM 详情补充平台、PNR 和原币金额", 409, "ADM_ACTION_BLOCKED")
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT id FROM admwf_operation_log WHERE line_id=%s AND event_type='UPDATE_LINE_BASIC_INFO' "
+                "AND note='资料已确认' LIMIT 1", (line["id"],),
+            )
+            if not cursor.fetchone():
+                raise AdmError("请先补充资料并点击已补充资料", 409, "ADM_ACTION_BLOCKED")
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT original_amount FROM admwf_case_line WHERE case_id=%s AND line_status<>'VOIDED' FOR UPDATE",
@@ -971,7 +978,6 @@ class AdmWorkflowRepository:
             next_status = "PENDING_OPERATOR" if line["line_status"] == "PENDING_LEADER" else line["line_status"]
             if line["leader_id"] == leader["id"]:
                 raise AdmError("新组长不能与当前组长相同")
-            self._require_line_ready(connection, case, line)
             now = business_now()
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -1024,7 +1030,8 @@ class AdmWorkflowRepository:
                 raise AdmError("只能转派自己负责的明细", 403, "ADM_FORBIDDEN")
             if not current_id or current_id == target["id"]:
                 raise AdmError("请选择与当前责任人不同的目标人员")
-            self._require_line_ready(connection, case, line)
+            if target_role == "OPERATOR":
+                self._require_line_ready(connection, case, line)
             now = business_now()
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -1082,7 +1089,7 @@ class AdmWorkflowRepository:
                 current_id = line["leader_id"] if target_role == "LEADER" else line["operator_id"]
                 if current_id != transfer["from_operator_id"]:
                     raise AdmError("当前责任人已变更，该转派不再有效", 409, "ADM_VERSION_CONFLICT")
-                if decision == "ACCEPTED":
+                if decision == "ACCEPTED" and target_role == "OPERATOR":
                     self._require_line_ready(connection, case, line)
                 next_status = line["line_status"]
                 if target_role == "OPERATOR" and next_status == "PENDING_ACCEPT" and decision == "ACCEPTED":

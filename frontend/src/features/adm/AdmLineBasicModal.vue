@@ -3,13 +3,13 @@
     <div v-if="detail && line" class="prototype-info-modal">
       <header class="prototype-info-head"><div><h2>{{ editable ? '编辑订单基础信息' : '订单基础信息' }}</h2><p>{{ admLineDisplay(detail.case.admNo, line.lineInternalNo) }}</p></div></header>
       <div v-if="editable && simpleEdit" class="v05-form-grid prototype-edit-grid adm-grouped-form">
-        <label><span>平台 <span class="form-required-mark">*</span></span><a-select v-model:value="form.otaCode" aria-required="true" show-search option-filter-prop="label"
+        <label><span>平台 </span><a-select v-model:value="form.otaCode"  show-search option-filter-prop="label"
           :options="options.ota" @change="(value?: string) => pick('ota', value)" /></label>
         <label>航司<a-input v-model:value="form.airlineName" :maxlength="100" /></label>
-        <label><span>PNR <span class="form-required-mark">*</span></span><a-input v-model:value="form.pnr" aria-required="true" :maxlength="500" /></label>
+        <label><span>PNR </span><a-input v-model:value="form.pnr"  :maxlength="500" /></label>
         <label>票号<a-input v-model:value="form.ticketNo" :maxlength="500" /></label>
-        <label><span>原币金额 <span class="form-required-mark">*</span></span>
-          <a-input v-model:value="form.originalAmount" :addon-before="detail.case.currency" inputmode="decimal" aria-required="true" />
+        <label><span>原币金额 </span>
+          <a-input v-model:value="form.originalAmount" :addon-before="detail.case.currency" inputmode="decimal"  />
         </label>
         <label>折算人民币<a-input :value="admCnyPreview(form.originalAmount, detail.fxSnapshot?.rateValue)" addon-before="¥" readonly /></label>
         <p>主单汇率 {{ detail.fxSnapshot?.rateValue || '—' }}</p>
@@ -21,12 +21,12 @@
         <label v-if="!detail.case.masterRecoveryStatus">供应商<a-select v-model:value="form.supplierCode" allow-clear :options="options.supplier" @change="(v?: string) => pick('supplier', v)" /></label><label v-if="detail.case.masterRecoveryStatus">供应商（继承主单）<a-input :value="line.supplierName" readonly /></label><label>航司<a-input v-model:value="form.airlineName" :maxlength="100" /></label>
         <label>票号<a-input v-model:value="form.ticketNo" /></label><label>PNR编码<a-input v-model:value="form.pnr" /></label>
         <h3>责任与处理信息</h3>
-        <label><span class="form-field-label">业务归属部门 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true" v-model:value="form.departmentCode" :disabled="!!detail.case.lineDefaults" :options="departmentOptions" @change="(v: string) => pick('department', v)" /></label><label><span class="form-field-label">负责组长 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true" :disabled="!!detail.case.lineDefaults || !canChangeAdmLeader(line)" v-model:value="form.leaderId" :options="leaderOptions" show-search option-filter-prop="label" placeholder="搜索姓名、部门或账号" @change="pickLeader" /></label>
+        <label><span class="form-field-label">业务归属部门 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select  v-model:value="form.departmentCode" :disabled="!!detail.case.lineDefaults" :options="departmentOptions" @change="(v: string) => pick('department', v)" /></label><label><span class="form-field-label">负责组长 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select  :disabled="!!detail.case.lineDefaults || !canChangeAdmLeader(line)" v-model:value="form.leaderId" :options="leaderOptions" show-search option-filter-prop="label" placeholder="搜索姓名、部门或账号" @change="pickLeader" /></label>
         <label>操作人员<a-input :value="line.operatorName || '未分配'" readonly /></label><label>截止时间（继承主单）<a-input :value="detail.case.replyDeadline || '—'" readonly /></label>
         <label>本笔ADM金额（原币）<a-input :value="`${detail.case.currency} ${line.originalAmount}`" readonly /></label><label>本笔ADM金额（人民币）<a-input :value="`¥ ${line.cnyAmount}`" readonly /></label>
         <label v-if="detail.case.lineDefaults">差异类型<a-input :value="line.diffTypeName || '—'" readonly /></label>
-        <label v-else><span class="form-field-label">差异类型 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true" v-model:value="form.diffTypeCode" :options="options.diffType" @change="(v: string) => pick('diffType', v)" /></label>
-        <label class="wide"><span class="form-field-label">细分差异原因 <span class="form-required-mark" aria-hidden="true">*</span></span><a-textarea aria-required="true" v-model:value="form.differenceReason" :readonly="!!detail.case.lineDefaults" :rows="3" /></label>
+        <label v-else><span class="form-field-label">差异类型 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select  v-model:value="form.diffTypeCode" :options="options.diffType" @change="(v: string) => pick('diffType', v)" /></label>
+        <label class="wide"><span class="form-field-label">细分差异原因 <span class="form-required-mark" aria-hidden="true">*</span></span><a-textarea  v-model:value="form.differenceReason" :readonly="!!detail.case.lineDefaults" :rows="3" /></label>
         <label class="wide">订单情况说明<a-textarea v-model:value="form.investigationNote" :rows="3" /></label>
       </div>
       <div v-else class="basic-info-grid">
@@ -55,7 +55,7 @@
       <footer class="prototype-info-footer">
         <a-button @click="close">关闭</a-button>
         <a-button v-if="canAdjustAmount" :disabled="saving" @click="emit('adjustAmount')">调整明细金额</a-button>
-        <a-button v-if="editable" type="primary" :loading="saving" @click="save">保存基础信息</a-button>
+        <a-button v-if="editable" type="primary" :loading="saving" @click="save">{{ simpleEdit ? '已补充资料' : '保存基础信息' }}</a-button>
       </footer>
     </div>
   </a-modal>
@@ -88,14 +88,10 @@ async function previewAttachment(item: Fields) { if (!props.detail) return; try 
 async function save() {
   if (!props.detail || !props.line || saving.value) return
   const { originalAmount, ...fields } = form
-  if (props.simpleEdit && (!fields.otaCode || !String(fields.pnr || '').trim() || (amountInCents(originalAmount) ?? 0n) <= 0n)) {
-    void message.warning('请填写平台、PNR 和大于零的原币金额')
-    return
-  }
   saving.value = true
   try {
     const detail = await admApi.updateLine(props.detail.case.id, props.line.id, {
-      ...fields, ...(props.simpleEdit ? { originalAmount } : {}), versionNo: props.line.versionNo,
+      ...fields, ...(props.simpleEdit ? { originalAmount: originalAmount || '0', confirmMaterial: true } : {}), versionNo: props.line.versionNo,
     })
     emit('saved', detail)
     void message.success('订单基础信息已保存')

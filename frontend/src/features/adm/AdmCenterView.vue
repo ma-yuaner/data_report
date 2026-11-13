@@ -91,9 +91,9 @@
                 >接单</a-button>
                 <a-button size="small" v-else-if="task.kind === 'leaderRecovery'" type="primary" @click="openWorkbenchBatch('recovery', [task])">恢复判断</a-button>
                 <a-button size="small" v-else-if="task.kind === 'ownerRecovery'" type="primary" @click="openWorkbenchBatch('startRecovery', [task])">已操作恢复</a-button>
-                <a-button size="small" v-else-if="task.kind === 'recovered'" type="primary" @click="openWorkbenchBatch('assign', [task])">分配操作员</a-button>
+                <a-button size="small" v-else-if="task.kind === 'recovered'" type="primary" @click="openCasePanel(Number(task.caseId))">补充资料</a-button>
                 <a-button size="small" v-else-if="task.kind === 'transferAccept'" type="primary" @click="openWorkbenchBatch('transferAccept', [task])">确认转派</a-button>
-                <a-button size="small" v-else-if="task.kind === 'assign' || task.kind === 'assignLeader'" type="primary"
+                <a-button size="small" v-else-if="(task.kind === 'assign' && task.materialConfirmed) || task.kind === 'assignLeader'" type="primary"
                   @click="openWorkbenchBatch(task.kind, [task])">{{ workbenchActionLabels[task.kind] }}</a-button>
                 <template v-else-if="isOperatorProcessing(task)">
                   <a-button size="small" v-if="task.recoveryStatus === 'UNDECIDED'" type="primary" @click="openDirectTask(task, 'recovery')">恢复判断</a-button>
@@ -112,12 +112,13 @@
                 <a-button size="small" v-else-if="task.kind === 'collection'" type="primary" @click="openDirectTask(task, 'collection')">登记回款</a-button>
                 <a-button size="small" v-else-if="task.kind === 'diff'" type="primary"
                   :loading="acceptingLines.has(Number(task.lineId))" @click="checkTaskDifference(task)">匹配差异单</a-button>
-                <a-button size="small" v-if="canEditWorkbenchLine(task)" @click="openDirectTask(task, 'edit')">编辑</a-button>
+                <a-button size="small" v-if="canEditWorkbenchLine(task)" @click="openDirectTask(task, 'edit')">补充资料</a-button>
                 <a-button size="small" v-else-if="task.lineId && !['assign', 'leaderFollowup'].includes(task.kind)"
                   type="link" @click="openCasePanel(Number(task.caseId))">详情</a-button>
-                <a-button size="small" v-if="task.lineId && !['assign', 'transferAccept'].includes(task.kind) &&
-                    (canTransferLeader(task) || canTransferOperator(task))"
-                  @click="openWorkbenchBatch('transfer', [task])">转派</a-button>
+                <a-button size="small" v-if="task.lineId && canTransferLeader(task)"
+                  @click="openLeaderTransfer(task)">更换组长</a-button>
+                <a-button size="small" v-if="task.lineId && task.materialConfirmed && canTransferOperator(task)"
+                  @click="openOperatorTransfer(task)">派单操作员</a-button>
                 </div>
               </div>
             </div>
@@ -247,7 +248,7 @@
       </div>
     </main>
 
-    <a-modal v-model:open="workbenchBatchOpen" :title="workbenchActionLabels[workbenchBatchAction]"
+    <a-modal v-model:open="workbenchBatchOpen" :title="workbenchBatchAction === 'transfer' ? (workbenchBatchForm.targetRole === 'LEADER' ? '更换组长' : '派单操作员') : workbenchActionLabels[workbenchBatchAction]"
       :confirm-loading="workbenchBatchBusy" :closable="!workbenchBatchBusy"
       :mask-closable="!workbenchBatchBusy" :keyboard="!workbenchBatchBusy"
       :cancel-button-props="{ disabled: workbenchBatchBusy }" @ok="submitWorkbenchBatch">
@@ -271,11 +272,7 @@
         <a-form-item v-if="['assignLeader', 'transfer'].includes(workbenchBatchAction) ||
             (workbenchBatchAction === 'assign' && assignmentRows.length && !assignmentProblem && !assignmentLoading)"
           :label="workbenchBatchAction === 'assign' ? '操作员' : '目标人员'" required>
-          <a-radio-group v-if="workbenchBatchAction === 'transfer' && workbenchBatchRows.every(canTransferLeader)"
-            v-model:value="workbenchBatchForm.targetRole" @change="workbenchBatchForm.targetUserId = undefined">
-            <a-radio-button value="OPERATOR">操作员</a-radio-button>
-            <a-radio-button value="LEADER">组长</a-radio-button>
-          </a-radio-group>
+
           <a-select v-model:value="workbenchBatchForm.targetUserId" show-search option-filter-prop="label"
             :options="workbenchPeople" placeholder="搜索姓名、部门或账号" />
         </a-form-item>
@@ -918,7 +915,7 @@ const tasks = computed<Fields[]>(() =>
       title: transferTask ? '确认是否接受转派' : (
         {
           PENDING_LEADER: '分配负责组长',
-          PENDING_OPERATOR: '分配操作人员',
+          PENDING_OPERATOR: line.materialConfirmed ? '派单操作员' : '补充资料',
           PENDING_ACCEPT: '确认接单',
           PROCESSING: reviewWithdrawn ? '审核撤回待重提' : returnMode === 'SUPPLEMENT' ? '驳回补充材料' : returnMode === 'REAPPEAL' ? '驳回重新申诉' : '办理订单',
           PENDING_REVIEW: 'ADM负责人审核',
@@ -1093,14 +1090,13 @@ function canEditWorkbenchLine(task: Fields) {
   )
 }
 const workbenchActionLabels: Record<string, string> = {
-  assign: '分配操作员', assignLeader: '分配组长', accept: '接单', transfer: '转派',
+  assign: '派单操作员', assignLeader: '分配组长', accept: '接单', transfer: '更换责任人员',
   transferAccept: '确认转派', recovery: '恢复编码判断', startRecovery: '确认已操作恢复',
 }
 const batchActions = computed(() => {
   const rows = batchRows.value
   if (!rows.length || !rows.every((task) => task.kind === rows[0].kind)) return []
   const actions = ['assignLeader', 'accept', 'transferAccept'].includes(rows[0].kind) ? [rows[0].kind] : []
-  if (rows.every((task) => task.kind !== 'transferAccept' && (canTransferLeader(task) || canTransferOperator(task)))) actions.push('transfer')
   return actions
 })
 function toggleWorkbenchTask(task: Fields) {
@@ -1130,7 +1126,8 @@ const assignmentLines = computed(() => assignmentDetail.value?.lines.filter(line
 function canAssignLine(line: AdmCaseDetail['lines'][number]) {
   return line.lineStatus === 'PENDING_OPERATOR' && Number(line.leaderId) === myId.value &&
     (!assignmentDetail.value?.case.masterRecoveryStatus ||
-      (!!line.otaCode && !!String(line.pnr || '').trim() && (amountInCents(line.originalAmount) ?? 0n) > 0n))
+      !!assignmentDetail.value?.operationLogs.some(log => Number(log.lineId) === Number(line.id) &&
+        log.eventType === 'UPDATE_LINE_BASIC_INFO' && log.note === '资料已确认'))
 }
 const assignmentOptions = computed(() => assignmentLines.value.filter(canAssignLine).map(line => ({
   value: Number(line.id),
@@ -1142,7 +1139,7 @@ const assignmentProblem = computed(() => {
   const detail = assignmentDetail.value
   if (!detail) return '请先读取主单明细。'
   if (assignmentMode.value === 'whole' && assignmentLines.value.length > 1) return '该主单有多笔明细，请选择分单。'
-  if (!assignmentOptions.value.length) return '请先新增明细或补齐平台、PNR 和原币金额。'
+  if (!assignmentOptions.value.length) return '请先补充资料并点击已补充资料。'
   const total = assignmentLines.value.reduce((sum, line) => sum + (amountInCents(line.originalAmount) ?? 0n), 0n)
   if (total !== amountInCents(detail.case.originalAmount)) return '明细原币合计与主单不一致，请先调整。'
   return ''
@@ -1156,7 +1153,7 @@ async function changeAssignmentMode(openSplitDetails = true) {
   assignmentLoading.value = true
   workbenchBatchError.value = ''
   try {
-    const detail = await admApi.summary(Number(task.caseId))
+    const detail = await admApi.detail(Number(task.caseId))
     if (seq === assignmentRequest) {
       assignmentDetail.value = detail
       if (openSplitDetails && workbenchBatchOpen.value && assignmentMode.value === 'split' && assignmentLines.value.length < 2)
@@ -1179,6 +1176,14 @@ const workbenchPeople = computed(() => admPersonOptions(
   (workbenchBatchAction.value === 'assignLeader' || workbenchBatchForm.targetRole === 'LEADER'
     ? config.value?.people.leader : config.value?.people.handle) || [],
 ))
+function openLeaderTransfer(task: Fields) {
+  openWorkbenchBatch('transfer', [task])
+  workbenchBatchForm.targetRole = 'LEADER'
+}
+function openOperatorTransfer(task: Fields) {
+  openWorkbenchBatch('transfer', [task])
+  workbenchBatchForm.targetRole = 'OPERATOR'
+}
 function openWorkbenchBatch(action: string, rows = batchRows.value) {
   if (!rows.length) return
   workbenchBatchRows.value = rows

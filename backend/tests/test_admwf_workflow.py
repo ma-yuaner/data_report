@@ -175,3 +175,30 @@ class AdmWorkflowStateTest(unittest.TestCase):
             {"id": 3, "line_internal_no": "A-003", "line_status": "PROCESSING"},
         ]
         self.assertEqual([item["lineId"] for item in closure_blockers(lines)], [3])
+
+
+class AdmMaterialConfirmationTest(unittest.TestCase):
+    def connection(self, confirmed, amounts):
+        class Cursor:
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def execute(self, sql, params): self.sql = sql
+            def fetchone(self): return {"id": 1} if confirmed else None
+            def fetchall(self): return [{"original_amount": Decimal(v)} for v in amounts]
+        class Connection:
+            def cursor(self): return Cursor()
+        return Connection()
+
+    def test_dispatch_requires_explicit_confirmation(self):
+        with self.assertRaisesRegex(AdmError, "已补充资料"):
+            AdmWorkflowRepository._require_line_ready(self.connection(False, ["100"]),
+                {"id": 1, "master_recovery_status": "RECOVERED", "original_amount": Decimal("100")}, {"id": 2})
+
+    def test_confirmation_allows_optional_fields_when_total_matches(self):
+        AdmWorkflowRepository._require_line_ready(self.connection(True, ["100", "0"]),
+            {"id": 1, "master_recovery_status": "RECOVERED", "original_amount": Decimal("100")}, {"id": 2})
+
+    def test_confirmation_does_not_bypass_total_check(self):
+        with self.assertRaisesRegex(AdmError, "合计"):
+            AdmWorkflowRepository._require_line_ready(self.connection(True, ["99"]),
+                {"id": 1, "master_recovery_status": "RECOVERED", "original_amount": Decimal("100")}, {"id": 2})

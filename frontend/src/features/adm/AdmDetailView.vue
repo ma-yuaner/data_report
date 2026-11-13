@@ -60,6 +60,7 @@
             </dl>
             <div class="summary-actions">
               <a-button @click="openMasterBasicInfo">{{ canEditMasterBasic ? '编辑基础信息' : '查看基础信息' }}</a-button>
+              <a-button @click="openMasterAttachments">附件预览</a-button>
               <a-button :loading="loading" @click="openMasterOperations">操作记录</a-button><a-button :disabled="loading" @click="() => load()">刷新</a-button
               ><a-button v-if="isCaseOwner && canCreate && record.case.caseStatus === 'DRAFT'" type="primary" @click="publishDraft">
                 发布草稿</a-button
@@ -111,7 +112,7 @@
             style="margin-bottom: 16px"
           />
           <a-alert v-if="usesOrderSupplement && !isLegacyReadOnly && !orderAmountsMatch" type="warning" show-icon class="block"
-            :message="`订单明细原币合计 ${record.case.currency} ${centsText(orderAmountTotal)}，主单原币总额 ${record.case.originalAmount}。金额一致后可分配或转派。`" />
+            :message="`订单明细原币合计 ${record.case.currency} ${centsText(orderAmountTotal)}，主单原币总额 ${record.case.originalAmount}。金额一致后可派单操作员。`" />
           <div class="v05-detail-grid" style="grid-template-columns: minmax(0, 1fr)">
             <div class="v05-card v05-orders">
               <div class="detail-card-head">
@@ -189,9 +190,9 @@
                       <td>
                         <div class="record-actions order-record-actions">
                           <a-button v-if="canEditLineBasic(line)" @click.stop="openBasicInfo(line)">补充资料</a-button
-                          ><a-button v-if="isCaseOwner && canAssignLeader && record.case.caseStatus === 'ACTIVE' && canChangeAdmLeader(line)" :disabled="!lineOperationReady(line)" @click.stop="openLineTask(line, 'leader')">{{ line.lineStatus === 'PENDING_LEADER' ? '分配组长' : '更换组长' }}</a-button
-                          ><a-button v-if="canAssignOperator && Number(line.leaderId) === myId && line.lineStatus === 'PENDING_OPERATOR'" :disabled="!lineOperationReady(line)" @click.stop="openLineTask(line, 'assign')">分配操作员</a-button
-                          ><a-button v-if="canTransferOrder(line)" :disabled="!lineOperationReady(line)" @click.stop="openLineTask(line, 'transfer')">转派</a-button>
+                          ><a-button v-if="isCaseOwner && canAssignLeader && record.case.caseStatus === 'ACTIVE' && canChangeAdmLeader(line)" @click.stop="openLineTask(line, 'leader')">{{ line.lineStatus === 'PENDING_LEADER' ? '分配组长' : '更换组长' }}</a-button
+                          ><a-button v-if="canAssignOperator && Number(line.leaderId) === myId && line.lineStatus === 'PENDING_OPERATOR' && lineMaterialConfirmed(line)" :disabled="!lineOperationReady(line)" @click.stop="openLineTask(line, 'assign')">派单操作员</a-button
+                          ><a-button v-if="canTransferOrder(line) && Number(line.leaderId) === myId" @click.stop="openLineTask(line, 'transferLeader')">更换组长</a-button><a-button v-if="canTransferOrder(line) && line.operatorId && lineOperationReady(line)" @click.stop="openLineTask(line, 'transferOperator')">派单操作员</a-button>
                         </div>
                       </td>
                     </tr>
@@ -463,6 +464,19 @@
     <a-modal v-model:open="masterOperationsOpen" title="ADM 主单操作记录" :footer="null" :width="720">
       <AdmOperationTimeline :items="caseOperationLogs" empty-text="当前主单暂无操作记录" />
     </a-modal>
+    <a-modal v-model:open="masterAttachmentsOpen" title="主单附件预览" :footer="null" :width="760">
+      <a-spin v-if="loading" />
+      <a-alert v-else-if="error" type="error" :message="error" />
+      <a-empty v-else-if="!masterAttachments.length" description="暂无主单附件" />
+      <a-list v-else :data-source="masterAttachments">
+        <template #renderItem="{ item }">
+          <a-list-item>
+            <a-list-item-meta :title="item.originalFileName" :description="item.uploadedAt" />
+            <a-button @click="previewFile(item)">预览</a-button>
+          </a-list-item>
+        </template>
+      </a-list>
+    </a-modal>
     <AdmMasterBasicModal :open="masterInfoOpen" :detail="record" :editable="canEditMasterBasic" @close="masterInfoOpen = false" @saved="basicInfoSaved" />
     <AdmLineBasicModal :open="basicInfoOpen" :detail="record" :line="selectedLine" :editable="directAction !== 'basic' && !!selectedLine && canEditLineBasic(selectedLine)"
       :simple-edit="usesOrderSupplement && selectedLine?.lineStatus === 'PENDING_OPERATOR' && !selectedLine.operatorId"
@@ -615,7 +629,7 @@
 
     <a-modal
       v-model:open="actionOpen"
-      :title="actionTitles[actionName] || '办理操作'"
+      :title="actionName === 'transfer' ? (actionForm.targetRole === 'LEADER' ? '更换组长' : '派单操作员') : actionTitles[actionName] || '办理操作'"
       :confirm-loading="saving"
       :closable="!saving"
       :keyboard="!saving"
@@ -640,12 +654,6 @@
           ><a-select v-model:value="actionForm.leaderId" :options="leaderOptions"
             show-search option-filter-prop="label" placeholder="搜索姓名、部门或账号" :loading="peopleLoading"
         /></a-form-item>
-        <a-form-item v-if="actionName === 'transfer'" label="转派岗位" required>
-          <a-radio-group v-model:value="actionForm.targetRole" @change="actionForm.targetUserId = undefined">
-            <a-radio-button v-if="canAssignOperator && Number(selectedLine?.leaderId) === myId" value="LEADER">组长</a-radio-button>
-            <a-radio-button :disabled="!selectedLine?.operatorId" value="OPERATOR">操作员</a-radio-button>
-          </a-radio-group>
-        </a-form-item>
         <a-form-item v-if="actionName === 'transfer'" label="目标人员" required
           ><a-select v-model:value="actionForm.targetUserId" :options="actionForm.targetRole === 'LEADER' ? leaderOptions : operatorOptions"
             show-search option-filter-prop="label" placeholder="搜索姓名、部门或账号" :loading="peopleLoading"
@@ -868,11 +876,17 @@ const orderAmountTotal = computed(() => activeLines.value.reduce(
   (sum, line) => sum + (amountInCents(line.originalAmount) ?? 0n), 0n,
 ))
 const orderAmountsMatch = computed(() => orderAmountTotal.value === amountInCents(record.value.case.originalAmount))
+function lineMaterialConfirmed(line: AdmLine) {
+  return !usesOrderSupplement.value || line.materialConfirmed || record.value.operationLogs.some(log =>
+    Number(log.lineId) === Number(line.id) && log.eventType === 'UPDATE_LINE_BASIC_INFO' && log.note === '资料已确认')
+}
 function lineOperationReady(line: AdmLine) {
-  return !usesOrderSupplement.value || (
-    orderAmountsMatch.value && !!line.otaCode && !!String(line.pnr || '').trim() &&
-    (amountInCents(line.originalAmount) ?? 0n) > 0n
-  )
+  return !usesOrderSupplement.value || (orderAmountsMatch.value && lineMaterialConfirmed(line))
+}
+const masterAttachmentsOpen = ref(false)
+async function openMasterAttachments() {
+  masterAttachmentsOpen.value = true
+  if (!fullDetailLoaded.value) await load(true)
 }
 const canAddAsLeader = computed(() => {
   const master = record.value.case
@@ -1064,7 +1078,9 @@ async function openLineTask(line: AdmLine, action: string) {
     return
   }
   selectedLineId.value = current.id
-  openAction(action)
+  openAction(action.startsWith('transfer') ? 'transfer' : action)
+  if (action === 'transferLeader') actionForm.targetRole = 'LEADER'
+  if (action === 'transferOperator') actionForm.targetRole = 'OPERATOR'
 }
 function openBasicInfo(line: AdmLine) {
   selectedLineId.value = line.id

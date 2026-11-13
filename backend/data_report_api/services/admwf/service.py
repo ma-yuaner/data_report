@@ -491,16 +491,12 @@ class AdmWorkflowService:
             normalized.update(airlineCode=line.get("airline_code"), airlineName=line.get("airline_name"))
         else:
             normalized["airlineCode"] = line.get("airline_code") if normalized["airlineName"] == line.get("airline_name") else None
-        if leader_edit:
-            normalized["pnr"] = text(normalized["pnr"], "PNR", 500)
-        if supplement:
-            if not normalized["otaCode"] or not normalized["pnr"] or normalized["originalAmount"] <= 0:
-                raise AdmError("请填写平台、PNR 和大于零的原币金额")
         return _json_value(self.repository.update_line_basic(
             int(case_id), int(line_id), normalized, actor,
             **({"leader_only": True} if leader_edit else {}),
             **({"expected_version": expected_version} if expected_version is not None else {}),
             **({"supplement": True} if supplement else {}),
+            **({"confirm_material": True} if payload.get("confirmMaterial") is True else {}),
         ))
 
     def master_leader_transfer(self, user, case_id, body):
