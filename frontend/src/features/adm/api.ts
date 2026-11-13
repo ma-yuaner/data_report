@@ -122,6 +122,7 @@ export const admApi = {
     data<AdmCaseDetail>(http.post(`${casePath(caseId)}/master-recovery`, { action, locators: value })),
   assignOperator: (caseId: number, lineId: number, body: Fields) => data<Fields>(http.post(`${linePath(caseId, lineId)}/assign-operator`, body)),
   changeLeader: (caseId: number, lineId: number, body: Fields) => data<Fields>(http.post(`${linePath(caseId, lineId)}/change-leader`, body)),
+  rejectAssignment: (caseId: number, lineId: number) => data<Fields>(http.post(`${linePath(caseId, lineId)}/reject`, {})),
   accept: (caseId: number, lineId: number) => data<Fields>(http.post(`${linePath(caseId, lineId)}/accept`, {})),
   investigationNote: (caseId: number, lineId: number, investigationNote: string) => data<Fields>(http.post(`${linePath(caseId, lineId)}/investigation-note`, { investigationNote })),
   transfer: (caseId: number, lineId: number, body: Fields) => data<Fields>(http.post(`${linePath(caseId, lineId)}/transfers`, body)),

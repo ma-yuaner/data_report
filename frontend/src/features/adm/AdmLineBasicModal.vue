@@ -8,11 +8,12 @@
         <label>航司<a-input v-model:value="form.airlineName" :maxlength="100" /></label>
         <label><span>PNR </span><a-input v-model:value="form.pnr"  :maxlength="500" /></label>
         <label>票号<a-input v-model:value="form.ticketNo" :maxlength="500" /></label>
-        <label><span>原币金额 </span>
+        <label v-if="!wholeOrder"><span>原币金额 </span>
           <a-input v-model:value="form.originalAmount" :addon-before="detail.case.currency" inputmode="decimal"  />
         </label>
-        <label>折算人民币<a-input :value="admCnyPreview(form.originalAmount, detail.fxSnapshot?.rateValue)" addon-before="¥" readonly /></label>
-        <p>主单汇率 {{ detail.fxSnapshot?.rateValue || '—' }}</p>
+        <label v-if="!wholeOrder">折算人民币<a-input :value="admCnyPreview(form.originalAmount, detail.fxSnapshot?.rateValue)" addon-before="¥" readonly /></label>
+        <p v-if="wholeOrder">整单金额自动继承主单，无需补录。</p>
+        <p v-else>主单汇率 {{ detail.fxSnapshot?.rateValue || '—' }}</p>
       </div>
       <div v-else-if="editable" class="v05-form-grid prototype-edit-grid adm-grouped-form">
         <h3>订单标识</h3>
@@ -85,13 +86,14 @@ function close() { emit('close') }
 function pick(kind: string, value?: string) { const item = masters[kind].find(option => option.code === value); const nameKey = `${kind}Name`; form[nameKey] = item?.name || '' }
 function pickLeader(value: number) { form.leaderName = props.config?.people.leader.find(item => Number(item.id) === Number(value))?.name || '' }
 async function previewAttachment(item: Fields) { if (!props.detail) return; try { const response = await admApi.file(props.detail.case.id, item.id, 'preview'); const url = URL.createObjectURL(response.data); window.open(url, '_blank', 'noopener'); window.setTimeout(() => URL.revokeObjectURL(url), 60_000) } catch (error) { void message.error(errorText(error)) } }
+const wholeOrder = computed(() => props.detail?.lines.filter(line => line.lineStatus !== 'VOIDED').length === 1)
 async function save() {
   if (!props.detail || !props.line || saving.value) return
   const { originalAmount, ...fields } = form
   saving.value = true
   try {
     const detail = await admApi.updateLine(props.detail.case.id, props.line.id, {
-      ...fields, ...(props.simpleEdit ? { originalAmount: originalAmount || '0', confirmMaterial: true } : {}), versionNo: props.line.versionNo,
+      ...fields, ...(props.simpleEdit ? { originalAmount: wholeOrder.value ? props.detail.case.originalAmount : originalAmount || '0', confirmMaterial: true } : {}), versionNo: props.line.versionNo,
     })
     emit('saved', detail)
     void message.success('订单基础信息已保存')

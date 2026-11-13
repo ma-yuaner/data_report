@@ -89,12 +89,13 @@
                   type="primary"
                   :loading="acceptingLines.has(Number(task.lineId))"
                   @click="acceptTask(task)"
-                >接单</a-button>
+                >接受</a-button>
+                <a-button v-if="canAcceptTask(task)" size="small" danger @click="rejectTaskAssignment(task)">拒绝</a-button>
                 <a-button size="small" v-else-if="task.kind === 'leaderRecovery'" type="primary" @click="openWorkbenchBatch('recovery', [task])">恢复判断</a-button>
                 <a-button size="small" v-else-if="task.kind === 'ownerRecovery'" type="primary" @click="openWorkbenchBatch('startRecovery', [task])">已操作恢复</a-button>
                 <a-button size="small" v-else-if="task.kind === 'recovered'" type="primary" @click="openCasePanel(Number(task.caseId))">补充资料</a-button>
                 <a-button size="small" v-else-if="task.kind === 'transferAccept'" type="primary" @click="openWorkbenchBatch('transferAccept', [task])">确认转派</a-button>
-                <a-button size="small" v-else-if="(task.kind === 'assign' && task.materialConfirmed) || task.kind === 'assignLeader'" type="primary"
+                <a-button size="small" v-else-if="task.kind === 'assign' || task.kind === 'assignLeader'" type="primary"
                   @click="openWorkbenchBatch(task.kind, [task])">{{ workbenchActionLabels[task.kind] }}</a-button>
                 <template v-else-if="isOperatorProcessing(task)">
                   <a-button size="small" v-if="task.recoveryStatus === 'UNDECIDED'" type="primary" @click="openDirectTask(task, 'recovery')">恢复判断</a-button>
@@ -709,7 +710,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { message } from 'ant-design-vue'
+import { Modal, message } from 'ant-design-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
 import { createOperationIdentifier } from '@/utils/operationIdentifier'
@@ -1130,7 +1131,7 @@ let resumeAssignment: Fields | undefined
 const assignmentLines = computed(() => assignmentDetail.value?.lines.filter(line => line.lineStatus !== 'VOIDED') || [])
 function canAssignLine(line: AdmCaseDetail['lines'][number]) {
   return line.lineStatus === 'PENDING_OPERATOR' && Number(line.leaderId) === myId.value &&
-    (!assignmentDetail.value?.case.masterRecoveryStatus ||
+    ((assignmentMode.value === 'whole' && assignmentLines.value.length === 1) || !assignmentDetail.value?.case.masterRecoveryStatus ||
       !!assignmentDetail.value?.operationLogs.some(log => Number(log.lineId) === Number(line.id) &&
         log.eventType === 'UPDATE_LINE_BASIC_INFO' && log.operationNote === '资料已确认'))
 }
@@ -1146,7 +1147,7 @@ const assignmentProblem = computed(() => {
   if (assignmentMode.value === 'whole' && assignmentLines.value.length > 1) return '该主单有多笔明细，请选择分单。'
   if (!assignmentOptions.value.length) return '请先补充资料并点击已补充资料。'
   const total = assignmentLines.value.reduce((sum, line) => sum + (amountInCents(line.originalAmount) ?? 0n), 0n)
-  if (total !== amountInCents(detail.case.originalAmount)) return '明细原币合计与主单不一致，请先调整。'
+  if (assignmentMode.value !== 'whole' && total !== amountInCents(detail.case.originalAmount)) return '明细原币合计与主单不一致，请先调整。'
   return ''
 })
 async function changeAssignmentMode(openSplitDetails = true) {
@@ -1234,7 +1235,7 @@ async function submitWorkbenchBatch() {
     for (const task of rows) {
       const caseId = Number(task.caseId), lineId = Number(task.lineId)
       try {
-        if (action === 'assign') await admApi.assignOperator(caseId, lineId, { operatorId: form.targetUserId })
+        if (action === 'assign') await admApi.assignOperator(caseId, lineId, { operatorId: form.targetUserId, assignmentMode: assignmentMode.value })
         if (action === 'assignLeader') await admApi.changeLeader(caseId, lineId, { leaderId: form.targetUserId, reason: form.reason })
         if (action === 'accept') await admApi.accept(caseId, lineId)
         if (action === 'transfer') {
@@ -1295,6 +1296,11 @@ function submitTaskReview(task: Fields) {
 }
 function checkTaskDifference(task: Fields) {
   return runWorkbenchLineAction(task, admApi.checkDifference, '', result => showDifferenceResult(result, Number(task.lineId)))
+}
+function rejectTaskAssignment(task: Fields) {
+  Modal.confirm({ title: '拒绝接单？', content: '拒绝后退回负责组长重新派单。', okText: '拒绝接单', cancelText: '取消',
+    onOk: () => runWorkbenchLineAction(task, admApi.rejectAssignment, '已拒绝，退回组长重新派单'),
+  })
 }
 function canAcceptTask(task: Fields) {
   return task.kind === 'accept' && canOperatorWork.value && Number(task.operatorId) === myId.value
@@ -1583,13 +1589,10 @@ function openCase(record: AdmCaseRow, status?: string) {
   const lineStatus = status || (stages.length === 1 ? stages[0].status : undefined)
   openCasePanel(Number(record.id), { lineStatus })
 }
-function canEditMasterRow(record: AdmCaseRow) {
-  const allowed = !!(
-    config.value?.permissions.create || config.value?.permissions.manage || config.value?.permissions.review
-  )
-  const owner = Number(record.coordinatorId) === Number(auth.user?.id)
-  return allowed && owner && ['DRAFT', 'ACTIVE'].includes(record.caseStatus)
+function canEditMasterRow(_record: AdmCaseRow) {
+  return !!auth.user?.isAdmin || !!config.value?.permissions.editMaster
 }
+
 async function openMasterInfo(record: AdmCaseRow) {
   selectedMasterEditable.value = canEditMasterRow(record)
   if (!selectedMasterEditable.value) showMasterReadOnlyNotice(record)

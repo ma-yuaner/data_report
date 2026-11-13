@@ -364,13 +364,12 @@ class AdmWorkflowService:
         return _json_value(result)
 
     def update_case(self, user, case_id, body):
-        actor = self._assigned_owner_actor(
-            user, case_id, "编辑主单基础信息", "adm.create", "adm.manage", "adm.review",
-        )
+        require(user, "adm.edit_master")
+        actor = self._actor(user)
         stored = self.repository.get_case(int(case_id))
+        if not stored:
+            raise AdmError("ADM主单不存在", 404, "ADM_NOT_FOUND")
         case = stored["case"]
-        if case["case_status"] not in {"DRAFT", "ACTIVE"}:
-            raise AdmError("当前主单状态只允许查看基础信息", 409, "ADM_ACTION_BLOCKED")
         payload = body or {}
         master_intake = (case.get("lineDefaults") or {}).get("masterIntake")
         if master_intake:
@@ -675,6 +674,7 @@ class AdmWorkflowService:
             "people": people,
             "permissions": {
                 "view": has(user, "adm.view"), "create": has(user, "adm.create"),
+                "editMaster": has(user, "adm.edit_master"),
                 "assignLeader": has(user, "adm.assign_leader") or has(user, "adm.review"),
                 "assignOperator": has(user, "adm.assign_operator") or has(user, "adm.assign"),
                 "assign": has(user, "adm.assign_operator") or has(user, "adm.assign"),
@@ -789,6 +789,7 @@ class AdmWorkflowService:
         saved = self.repository.assign_operator(
             int(case_id), int(line_id), operator, actor,
             reason=text((body or {}).get("reason"), "分配说明", 1000, required=False),
+            **({"whole": True} if (body or {}).get("assignmentMode") == "whole" else {}),
             **({"allow_override": True} if user.get("is_admin") else {}),
         )
         return _json_value(saved)
@@ -831,6 +832,10 @@ class AdmWorkflowService:
             int(case_id), int(line_id), int(transfer_id), self._actor(user), decision,
             text((body or {}).get("reason"), "拒绝原因", 1000, required=False), allowed_roles=allowed_roles,
         ))
+
+    def reject_assignment(self, user, case_id, line_id):
+        require(user, "adm.handle")
+        return _json_value(self.repository.reject_assignment(int(case_id), int(line_id), self._actor(user)))
 
     def accept_line(self, user, case_id, line_id, *, source="WEB"):
         require(user, "adm.handle")

@@ -116,29 +116,14 @@ class AdmWorkflowStateTest(unittest.TestCase):
             expected_collection_amount=None, collected_amount="0",
         ), "COMPLETED")
 
-    def test_difference_query_key_uses_ota_first(self):
-        self.assertEqual(difference_query_key(
-            source_type="LEGACY", ota_order_no="OTA-1", adm_no="ADM-1",
-            line_internal_no="ADM-1-01-001",
-        )["keyType"], "OTA_ORDER_NO")
-
-    def test_legacy_without_ota_uses_original_adm_no(self):
-        result = difference_query_key(
-            source_type="LEGACY", ota_order_no=None, adm_no="ADM-OLD",
-            line_internal_no="ADM-OLD-01-001",
-        )
-        self.assertEqual(result["keyValue"], "ADM-OLD")
-        self.assertEqual(result["matchedStatus"], "MATCHED_LEGACY_ADM_NO")
-
-    def test_new_manual_and_excel_without_ota_use_line_internal_no(self):
-        for source_type in ("MANUAL", "EXCEL"):
-            with self.subTest(source_type=source_type):
-                result = difference_query_key(
-                    source_type=source_type, ota_order_no="", adm_no="ADM-NEW",
-                    line_internal_no="ADM-NEW-01-002",
-                )
-                self.assertEqual(result["keyValue"], "ADM-NEW-01-002")
-                self.assertEqual(result["matchedStatus"], "MATCHED_LINE_INTERNAL_NO")
+    def test_difference_query_key_always_uses_master_number(self):
+        for source in ("LEGACY", "MANUAL", "EXCEL"):
+            for ota in ("OTA-OTHER", "", None):
+                with self.subTest(source=source, ota=ota):
+                    result = difference_query_key(source_type=source, ota_order_no=ota,
+                        adm_no="8969000270", line_internal_no="8969000270-02-001")
+                    self.assertEqual(result["keyValue"], "8969000270")
+                    self.assertEqual(result["keyType"], "ADM_NO")
 
     def test_successful_appeal_does_not_require_diff_or_collection(self):
         self.assertEqual(status_after_approval(

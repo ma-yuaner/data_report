@@ -195,7 +195,7 @@
                         <div class="record-actions order-record-actions">
                           <a-button v-if="canEditLineBasic(line)" @click.stop="openBasicInfo(line)">补充资料</a-button
                           ><a-button v-if="isCaseOwner && canAssignLeader && record.case.caseStatus === 'ACTIVE' && canChangeAdmLeader(line)" @click.stop="openLineTask(line, 'leader')">{{ line.lineStatus === 'PENDING_LEADER' ? '分配组长' : '更换组长' }}</a-button
-                          ><a-button v-if="canAssignOperator && Number(line.leaderId) === myId && line.lineStatus === 'PENDING_OPERATOR' && lineMaterialConfirmed(line)" :disabled="!lineOperationReady(line)" @click.stop="openLineTask(line, 'assign')">派单操作员</a-button
+                          ><a-button v-if="canAssignOperator && Number(line.leaderId) === myId && line.lineStatus === 'PENDING_OPERATOR' && (activeLines.length === 1 || lineMaterialConfirmed(line))" :disabled="activeLines.length !== 1 && !lineOperationReady(line)" @click.stop="openLineTask(line, 'assign')">派单操作员</a-button
                           ><a-button v-if="canTransferOrder(line) && Number(line.leaderId) === myId" @click.stop="openLineTask(line, 'transferLeader')">更换组长</a-button><a-button v-if="canTransferOrder(line) && line.operatorId && lineOperationReady(line)" @click.stop="openLineTask(line, 'transferOperator')">派单操作员</a-button>
                         </div>
                       </td>
@@ -323,7 +323,7 @@
                 </section>
 
                 <div v-if="record.case.caseStatus === 'ACTIVE'" class="process-overview-actions process-support-actions">
-                  <a-button v-if="isCurrentOperator && selectedLine.lineStatus === 'PENDING_ACCEPT'" type="primary" @click="runSimple('accept')">接单</a-button><a-button v-if="pendingTargetTransfer" type="primary" @click="decidePendingTransfer(true)">接受转派</a-button><a-button v-if="pendingTargetTransfer" danger @click="openAction('transferReject')">拒绝转派</a-button><a-button v-if="isCaseOwner && canReview && selectedLine.lineStatus === 'PENDING_REVIEW'" type="primary" @click="openAction('review')">ADM负责人审核</a-button><a-button v-if="canWithdrawReview" @click="openAction('withdrawReview')">撤回审核</a-button><a-button v-if="isCaseOwner && canDiffMatch && selectedLine.lineStatus === 'WAITING_DIFF'" type="primary" @click="runSimple('checkDifference')">匹配差异单</a-button><a-button v-if="isCaseOwner && canCollection && selectedLine.lineStatus === 'WAITING_COLLECTION'" type="primary" @click="openAction('collection')">登记回款</a-button>
+                  <a-button v-if="isCurrentOperator && selectedLine.lineStatus === 'PENDING_ACCEPT'" type="primary" @click="runSimple('accept')">接受</a-button><a-button v-if="isCurrentOperator && selectedLine.lineStatus === 'PENDING_ACCEPT'" danger @click="rejectCurrentAssignment">拒绝</a-button><a-button v-if="pendingTargetTransfer" type="primary" @click="decidePendingTransfer(true)">接受转派</a-button><a-button v-if="pendingTargetTransfer" danger @click="openAction('transferReject')">拒绝转派</a-button><a-button v-if="isCaseOwner && canReview && selectedLine.lineStatus === 'PENDING_REVIEW'" type="primary" @click="openAction('review')">ADM负责人审核</a-button><a-button v-if="canWithdrawReview" @click="openAction('withdrawReview')">撤回审核</a-button><a-button v-if="isCaseOwner && canDiffMatch && selectedLine.lineStatus === 'WAITING_DIFF'" type="primary" @click="runSimple('checkDifference')">匹配差异单</a-button><a-button v-if="isCaseOwner && canCollection && selectedLine.lineStatus === 'WAITING_COLLECTION'" type="primary" @click="openAction('collection')">登记回款</a-button>
                 </div>
 
                 <div v-if="isCaseOwner && canManage && record.case.caseStatus === 'ACTIVE'" class="process-danger-zone"><b>管理操作</b><div><a-button v-if="!record.lines.some((item) => ['PENDING_REVIEW', 'WAITING_DIFF', 'WAITING_COLLECTION', 'COMPLETED', 'HISTORICAL'].includes(item.lineStatus))" @click="openAction('rebalance')">调整明细金额</a-button><a-button v-if="selectedLine.reviewStatus !== 'APPROVED' && !['COMPLETED', 'VOIDED', 'HISTORICAL'].includes(selectedLine.lineStatus)" danger @click="openAction('voidLine')">作废明细</a-button></div></div>
@@ -906,14 +906,10 @@ const canAddLine = computed(() => {
   if (master.masterRecoveryStatus && master.masterRecoveryStatus !== 'NOT_REQUIRED') return false
   return isCaseOwner.value && (canCreate.value || canManage.value)
 })
-const canEditMasterBasic = computed(
-  () => isCaseOwner.value && (canCreate.value || canManage.value || canReview.value) &&
-    ['DRAFT', 'ACTIVE'].includes(record.value.case.caseStatus) &&
-    !activeLines.value.some((line) => line.reviewStatus === 'APPROVED' || line.lineStatus === 'COMPLETED'),
-)
+const canEditMasterBasic = computed(() => isAdmin.value || !!config.value?.permissions.editMaster)
 function canEditLineBasic(line: AdmLine) {
   if (line.reviewStatus === 'APPROVED' || ['COMPLETED', 'HISTORICAL', 'VOIDED'].includes(line.lineStatus)) return false
-  return canEditMasterBasic.value || isUnassignedOrderLeader(line)
+  return (isCaseOwner.value && (canCreate.value || canManage.value || canReview.value) && ['DRAFT', 'ACTIVE'].includes(record.value.case.caseStatus)) || isUnassignedOrderLeader(line)
 }
 function isUnassignedOrderLeader(line: AdmLine) {
   return record.value.case.caseStatus === 'ACTIVE' && canAssignOperator.value &&
@@ -1536,7 +1532,7 @@ function rejectPendingTransfer(lineId: number) {
 }
 async function submitAction() {
   if (saving.value || (!selectedLine.value && !['voidCase', 'deleteDraft'].includes(actionName.value))) return
-  if (assignmentAction.value && !Number(actionName.value === 'leader' ? actionForm.leaderId : actionForm.operatorId)) {
+  if (assignmentAction.value && !Number(actionName.value === 'leader' ? actionForm.leaderId : actionName.value === 'transfer' ? actionForm.targetUserId : actionForm.operatorId)) {
     actionError.value = '请选择可分配的人员'
     return
   }
@@ -1570,7 +1566,7 @@ async function submitAction() {
       collectionFile.value = null
     }
     const calls: Fields = {
-      assign: () => admApi.assignOperator(caseId, lineId, actionForm),
+      assign: () => admApi.assignOperator(caseId, lineId, { ...actionForm, assignmentMode: activeLines.value.length === 1 ? 'whole' : 'split' }),
       leader: () => admApi.changeLeader(caseId, lineId, actionForm),
       transfer: () => admApi.transfer(caseId, lineId, actionForm),
       transferReject: () => rejectPendingTransfer(lineId),
@@ -1632,6 +1628,16 @@ async function decidePendingTransfer(accepted: boolean) {
   } finally {
     saving.value = false
   }
+}
+function rejectCurrentAssignment() {
+  const lineId = selectedLine.value?.id
+  if (!lineId) return
+  Modal.confirm({ title: '拒绝接单？', content: '拒绝后退回负责组长重新派单。', okText: '拒绝接单', cancelText: '取消',
+    onOk: async () => {
+      try { await admApi.rejectAssignment(caseId, lineId); emit('changed'); await load(); void message.success('已退回组长重新派单') }
+      catch (e) { void message.error(errorText(e)); throw e }
+    },
+  })
 }
 async function runSimple(name: string) {
   if (saving.value || (!selectedLine.value && name !== 'close')) return

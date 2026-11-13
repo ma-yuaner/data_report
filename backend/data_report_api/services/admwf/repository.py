@@ -469,18 +469,6 @@ class AdmWorkflowRepository:
                 case = cursor.fetchone()
                 if not case:
                     raise AdmError("ADM主单不存在", 404, "ADM_NOT_FOUND")
-                if case["case_status"] not in {"DRAFT", "ACTIVE"}:
-                    raise AdmError("当前主单状态只允许查看基础信息", 409, "ADM_ACTION_BLOCKED")
-                cursor.execute(
-                    "SELECT COUNT(*) AS total FROM admwf_case_line WHERE case_id=%s "
-                    "AND (review_status='APPROVED' OR line_status='COMPLETED')",
-                    (case_id,),
-                )
-                if int(cursor.fetchone()["total"]):
-                    raise AdmError(
-                        "主单已有订单审核通过或已完结，基础信息已锁定；特殊情况请先由ADM负责人撤回审核",
-                        409, "ADM_REVIEWED_READ_ONLY",
-                    )
                 now = business_now()
                 cursor.execute(
                     "UPDATE admwf_case SET adm_no=%s,issuer_type=%s,issuer_code=%s,issuer_name=%s,"
@@ -928,14 +916,28 @@ class AdmWorkflowRepository:
         if total != case["original_amount"]:
             raise AdmError("订单明细原币合计与主单不一致，请先到 ADM 详情调整", 409, "ADM_ACTION_BLOCKED")
 
-    def assign_operator(self, case_id, line_id, operator, actor, reason=None, *, allow_override=False):
+    def assign_operator(self, case_id, line_id, operator, actor, reason=None, *, allow_override=False, whole=False):
         with self.transaction() as connection:
             case, line = self._lock_case_and_line(connection, case_id, line_id)
             if case["case_status"] != "ACTIVE" or self._effective_line(line)["line_status"] != "PENDING_OPERATOR":
                 raise AdmError("当前状态不能分配操作员", 409, "ADM_ACTION_BLOCKED")
             if not allow_override and line["leader_id"] != actor["id"]:
                 raise AdmError("组长只能分配自己负责的明细", 403, "ADM_FORBIDDEN")
-            self._require_line_ready(connection, case, line)
+            if whole:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT id FROM admwf_case_line WHERE case_id=%s AND line_status<>'VOIDED' FOR UPDATE", (case_id,))
+                    lines = cursor.fetchall()
+                    if len(lines) != 1 or lines[0]["id"] != line_id:
+                        raise AdmError("整单派单只能包含一笔有效明细，请改用分单", 409, "ADM_ACTION_BLOCKED")
+                    cursor.execute("UPDATE admwf_case_line SET original_amount=%s,cny_amount=%s WHERE id=%s",
+                                   (case["original_amount"], case["cny_amount"], line_id))
+                self.append_operation_log(connection, case_id=case_id, line_id=line_id,
+                    event_no=self._next_event_no(connection, case_id), event_type="UPDATE_LINE_BASIC_INFO",
+                    operator_id=actor["id"], operator_name=actor["name"], note="资料已确认",
+                    before={"originalAmount": str(line["original_amount"]), "cnyAmount": str(line["cny_amount"])},
+                    after={"originalAmount": str(case["original_amount"]), "cnyAmount": str(case["cny_amount"]), "assignmentMode": "whole"})
+            else:
+                self._require_line_ready(connection, case, line)
             now = business_now()
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -1218,6 +1220,29 @@ class AdmWorkflowRepository:
                 after_version=line["version_no"] + 1, after={"acceptedAt": now.isoformat(sep=" ")},
                 changed_fields=["lineStatus", "acceptedAt", "responsibilitySegment"],
             )
+            return self.get_case(case_id, connection=connection)
+
+    def reject_assignment(self, case_id, line_id, actor):
+        with self.transaction() as connection:
+            case, line = self._lock_case_and_line(connection, case_id, line_id)
+            if case["case_status"] != "ACTIVE" or line["line_status"] != "PENDING_ACCEPT":
+                raise AdmError("当前状态不能拒绝接单", 409, "ADM_ACTION_BLOCKED")
+            if line["operator_id"] != actor["id"]:
+                raise AdmError("只能拒绝派给自己的订单", 403, "ADM_FORBIDDEN")
+            now = business_now()
+            with connection.cursor() as cursor:
+                cursor.execute("UPDATE admwf_case_line SET operator_id=NULL,operator_name='',accepted_at=NULL,"
+                    "line_status='PENDING_OPERATOR',version_no=version_no+1,updated_by_id=%s,updated_by_name=%s,updated_at=%s "
+                    "WHERE id=%s AND version_no=%s", (actor["id"], actor["name"], now, line_id, line["version_no"]))
+                if cursor.rowcount != 1:
+                    raise AdmError("明细已变化，请刷新后重试", 409, "ADM_VERSION_CONFLICT")
+                cursor.execute("UPDATE admwf_assignment SET effective_status='ENDED',ended_at=%s WHERE line_id=%s "
+                    "AND assignment_type='OPERATOR' AND to_user_id=%s AND effective_status='PENDING'", (now, line_id, actor["id"]))
+            self.append_operation_log(connection, case_id=case_id, line_id=line_id,
+                event_no=self._next_event_no(connection, case_id), event_type="REJECT_ASSIGNMENT",
+                operator_id=actor["id"], operator_name=actor["name"], note="操作员拒绝接单，退回组长重新派单",
+                from_status="PENDING_ACCEPT", to_status="PENDING_OPERATOR",
+                before_version=line["version_no"], after_version=line["version_no"] + 1)
             return self.get_case(case_id, connection=connection)
 
     def update_investigation_note(self, case_id, line_id, actor, note):
@@ -1631,12 +1656,14 @@ class AdmWorkflowRepository:
                 raise AdmError("不申诉时必须选择问题归因")
             now = business_now()
             with connection.cursor() as cursor:
+                cursor.execute("SELECT COALESCE(MAX(round_no),0)+1 AS next_no FROM admwf_appeal WHERE line_id=%s", (line_id,))
+                round_no = int(cursor.fetchone()["next_no"])
                 cursor.execute(
                     "INSERT INTO admwf_appeal"
                     "(case_id,line_id,round_no,decision,no_appeal_reason,status,problem_attribution,result_at,"
                     "created_by_id,created_by_name,created_at,updated_by_id,updated_by_name,updated_at) "
-                    "VALUES(%s,%s,1,'NO_APPEAL',%s,'NO_APPEAL',%s,%s,%s,%s,%s,%s,%s,%s)",
-                    (case_id, line_id, reason, attribution, now, actor["id"], actor["name"], now,
+                    "VALUES(%s,%s,%s,'NO_APPEAL',%s,'NO_APPEAL',%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (case_id, line_id, round_no, reason, attribution, now, actor["id"], actor["name"], now,
                      actor["id"], actor["name"], now),
                 )
                 cursor.execute(

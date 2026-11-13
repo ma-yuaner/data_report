@@ -166,6 +166,11 @@ def register_routes(api: Blueprint) -> None:
     def admwf_reject_transfer(service, user, case_id, line_id, transfer_id):
         return service.decide_transfer(user, case_id, line_id, transfer_id, "REJECTED", json_body())
 
+    @api.post("/v1/adm/cases/<case_id>/lines/<line_id>/reject")
+    @admwf_response
+    def admwf_reject_assignment(service, user, case_id, line_id):
+        return service.reject_assignment(user, case_id, line_id)
+
     @api.post("/v1/adm/cases/<case_id>/lines/<line_id>/accept")
     @admwf_response
     def admwf_accept(service, user, case_id, line_id):
