@@ -119,7 +119,7 @@ def _diff_label(value, item=None):
 
 
 def _attribution_label(value):
-    return {"HUMAN": "人为问题", "PLATFORM": "平台问题", "SYSTEM": "系统问题"}.get(
+    return {"HUMAN": "人为问题", "PLATFORM": "平台问题", "SYSTEM": "系统问题", "EXTERNAL":"外部规则/平台", "BUSINESS":"业务原因", "FORCE_MAJEURE":"不可抗力", "UNKNOWN":"待查明"}.get(
         str(value or ""), value,
     )
 
@@ -361,7 +361,7 @@ class AdmDailyWorkbook:
                 (27, ["已查看并处理"] if recovery in {"WAITING", "REMINDER_DUE"} else []),
                 (28, _operator_actions(item)),
                 (30, list(APPEAL_TARGETS.values()) if not correction_only else []),
-                (32, ["人为问题", "平台问题", "系统问题"] if not correction_only else []),
+                (32, ["人为问题", "平台问题", "系统问题", "外部规则/平台", "业务原因", "不可抗力", "待查明"] if not correction_only else []),
             )
             for column, options in validations:
                 if not options:

@@ -104,3 +104,9 @@ class AssignmentRegressionTest(unittest.TestCase):
         row = self.db.execute("SELECT adm_no,case_status,remark FROM admwf_case WHERE id=1").fetchone()
         self.assertEqual(tuple(row),("NEW","CLOSED","corrected"))
         self.assertTrue(any(log["event_type"] == "UPDATE_CASE_BASIC_INFO" for log in self.logs))
+
+    def test_force_majeure_is_preserved_without_becoming_platform(self):
+        self.db.execute("UPDATE admwf_case_line SET line_status='PROCESSING',operator_id=4")
+        self.repo.record_no_appeal(1,2,{"id":4,"name":"operator"},"天气","FORCE_MAJEURE")
+        self.assertEqual(self.line()["problem_attribution"],"FORCE_MAJEURE")
+        self.assertEqual(self.db.execute("SELECT problem_attribution FROM admwf_appeal").fetchone()[0],"FORCE_MAJEURE")

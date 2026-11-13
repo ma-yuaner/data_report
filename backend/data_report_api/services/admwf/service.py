@@ -704,7 +704,7 @@ class AdmWorkflowService:
             "penaltyReasonTypes": PENALTY_REASON_TYPES,
             "appealTargets": [{"value": code, "label": name} for code, name in APPEAL_TARGETS.items()],
             "appealResults": ["SUCCEEDED", "FAILED"],
-            "problemAttributions": ["HUMAN", "PLATFORM", "SYSTEM"],
+            "problemAttributions": ["HUMAN", "PLATFORM", "SYSTEM", "EXTERNAL", "BUSINESS", "FORCE_MAJEURE", "UNKNOWN"],
             "attachmentCategories": ["ADM_ORIGINAL", "APPEAL", "COLLECTION", "OTHER"],
             "people": people,
             "permissions": {
@@ -908,7 +908,7 @@ class AdmWorkflowService:
         actor = self._actor(user)
         contexts = self.repository.operator_import_context([row["lineInternalNo"] for row in rows])
         attribution_map = {"人为问题": "HUMAN", "平台问题": "PLATFORM", "系统问题": "SYSTEM",
-                           "HUMAN": "HUMAN", "PLATFORM": "PLATFORM", "SYSTEM": "SYSTEM"}
+                           "HUMAN": "HUMAN", "PLATFORM": "PLATFORM", "SYSTEM": "SYSTEM", "EXTERNAL":"EXTERNAL", "BUSINESS":"BUSINESS", "FORCE_MAJEURE":"FORCE_MAJEURE", "UNKNOWN":"UNKNOWN", "人为":"HUMAN", "系统":"SYSTEM", "外部规则/平台":"EXTERNAL", "业务原因":"BUSINESS", "不可抗力":"FORCE_MAJEURE", "待查明":"UNKNOWN"}
         decision_map = {"需要恢复编码": "NEEDED", "无需恢复编码": "NOT_NEEDED",
                         "NEEDED": "NEEDED", "NOT_NEEDED": "NOT_NEEDED"}
         prepared = []

@@ -114,6 +114,7 @@
                 <a-button size="small" v-else-if="task.kind === 'collection'" type="primary" @click="openDirectTask(task, 'collection')">登记回款</a-button>
                 <a-button size="small" v-else-if="task.kind === 'diff'" type="primary"
                   :loading="acceptingLines.has(Number(task.lineId))" @click="checkTaskDifference(task)">匹配差异单</a-button>
+                <a-button size="small" v-if="task.lineId && (Number(task.operatorId) === myId || Number(task.leaderId) === myId || Number(task.coordinatorId) === myId)" @click="causeTask=task">原因与阻塞</a-button>
                 <a-button size="small" v-if="canEditWorkbenchLine(task)" @click="openDirectTask(task, 'edit')">补充资料</a-button>
                 <a-button size="small" v-else-if="task.lineId && !['assign', 'leaderFollowup'].includes(task.kind)"
                   type="link" @click="openCasePanel(Number(task.caseId))">详情</a-button>
@@ -378,6 +379,7 @@
       </div>
     </a-modal>
 
+    <AdmCauseModal :open="!!causeTask" :case-id="Number(causeTask?.caseId||0)" :line-id="Number(causeTask?.lineId||0)" @close="causeTask=null" />
     <AdmMasterBasicModal :open="masterInfoOpen" :detail="selectedMasterDetail" :editable="selectedMasterEditable" @close="masterInfoOpen = false" @saved="masterInfoSaved" />
 
     <a-modal v-model:open="exportSelectionOpen" title="导出本人待处理订单" width="min(1600px, 96vw)" :footer="null" wrap-class-name="v05-modal operator-export-modal">
@@ -715,6 +717,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
 import { createOperationIdentifier } from '@/utils/operationIdentifier'
 import PageHeader from '@/components/PageHeader.vue'
+import AdmCauseModal from './AdmCauseModal.vue'
 import AdmDetailView from './AdmDetailView.vue'
 import { showDifferenceResult } from './differenceResult'
 import { taskStages, matchesTaskStage } from './taskStages'
@@ -738,6 +741,7 @@ import {
 } from './api'
 import './adm-v05.css'
 
+const causeTask=ref<Fields|null>(null)
 const route = useRoute(),
   router = useRouter(),
   auth = useAuthStore(),

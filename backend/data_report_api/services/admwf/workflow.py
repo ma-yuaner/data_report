@@ -2,7 +2,7 @@
 
 from decimal import Decimal
 
-from .policy import AdmError
+from .policy import PROBLEM_ATTRIBUTIONS, AdmError
 
 
 FINAL_APPEAL_RESULTS = frozenset({"SUCCEEDED", "FAILED", "NO_APPEAL"})
@@ -27,7 +27,7 @@ def validate_submit(recovery_status, appeal_status, problem_attribution):
         raise AdmError("恢复编码事项尚未处理完成")
     if appeal_status not in FINAL_APPEAL_RESULTS:
         raise AdmError("申诉或不申诉尚未形成最终结果")
-    if requires_diff_match(appeal_status) and problem_attribution not in {"HUMAN", "PLATFORM", "SYSTEM"}:
+    if requires_diff_match(appeal_status) and problem_attribution not in PROBLEM_ATTRIBUTIONS:
         raise AdmError("申诉失败或不申诉时必须选择问题归因")
 
 

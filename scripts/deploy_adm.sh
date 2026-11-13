@@ -15,6 +15,11 @@ git merge --ff-only FETCH_HEAD
 git merge-base --is-ancestor "$required_commit" HEAD
 
 docker compose build api web admwf-worker
+if [[ "${ADM_APPLY_OPERATIONS_SCHEMA:-0}" == 1 ]]; then
+  docker compose run --rm --no-deps -T api python -m data_report_api.admwf_schema --apply
+else
+  docker compose run --rm --no-deps -T api python -m data_report_api.admwf_schema
+fi
 docker compose up -d --no-deps --wait --wait-timeout 120 api web admwf-worker
 curl --fail --silent --show-error --max-time 10 http://127.0.0.1:5160/api/health
 printf '\n'

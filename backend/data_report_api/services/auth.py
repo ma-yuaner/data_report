@@ -92,6 +92,8 @@ PERMISSION_CATALOG = (
     {"code": "hr.mail.upload", "name": "上传解析HR报表", "description": "上传考勤与部门映射并生成邮件预览", "menuCode": "hr.mail"},
     {"code": "hr.mail.send", "name": "确认发送HR邮件", "description": "逐部门预览并最终确认后发送", "menuCode": "hr.mail"},
     {"code": "adm.view", "name": "查看ADM", "description": "查看授权范围ADM及订单明细", "menuCode": "adm.center"},
+    {"code": "adm.analysis", "name": "ADM业务分析", "description": "查看全部ADM运营指标、阶段时效及下钻明细，不继承我的待办数据范围", "menuCode": "adm.center"},
+    {"code": "adm.notify.manage", "name": "配置ADM跟进提醒", "description": "设置阶段时限、企业微信群和每天提醒时间，预览及查看发送记录", "menuCode": "adm.center"},
     {"code": "adm.edit_master", "name": "编辑ADM主单", "description": "各阶段编辑主单基础信息并保留审计记录，可独立授予负责人", "menuCode": "adm.center"},
     {"code": "adm.create", "name": "新建ADM", "description": "新建或引用新建主单", "menuCode": "adm.center"},
     {"code": "adm.assign_leader", "name": "分配ADM组长", "description": "ADM负责人为明细指定或更换负责组长", "menuCode": "adm.center"},

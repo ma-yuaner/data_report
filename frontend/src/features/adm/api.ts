@@ -160,6 +160,7 @@ export const statusLabel: Record<string, string> = {
   IN_PROGRESS: '申诉中', SUCCEEDED: '申诉成功', FAILED: '申诉失败', NO_APPEAL: '不申诉', RETURNED: '审核退回', WITHDRAWN: '已撤回',
   SUPPLIER: '供应商', PLATFORM: '平台', AIRLINE: '航司', HUMAN: '人为问题', SYSTEM: '系统问题',
   NOT_MATCHED: '未录入', QUERY_FAILED: '查询失败', NOT_CONNECTED: '未连接',
+  EXTERNAL:'外部规则/平台', BUSINESS:'业务原因', FORCE_MAJEURE:'不可抗力', UNKNOWN:'待查明',
   MATCHED: '已录入', MATCHED_OTA_ORDER: '已录入', MATCHED_LEGACY_ADM_NO: '已录入', MATCHED_LINE_INTERNAL_NO: '已录入',
   UNMATCHED: '未录入', PENDING: '待匹配', APPROVED: '审核通过', VALID: '有效', VOID: '已作废',
   TEST: '测试数据', LEGACY: '旧系统数据', MANUAL: '新系统人工数据', EXCEL: '新系统导入数据',

@@ -2,7 +2,7 @@
 
 from functools import wraps
 
-from flask import Blueprint, current_app, g, jsonify, request, send_file
+from flask import Blueprint, Response, current_app, g, jsonify, request, send_file
 
 from ..services.admwf import AdmError, AdmWorkflowService
 from .common import json_body, ok
@@ -13,7 +13,8 @@ def admwf_response(function):
     def wrapped(*args, **kwargs):
         try:
             service = AdmWorkflowService(current_app.config)
-            return ok(function(service, g.current_user, *args, **kwargs))
+            result = function(service, g.current_user, *args, **kwargs)
+            return result if isinstance(result, Response) else ok(result)
         except AdmError as error:
             if error.status >= 500:
                 cause = error.__cause__
@@ -29,6 +30,49 @@ def admwf_response(function):
 
 
 def register_routes(api: Blueprint) -> None:
+    from ..services.admwf.operations import AdmOperations
+    from ..services.admwf.service import _json_value
+
+    @api.get("/v1/adm/analysis")
+    @admwf_response
+    def adm_analysis(service, user):
+        return _json_value(AdmOperations(current_app.config).analysis(user, request.args))
+
+    @api.get("/v1/adm/analysis/report")
+    @admwf_response
+    def adm_analysis_report(service, user):
+        return send_file(AdmOperations(current_app.config).report(user, request.args), download_name="ADM业务分析.xlsx", as_attachment=True)
+
+    @api.get("/v1/adm/analysis/rows")
+    @admwf_response
+    def adm_analysis_rows(service, user):
+        return _json_value(AdmOperations(current_app.config).rows(user, request.args))
+
+    @api.route("/v1/adm/operations/settings", methods=["GET", "PUT"])
+    @admwf_response
+    def adm_operations_settings(service, user):
+        operations = AdmOperations(current_app.config)
+        settings = operations.save_settings(user, json_body()) if request.method == "PUT" else operations.public_settings(user)
+        result = _json_value(settings)
+        result["slaHours"] = settings["slaHours"]
+        return result
+
+    @api.get("/v1/adm/operations/endpoints")
+    @admwf_response
+    def adm_operations_endpoints(service, user):
+        return AdmOperations(current_app.config).endpoints(user)
+
+    @api.get("/v1/adm/operations/preview")
+    @admwf_response
+    def adm_operations_preview(service, user):
+        return AdmOperations(current_app.config).preview(user)
+
+    @api.route("/v1/adm/cases/<case_id>/lines/<line_id>/context", methods=["GET", "PUT"])
+    @admwf_response
+    def adm_line_context(service, user, case_id, line_id):
+        operations = AdmOperations(current_app.config)
+        return _json_value(operations.save_context(user, case_id, line_id, json_body()) if request.method == "PUT" else operations.context(user, case_id, line_id))
+
     @api.get("/v1/adm/config")
     @admwf_response
     def admwf_config(service, user):
@@ -50,7 +94,7 @@ def register_routes(api: Blueprint) -> None:
             service = AdmWorkflowService(current_app.config)
             content = service.import_template(g.current_user)
             return send_file(content, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                             as_attachment=True, download_name="ADM19列导入模板.xlsx")
+                             as_attachment=True, download_name="ADM主单批量新增15列模板.xlsx")
         except AdmError as error:
             return jsonify({"success": False, "message": error.message, "code": error.code, "data": None}), error.status
         except (TypeError, ValueError):

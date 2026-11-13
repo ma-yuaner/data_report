@@ -21,49 +21,13 @@
         <button v-else-if="!loading && !hasRecord" @click="() => load(orderOnly || fullDetailLoaded)">重试读取详情</button>
         <template v-if="hasRecord">
           <template v-if="!orderOnly">
-          <a-alert v-if="record.case.masterRecoveryStatus" type="info" show-icon class="block"
-            :message="masterRecoveryText[record.case.masterRecoveryStatus]"
-            :description="[record.case.recoveryLocators, record.case.masterRecoveryDueAt].filter(Boolean).join(' · ')" />
-          <div class="v05-summary adm-detail-summary">
-            <div>
-              <span :class="['pill', statusTone]">● {{ hasRecord ? label(record.case.caseStatus) : '暂无数据' }}</span>
-              <span :class="['source-badge', sourceTone(record.case.sourceType)]">{{ sourceText(record.case.sourceType) }}</span>
-              <h1>{{ record.case.admNo }}</h1>
-              <p>
-                <i>{{ label(record.case.issuerType) }}</i> {{ record.case.issuerName }} · 下发于
-                {{ record.case.issuedDate || '—' }}
-              </p>
-              <small>ADM负责人：{{ record.case.coordinatorName }}</small>
-            </div>
-            <dl>
-              <div>
-                <dt>原币总金额</dt>
-                <dd>
-                  {{ record.case.currency }} {{ record.case.originalAmount
-                  }}<small
-                    >汇率 {{ record.fxSnapshot?.rateValue || '—' }} · {{ record.fxSnapshot?.rateDate || '—' }}</small
-                  >
-                </dd>
-              </div>
-              <div>
-                <dt>人民币总金额</dt>
-                <dd>{{ hasRecord ? '¥ ' + record.case.cnyAmount : '—' }}</dd>
-              </div>
-              <div v-if="record.case.recoveryLocators">
-                <dt>恢复编码（GDS-PCC-PNR）</dt>
-                <dd class="recovery-locators">{{ record.case.recoveryLocators }}</dd>
-              </div>
-              <div>
-                <dt>处理截止</dt>
-                <dd>{{ record.case.replyDeadline || '—' }}</dd>
-              </div>
-              <div>
-                <dt>订单完成</dt>
-                <dd>{{ completedCount }} / {{ activeLines.length }}</dd>
-              </div>
-            </dl>
+          <section class="master-facts">
+            <div class="master-facts-heading"><h2>ADM 主单信息</h2><a-tag>{{ label(record.case.caseStatus) }}</a-tag></div>
+            <a-descriptions bordered size="small" :column="{xxl:3,xl:3,lg:3,md:2,sm:1,xs:1}">
+              <a-descriptions-item v-for="field in masterFacts" :key="field.label" :label="field.label" :span="field.wide ? 3 : 1">{{ field.value || '—' }}</a-descriptions-item>
+            </a-descriptions>
             <div class="summary-actions">
-              <a-button @click="openMasterBasicInfo">{{ canEditMasterBasic ? '编辑基础信息' : '查看基础信息' }}</a-button>
+              <a-button v-if="canEditMasterBasic" @click="openMasterBasicInfo">编辑主单</a-button>
               <a-button @click="openMasterAttachments">附件预览</a-button>
               <a-button :loading="loading" @click="openMasterOperations">操作记录</a-button><a-button :disabled="loading" @click="() => load()">刷新</a-button
               ><a-button v-if="isCaseOwner && canCreate && record.case.caseStatus === 'DRAFT'" type="primary" @click="publishDraft">
@@ -85,7 +49,7 @@
                 作废主单
               </a-button>
             </div>
-          </div>
+          </section>
           <section v-if="isLegacyReadOnly" class="legacy-source-card">
             <header><div><h2>旧系统数据</h2><p>历史只读。以下内容直接来自迁移时封存的原始记录，不使用当前目录或汇率重算。</p></div><span class="pill amber">不进入新系统流程</span></header>
             <details>
@@ -142,67 +106,33 @@
               </div>
               <div class="v05-table-wrap">
                 <table>
-                  <thead>
-                    <tr>
-                      <th>票号 / OTA订单号 / 内部明细</th>
-                      <th>业务归属 / 组长</th>
-                      <th>操作人员</th>
-                      <th>主状态 / 结果</th>
-                      <th>截止 / 风险</th>
-                      <th>当前任务</th>
-                      <th>操作</th>
-                    </tr>
-                  </thead>
+                  <thead><tr><th>内部明细</th><th>平台</th><th>PNR</th><th>票号</th><th>原币金额</th><th>人民币金额</th><th>组长 / 操作员</th><th>当前阶段</th><th>操作</th></tr></thead>
                   <tbody>
-                    <tr
-                      v-for="line in visibleLines"
-                      :key="line.id"
-                      :class="{ active: selectedLineId === line.id }"
-                      @click="selectedLineId = line.id"
-                    >
-                      <td>
-                        <button class="link" @click.stop="openBasicInfo(line)">
-                          {{ line.ticketNo || '未填写票号' }}</button
-                        ><small>OTA：{{ line.otaOrderNo || '未填写' }} · PNR：{{ line.pnr || '未填写' }}</small
-                        ><small>内部明细：{{ admLineDisplay(record.case.admNo, line.lineInternalNo) }}</small>
-                        <small>{{ line.otaName || '未填写平台' }} · {{ record.case.currency }} {{ line.originalAmount }} / ¥ {{ line.cnyAmount }}</small>
-                      </td>
-                      <td>
-                        {{ line.departmentName }}<small>组长：{{ line.leaderName || '未分配' }}</small>
-                      </td>
-                      <td>{{ line.operatorName || '未分配' }}</td>
-                      <td>
-                        <span :class="['pill', lineTone(line.lineStatus)]">● {{ label(line.lineStatus) }}</span>
-                        <div class="order-tags">
-                          <span class="pill blue"
-                            >恢复：{{ label(line.recoveryStatus) }}</span
-                          ><span
-                            :class="['pill', lineDiffMatchTone(line)]"
-                            >差异单：{{ lineDiffMatchLabel(line) }}</span
-                          >
-                        </div>
-                      </td>
-                      <td>
-                        {{ record.case.replyDeadline || '—'
-                        }}<small :class="{ danger: lineRisk !== '正常' }">{{ lineRisk }}</small>
-                      </td>
-                      <td>
-                      {{ nextTask(line) }}
-                      <a-tag v-if="line.leaderOverdueAt" color="red">组长分派超 3 天</a-tag>
-                <a-tag v-if="line.operatorOverdueAt" color="red">操作员分派超 3 天</a-tag>
-                    </td>
-                      <td>
-                        <div class="record-actions order-record-actions">
-                          <a-button v-if="canEditLineBasic(line)" @click.stop="openBasicInfo(line)">补充资料</a-button
-                          ><a-button v-if="isCaseOwner && canAssignLeader && record.case.caseStatus === 'ACTIVE' && canChangeAdmLeader(line)" @click.stop="openLineTask(line, 'leader')">{{ line.lineStatus === 'PENDING_LEADER' ? '分配组长' : '更换组长' }}</a-button
-                          ><a-button v-if="canAssignOperator && Number(line.leaderId) === myId && line.lineStatus === 'PENDING_OPERATOR' && (activeLines.length === 1 || lineMaterialConfirmed(line))" :disabled="activeLines.length !== 1 && !lineOperationReady(line)" @click.stop="openLineTask(line, 'assign')">派单操作员</a-button
-                          ><a-button v-if="canTransferOrder(line) && Number(line.leaderId) === myId" @click.stop="openLineTask(line, 'transferLeader')">更换组长</a-button><a-button v-if="canTransferOrder(line) && line.operatorId && lineOperationReady(line)" @click.stop="openLineTask(line, 'transferOperator')">派单操作员</a-button>
-                        </div>
-                      </td>
-                    </tr>
-                    <tr v-if="!visibleLines.length">
-                      <td colspan="7" class="empty">{{ record.lines.length ? '当前筛选下没有订单明细' : '暂无订单明细' }}</td>
-                    </tr>
+                    <tr v-for="line in visibleLines" :key="line.id">
+                      <td>{{ admLineDisplay(record.case.admNo,line.lineInternalNo) }}</td><td>{{ line.otaName || '未填写' }}<small v-if="line.otaOrderNo">{{ line.otaOrderNo }}</small></td>
+                      <td>{{ line.pnr || '未填写' }}</td><td>{{ line.ticketNo || '未填写' }}</td>
+                      <td>{{ record.case.currency }} {{ line.originalAmount }}</td><td>¥ {{ line.cnyAmount }}</td>
+                      <td>{{ line.leaderName || '未分配组长' }}<small>{{ line.operatorName || '未分配操作员' }}</small></td>
+                      <td>{{ nextTask(line) }}</td>
+                      <td><div class="record-actions order-record-actions">
+                        <a-button v-if="canEditLineBasic(line)" size="small" @click="openBasicInfo(line)">补充资料</a-button>
+                        <a-button v-if="canAssignOperator && Number(line.leaderId)===myId && line.lineStatus==='PENDING_OPERATOR' && (activeLines.length===1 || lineMaterialConfirmed(line))" size="small" :disabled="activeLines.length!==1 && !lineOperationReady(line)" @click="openLineTask(line,'assign')">派单操作员</a-button>
+                        <a-button v-if="canTransferOrder(line) && Number(line.leaderId)===myId" size="small" @click="openLineTask(line,'transferLeader')">更换组长</a-button>
+                        <a-button v-if="isCaseOwner && canAssignLeader && canChangeAdmLeader(line)" size="small" @click="openLineTask(line,'leader')">{{ line.leaderId ? '更换组长' : '分配组长' }}</a-button>
+                        <a-button v-if="Number(line.operatorId)===myId && line.lineStatus==='PENDING_ACCEPT'" size="small" @click="runOrderSimple(line,'accept')">接受</a-button>
+                        <a-button v-if="Number(line.operatorId)===myId && line.lineStatus==='PENDING_ACCEPT'" size="small" danger @click="selectedLineId=line.id;rejectCurrentAssignment()">拒绝</a-button>
+                        <template v-if="Number(line.operatorId)===myId && line.lineStatus==='PROCESSING'">
+                          <a-button v-if="line.recoveryStatus==='UNDECIDED'" size="small" @click="openLineTask(line,'recovery')">恢复判断</a-button>
+                          <template v-else-if="line.appealStatus==='UNDECIDED'"><a-button size="small" @click="openLineTask(line,'appeal')">申诉</a-button><a-button size="small" @click="openLineTask(line,'noAppeal')">不申诉</a-button></template>
+                          <a-button v-else-if="line.appealStatus==='IN_PROGRESS'" size="small" @click="openLineTask(line,'appealResult')">登记结果</a-button>
+                          <a-button v-else size="small" @click="runOrderSimple(line,'submitReview')">提交审核</a-button>
+                        </template>
+                        <a-button v-if="isCaseOwner && canReview && line.lineStatus==='PENDING_REVIEW'" size="small" @click="openLineTask(line,'review')">审核</a-button>
+                        <a-button v-if="isCaseOwner && canDiffMatch && line.lineStatus==='WAITING_DIFF'" size="small" @click="runOrderSimple(line,'checkDifference')">匹配差异单</a-button>
+                        <a-button v-if="isCaseOwner && canCollection && line.lineStatus==='WAITING_COLLECTION'" size="small" @click="openLineTask(line,'collection')">登记回款</a-button>
+                        <a-button v-if="isCaseOwner || Number(line.leaderId)===myId || Number(line.operatorId)===myId" size="small" @click="causeLineId=line.id">原因与阻塞</a-button>
+                      </div></td>
+                    </tr><tr v-if="!visibleLines.length"><td colspan="9" class="empty">暂无订单明细</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -315,7 +245,7 @@
                     <p>申诉在系统外办理，无需登记具体跟进过程；允许一次填写实际最终结果。</p>
                     <label>处理决定<div class="task-buttons process-choice-buttons"><a-button :aria-pressed="selectedLine.appealStatus === 'IN_PROGRESS'" :disabled="selectedLine.appealStatus !== 'UNDECIDED'" @click="openAction('appeal')">{{ selectedReturnMode === 'REAPPEAL' ? '重新申诉' : '提交申诉' }}</a-button><a-button :aria-pressed="selectedLine.appealStatus === 'NO_APPEAL'" :disabled="selectedLine.appealStatus !== 'UNDECIDED'" @click="openAction('noAppeal')">不申诉</a-button></div></label>
                     <template v-if="activeAppeal"><p>申诉原因：{{ activeAppeal.appealReason || '未填写' }}</p><p>申诉对象：{{ activeAppeal.appealTarget || '未填写' }}</p><a-button @click="openAction('appealResult')">申诉结果</a-button></template>
-                    <div v-if="['NO_APPEAL', 'FAILED'].includes(selectedLine.appealStatus)"><p>问题归因（必填，三选一）</p><div class="task-buttons process-choice-buttons"><a-button v-for="cause in ['人为问题', '平台问题', '系统问题']" :key="cause" :aria-pressed="label(selectedLine.problemAttribution) === cause">{{ cause }}</a-button></div><p>差异订单匹配状态：{{ label(selectedLine.diffMatchStatus) }}</p><small>{{ selectedLine.otaOrderNo || selectedLine.lineInternalNo }} · 审核通过后由 ADM 负责人核验。</small></div>
+                    <div v-if="['NO_APPEAL','FAILED'].includes(selectedLine.appealStatus)"><a-button size="small" @click="causeLineId=selectedLine.id">查看 / 补充根因与证据</a-button><p>差异单状态：{{ label(selectedLine.diffMatchStatus) }}</p></div>
                     <label v-if="selectedLine.appealStatus !== 'UNDECIDED'">处理依据附件（选填）<a-button @click="openLineAttachments('APPEAL')">上传或查看当前明细附件（{{ selectedLineAttachments.length }}）</a-button></label>
                     <div v-if="['SUPPLEMENT', 'WITHDRAWN'].includes(selectedReturnMode)" class="task-buttons"><a-button @click="openBasicInfo(selectedLine)">{{ selectedReturnMode === 'WITHDRAWN' ? '更正订单基础信息' : '补充订单基础信息' }}</a-button><a-button @click="openLineAttachments('APPEAL')">补充附件材料</a-button><a-button type="primary" @click="runSimple('submitReview')">{{ selectedReturnMode === 'WITHDRAWN' ? '更正完成，重新提交审核' : '补充完成，重新提交审核' }}</a-button></div>
                     <div v-else-if="selectedLine.appealStatus !== 'UNDECIDED'" class="task-buttons"><a-button @click="openAction('note')">保存处理决定</a-button><a-button type="primary" @click="runSimple('submitReview')">提交ADM负责人审核</a-button></div>
@@ -481,6 +411,7 @@
         </template>
       </a-list>
     </a-modal>
+    <AdmCauseModal :open="!!causeLineId" :case-id="caseId" :line-id="causeLineId" @close="causeLineId=0" />
     <AdmMasterBasicModal :open="masterInfoOpen" :detail="record" :editable="canEditMasterBasic" @close="masterInfoOpen = false" @saved="basicInfoSaved" />
     <AdmLineBasicModal :open="basicInfoOpen" :detail="record" :line="selectedLine" :editable="directAction !== 'basic' && !!selectedLine && canEditLineBasic(selectedLine)"
       :simple-edit="usesOrderSupplement && selectedLine?.lineStatus === 'PENDING_OPERATOR' && !selectedLine.operatorId"
@@ -685,9 +616,12 @@
         <a-form-item v-if="actionName === 'appealResult'" label="申诉结果" required
           ><a-select v-model:value="actionForm.result" :options="appealResultOptions" placeholder="请选择申诉结果"
         /></a-form-item>
-        <a-form-item v-if="['appealResult', 'noAppeal'].includes(actionName)" label="问题归属" :required="actionName === 'noAppeal' || actionForm.result === 'FAILED'"
-          ><a-select v-model:value="actionForm.problemAttribution" :options="attributionOptions"
-        /></a-form-item>
+        <template v-if="['appealResult','noAppeal'].includes(actionName)">
+          <a-form-item label="根本原因分类" required><a-select v-model:value="actionForm.causeCategory" :options="causeOptions" /></a-form-item>
+          <a-form-item label="原因说明"><a-textarea v-model:value="actionForm.causeDetail" :maxlength="2000" /></a-form-item>
+          <a-form-item label="证据说明"><a-textarea v-model:value="actionForm.evidenceNote" :maxlength="2000" /></a-form-item>
+          <a-form-item label="当前阻塞"><a-textarea v-model:value="actionForm.blockingReason" :maxlength="2000" /></a-form-item>
+        </template>
         <a-form-item v-if="actionName === 'review'" label="审核结果" required
           ><a-radio-group v-model:value="actionForm.result"
             ><a-radio value="APPROVED">通过</a-radio><a-radio value="RETURNED">退回</a-radio></a-radio-group
@@ -761,6 +695,8 @@
 </template>
 
 <script setup lang="ts">
+import AdmCauseModal from './AdmCauseModal.vue'
+import { operationsApi, causeOptions } from './operationsApi'
 import { showDifferenceResult } from './differenceResult'
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -906,6 +842,23 @@ const canAddLine = computed(() => {
   if (master.masterRecoveryStatus && master.masterRecoveryStatus !== 'NOT_REQUIRED') return false
   return isCaseOwner.value && (canCreate.value || canManage.value)
 })
+const causeLineId=ref(0)
+const masterFacts=computed(()=>{
+ const c=record.value.case,d=c.lineDefaults||{},intake=d.masterIntake||{},fx=record.value.fxSnapshot
+ return [
+  {label:'ADM单号',value:c.admNo},{label:'ADM来源',value:label(c.issuerType)},{label:'下发日期',value:c.issuedDate},
+  {label:'供应商名称',value:intake.supplierName || (c.issuerType==='SUPPLIER'?c.issuerName:'')},
+  {label:'航司',value:formatAdmAirline(intake.airlineCode || c.airlineName || '—',intake.ticketingCode)},
+  {label:'主单票号',value:intake.ticketNo},{label:'业务分类',value:intake.businessCategory},{label:'罚单原因类型',value:intake.penaltyReasonType},
+  {label:'ADM负责人',value:c.coordinatorName},{label:'负责组长',value:d.leaderName},{label:'原币总金额',value:`${c.currency} ${c.originalAmount}`},
+  {label:'人民币总金额',value:`¥ ${c.cnyAmount}`},{label:'冻结汇率',value:fx?.rateValue},{label:'处理截止',value:c.replyDeadline},
+  {label:'恢复阶段',value:masterRecoveryText[c.masterRecoveryStatus] || '—'},{label:'差异类型',value:d.diffTypeName},
+  {label:'订单完成',value:`${completedCount.value} / ${activeLines.value.length}`},{label:'最近更新',value:c.updatedAt},
+  {label:'恢复编码 GDS-PCC-PNR',value:c.recoveryLocators,wide:true},{label:'细分差异原因',value:d.differenceReason,wide:true},
+  {label:'主单备注',value:c.remark,wide:true},
+ ]
+})
+async function runOrderSimple(line:AdmLine,name:string){selectedLineId.value=line.id;await runSimple(name)}
 const canEditMasterBasic = computed(() => isAdmin.value || !!config.value?.permissions.editMaster)
 function canEditLineBasic(line: AdmLine) {
   if (line.reviewStatus === 'APPROVED' || ['COMPLETED', 'HISTORICAL', 'VOIDED'].includes(line.lineStatus)) return false
@@ -1432,6 +1385,8 @@ const attributionOptions = [
   { value: 'SYSTEM', label: '系统问题' },
 ]
 
+const causeContextLoading=ref(false),causeContextFailed=ref(false)
+let causeContextRequest=0
 const actionOpen = ref(false),
   actionName = ref(''),
   actionError = ref(''),
@@ -1507,6 +1462,16 @@ function openAction(name: string) {
   actionName.value = name
   actionError.value = ''
   Object.keys(actionForm).forEach((key) => delete actionForm[key])
+  const causeSeq=++causeContextRequest
+  causeContextLoading.value=false
+  causeContextFailed.value=false
+  if (['noAppeal','appealResult'].includes(name)) {
+    Object.assign(actionForm,{causeCategory:'UNKNOWN',causeDetail:'',evidenceNote:'',blockingReason:'',responsibleLink:''})
+    const id=selectedLine.value?.id
+    if(id){causeContextLoading.value=true;void operationsApi.context(caseId,id).then(data=>{
+      if(causeSeq===causeContextRequest) Object.assign(actionForm,{causeCategory:data.causeCategory||'UNKNOWN',causeDetail:data.causeDetail||'',evidenceNote:data.evidenceNote||'',blockingReason:data.blockingReason||'',responsibleLink:data.responsibleLink||''})
+    }).catch(e=>{if(causeSeq===causeContextRequest){causeContextFailed.value=true;actionError.value=errorText(e)}}).finally(()=>{if(causeSeq===causeContextRequest)causeContextLoading.value=false})}
+  }
   if (name === 'transfer') actionForm.targetRole = canAssignOperator.value && Number(selectedLine.value?.leaderId) === myId.value ? 'LEADER' : 'OPERATOR'
   if (name === 'recovery') Object.assign(actionForm, { decision: 'NEEDED', pnr: selectedLine.value?.pnr || '' })
   if (name === 'review') Object.assign(actionForm, { result: 'APPROVED', collectionRequired: undefined, returnType: 'SUPPLEMENT' })
@@ -1531,7 +1496,7 @@ function rejectPendingTransfer(lineId: number) {
   return admApi.decideTransfer(caseId, lineId, transfer.id, false, actionForm.reason)
 }
 async function submitAction() {
-  if (saving.value || (!selectedLine.value && !['voidCase', 'deleteDraft'].includes(actionName.value))) return
+  if (saving.value || causeContextLoading.value || causeContextFailed.value || (!selectedLine.value && !['voidCase', 'deleteDraft'].includes(actionName.value))) return
   if (assignmentAction.value && !Number(actionName.value === 'leader' ? actionForm.leaderId : actionName.value === 'transfer' ? actionForm.targetUserId : actionForm.operatorId)) {
     actionError.value = '请选择可分配的人员'
     return
@@ -1586,6 +1551,10 @@ async function submitAction() {
       voidLine: () => admApi.voidLine(caseId, lineId, actionForm.reason),
       voidCase: () => admApi.voidCase(caseId, actionForm.reason),
       deleteDraft: () => admApi.deleteDraft(caseId, actionForm.reason),
+    }
+    if (['noAppeal','appealResult'].includes(actionName.value)) {
+      actionForm.problemAttribution=actionForm.causeCategory||'UNKNOWN'
+      await operationsApi.saveContext(caseId,lineId,{causeCategory:actionForm.causeCategory||'UNKNOWN',causeDetail:actionForm.causeDetail,evidenceNote:actionForm.evidenceNote,blockingReason:actionForm.blockingReason,responsibleLink:actionForm.responsibleLink})
     }
     await calls[actionName.value]()
     emit('changed')
@@ -1902,4 +1871,8 @@ onMounted(async () => {
 
 <style scoped>
 .recovery-locators { white-space: pre-wrap; overflow-wrap: anywhere; }
+</style>
+
+<style scoped>
+.master-facts{background:#fff;padding:16px;border:1px solid #e2e8f0;border-radius:6px;margin-bottom:16px}.master-facts-heading{display:flex;gap:12px;align-items:center;margin-bottom:12px}.master-facts-heading h2{font-size:16px;margin:0}.master-facts :deep(.ant-descriptions-item-label){width:140px;color:#64748b}.master-facts :deep(.ant-descriptions-item-content){overflow-wrap:anywhere;white-space:pre-wrap}.master-facts .summary-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
 </style>

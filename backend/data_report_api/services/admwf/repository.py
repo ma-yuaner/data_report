@@ -11,7 +11,7 @@ import json
 import re
 
 from .domain import allocate_cny_amounts
-from .policy import PRE_ACCEPT_STATUSES, AdmError, business_now
+from .policy import PROBLEM_ATTRIBUTIONS, PRE_ACCEPT_STATUSES, AdmError, business_now
 from .workflow import DIFF_MATCHED, closure_blockers, status_after_approval, validate_submit
 
 # Older rows can carry the pre-assignment status even when a leader is already assigned.
@@ -1566,7 +1566,7 @@ class AdmWorkflowRepository:
                 raise AdmError("只能处理自己负责的明细", 403, "ADM_FORBIDDEN")
             if result not in {"SUCCEEDED", "FAILED"}:
                 raise AdmError("申诉结果无效")
-            if result == "FAILED" and attribution not in {"HUMAN", "PLATFORM", "SYSTEM"}:
+            if result == "FAILED" and attribution not in PROBLEM_ATTRIBUTIONS:
                 raise AdmError("申诉失败时必须选择问题归因")
             now = business_now()
             with connection.cursor() as cursor:
@@ -1652,7 +1652,7 @@ class AdmWorkflowRepository:
                 raise AdmError("恢复编码事项尚未处理完成")
             if line["appeal_status"] != "UNDECIDED":
                 raise AdmError("该明细已经登记申诉决定", 409, "ADM_ACTION_BLOCKED")
-            if attribution not in {"HUMAN", "PLATFORM", "SYSTEM"}:
+            if attribution not in PROBLEM_ATTRIBUTIONS:
                 raise AdmError("不申诉时必须选择问题归因")
             now = business_now()
             with connection.cursor() as cursor:
