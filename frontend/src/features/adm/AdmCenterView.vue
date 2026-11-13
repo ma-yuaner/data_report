@@ -114,7 +114,7 @@
                 <a-button v-if="task.kind === 'leaderFollowup'" @click="openTaskOrder(task)">跟进</a-button>
                 <a-button v-if="canEditWorkbenchLine(task)" @click="openDirectTask(task, 'edit')">编辑</a-button>
                 <a-button v-else-if="task.lineId && !['assign', 'leaderFollowup'].includes(task.kind)"
-                  type="link" @click="openDirectTask(task, 'basic')">查看明细</a-button>
+                  type="link" @click="openCasePanel(Number(task.caseId))">详情</a-button>
                 <a-button v-if="task.lineId && !['assign', 'transferAccept'].includes(task.kind) &&
                     (canTransferLeader(task) || canTransferOperator(task))"
                   @click="openWorkbenchBatch('transfer', [task])">转派</a-button>
@@ -358,7 +358,7 @@
           <template v-else-if="column.key === 'date'">{{ dateText(record.requestedAt || record.replyDeadline) }}</template>
           <template v-else-if="column.key === 'action'">
             <a-button type="link" @click="openQueueRecord(record)">
-              {{ workQueue === 'close' ? '前往结案' : '查看明细' }}
+              {{ workQueue === 'close' ? '前往结案' : '详情' }}
             </a-button>
           </template>
         </template>
@@ -480,7 +480,7 @@
               </td>
               <td>{{ lineTask(item.lineStatus) }}</td>
               <td>
-                <button class="primary" @click="openDirectTask({ caseId: item.caseId, lineId: item.id }, 'basic')">查看明细</button>
+                <button class="primary" @click="openCasePanel(Number(item.caseId))">详情</button>
               </td>
             </tr>
           </tbody>
@@ -1035,8 +1035,7 @@ function closeWorkQueue() {
   queueRequest++
 }
 function openQueueRecord(row: Fields) {
-  if (workQueue.value === 'transfer' && row.lineId) openTaskOrder({ ...row, kind: 'transferHistory' })
-  else openCasePanel(Number(row.caseId))
+  openCasePanel(Number(row.caseId))
 }
 function openWorkMetric(key: 'close' | 'transfer') {
   workQueue.value = key
