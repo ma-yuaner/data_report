@@ -716,6 +716,7 @@ import {
   canChangeAdmLeader,
   diffMatchLabel,
   errorText,
+  formatAdmAirline,
   label,
   type AdmCaseDetail,
   type AdmCasePanel,

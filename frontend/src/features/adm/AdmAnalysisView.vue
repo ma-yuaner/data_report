@@ -1,6 +1,6 @@
 <template>
  <div class="adm-analysis">
-  <PageHeader title="ADM 业务分析" description="先定位跟进积压，再分析航司、供应商及问题根因；点击分组可下钻。">
+  <PageHeader eyebrow="ADM OPERATIONS" title="ADM 业务分析" description="先定位跟进积压，再分析航司、供应商及问题根因；点击分组可下钻。">
    <a-space><a-button @click="router.push({name:'adm-cases',query:{scope:'mine'}})">任务台账</a-button><a-button v-if="canNotify" @click="openSettings">提醒与阶段时限</a-button></a-space>
   </PageHeader>
   <a-alert v-if="error" type="error" :message="error" show-icon />

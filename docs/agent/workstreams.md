@@ -1443,3 +1443,9 @@ RISK-ETL-056。用户确认 RLB18 自动通过核对，按原因在发布事务�
 验证：89项ADM/认证相关测试通过，涵盖金额去重、下钻范围、根因保存权限/版本、不可抗力不申诉、日志计时边界、未分配人员分组可精确下钻、报告文件响应、设置stage键保留、两时段去重、关闭开关/预览不发送、网络UNKNOWN/平台FAILED、容量拒绝及22新列字典。Vue类型、8文件ESLint、Vite最终构建、bash部署语法及diff检查通过。生产数据库/浏览器布局/群送达/部署及业务验收未执行。代码SQL归档SQL指标资产库ADM-QUERY-013。
 
 部署脚本新增前置schema检查；首次需显式 ADM_APPLY_OPERATIONS_SCHEMA=1 执行三表及两列迁移，迁移前须评估正式库ALTER锁表窗口；后续普通部署只检查。未执行任何DDL。群配置尚待负责人选择，不能标记提醒已启用。
+
+## ADM部署类型构建修复（2026-11-13）
+
+服务器npm run build真实报告两处错误：AdmAnalysisView缺少PageHeader必填eyebrow；AdmDetailView使用formatAdmAirline但未导入。现分别补齐组件参数和已有api函数导入，没有改变业务流程或数据库。
+
+原因：之前使用vue-tsc --noEmit检查根solution tsconfig（files=[]），没有遍历project references，形成无效类型验证。因此上一轮「类型检查通过」的证据不足；此次以部署一致的vue-tsc -b --force --pretty false实跑通过为准，两个修改组件ESLint通过。AGENTS新增固定入口防止复发。Vite继续沿已知Windows稳定的esnext/不压缩路径验证，不冒充Linux Docker生产构建实测。服务器重建及部署仍待执行。

@@ -18,6 +18,9 @@
 
 ## 已知验证限制与复用规则（2026-11-02）
 
+- 前端类型检查（2026-11-13纠正）：根tsconfig.json为files=[]的solution配置，应用和node配置位于references中；必须运行`node node_modules/vue-tsc/bin/vue-tsc.js -b --force --pretty false`（与npm run build的-b一致，并清除增量跳过影响）。只运行`vue-tsc --noEmit`返回0不能证明应用源码已检查。修复ADM缺失PageHeader.eyebrow和formatAdmAirline导入后，完整-b --force已通过。
+
+
 来源：用户要求将本次测试中已确认禁用或不可用的路径记入AGENT，后续不重复尝试。
 
 - 验证前先查本节及对应工作流的已有证据。相同代码、相同环境、相同限制不重复探测或运行；只有相关代码/依赖/环境变化、限制解除或用户明确要求时才重试，并写明触发原因。跳过项须如实标记“受限/未验”，不能视作通过，也不能取消必要的权限、金额及写库检查。
