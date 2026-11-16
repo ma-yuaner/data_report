@@ -1,5 +1,7 @@
 # 企业数据中心（data_report）
 
+数据资产V1：[目录、字段、依赖证据与独立业务字典](docs/development/data-assets-implementation-20261116.md)。基于已发布快照读取结构，字典草稿/发布修订独立持久化，保留原经营口径；新完整目录需显式查看权限。盘点种子与运行文件不进Git，首次部署需导入受控盘点包；运行血缘和业务新鲜度未核验，服务器部署与业务验收分开记录。
+
 风控V3：[订单总利润、咨询与差错闭环、规章制度和分析看板](docs/development/risk-workflow-v3-20261106.md)。当前核实仅无问题/有问题，有问题保存后自动进入案例；待认定不能直接不计入差错，特殊案例由人工加入。上线前必须执行订单指标两表DDL并运行独立指标清洗，不能只更新Web/API；本机验证通过，实库/部署/业务验收未完成。
 
 历史风控配置证据V1：[精确搜索、固定原核对与最新单票止损提醒](docs/development/risk-config-evidence-v1.md)。新增两表需显式DDL；原核算不被后续配置覆盖，最新观察不代表历史生效。实现/隔离及部分真实只读验证完成，DDL/部署/页面/业务未验。
@@ -46,7 +48,7 @@ ADM责任流转V2：已增加协调人、接收确认式转交、责任分段、
 
 <!-- BEGIN:CURRENT_MENU -->
 <details>
-<summary>完整菜单：49个页面入口、3个禁用预留项</summary>
+<summary>完整菜单：50个页面入口、3个禁用预留项</summary>
 
 ```text
 工作台  [/home]
@@ -98,6 +100,7 @@ ADM责任流转V2：已增加协调人、接收确认式转交、责任分段、
   问题诊断  [/monitoring/diagnostics]
 ADM 控制台
   ADM 任务台账  [/adm]
+  业务分析与跟进  [/adm/analysis]
 问题中心  [/problems]
 数据资产  [/data-assets]
 归档功能
@@ -204,10 +207,11 @@ docker compose up -d --build
 API统一前缀为`/api`。认证与账号管理使用`/api/auth/*`、`/api/admin/*`；业务接口主要使用`/api/v1/*`。登录后使用会话Cookie，非安全方法需携带CSRF头；JSON通常返回`success/message/data`，导出接口返回文件。具体权限、参数与错误见[完整接口目录](docs/api/README.md)及对应源码。
 
 <!-- BEGIN:API_SUMMARY -->
-当前静态登记 **247个HTTP方法/路径条目**（含认证与管理接口，不重复列自动HEAD/OPTIONS）。
+当前静态登记 **264个HTTP方法/路径条目**（含认证与管理接口，不重复列自动HEAD/OPTIONS）。
 
 | 接口领域 | 条目数 | 完整清单 |
 |---|---:|---|
+| 数据资产快照、字典与依赖证据 | 7 | [asset_inventory](docs/api/README.md#asset_inventory) |
 | 账号认证与权限管理 | 26 | [auth](docs/api/README.md#auth) |
 | 基础信息、资产与兼容入口 | 5 | [core](docs/api/README.md#core) |
 | 经营总览与利润核对 | 3 | [dashboard](docs/api/README.md#dashboard) |
@@ -221,7 +225,7 @@ API统一前缀为`/api`。认证与账号管理使用`/api/auth/*`、`/api/admi
 | 数据加工工作台 | 13 | [data_workbench](docs/api/README.md#data_workbench) |
 | HR报表邮件 | 8 | [hr_mail](docs/api/README.md#hr_mail) |
 | 行为采集与管理看板 | 4 | [telemetry](docs/api/README.md#telemetry) |
-| admwf | 46 | [admwf](docs/api/README.md#admwf) |
+| admwf | 56 | [admwf](docs/api/README.md#admwf) |
 | missed_orders | 3 | [missed_orders](docs/api/README.md#missed_orders) |
 | placement_diagnosis | 2 | [placement_diagnosis](docs/api/README.md#placement_diagnosis) |
 | placement_import | 3 | [placement_import](docs/api/README.md#placement_import) |

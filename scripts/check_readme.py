@@ -12,6 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 METHODS = {"get", "post", "put", "patch", "delete", "head", "options", "route"}
 GROUPS = {
+    "asset_inventory": "数据资产快照、字典与依赖证据",
     "auth": "账号认证与权限管理",
     "core": "基础信息、资产与兼容入口",
     "dashboard": "经营总览与利润核对",
