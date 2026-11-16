@@ -10,6 +10,7 @@ services:
       APP_ENV: ${APP_ENV:-production}
       SECRET_KEY: ${SECRET_KEY:-change-this-in-production}
       DATA_MODE: ${DATA_MODE:-mysql}
+      ASSET_INVENTORY_ROOT: /app/var/assets
       MYSQL_HOST: ${MYSQL_HOST:-}
       MYSQL_PORT: ${MYSQL_PORT:-3306}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-sibebid}
@@ -137,6 +138,7 @@ services:
       - data_workbench_data:/app/var/data-workbench
       - hr_mail_data:/app/var/hr-mail
       - risk_verification_data:/app/var/risk-verification
+      - asset_inventory_data:/app/var/assets
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5160/api/health', timeout=3)"]
@@ -256,6 +258,7 @@ services:
       start_period: 10s
 
 volumes:
+  asset_inventory_data:
   risk_verification_data:
   hr_mail_data:
   adm_data:

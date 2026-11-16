@@ -68,6 +68,8 @@ BUSINESS_ROLE_CATALOG = (
     {"code": "POLICY_OPERATOR", "name": "智能业务执行员", "description": "认领已审核任务并登记投放结果"},
 )
 PERMISSION_CATALOG = (
+    {"code": "assets.inventory.view", "name": "查看完整资产目录", "description": "查看已发布快照中的库表、字段、依赖证据与治理缺口", "menuCode": "data_assets"},
+    {"code": "assets.dictionary.manage", "name": "维护资产业务字典", "description": "保存及发布业务字典修订，不修改源库结构；同时需要完整资产目录查看权限", "menuCode": "data_assets"},
     {"code": "risk.verification.view", "name": "查看风控核对", "description": "查看订单、证据、核实结果及团队共享案例", "menuCode": "risk.verification"},
     {"code": "risk.verification.check", "name": "执行风控核对", "description": "加载清洗结果、新建核查及执行AI审核分析", "menuCode": "risk.verification"},
     {"code": "risk.verification.review", "name": "人工复核风控", "description": "保存人工核实、共享案例跟进与差错认定、抽查及知识草稿", "menuCode": "risk.verification"},

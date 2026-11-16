@@ -22,7 +22,21 @@
 | [上传说明](../business/air_ticketing/risk-data-upload.md) / [行为监控](../product/user-behavior-monitoring-v1.md) | 上传队列和行为采集 |
 
 <!-- BEGIN:API_ROUTES -->
-共 **231个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
+共 **238个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
+
+<a id="asset_inventory"></a>
+
+## 数据资产快照、字典与依赖证据（asset_inventory）
+
+| 方法 | 完整路径 | 处理函数 / 源码 |
+|---|---|---|
+| `GET` | `/api/v1/assets/inventory/detail` | [asset_inventory_detail](../../backend/data_report_api/api/asset_inventory.py) |
+| `PUT` | `/api/v1/assets/inventory/dictionary` | [asset_inventory_dictionary_save](../../backend/data_report_api/api/asset_inventory.py) |
+| `POST` | `/api/v1/assets/inventory/dictionary/publish` | [asset_inventory_dictionary_publish](../../backend/data_report_api/api/asset_inventory.py) |
+| `GET` | `/api/v1/assets/inventory/gaps` | [asset_inventory_gaps](../../backend/data_report_api/api/asset_inventory.py) |
+| `GET` | `/api/v1/assets/inventory/lineage` | [asset_inventory_lineage](../../backend/data_report_api/api/asset_inventory.py) |
+| `GET` | `/api/v1/assets/inventory/objects` | [asset_inventory_objects](../../backend/data_report_api/api/asset_inventory.py) |
+| `GET` | `/api/v1/assets/inventory/summary` | [asset_inventory_summary](../../backend/data_report_api/api/asset_inventory.py) |
 
 <a id="auth"></a>
 

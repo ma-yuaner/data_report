@@ -12,6 +12,7 @@ pip-metadata-*/
 pip-unpack-*/
 .test-artifacts/
 var/data-workbench/
+var/assets/
 var/hr-mail/
 var/risk-verification/
 secrets/

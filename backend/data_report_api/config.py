@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 
 def env_bool(name: str, default: bool = False) -> bool:
@@ -16,6 +17,7 @@ def explicit_erp_settings() -> bool:
 
 
 class Config:
+    ASSET_INVENTORY_ROOT = os.getenv("ASSET_INVENTORY_ROOT", "").strip() or str(Path(__file__).resolve().parents[2] / "var/assets")
     APP_ENV = os.getenv("APP_ENV", "development")
     APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Asia/Shanghai")
     DEBUG = APP_ENV == "development"
