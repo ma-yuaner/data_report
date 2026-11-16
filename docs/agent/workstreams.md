@@ -1,3 +1,7 @@
+## 数据资产两端main发布（2026-11-16，ASSET-MAIN-20261116）
+
+用户明确“需要推送到main”，授权两端各自main集成与推送，替代此前仅独立分支的目标。保留GitLab/GitHub各自历史（已有52/16差异），GitLab从e36d08c快进集成，GitHub从b306393独立移植本次三个资产提交。无冲突、无强推、未部署247；GitHub侧另验定向测试/强制类型/Linux构建和源码一致性。最终远端SHA与通知结果见盘点目录main发布回执；本节不将推送当作上线。完整实现边界仍见data-assets-implementation-20261116.md。
+
 ## 数据资产正式开发V1（2026-11-16，ASSET-IMPL-20261116）
 
 最新发布回执（2026-11-16）：用户明确授权两端独立分支及MYE/main后，资产代码9d4c64a已推送GitLab/GitHub的feat/assets-inventory-20261116，两端远端SHA均核对为9d4c64a526ccf058d5e4149fb4862489af9c0c99；MYE/main已核对为e2fb0d10ffb8bba3f56169052ec4839d1dbf0382。此前自动审批阻碍已由本次明确授权解除。用户确认申请人马远尔，复用既有qa_wecom_delivery.py发送一次发版群通知，HTTP200/errcode=0、0.261秒；明确独立分支已推送、main未合并、247未部署。无重复通知、不查CI、不部署。安全回执在原常用目录.test-artifacts/assets-implementation/notify及工作区盘点目录开发交付回执JSON。
