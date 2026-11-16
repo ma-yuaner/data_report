@@ -1,0 +1,7 @@
+# Optional offline collection/lineage tool environment; not API runtime requirements.
+python-dotenv>=1.1,<2
+PyMySQL>=1.1,<2
+PyHive>=0.7,<1
+thrift>=0.20,<1
+thrift-sasl>=0.4,<1
+sqlglot==30.31.0

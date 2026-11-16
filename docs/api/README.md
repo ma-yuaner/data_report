@@ -22,7 +22,21 @@
 | [上传说明](../business/air_ticketing/risk-data-upload.md) / [行为监控](../product/user-behavior-monitoring-v1.md) | 上传队列和行为采集 |
 
 <!-- BEGIN:API_ROUTES -->
-共 **247个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
+共 **264个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
+
+<a id="asset_inventory"></a>
+
+## 数据资产快照、字典与依赖证据（asset_inventory）
+
+| 方法 | 完整路径 | 处理函数 / 源码 |
+|---|---|---|
+| `GET` | `/api/v1/assets/inventory/detail` | [asset_inventory_detail](../../backend/data_report_api/api/asset_inventory.py) |
+| `PUT` | `/api/v1/assets/inventory/dictionary` | [asset_inventory_dictionary_save](../../backend/data_report_api/api/asset_inventory.py) |
+| `POST` | `/api/v1/assets/inventory/dictionary/publish` | [asset_inventory_dictionary_publish](../../backend/data_report_api/api/asset_inventory.py) |
+| `GET` | `/api/v1/assets/inventory/gaps` | [asset_inventory_gaps](../../backend/data_report_api/api/asset_inventory.py) |
+| `GET` | `/api/v1/assets/inventory/lineage` | [asset_inventory_lineage](../../backend/data_report_api/api/asset_inventory.py) |
+| `GET` | `/api/v1/assets/inventory/objects` | [asset_inventory_objects](../../backend/data_report_api/api/asset_inventory.py) |
+| `GET` | `/api/v1/assets/inventory/summary` | [asset_inventory_summary](../../backend/data_report_api/api/asset_inventory.py) |
 
 <a id="auth"></a>
 
@@ -273,6 +287,9 @@
 
 | 方法 | 完整路径 | 处理函数 / 源码 |
 |---|---|---|
+| `GET` | `/api/v1/adm/analysis` | [adm_analysis](../../backend/data_report_api/api/admwf.py) |
+| `GET` | `/api/v1/adm/analysis/report` | [adm_analysis_report](../../backend/data_report_api/api/admwf.py) |
+| `GET` | `/api/v1/adm/analysis/rows` | [adm_analysis_rows](../../backend/data_report_api/api/admwf.py) |
 | `GET` | `/api/v1/adm/cases` | [admwf_cases](../../backend/data_report_api/api/admwf.py) |
 | `POST` | `/api/v1/adm/cases` | [admwf_create](../../backend/data_report_api/api/admwf.py) |
 | `GET` | `/api/v1/adm/cases/<case_id>` | [admwf_detail](../../backend/data_report_api/api/admwf.py) |
@@ -292,10 +309,13 @@
 | `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/check-difference-order` | [admwf_check_difference_order](../../backend/data_report_api/api/admwf.py) |
 | `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/collections` | [admwf_record_collection](../../backend/data_report_api/api/admwf.py) |
 | `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/collections/<collection_id>/void` | [admwf_void_collection](../../backend/data_report_api/api/admwf.py) |
+| `GET` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/context` | [adm_line_context](../../backend/data_report_api/api/admwf.py) |
+| `PUT` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/context` | [adm_line_context](../../backend/data_report_api/api/admwf.py) |
 | `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/investigation-note` | [admwf_investigation_note](../../backend/data_report_api/api/admwf.py) |
 | `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/no-appeal` | [admwf_no_appeal](../../backend/data_report_api/api/admwf.py) |
 | `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/recovery-confirm` | [admwf_recovery_confirm](../../backend/data_report_api/api/admwf.py) |
 | `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/recovery-decision` | [admwf_recovery_decision](../../backend/data_report_api/api/admwf.py) |
+| `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/reject` | [admwf_reject_assignment](../../backend/data_report_api/api/admwf.py) |
 | `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/review` | [admwf_review](../../backend/data_report_api/api/admwf.py) |
 | `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/submit-review` | [admwf_submit_review](../../backend/data_report_api/api/admwf.py) |
 | `POST` | `/api/v1/adm/cases/<case_id>/lines/<line_id>/transfers` | [admwf_request_transfer](../../backend/data_report_api/api/admwf.py) |
@@ -315,6 +335,10 @@
 | `POST` | `/api/v1/adm/imports/preview` | [admwf_import_preview](../../backend/data_report_api/api/admwf.py) |
 | `GET` | `/api/v1/adm/imports/template` | [admwf_import_template](../../backend/data_report_api/api/admwf.py) |
 | `GET` | `/api/v1/adm/ledger-lines` | [admwf_ledger_lines](../../backend/data_report_api/api/admwf.py) |
+| `GET` | `/api/v1/adm/operations/endpoints` | [adm_operations_endpoints](../../backend/data_report_api/api/admwf.py) |
+| `GET` | `/api/v1/adm/operations/preview` | [adm_operations_preview](../../backend/data_report_api/api/admwf.py) |
+| `GET` | `/api/v1/adm/operations/settings` | [adm_operations_settings](../../backend/data_report_api/api/admwf.py) |
+| `PUT` | `/api/v1/adm/operations/settings` | [adm_operations_settings](../../backend/data_report_api/api/admwf.py) |
 | `POST` | `/api/v1/adm/operator-imports` | [admwf_operator_import](../../backend/data_report_api/api/admwf.py) |
 | `GET` | `/api/v1/adm/reference-options/<kind>` | [admwf_reference_options](../../backend/data_report_api/api/admwf.py) |
 | `GET` | `/api/v1/adm/workbench` | [admwf_workbench](../../backend/data_report_api/api/admwf.py) |

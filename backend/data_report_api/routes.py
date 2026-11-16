@@ -2,7 +2,7 @@
 from flask import Blueprint
 
 from .api import admwf
-from .api import data_workbench
+from .api import data_workbench, asset_inventory
 from .api import hr_mail
 from .api import risk_verification
 
@@ -19,6 +19,7 @@ admwf.register_routes(api)
 
 targets.register_routes(api)
 core.register_routes(api)
+asset_inventory.register_routes(api)
 resource_governance.register_routes(api)
 telemetry.register_routes(api)
 dashboard.register_routes(api)
