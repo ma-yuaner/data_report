@@ -5,6 +5,7 @@ import {
   createComprehensiveExport,
   createGdsRouteExport,
   listComprehensiveExports,
+  prioritizeComprehensiveExport,
   type ComprehensiveExportTask,
 } from '@/api/comprehensiveExport'
 import type { BusinessKey, FilterScope } from '@/api/comprehensive'
@@ -66,6 +67,12 @@ export const useComprehensiveExportStore = defineStore('comprehensive-exports', 
     async cancel(id: string) {
       this.rememberTask(await cancelComprehensiveExport(id))
       await this.refresh(true)
+    },
+    async prioritize(id: string) {
+      const task = await prioritizeComprehensiveExport(id)
+      this.rememberTask(task)
+      await this.refresh(true)
+      return task
     },
     async createRoutes(scope: GdsRouteScope) {
       const task = await createGdsRouteExport(scope)

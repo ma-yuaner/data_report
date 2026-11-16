@@ -29,8 +29,10 @@ export interface ComprehensiveExportTask {
   message: string
   downloadName: string | null
   canCancel: boolean
+  canPrioritize: boolean
   canDownload: boolean
   reused: boolean
+  preemptedTaskId?: string | null
 }
 
 export async function listComprehensiveExports(): Promise<ComprehensiveExportTask[]> {
@@ -53,6 +55,13 @@ export async function createComprehensiveExport(
 export async function cancelComprehensiveExport(id: string): Promise<ComprehensiveExportTask> {
   const response = await http.post<ApiEnvelope<ComprehensiveExportTask>>(
     `/v1/exports/${encodeURIComponent(id)}/cancel`,
+  )
+  return response.data.data
+}
+
+export async function prioritizeComprehensiveExport(id: string): Promise<ComprehensiveExportTask> {
+  const response = await http.post<ApiEnvelope<ComprehensiveExportTask>>(
+    `/v1/exports/${encodeURIComponent(id)}/prioritize`,
   )
   return response.data.data
 }

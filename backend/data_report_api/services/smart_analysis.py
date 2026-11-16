@@ -400,7 +400,13 @@ def build_trend_where(
     }
 
 
-def _workbook(sheet_name: str, headers: list[str], rows: Iterable[Sequence[Any]]) -> BinaryIO:
+def _workbook(
+    sheet_name: str,
+    headers: list[str],
+    rows: Iterable[Sequence[Any]],
+    *,
+    check_cancel: Callable[[], None] | None = None,
+) -> BinaryIO:
     workbook = Workbook(write_only=True)
     sheet = workbook.create_sheet()
     sheet.title = sheet_name[:31]
@@ -421,8 +427,16 @@ def _workbook(sheet_name: str, headers: list[str], rows: Iterable[Sequence[Any]]
         sheet.append(row)
         row_count += 1
     sheet.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{row_count}"
+    if check_cancel is not None:
+        check_cancel()
     output = SpooledTemporaryFile(max_size=WORKBOOK_MEMORY_LIMIT_BYTES, mode="w+b")
-    workbook.save(output)
+    try:
+        workbook.save(output)
+        if check_cancel is not None:
+            check_cancel()
+    except Exception:
+        output.close()
+        raise
     output.seek(0)
     return output
 
@@ -1106,6 +1120,8 @@ class SmartAnalysisService:
         first_dep_end=None, order_start=None, order_end=None, filters=None,
         smart_type="all", stage="all", fields_value=None, all_fields=False,
         on_total: Callable[[int], None] | None = None,
+        on_progress: Callable[[int], None] | None = None,
+        check_cancel: Callable[[], None] | None = None,
     ):
         exact_ota_order = str((filters or {}).get("otaOrderNo") or "").strip()
         if exact_ota_order:
@@ -1152,6 +1168,8 @@ class SmartAnalysisService:
             total = int((count_cursor.fetchone() or (0,))[0] or 0)
             if on_total is not None:
                 on_total(total)
+            if check_cancel is not None:
+                check_cancel()
             if total > MAX_DETAIL_EXPORT_ROWS:
                 raise ValueError(f"当前匹配{total}条，超过{MAX_DETAIL_EXPORT_ROWS}条导出上限，请缩小筛选范围后再导出。")
             count_cursor.close()
@@ -1160,16 +1178,29 @@ class SmartAnalysisService:
             cursor.execute(query, tuple(params))
 
             def export_rows() -> Iterable[list[Any]]:
-                while batch := cursor.fetchmany(DETAIL_EXPORT_BATCH_SIZE):
+                processed = 0
+                while True:
+                    if check_cancel is not None:
+                        check_cancel()
+                    batch = cursor.fetchmany(DETAIL_EXPORT_BATCH_SIZE)
+                    if not batch:
+                        break
                     for values in batch:
                         yield [
                             _serialize_detail(value, field.value_type)
                             for field, value in zip(selected_fields, values)
                         ]
+                    processed += len(batch)
+                    if on_progress is not None:
+                        on_progress(processed)
+                    if check_cancel is not None:
+                        check_cancel()
 
             headers = [field.title for field in selected_fields]
             suffix = _period_suffix((first, last), (dep_first, dep_last), (order_first, order_last))
-            return _workbook("出票明细", headers, export_rows()), f"智能分析_出票明细_{suffix}.xlsx"
+            return _workbook(
+                "出票明细", headers, export_rows(), check_cancel=check_cancel,
+            ), f"智能分析_出票明细_{suffix}.xlsx"
         finally:
             if count_cursor is not None:
                 count_cursor.close()

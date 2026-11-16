@@ -39,6 +39,9 @@ class Config:
     COMPREHENSIVE_EXPORT_RETENTION_HOURS = int(
         os.getenv("COMPREHENSIVE_EXPORT_RETENTION_HOURS", "24")
     )
+    COMPREHENSIVE_EXPORT_STALE_MINUTES = int(
+        os.getenv("COMPREHENSIVE_EXPORT_STALE_MINUTES", "60")
+    )
     MYSQL_POOL_SIZE = int(os.getenv("MYSQL_POOL_SIZE", "12"))
     MYSQL_POOL_MIN_CACHED = int(os.getenv("MYSQL_POOL_MIN_CACHED", "2"))
     MYSQL_TIME_ZONE = os.getenv("MYSQL_TIME_ZONE", "+08:00")
