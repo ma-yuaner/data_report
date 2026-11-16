@@ -77,4 +77,3 @@ MYE回流：通用方法文档检查通过，本地提交e2fb0d1，仅两份方�
 ## 已授权推送与通知回执
 
 最新发布回执（2026-11-16）：用户明确授权两端独立分支及MYE/main后，资产代码9d4c64a已推送GitLab/GitHub的feat/assets-inventory-20261116，两端远端SHA均核对为9d4c64a526ccf058d5e4149fb4862489af9c0c99；MYE/main已核对为e2fb0d10ffb8bba3f56169052ec4839d1dbf0382。此前自动审批阻碍已由本次明确授权解除。用户确认申请人马远尔，复用既有qa_wecom_delivery.py发送一次发版群通知，HTTP200/errcode=0、0.261秒；明确独立分支已推送、main未合并、247未部署。无重复通知、不查CI、不部署。安全回执在原常用目录.test-artifacts/assets-implementation/notify及工作区盘点目录开发交付回执JSON。
-
