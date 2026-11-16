@@ -280,10 +280,16 @@ def test_detail_export_reads_mysql_in_batches_and_writes_valid_workbook(source):
         [(101, "携程"), (102, "飞猪")],
         [],
     ]
+    on_total = MagicMock()
+    on_progress = MagicMock()
+    check_cancel = MagicMock()
 
     content, filename = module.SmartAnalysisService({}, source=source).export_details(
         start_value="2026-10-01", end_value="2026-10-09",
         fields_value="issueId,platform",
+        on_total=on_total,
+        on_progress=on_progress,
+        check_cancel=check_cancel,
     )
     try:
         workbook = load_workbook(content, read_only=True)
@@ -299,6 +305,9 @@ def test_detail_export_reads_mysql_in_batches_and_writes_valid_workbook(source):
         call(module.DETAIL_EXPORT_BATCH_SIZE),
         call(module.DETAIL_EXPORT_BATCH_SIZE),
     ]
+    on_total.assert_called_once_with(2)
+    on_progress.assert_called_once_with(2)
+    assert check_cancel.call_count >= 4
 
 
 def test_dimension_export_rejects_more_than_nine_hundred_thousand_rows(source):

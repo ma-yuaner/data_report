@@ -117,6 +117,21 @@ def register_routes(api: Blueprint) -> None:
         ) as error:
             return _export_error(error)
 
+    @api.post("/v1/exports/<task_id>/prioritize")
+    @api.post("/v1/analysis/comprehensive/exports/<task_id>/prioritize")
+    def comprehensive_export_prioritize(task_id: str):
+        try:
+            return ok(
+                ComprehensiveExportService(current_app.config).prioritize(
+                    g.current_user, task_id
+                ),
+                "已优先处理该任务",
+            )
+        except (
+            PermissionError, ValueError, ComprehensiveExportConflict, ComprehensiveExportUnavailable
+        ) as error:
+            return _export_error(error)
+
     @api.get("/v1/exports/<task_id>/download")
     @api.get("/v1/analysis/comprehensive/exports/<task_id>/download")
     def comprehensive_export_download(task_id: str):

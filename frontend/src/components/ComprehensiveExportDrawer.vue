@@ -13,6 +13,9 @@
           <a-progress v-if="isActive(task.status)" :percent="percent(task)" :status="task.status === 'CANCEL_REQUESTED' ? 'exception' : 'active'" />
           <div class="task-meta"><span>{{ task.message || statusMeta(task.status).label }}</span><span>{{ progressText(task) }}</span></div>
           <footer>
+            <a-button v-if="task.canPrioritize" size="small" :loading="prioritizingId === task.id" @click="prioritize(task)">
+              优先处理
+            </a-button>
             <a-button v-if="task.canCancel" size="small" danger :disabled="task.status === 'CANCEL_REQUESTED'" @click="cancel(task)">
               {{ task.status === 'CANCEL_REQUESTED' ? '正在取消' : '取消任务' }}
             </a-button>
@@ -25,12 +28,14 @@
 </template>
 
 <script setup lang="ts">
-import { message } from 'ant-design-vue'
+import { ref } from 'vue'
+import { message, Modal } from 'ant-design-vue'
 import { DownloadOutlined } from '@ant-design/icons-vue'
 import { comprehensiveExportDownloadUrl, type ComprehensiveExportStatus, type ComprehensiveExportTask } from '@/api/comprehensiveExport'
 import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
 
 const store = useComprehensiveExportStore()
+const prioritizingId = ref('')
 const formatter = new Intl.NumberFormat('zh-CN')
 const number = (value: number) => formatter.format(value || 0)
 const isActive = (status: ComprehensiveExportStatus) => ['QUEUED', 'RUNNING', 'CANCEL_REQUESTED'].includes(status)
@@ -55,6 +60,31 @@ const statusMeta = (status: ComprehensiveExportStatus) => ({
 async function cancel(task: ComprehensiveExportTask) {
   try { await store.cancel(task.id); message.success(task.status === 'QUEUED' ? '任务已取消' : '取消请求已提交') }
   catch (error) { message.error(error instanceof Error ? error.message : '取消失败') }
+}
+async function runPrioritize(task: ComprehensiveExportTask) {
+  prioritizingId.value = task.id
+  try {
+    const result = await store.prioritize(task.id)
+    message.success(result.preemptedTaskId ? '当前任务将停止并从头重新排队，已优先处理所选任务' : '已将任务移到队首')
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '优先处理失败')
+  } finally {
+    prioritizingId.value = ''
+  }
+}
+function prioritize(task: ComprehensiveExportTask) {
+  const running = store.tasks.find(item => item.status === 'RUNNING')
+  if (!running) {
+    void runPrioritize(task)
+    return
+  }
+  Modal.confirm({
+    title: '优先处理这个任务？',
+    content: `正在运行的“${running.taskLabel || running.businessLabel}”会在当前批次结束后停止，并排到该任务后从 0 重新导出。已完成进度不会保留。`,
+    okText: '优先处理',
+    cancelText: '暂不调整',
+    onOk: () => runPrioritize(task),
+  })
 }
 function download(id: string) { window.location.assign(comprehensiveExportDownloadUrl(id)) }
 </script>

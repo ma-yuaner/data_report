@@ -4,12 +4,15 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import shutil
+import socket
 import sqlite3
 import threading
 import uuid
 from datetime import date, timedelta
 from pathlib import Path
+from time import monotonic
 from typing import Any
 
 from openpyxl import Workbook
@@ -35,6 +38,11 @@ ACTIVE_STATUSES = ("QUEUED", "RUNNING", "CANCEL_REQUESTED")
 MAX_EXPORT_ROWS = 500_000
 MAX_ACTIVE_TASKS_PER_USER = 3
 BATCH_SIZE = 2_000
+DEFAULT_STALE_MINUTES = 60
+RECOVERY_CHECK_INTERVAL_SECONDS = 30
+INSTANCE_HANDOFF_GRACE_MINUTES = 2
+_RECOVERY_LOCK = threading.Lock()
+_RECOVERY_LAST_CHECK: dict[str, float] = {}
 GDS_ROUTE_KIND = "gds_routes"
 RESOURCE_GDS_KIND = "resource_governance_gds"
 RESOURCE_OTA_KIND = "resource_governance_ota"
@@ -196,10 +204,29 @@ class ComprehensiveExportStore:
                     cancel_requested_at TEXT,
                     file_path TEXT,
                     download_name TEXT,
+                    queue_priority INTEGER NOT NULL DEFAULT 0,
+                    requeue_requested INTEGER NOT NULL DEFAULT 0,
+                    worker_id TEXT,
+                    heartbeat_at TEXT,
                     message TEXT NOT NULL DEFAULT ''
                 )
                 """
             )
+            columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(comprehensive_export_jobs)")
+            }
+            migrations = {
+                "queue_priority": "INTEGER NOT NULL DEFAULT 0",
+                "requeue_requested": "INTEGER NOT NULL DEFAULT 0",
+                "worker_id": "TEXT",
+                "heartbeat_at": "TEXT",
+            }
+            for name, definition in migrations.items():
+                if name not in columns:
+                    connection.execute(
+                        f"ALTER TABLE comprehensive_export_jobs ADD COLUMN {name} {definition}"
+                    )
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_comprehensive_export_user_time "
                 "ON comprehensive_export_jobs(user_id, queued_at DESC)"
@@ -245,6 +272,7 @@ class ComprehensiveExportStore:
             "message": item.get("message") or "",
             "downloadName": item.get("download_name"),
             "canCancel": item["status"] in ("QUEUED", "RUNNING"),
+            "canPrioritize": item["status"] == "QUEUED",
             "canDownload": item["status"] == "SUCCEEDED" and bool(item.get("file_path")),
             "reused": reused,
         }
@@ -338,7 +366,7 @@ class ComprehensiveExportStore:
             elif status == "RUNNING":
                 connection.execute(
                     "UPDATE comprehensive_export_jobs SET status='CANCEL_REQUESTED',updated_at=?,"
-                    "cancel_requested_at=?,message='正在取消' WHERE id=?",
+                    "cancel_requested_at=?,requeue_requested=0,message='正在取消' WHERE id=?",
                     (now, now, task_id),
                 )
             elif status == "CANCEL_REQUESTED":
@@ -356,7 +384,56 @@ class ComprehensiveExportStore:
         finally:
             connection.close()
 
-    def claim_next(self) -> dict[str, Any] | None:
+    def prioritize(self, user_id: int, task_id: str) -> dict[str, Any]:
+        connection = self.connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            target = connection.execute(
+                "SELECT * FROM comprehensive_export_jobs WHERE id=? AND user_id=?",
+                (task_id, user_id),
+            ).fetchone()
+            if target is None:
+                raise ValueError("导出任务不存在")
+            if target["status"] != "QUEUED":
+                raise ComprehensiveExportConflict("只有排队中的任务可以优先处理")
+            maximum = connection.execute(
+                "SELECT COALESCE(MAX(queue_priority),0) FROM comprehensive_export_jobs "
+                "WHERE user_id=? AND status='QUEUED'",
+                (user_id,),
+            ).fetchone()[0]
+            priority = int(maximum or 0) + 1
+            now = _now_text()
+            connection.execute(
+                "UPDATE comprehensive_export_jobs SET queue_priority=?,updated_at=?,"
+                "message='已移到队首' WHERE id=? AND status='QUEUED'",
+                (priority, now, task_id),
+            )
+            running = connection.execute(
+                "SELECT id FROM comprehensive_export_jobs WHERE user_id=? AND status='RUNNING' "
+                "ORDER BY started_at LIMIT 1",
+                (user_id,),
+            ).fetchone()
+            if running is not None:
+                connection.execute(
+                    "UPDATE comprehensive_export_jobs SET status='CANCEL_REQUESTED',"
+                    "requeue_requested=1,cancel_requested_at=?,updated_at=?,"
+                    "message='正在暂停，稍后从头重新排队' WHERE id=? AND status='RUNNING'",
+                    (now, now, running["id"]),
+                )
+            result = connection.execute(
+                "SELECT * FROM comprehensive_export_jobs WHERE id=?", (task_id,)
+            ).fetchone()
+            connection.commit()
+            public = self.public(result)
+            public["preemptedTaskId"] = str(running["id"]) if running is not None else None
+            return public
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def claim_next(self, worker_id: str) -> dict[str, Any] | None:
         connection = self.connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
@@ -366,8 +443,22 @@ class ComprehensiveExportStore:
                 WHERE q.status='QUEUED' AND NOT EXISTS (
                     SELECT 1 FROM comprehensive_export_jobs r
                     WHERE r.user_id=q.user_id AND r.status IN ('RUNNING','CANCEL_REQUESTED')
+                ) AND NOT EXISTS (
+                    SELECT 1 FROM comprehensive_export_jobs ahead
+                    WHERE ahead.user_id=q.user_id AND ahead.status='QUEUED' AND (
+                        ahead.queue_priority>q.queue_priority OR (
+                            ahead.queue_priority=q.queue_priority AND (
+                                ahead.queued_at<q.queued_at OR (
+                                    ahead.queued_at=q.queued_at AND ahead.id<q.id
+                                )
+                            )
+                        )
+                    )
                 )
-                ORDER BY q.queued_at LIMIT 1
+                ORDER BY (
+                    SELECT MIN(waiting.queued_at) FROM comprehensive_export_jobs waiting
+                    WHERE waiting.user_id=q.user_id AND waiting.status='QUEUED'
+                ),q.queued_at,q.id LIMIT 1
                 """
             ).fetchone()
             if row is None:
@@ -376,20 +467,23 @@ class ComprehensiveExportStore:
             now = _now_text()
             changed = connection.execute(
                 "UPDATE comprehensive_export_jobs SET status='RUNNING',started_at=?,updated_at=?,"
-                "message='正在生成文件' WHERE id=? AND status='QUEUED'",
-                (now, now, row["id"]),
+                "worker_id=?,heartbeat_at=?,requeue_requested=0,message='正在生成文件' "
+                "WHERE id=? AND status='QUEUED'",
+                (now, now, worker_id, now, row["id"]),
             ).rowcount
             if changed != 1:
                 connection.rollback()
                 return None
             connection.commit()
             result = dict(row)
-            result.update(status="RUNNING", started_at=now, updated_at=now, message="正在生成文件")
+            result.update(status="RUNNING", started_at=now, updated_at=now,
+                          worker_id=worker_id, heartbeat_at=now,
+                          requeue_requested=0, message="正在生成文件")
             return result
         finally:
             connection.close()
 
-    def claim(self, user_id: int, task_id: str) -> dict[str, Any]:
+    def claim(self, user_id: int, task_id: str, worker_id: str = "request") -> dict[str, Any]:
         """Claim one newly-created task for immediate generation in the request."""
         connection = self.connect()
         try:
@@ -403,12 +497,13 @@ class ComprehensiveExportStore:
             now = _now_text()
             connection.execute(
                 "UPDATE comprehensive_export_jobs SET status='RUNNING',started_at=?,updated_at=?,"
-                "message='正在生成文件' WHERE id=? AND status='QUEUED'",
-                (now, now, task_id),
+                "worker_id=?,heartbeat_at=?,message='正在生成文件' WHERE id=? AND status='QUEUED'",
+                (now, now, worker_id, now, task_id),
             )
             connection.commit()
             result = dict(row)
-            result.update(status="RUNNING", started_at=now, updated_at=now, message="正在生成文件")
+            result.update(status="RUNNING", started_at=now, updated_at=now,
+                          worker_id=worker_id, heartbeat_at=now, message="正在生成文件")
             return result
         except Exception:
             connection.rollback()
@@ -427,26 +522,102 @@ class ComprehensiveExportStore:
         now = _now_text()
         with self.connect() as connection:
             connection.execute(
-                "UPDATE comprehensive_export_jobs SET processed_rows=?,updated_at=?,message=? "
+                "UPDATE comprehensive_export_jobs SET processed_rows=?,updated_at=?,heartbeat_at=?,message=? "
                 "WHERE id=? AND status='RUNNING'",
-                (processed, now, f"已处理 {processed:,} 条", task_id),
+                (processed, now, now, f"已处理 {processed:,} 条", task_id),
             )
+
+    def complete_cancellation(self, task_id: str) -> None:
+        now = _now_text()
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT requeue_requested FROM comprehensive_export_jobs WHERE id=?", (task_id,)
+            ).fetchone()
+            if row is not None and int(row["requeue_requested"] or 0):
+                connection.execute(
+                    "UPDATE comprehensive_export_jobs SET status='QUEUED',processed_rows=0,"
+                    "started_at=NULL,finished_at=NULL,cancel_requested_at=NULL,worker_id=NULL,"
+                    "heartbeat_at=NULL,requeue_requested=0,queue_priority=0,updated_at=?,"
+                    "message='等待重新导出' WHERE id=?",
+                    (now, task_id),
+                )
+            else:
+                connection.execute(
+                    "UPDATE comprehensive_export_jobs SET status='CANCELLED',finished_at=?,updated_at=?,"
+                    "worker_id=NULL,heartbeat_at=NULL,message='已取消' WHERE id=?",
+                    (now, now, task_id),
+                )
+
+    def recover_orphans(self, instance_id: str, stale_minutes: int) -> int:
+        cutoff = (business_now() - timedelta(minutes=max(5, stale_minutes))).isoformat(timespec="seconds")
+        handoff_cutoff = (
+            business_now() - timedelta(minutes=INSTANCE_HANDOFF_GRACE_MINUTES)
+        ).isoformat(timespec="seconds")
+        now = _now_text()
+        recovered = 0
+        cleanup_paths: set[Path] = set()
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            rows = connection.execute(
+                "SELECT id,status,requeue_requested,worker_id,heartbeat_at,file_path "
+                "FROM comprehensive_export_jobs "
+                "WHERE status IN ('RUNNING','CANCEL_REQUESTED')"
+            ).fetchall()
+            for row in rows:
+                owner = str(row["worker_id"] or "")
+                heartbeat = str(row["heartbeat_at"] or "")
+                other_instance = bool(
+                    owner
+                    and owner.split(":", 1)[0] != instance_id
+                    and (not heartbeat or heartbeat < handoff_cutoff)
+                )
+                stale = not heartbeat or heartbeat < cutoff
+                if not other_instance and not stale:
+                    continue
+                if int(row["requeue_requested"] or 0):
+                    status, message, finished_at = "QUEUED", "服务重启，等待重新导出", None
+                elif row["status"] == "CANCEL_REQUESTED":
+                    status, message, finished_at = "CANCELLED", "已取消（服务重启后清理）", now
+                else:
+                    status, message, finished_at = "FAILED", "服务重启导致导出中断，请重新创建", now
+                connection.execute(
+                    "UPDATE comprehensive_export_jobs SET status=?,processed_rows=CASE WHEN ?='QUEUED' THEN 0 ELSE processed_rows END,"
+                    "started_at=CASE WHEN ?='QUEUED' THEN NULL ELSE started_at END,finished_at=?,"
+                    "worker_id=NULL,heartbeat_at=NULL,requeue_requested=0,"
+                    "queue_priority=CASE WHEN ?='QUEUED' THEN 0 ELSE queue_priority END,updated_at=?,message=?,"
+                    "file_path=NULL,download_name=NULL WHERE id=?",
+                    (status, status, status, finished_at, status, now, message, row["id"]),
+                )
+                if row["file_path"]:
+                    candidate = Path(str(row["file_path"])).resolve()
+                    if candidate.parent == self.files:
+                        cleanup_paths.add(candidate)
+                cleanup_paths.add(self.files / f"{row['id']}.xlsx")
+                recovered += 1
+        for path in cleanup_paths:
+            path.unlink(missing_ok=True)
+        return recovered
 
     def finish(self, task_id: str, path: Path, download_name: str, processed: int) -> None:
         now = _now_text()
         with self.connect() as connection:
             changed = connection.execute(
                 "UPDATE comprehensive_export_jobs SET status='SUCCEEDED',processed_rows=?,"
-                "finished_at=?,updated_at=?,file_path=?,download_name=?,message='导出完成' WHERE id=? AND status='RUNNING'",
+                "finished_at=?,updated_at=?,file_path=?,download_name=?,worker_id=NULL,heartbeat_at=NULL,"
+                "requeue_requested=0,message='导出完成' WHERE id=? AND status='RUNNING'",
                 (processed, now, now, str(path), download_name, task_id),
             ).rowcount
             if changed != 1:
                 raise ComprehensiveExportCancelled()
 
     def set_total(self, task_id: str, total: int) -> None:
+        now = _now_text()
         with self.connect() as connection:
-            connection.execute("UPDATE comprehensive_export_jobs SET total_rows=?,updated_at=? WHERE id=? AND status='RUNNING'",
-                               (total, _now_text(), task_id))
+            connection.execute(
+                "UPDATE comprehensive_export_jobs SET total_rows=?,updated_at=?,heartbeat_at=? "
+                "WHERE id=? AND status='RUNNING'",
+                (total, now, now, task_id),
+            )
 
     def fail(self, task_id: str, message: str, *, cancelled: bool = False) -> None:
         now = _now_text()
@@ -455,7 +626,8 @@ class ComprehensiveExportStore:
         with self.connect() as connection:
             connection.execute(
                 "UPDATE comprehensive_export_jobs SET status=?,finished_at=?,updated_at=?,"
-                "file_path=NULL,download_name=NULL,message=? WHERE id=?",
+                "file_path=NULL,download_name=NULL,worker_id=NULL,heartbeat_at=NULL,"
+                "requeue_requested=0,message=? WHERE id=?",
                 (status, now, now, safe_message, task_id),
             )
 
@@ -503,6 +675,22 @@ class ComprehensiveExportService:
             str(config.get("COMPREHENSIVE_EXPORT_ROOT", "/app/var/comprehensive-exports")),
             int(config.get("COMPREHENSIVE_EXPORT_RETENTION_HOURS", 24)),
         )
+        self.instance_id = socket.gethostname()
+        self.worker_id = f"{self.instance_id}:{os.getpid()}:{uuid.uuid4().hex}"
+        self._recover_orphans_if_due(
+            int(config.get("COMPREHENSIVE_EXPORT_STALE_MINUTES", DEFAULT_STALE_MINUTES))
+        )
+
+    def _recover_orphans_if_due(self, stale_minutes: int) -> None:
+        key = str(self.store.database)
+        current = monotonic()
+        with _RECOVERY_LOCK:
+            if current - _RECOVERY_LAST_CHECK.get(key, 0) < RECOVERY_CHECK_INTERVAL_SECONDS:
+                return
+            recovered = self.store.recover_orphans(self.instance_id, stale_minutes)
+            _RECOVERY_LAST_CHECK[key] = current
+        if recovered:
+            LOGGER.warning("Recovered %s orphaned export task(s)", recovered)
 
     @staticmethod
     def _fingerprint(user_id: int, business: str, start_date: str, end_date: str,
@@ -596,6 +784,15 @@ class ComprehensiveExportService:
         self._start_worker()
         return result
 
+    def prioritize(self, user: dict[str, Any], task_id: str) -> dict[str, Any]:
+        row = self.store.get(_user_id(user), task_id)
+        if row is None:
+            raise ValueError("导出任务不存在")
+        _require_kind(user, row["business_type"])
+        result = self.store.prioritize(_user_id(user), task_id)
+        self._start_worker()
+        return result
+
     def download(self, user: dict[str, Any], task_id: str) -> tuple[Path, str]:
         self.store.expire_files()
         row = self.store.get(_user_id(user), task_id)
@@ -634,7 +831,7 @@ class ComprehensiveExportService:
 
     def _worker_loop(self) -> None:
         while True:
-            task = self.store.claim_next()
+            task = self.store.claim_next(self.worker_id)
             if task is None:
                 return
             self._execute(task)
@@ -645,7 +842,7 @@ class ComprehensiveExportService:
             try:
                 self._copy_hr_mail_file(task)
             except ComprehensiveExportCancelled:
-                self.store.fail(task_id, "已取消", cancelled=True)
+                self.store.complete_cancellation(task_id)
             except (PermissionError, ValueError) as error:
                 self.store.fail(task_id, str(error))
             except Exception:
@@ -662,7 +859,7 @@ class ComprehensiveExportService:
                 self._write_xlsx(task, output_path)
         except ComprehensiveExportCancelled:
             output_path.unlink(missing_ok=True)
-            self.store.fail(task_id, "已取消", cancelled=True)
+            self.store.complete_cancellation(task_id)
         except ValueError as error:
             output_path.unlink(missing_ok=True)
             self.store.fail(task_id, str(error))
@@ -753,7 +950,7 @@ class ComprehensiveExportService:
         from .admwf.service import AdmWorkflowService
 
         task_id = str(task["id"])
-        self.store.claim(_user_id(user), task_id)
+        self.store.claim(_user_id(user), task_id, self.worker_id)
         try:
             service = AdmWorkflowService(self.config)
             if task["businessType"] == ADM_IMPORT_TEMPLATE_KIND:
@@ -939,12 +1136,21 @@ class ComprehensiveExportService:
                     exported_rows = total
                     self.store.set_total(task_id, total)
 
+                def update_detail_progress(processed: int) -> None:
+                    self.store.progress(task_id, processed)
+
+                def check_detail_cancel() -> None:
+                    if self.store.cancellation_requested(task_id):
+                        raise ComprehensiveExportCancelled()
+
                 content, name = service.export_details(
                     **period_args, filters=filters,
                     smart_type=values.get("smartType", "all"), stage=values.get("stage", "all"),
                     fields_value=",".join(values.get("fields") or []),
                     all_fields=values.get("scope", "visible") == "all",
                     on_total=update_detail_total,
+                    on_progress=update_detail_progress,
+                    check_cancel=check_detail_cancel,
                 )
             else:
                 raise ValueError("不支持的导出任务类型")
