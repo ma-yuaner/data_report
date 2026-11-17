@@ -126,7 +126,7 @@ onMounted(loadData)
 .assets-page :deep(.metric-formula) { font-size: 12px; line-height: 1.7; white-space: normal; overflow-wrap: anywhere; }
 .assets-page :deep(.ant-table-thead > tr > th) { color: #334155; background: #f5f7fa; }
 .assets-page :deep(.ant-tabs-tab:focus-visible),
-.assets-page :deep(button:focus-visible) { outline: 2px solid #3178f6; outline-offset: 3px; }
+.assets-page :deep(button:focus-visible) { outline: 2px solid var(--platform-primary, #08757a); outline-offset: 3px; }
 @media (max-width: 760px) {
   .asset-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
   .asset-summary > div { min-height: 88px; padding: 12px; gap: 8px; }

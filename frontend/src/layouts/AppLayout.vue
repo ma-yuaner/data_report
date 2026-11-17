@@ -1,5 +1,5 @@
 <template>
-  <a-layout class="app-shell" @keydown.esc="closeMobileMenu">
+  <a-layout class="app-shell" :style="platformVariables(appStore.darkMode)" @keydown.esc="closeMobileMenu">
     <div class="route-progress" :class="{ 'is-active': appStore.navigating }" />
     <button v-if="mobileMenuOpen" type="button" class="sidebar-mobile-mask" aria-label="关闭主菜单遮罩" @click="closeMobileMenu" @wheel.prevent @touchmove.prevent />
     <a-layout-sider
@@ -10,21 +10,22 @@
       :collapsed-width="64"
       @breakpoint="sidebarBroken = $event"
       class="app-sidebar"
-      :width="224"
+      :width="232"
     >
-      <div class="app-brand" :class="{ 'is-collapsed': appStore.collapsed }" role="button" tabindex="0" @click="router.push('/home')" @keydown.enter="router.push('/home')">
-        <div class="brand-mark"><BarChartOutlined /></div>
-        <div v-if="!appStore.collapsed" class="brand-copy">
-          <strong>企业数据中心</strong>
-          <span>Data Insight Portal</span>
-        </div>
-      </div>
+      <button type="button" class="app-brand" :class="{ 'is-collapsed': appStore.collapsed }" aria-label="数据中台工作台" @click="router.push('/home')">
+        <img class="brand-mark" :src="platformIcon" alt="" />
+        <span v-if="!appStore.collapsed" class="brand-copy">
+          <strong>数据中台</strong>
+          <span>乐游五洲</span>
+        </span>
+      </button>
 
       <a-button v-if="mobileMenuOpen" ref="mobileClose" type="text" class="sidebar-mobile-close" aria-label="收起主菜单" @click="closeMobileMenu"><MenuFoldOutlined /></a-button>
       <div class="sidebar-menu-scroll" tabindex="0" role="navigation" aria-label="主菜单">
+        <p v-if="!appStore.collapsed" class="sidebar-menu-label">功能导航</p>
         <a-menu
           v-model:openKeys="openKeys"
-          theme="dark"
+          :theme="appStore.darkMode ? 'dark' : 'light'"
           mode="inline"
           :selected-keys="selectedKeys"
           @click="handleMenuClick"
@@ -215,17 +216,17 @@
           </a-breadcrumb>
         </div>
         <div class="header-actions">
-          <a-tag color="blue">{{ headerTag }}</a-tag>
+          <a-tag class="header-context">{{ headerTag }}</a-tag>
           <a-badge v-if="canExport" :count="exportStore.activeCount" :show-zero="false" size="small">
             <a-button type="text" class="export-entry" @click="exportStore.drawerOpen = true"
               ><DownloadOutlined />导出任务</a-button
             >
           </a-badge>
           <a-dropdown placement="bottomRight">
-            <div class="user-entry">
+            <button type="button" class="user-entry" aria-label="打开账号菜单" aria-haspopup="menu">
               <a-avatar size="small">{{ userInitial }}</a-avatar>
               <span>{{ authStore.user?.displayName ?? authStore.user?.username }}</span>
-            </div>
+            </button>
             <template #overlay>
               <a-menu @click="handleUserMenu">
                 <a-menu-item v-if="authStore.canDeleteAccounts" key="admin"><TeamOutlined />账号管理</a-menu-item>
@@ -253,7 +254,6 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  BarChartOutlined,
   ControlOutlined,
   CustomerServiceOutlined,
   DashboardOutlined,
@@ -279,6 +279,8 @@ import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
 import ComprehensiveExportDrawer from '@/components/ComprehensiveExportDrawer.vue'
+import platformIcon from '@/assets/brand/data-platform.svg'
+import { platformVariables } from '@/theme/platform'
 
 const appStore = useAppStore()
 const sidebarBroken = ref(false)

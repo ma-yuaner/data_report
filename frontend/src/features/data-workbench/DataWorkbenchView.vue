@@ -1240,7 +1240,7 @@ onBeforeUnmount(() => {
 .panel-separator:hover,
 .panel-separator:focus-visible {
   background: #cce5ff;
-  outline: 2px solid #1677ff;
+  outline: 2px solid var(--platform-primary, #08757a);
   outline-offset: -2px;
 }
 .data-panel {

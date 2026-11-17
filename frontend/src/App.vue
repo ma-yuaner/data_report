@@ -5,19 +5,18 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import { theme } from 'ant-design-vue'
+import { computed, watchEffect } from 'vue'
 import zhCN from 'ant-design-vue/es/locale/zh_CN'
 import { useAppStore } from '@/stores/app'
+import { platformTheme, platformVariables } from '@/theme/platform'
 
 const appStore = useAppStore()
-const themeConfig = computed(() => ({
-  algorithm: appStore.darkMode ? theme.darkAlgorithm : theme.defaultAlgorithm,
-  token: {
-    colorPrimary: '#3178f6',
-    borderRadius: 8,
-    fontFamily: 'Inter, "Microsoft YaHei", system-ui, sans-serif',
-  },
-}))
+const themeConfig = computed(() => platformTheme(appStore.darkMode))
+watchEffect(() => {
+  if (typeof document === 'undefined') return
+  for (const [name, value] of Object.entries(platformVariables(appStore.darkMode))) {
+    document.documentElement.style.setProperty(name, value)
+  }
+})
 </script>
 

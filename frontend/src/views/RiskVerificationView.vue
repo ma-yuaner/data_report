@@ -246,7 +246,7 @@ async function refreshResults() {
 .metric-card strong { font-size: 28px; line-height: 1.3; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .metric-card small { color: #69768a; font-size: 12px; line-height: 1.6; }
 .metric-card.problem strong, .problem-link { color: #cf1322; }
-.metric-card:focus-visible { outline: 2px solid #1677ff; outline-offset: 2px; }
+.metric-card:focus-visible { outline: 2px solid var(--platform-primary, #08757a); outline-offset: 2px; }
 .metric-card:disabled { cursor: default; }
 .analysis-panel { min-width: 0; padding: 20px; background: #fff; border: 1px solid #e4e9ef; border-radius: 8px; }
 .panel-heading { margin-bottom: 16px; }

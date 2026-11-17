@@ -1,5 +1,5 @@
 <template>
-  <a-config-provider :theme="{ algorithm: theme.defaultAlgorithm, token: { colorPrimary: '#087e83' } }">
+  <a-config-provider :theme="{ inherit: false, algorithm: theme.defaultAlgorithm, token: { colorPrimary: '#087e83' } }">
   <div class="login-page">
     <header class="login-brand"><img :src="wordmark" alt="乐游五洲 ONE WORLD TRIP" /></header>
     <main class="login-main">
