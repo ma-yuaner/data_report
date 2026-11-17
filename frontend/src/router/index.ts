@@ -17,6 +17,7 @@ const router = createRouter({
         { path: 'adm', redirect: { name: 'adm-cases', query: { scope: 'mine' } } },
         { path: 'adm/workbench', redirect: (to) => ({ name: 'adm-cases', query: { ...to.query, scope: 'mine' } }) },
         { path: 'adm/analysis', name: 'adm-analysis', component: () => import('@/features/adm/AdmAnalysisView.vue'), meta: { title: 'ADM 业务分析', section: 'ADM 控制台', menuCode: 'adm.center' } },
+        { path: 'adm/parsing', name: 'adm-parsing', component: () => import('@/features/adm-parsing/AdmParsingView.vue'), meta: { title: 'ADM 解析', section: 'ADM 控制台', menuCode: 'adm.center' } },
         { path: 'adm/cases', name: 'adm-cases', component: () => import('@/features/adm/AdmCenterView.vue'), meta: { title: 'ADM 任务台账', section: 'ADM 控制台', menuCode: 'adm.center' } },
         { path: 'adm/detail', redirect: '/adm/cases' },
         { path: 'adm/cases/:caseId', name: 'adm-case-detail', component: () => import('@/features/adm/AdmDetailView.vue'), meta: { title: 'ADM 详情', section: 'ADM 控制台', menuCode: 'adm.center', admDetail: true } },

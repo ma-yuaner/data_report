@@ -13,6 +13,7 @@ pip-unpack-*/
 .test-artifacts/
 var/data-workbench/
 var/assets/
+var/adm-parsing/
 var/hr-mail/
 var/risk-verification/
 secrets/

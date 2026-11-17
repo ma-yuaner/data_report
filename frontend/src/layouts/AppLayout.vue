@@ -162,6 +162,7 @@
             <template #icon><ControlOutlined /></template>
             <template #title>ADM 控制台</template>
             <a-menu-item key="/adm">ADM 任务台账</a-menu-item>
+            <a-menu-item key="/adm/parsing">ADM 解析</a-menu-item>
                       <a-menu-item v-if="authStore.user?.isAdmin || authStore.user?.permissions?.includes('adm.analysis') || authStore.user?.permissions?.includes('adm.notify.manage')" key="/adm/analysis">业务分析与跟进</a-menu-item>
           </a-sub-menu>
           <a-menu-item v-if="canSeeMenu('problems')" key="/problems"

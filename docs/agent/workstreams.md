@@ -1,3 +1,9 @@
+## ADM解析正式接入（2026-11-17，ADM-PARSE-LIVE-01）
+
+用户明确要求只新增ADM解析，保留ADM任务台账及业务分析与跟进，并做真实本地测试。基线为GitLab origin/main 457240a，开发工作树D:/data_center_code/.worktrees/adm-parsing-live-20261116，旧检出/两项业务源码未改。新增正式菜单/路由、Flask API、真实文件上传/正文读取、chat-completions模型适配、服务端来源及金额校验、独立MySQL任务表、版本历史和保存失败恢复。模型API待用户配置，不生成假业务结果；本地使用真实SQLite和文件，生产不回落SQLite。
+
+23项后端（含鉴权/CSRF/权限/幂等/CAS/保存失败及检查点瞬态回归）、6项Vue状态/模板、强制类型、ESLint、86组件登记通过；Linux Node22标准构建33.42秒及161份源码哈希核对通过。1818/5160本地真实产品已运行，上传用户DOCX读取1段，保存FAILED/PARSE_AI_NOT_CONFIGURED并回读/原件下载一致，重启数据保留。SQL资产ADM-PARSE-001已归档；MySQL DDL/实库/供应商AI/服务器部署/浏览器真实操作未验。入口和部署前置见docs/development/adm-parsing-live-20261117.md。本地仅解析API启用，不接其他生产业务。
+
 ## 数据资产两端main发布（2026-11-16，ASSET-MAIN-20261116）
 
 用户明确“需要推送到main”，授权两端各自main集成与推送，替代此前仅独立分支的目标。保留GitLab/GitHub各自历史（已有52/16差异），GitLab从e36d08c快进集成，GitHub从b306393独立移植本次三个资产提交。无冲突、无强推、未部署247；GitHub侧另验定向测试/强制类型/Linux构建和源码一致性。最终远端SHA与通知结果见盘点目录main发布回执；本节不将推送当作上线。完整实现边界仍见data-assets-implementation-20261116.md。

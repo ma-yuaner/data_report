@@ -17,6 +17,15 @@ def explicit_erp_settings() -> bool:
 
 
 class Config:
+    ADM_PARSING_ROOT = os.getenv("ADM_PARSING_ROOT", "").strip() or str(Path(__file__).resolve().parents[1] / "var/adm/parsing")
+    ADM_PARSING_STORAGE_MODE = os.getenv("ADM_PARSING_STORAGE_MODE", "mysql")
+    ADM_PARSING_AI_ENABLED = env_bool("ADM_PARSING_AI_ENABLED", False)
+    ADM_PARSING_AI_URL = os.getenv("ADM_PARSING_AI_URL", "")
+    ADM_PARSING_AI_KEY = os.getenv("ADM_PARSING_AI_KEY", "")
+    ADM_PARSING_AI_MODEL = os.getenv("ADM_PARSING_AI_MODEL", "")
+    ADM_PARSING_AI_TIMEOUT = int(os.getenv("ADM_PARSING_AI_TIMEOUT", "90"))
+    ADM_PARSING_AI_MAX_OUTPUT_TOKENS = int(os.getenv("ADM_PARSING_AI_MAX_OUTPUT_TOKENS", "8000"))
+    ADM_PARSING_MAX_INPUT_CHARS = int(os.getenv("ADM_PARSING_MAX_INPUT_CHARS", "60000"))
     ASSET_INVENTORY_ROOT = os.getenv("ASSET_INVENTORY_ROOT", "").strip() or str(Path(__file__).resolve().parents[2] / "var/assets")
     APP_ENV = os.getenv("APP_ENV", "development")
     APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Asia/Shanghai")

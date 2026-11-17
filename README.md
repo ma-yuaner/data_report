@@ -48,7 +48,7 @@ ADM责任流转V2：已增加协调人、接收确认式转交、责任分段、
 
 <!-- BEGIN:CURRENT_MENU -->
 <details>
-<summary>完整菜单：50个页面入口、3个禁用预留项</summary>
+<summary>完整菜单：51个页面入口、3个禁用预留项</summary>
 
 ```text
 工作台  [/home]
@@ -100,6 +100,7 @@ ADM责任流转V2：已增加协调人、接收确认式转交、责任分段、
   问题诊断  [/monitoring/diagnostics]
 ADM 控制台
   ADM 任务台账  [/adm]
+  ADM 解析  [/adm/parsing]
   业务分析与跟进  [/adm/analysis]
 问题中心  [/problems]
 数据资产  [/data-assets]
@@ -207,10 +208,11 @@ docker compose up -d --build
 API统一前缀为`/api`。认证与账号管理使用`/api/auth/*`、`/api/admin/*`；业务接口主要使用`/api/v1/*`。登录后使用会话Cookie，非安全方法需携带CSRF头；JSON通常返回`success/message/data`，导出接口返回文件。具体权限、参数与错误见[完整接口目录](docs/api/README.md)及对应源码。
 
 <!-- BEGIN:API_SUMMARY -->
-当前静态登记 **266个HTTP方法/路径条目**（含认证与管理接口，不重复列自动HEAD/OPTIONS）。
+当前静态登记 **273个HTTP方法/路径条目**（含认证与管理接口，不重复列自动HEAD/OPTIONS）。
 
 | 接口领域 | 条目数 | 完整清单 |
 |---|---:|---|
+| ADM材料解析与独立结果存储 | 7 | [adm_parsing](docs/api/README.md#adm_parsing) |
 | 数据资产快照、字典与依赖证据 | 7 | [asset_inventory](docs/api/README.md#asset_inventory) |
 | 账号认证与权限管理 | 26 | [auth](docs/api/README.md#auth) |
 | 基础信息、资产与兼容入口 | 5 | [core](docs/api/README.md#core) |
