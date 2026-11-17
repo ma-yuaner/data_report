@@ -12,7 +12,7 @@ from .services.auth import AuthError, AuthManager, MySqlAuthStore
 from .services.adm.attachments import verify_stored_attachment
 
 
-PUBLIC_AUTH_ENDPOINTS = {"api.health", "auth.login", "auth.status"}
+PUBLIC_AUTH_ENDPOINTS = {"api.health", "auth.login", "auth.status", "auth.captcha"}
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 

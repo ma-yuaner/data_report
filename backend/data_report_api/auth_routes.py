@@ -1,11 +1,22 @@
 from __future__ import annotations
 
+import secrets
+import sqlite3
+
 from flask import Blueprint, current_app, g, jsonify, request
 
 from .services.auth import AuthError, AuthManager
+from .services.login_captcha import LoginCaptcha
 
 
 auth_api = Blueprint("auth", __name__)
+
+
+@auth_api.after_request
+def prevent_auth_cache(response):
+    if request.endpoint in {"auth.captcha", "auth.login"}:
+        response.headers["Cache-Control"] = "no-store, private"
+    return response
 
 
 def ok(data=None, message: str = "OK"):
@@ -84,6 +95,13 @@ def status():
 @auth_api.post("/auth/login")
 def login():
     values = body()
+    try:
+        captcha_manager().verify(
+            request.cookies.get(LoginCaptcha.COOKIE, ""),
+            str(values.get("challengeId", "")), str(values.get("captcha", "")),
+        )
+    except (OSError, sqlite3.Error):
+        raise AuthError("验证码服务暂不可用，请稍后重试", 503, "CAPTCHA_UNAVAILABLE") from None
     ip_address, user_agent = request_context()
     result = manager().login(
         str(values.get("username", "")), str(values.get("password", "")),
@@ -95,6 +113,27 @@ def login():
     )
     set_session_cookie(response, result["sessionToken"])
     set_csrf_cookie(response, result["csrfToken"])
+    return response
+
+
+def captcha_manager() -> LoginCaptcha:
+    # Connections are per operation; the filesystem DB is shared across workers.
+    return LoginCaptcha(current_app.config["AUTH_CAPTCHA_ROOT"])
+
+
+@auth_api.get("/auth/captcha")
+def captcha():
+    browser = request.cookies.get(LoginCaptcha.COOKIE, "")
+    if len(browser) != 43 or any(c not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_" for c in browser):
+        browser = secrets.token_urlsafe(32)
+    try:
+        data = captcha_manager().issue(browser, request.remote_addr or "unknown")
+    except (OSError, sqlite3.Error):
+        raise AuthError("验证码服务暂不可用，请稍后重试", 503, "CAPTCHA_UNAVAILABLE") from None
+    response = ok(data)
+    response.headers["Cache-Control"] = "no-store, private"
+    response.set_cookie(LoginCaptcha.COOKIE, browser, max_age=600, httponly=True,
+                        secure=bool(current_app.config["AUTH_COOKIE_SECURE"]), samesite="Strict", path="/api/auth")
     return response
 
 

@@ -7,7 +7,7 @@
 ## 访问与契约
 
 - 基础前缀来自[应用工厂](../../backend/data_report_api/__init__.py)的蓝图注册；业务路由由[统一注册入口](../../backend/data_report_api/routes.py)加载，认证与账号管理在[auth_routes.py](../../backend/data_report_api/auth_routes.py)。
-- `GET /api/health`、`GET /api/auth/status`和`POST /api/auth/login`是默认公开入口；其余请求按认证、菜单和功能规则处理。
+- `GET /api/health`、`GET /api/auth/status`、`GET /api/auth/captcha`和`POST /api/auth/login`是默认公开入口；其余请求按认证、菜单和功能规则处理。登录必须先取得浏览器绑定的图形验证码，再提交`username`、原始`password`、`challengeId`及`captcha`；验证码有效180秒且单次使用。契约及发布边界见[登录验证码交付](../development/login-brand-captcha-20261117.md)。
 - 认证启用时，登录建立会话Cookie；受保护的非GET/HEAD/OPTIONS请求需`X-CSRF-Token`。首次登录强制改密、会话失效和权限不足分别由接口返回对应错误。
 - JSON响应通常为`{"success": true, "message": "OK", "data": ...}`，部分错误附加`code`；Excel导出返回文件，上传使用表单文件。
 - `<int:user_id>`等保留Flask动态路径写法，调用时替换为实际值。菜单权限与功能权限不等同于行级数据隔离，当前边界见[权限说明](../access-control.md)。
@@ -22,7 +22,7 @@
 | [上传说明](../business/air_ticketing/risk-data-upload.md) / [行为监控](../product/user-behavior-monitoring-v1.md) | 上传队列和行为采集 |
 
 <!-- BEGIN:API_ROUTES -->
-共 **238个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
+共 **239个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
 
 <a id="asset_inventory"></a>
 
@@ -63,6 +63,7 @@
 | `PUT` | `/api/admin/users/<int:user_id>/menus` | [update_user_menus](../../backend/data_report_api/auth_routes.py) |
 | `PUT` | `/api/admin/users/<int:user_id>/permissions` | [update_user_permissions](../../backend/data_report_api/auth_routes.py) |
 | `POST` | `/api/admin/users/<int:user_id>/reset-password` | [reset_password](../../backend/data_report_api/auth_routes.py) |
+| `GET` | `/api/auth/captcha` | [captcha](../../backend/data_report_api/auth_routes.py) |
 | `POST` | `/api/auth/change-password` | [change_password](../../backend/data_report_api/auth_routes.py) |
 | `POST` | `/api/auth/login` | [login](../../backend/data_report_api/auth_routes.py) |
 | `POST` | `/api/auth/logout` | [logout](../../backend/data_report_api/auth_routes.py) |

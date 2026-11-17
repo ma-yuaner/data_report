@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from unittest.mock import patch
 
 import pytest
 
@@ -22,9 +23,10 @@ class AuthTestConfig(TestConfig):
 
 
 @pytest.fixture()
-def auth_app():
+def auth_app(tmp_path):
     store = MemoryAuthStore()
     app = create_app(AuthTestConfig, auth_store=store)
+    app.config["AUTH_CAPTCHA_ROOT"] = str(tmp_path / "captcha")
     return app, store
 
 
@@ -34,7 +36,10 @@ def auth_client(auth_app):
 
 
 def login(client, username="admin", password="Admin1234"):
-    return client.post("/api/auth/login", json={"username": username, "password": password})
+    with patch("data_report_api.services.login_captcha.secrets.choice", return_value="A"):
+        challenge = client.get("/api/auth/captcha").get_json()["data"]
+    return client.post("/api/auth/login", json={"username": username, "password": password,
+                       "challengeId": challenge["challengeId"], "captcha": "AAAA"})
 
 
 def csrf(response):
