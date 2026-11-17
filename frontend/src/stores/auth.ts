@@ -38,8 +38,8 @@ export const useAuthStore = defineStore('auth', {
       if (!this.user || Date.now() - this.lastFetchedAt < maxAgeMs) return this.user
       return this.fetchMe(true)
     },
-    async login(username: string, password: string) {
-      const result = await authApi.login(username, password)
+    async login(username: string, password: string, challengeId: string, captcha: string) {
+      const result = await authApi.login(username, password, challengeId, captcha)
       this.apply(result.user, result.csrfToken)
       this.initialized = true
       return result.user

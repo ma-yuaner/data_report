@@ -74,6 +74,12 @@ export interface AuthAudit {
   createdAt?: string | null
 }
 
+export interface LoginChallenge {
+  challengeId: string
+  image: string
+  expiresIn: number
+}
+
 export interface RosterEmployee {
   id: number
   username: string
@@ -93,7 +99,8 @@ export interface EmployeeBinding {
 
 export const authApi = {
   status: () => http.get<ApiEnvelope<{ enabled: boolean; configured: boolean }>>('/auth/status').then(response => response.data.data),
-  login: (username: string, password: string) => http.post<ApiEnvelope<{ user: AuthUser; csrfToken: string }>>('/auth/login', { username, password }).then(response => response.data.data),
+  captcha: () => http.get<ApiEnvelope<LoginChallenge>>('/auth/captcha', { timeout: 15_000 }).then(response => response.data.data),
+  login: (username: string, password: string, challengeId: string, captcha: string) => http.post<ApiEnvelope<{ user: AuthUser; csrfToken: string }>>('/auth/login', { username, password, challengeId, captcha }).then(response => response.data.data),
   me: () => http.get<ApiEnvelope<{ user: AuthUser; csrfToken: string }>>('/auth/me').then(response => response.data.data),
   logout: () => http.post<ApiEnvelope<null>>('/auth/logout').then(response => response.data.data),
   changePassword: (currentPassword: string, newPassword: string) => http.post<ApiEnvelope<{ csrfToken: string }>>('/auth/change-password', { currentPassword, newPassword }).then(response => response.data.data),

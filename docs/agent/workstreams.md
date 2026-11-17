@@ -1,3 +1,11 @@
+## 登录页品牌定稿与图形验证码（2026-11-17，LOGIN-BRAND-CAPTCHA-20261117）
+
+main集成接续：用户明确授权合入并推送公司GitLab main，排除其他任务。基于c59f882在隔离worktree合并dbc0a21，仅20个本任务文件；文档冲突保留main现状，API索引274条，合并后30项后端、类型/ESLint/SFC及生产构建23.81秒通过。首轮临时文件权限失败后复用已验证TEMP通过。未改原fat_cy工作区、未推GitHub/部署/发消息/查CI。详见同一交付说明的main集成段；远端结果以发布回执为准。
+
+用户批准最后一张设计图并授权正式接入。主会话承担绘景/星桥/磐石/明鉴，未委派；基线fat_cy/9d5dc13，保留已有ADM与财务改动。登录页改为浅底、150px小品牌、无顶部白条/多余文字、左数据轨道/右表单；保留首次改密、安全回跳、CSRF和会话。后端PNG验证码、180秒TTL、HttpOnly浏览器绑定、刷新/错误/成功单次消费、同机多worker SQLite原子校验、签发限流及故障关闭已实现，无MySQL DDL。完整字段字典、发布顺序和边界见[交付说明](../development/login-brand-captcha-20261117.md)，SQL资产AUTH-CAPTCHA-001在工作区归档。
+
+本地类型/相关ESLint/SFC状态检查通过；Vite生产构建退出0/30.03秒；原认证19项与验证码专项11项通过。全站组件检查被既有ADM a-typography-text未登记阻断，不改无关页面。浏览器Work禁用，真实视觉/交互/账号登录/代理配置及服务器部署、业务验收未验；L4主会话自检、独立审查未完成。测试/构建产物在.test-artifacts/login-brand-captcha-20261117，不提交。未部署、未发消息、未查CI。
+
 ## ADM解析正式接入（2026-11-17，ADM-PARSE-LIVE-01）
 
 用户明确要求只新增ADM解析，保留ADM任务台账及业务分析与跟进，并做真实本地测试。基线为GitLab origin/main 457240a，开发工作树D:/data_center_code/.worktrees/adm-parsing-live-20261116，旧检出/两项业务源码未改。新增正式菜单/路由、Flask API、真实文件上传/正文读取、chat-completions模型适配、服务端来源及金额校验、独立MySQL任务表、版本历史和保存失败恢复。模型API待用户配置，不生成假业务结果；本地使用真实SQLite和文件，生产不回落SQLite。

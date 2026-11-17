@@ -243,6 +243,7 @@ class Config:
     RISK_AI_MAX_OUTPUT_TOKENS = int(os.getenv("RISK_AI_MAX_OUTPUT_TOKENS", "2000"))
     RISK_AI_DAILY_CALL_LIMIT = int(os.getenv("RISK_AI_DAILY_CALL_LIMIT", "40"))
     AUTH_ENABLED = env_bool("AUTH_ENABLED", True)
+    AUTH_CAPTCHA_ROOT = os.getenv("AUTH_CAPTCHA_ROOT", "").strip() or str(Path(__file__).resolve().parents[1] / "var/auth-captcha")
     AUTH_AUTO_CREATE_TABLES = env_bool("AUTH_AUTO_CREATE_TABLES", True)
     AUTH_IDLE_TIMEOUT_SECONDS = int(os.getenv("AUTH_IDLE_TIMEOUT_SECONDS", "14400"))
     AUTH_ABSOLUTE_TIMEOUT_SECONDS = int(os.getenv("AUTH_ABSOLUTE_TIMEOUT_SECONDS", "86400"))

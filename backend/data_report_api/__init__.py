@@ -12,7 +12,7 @@ from .routes import api
 from .services.auth import AuthError, AuthManager, MySqlAuthStore
 
 
-PUBLIC_AUTH_ENDPOINTS = {"api.health", "auth.login", "auth.status"}
+PUBLIC_AUTH_ENDPOINTS = {"api.health", "auth.login", "auth.status", "auth.captcha"}
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
