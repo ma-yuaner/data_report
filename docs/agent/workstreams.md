@@ -1,3 +1,9 @@
+## 已审核投放机会独立编辑（2026-11-18）
+
+用户授权开发发版、申请人马远尔；主会话磐石/星桥/明鉴，frontend-design，无子代理。原目录fat_cy/9d5dc13含其他任务改动，五个本任务文件迁至独立feat/placement-approved-edit-20261118、origin/main fbced74，三方应用干净，发布前在最新基线定向重验；不提交其他登录/ADM/Agent改动。
+
+独立权限目录、数据范围、版本CAS、原因必填、直接生效及审计展开已实现；监控条件同步/原审核保留/失败回滚见[交付说明](../development/placement-approved-edit-20261118.md)。94项后端/HTTP/持久化/回滚及权限管理真实授权链检查通过6.13秒，Vue编译setup/模板交互验证通过。前端类型/ESLint通过，Vite构建Windows esbuild临时文件删除权限受阻，正常权限复核仍同因失败，未计通过。提交/推送/发版通知另补回执。浏览器禁用，未真实MySQL、生产写入、服务器部署或业务验收；无DDL/ETL。SQL归档PLACEMENT-EDIT-001副本及索引已维护，属于未正式落地的应用支撑资产。
+
 ## 数据资产两端main发布（2026-11-16，ASSET-MAIN-20261116）
 
 用户明确“需要推送到main”，授权两端各自main集成与推送，替代此前仅独立分支的目标。保留GitLab/GitHub各自历史（已有52/16差异），GitLab从e36d08c快进集成，GitHub从b306393独立移植本次三个资产提交。无冲突、无强推、未部署247；GitHub侧另验定向测试/强制类型/Linux构建和源码一致性。最终远端SHA与通知结果见盘点目录main发布回执；本节不将推送当作上线。完整实现边界仍见data-assets-implementation-20261116.md。
