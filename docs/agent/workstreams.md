@@ -1,5 +1,7 @@
 ## 已审核投放机会独立编辑（2026-11-18）
 
+交付回执：GitLab main已正常推送功能`0dd06c0`；GitHub main历史与公司分叉（74/21），在独立worktree按该端基线仅移植本功能，保留各自历史、文档冲突仅合入本段，94项与Vue setup复验通过（3.21秒），功能`85cb3c5`已快进推送GitHub main。未强推、未把其他GitHub提交合入公司。按马远尔校验发版通知成功（validated_not_sent），发送动作在执行前被自动审批拒绝：需要明确授权将具体内部功能/提交号/验证限制发到现有配置群；未发送、无回执、未绕过。通知草稿仅本地`.test-artifacts/approved-edit-20261118/release-draft.txt`。服务器未部署，需API/Web更新及权限管理配置。
+
 用户授权开发发版、申请人马远尔；主会话磐石/星桥/明鉴，frontend-design，无子代理。原目录fat_cy/9d5dc13含其他任务改动，五个本任务文件迁至独立feat/placement-approved-edit-20261118、origin/main fbced74，三方应用干净，发布前在最新基线定向重验；不提交其他登录/ADM/Agent改动。
 
 独立权限目录、数据范围、版本CAS、原因必填、直接生效及审计展开已实现；监控条件同步/原审核保留/失败回滚见[交付说明](../development/placement-approved-edit-20261118.md)。94项后端/HTTP/持久化/回滚及权限管理真实授权链检查通过6.13秒，Vue编译setup/模板交互验证通过。前端类型/ESLint通过，Vite构建Windows esbuild临时文件删除权限受阻，正常权限复核仍同因失败，未计通过。提交/推送/发版通知另补回执。浏览器禁用，未真实MySQL、生产写入、服务器部署或业务验收；无DDL/ETL。SQL归档PLACEMENT-EDIT-001副本及索引已维护，属于未正式落地的应用支撑资产。
