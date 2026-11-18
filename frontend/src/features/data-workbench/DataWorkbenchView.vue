@@ -1090,7 +1090,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  color: #1e293b;
+  color: var(--platform-text, #203447);
 }
 .workbench-header,
 .workflow-toolbar,
@@ -1125,7 +1125,7 @@ onBeforeUnmount(() => {
 .muted,
 .layout-toolbar span,
 .preview-footer > span {
-  color: #64748b;
+  color: var(--platform-secondary, #56697a);
   font-size: 12px;
 }
 .recipe-name {
@@ -1142,7 +1142,7 @@ onBeforeUnmount(() => {
 }
 .draft-label {
   font-size: 12px;
-  color: #64748b;
+  color: var(--platform-secondary, #56697a);
 }
 .layout-toolbar {
   padding-bottom: 4px;
@@ -1193,11 +1193,11 @@ onBeforeUnmount(() => {
 }
 .dataset-item small {
   margin-top: 4px;
-  color: #64748b;
+  color: var(--platform-secondary, #56697a);
 }
 .dataset-item:hover,
 .source-step:hover {
-  background: #f1f5f9;
+  background: var(--platform-hover, #f0f6fc);
 }
 .dataset-item.selected,
 .source-step.selected,
@@ -1207,7 +1207,7 @@ onBeforeUnmount(() => {
 }
 .panel-empty {
   font-size: 12px;
-  color: #64748b;
+  color: var(--platform-secondary, #56697a);
   line-height: 1.7;
   padding: 14px 2px;
 }
@@ -1222,7 +1222,7 @@ onBeforeUnmount(() => {
   width: 100%;
 }
 .panel-separator {
-  background: #f4f6f9;
+  background: var(--platform-hover, #f0f6fc);
   cursor: col-resize;
   touch-action: none;
   position: relative;
@@ -1252,7 +1252,7 @@ onBeforeUnmount(() => {
 }
 .data-heading {
   padding: 14px 16px;
-  border-bottom: 1px solid #e5eaf0;
+  border-bottom: 1px solid var(--platform-border, #dfe7ef);
   flex-shrink: 0;
 }
 .data-heading h2 {
@@ -1260,7 +1260,7 @@ onBeforeUnmount(() => {
 }
 .job-status {
   padding: 8px 12px;
-  background: #f0f7ff;
+  background: var(--platform-hover, #f0f6fc);
   font-size: 12px;
   flex-shrink: 0;
 }
@@ -1283,7 +1283,7 @@ onBeforeUnmount(() => {
   position: absolute;
   top: 8px;
   left: 12px;
-  background: #e6f4ff;
+  background: var(--platform-selected, #eaf3fc);
   color: #0958d9;
   border: 1px solid #91caff;
   padding: 6px 12px;
@@ -1300,7 +1300,7 @@ onBeforeUnmount(() => {
   padding: 24px;
   gap: 10px;
   text-align: center;
-  color: #64748b;
+  color: var(--platform-secondary, #56697a);
 }
 .table-scroll {
   height: 100%;
@@ -1322,8 +1322,8 @@ onBeforeUnmount(() => {
   max-width: 280px;
   width: 180px;
   padding: 9px 12px;
-  border-right: 1px solid #edf0f5;
-  border-bottom: 1px solid #edf0f5;
+  border-right: 1px solid var(--platform-border, #dfe7ef);
+  border-bottom: 1px solid var(--platform-border, #dfe7ef);
   text-align: left;
   vertical-align: top;
 }
@@ -1331,7 +1331,7 @@ onBeforeUnmount(() => {
   position: sticky;
   top: 0;
   z-index: 2;
-  background: #f5f7fa;
+  background: var(--platform-hover, #f0f6fc);
   line-height: 1.45;
   white-space: normal;
   overflow-wrap: anywhere;
@@ -1339,7 +1339,7 @@ onBeforeUnmount(() => {
 .table-scroll th small {
   display: block;
   font-weight: 400;
-  color: #64748b;
+  color: var(--platform-secondary, #56697a);
   font-size: 12px;
   margin-top: 4px;
 }
@@ -1359,12 +1359,12 @@ onBeforeUnmount(() => {
   min-width: 52px;
   max-width: 52px;
   width: 52px;
-  color: #64748b;
+  color: var(--platform-secondary, #56697a);
   text-align: right;
   background: #fafbfc;
 }
 .table-scroll .null {
-  color: #8994a5;
+  color: var(--platform-secondary, #56697a);
   font-style: italic;
 }
 .zero-rows {
@@ -1379,7 +1379,7 @@ onBeforeUnmount(() => {
 }
 .report {
   padding: 10px 12px;
-  border-top: 1px solid #e5eaf0;
+  border-top: 1px solid var(--platform-border, #dfe7ef);
   flex-shrink: 0;
   font-size: 12px;
   max-height: 200px;
@@ -1417,7 +1417,7 @@ onBeforeUnmount(() => {
 }
 .step-list li {
   padding: 12px 10px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--platform-border, #dfe7ef);
   border-radius: 4px;
   margin-bottom: 8px;
   overflow-wrap: anywhere;
@@ -1428,7 +1428,7 @@ onBeforeUnmount(() => {
   font-size: 12px;
 }
 .step-list small {
-  color: #64748b;
+  color: var(--platform-secondary, #56697a);
   margin-top: 4px;
 }
 .step-list li > div {
@@ -1439,10 +1439,10 @@ onBeforeUnmount(() => {
 }
 .rule-notes {
   font-size: 12px;
-  background: #f8fafc;
+  background: var(--platform-hover, #f0f6fc);
   padding: 12px;
   line-height: 1.7;
-  color: #64748b;
+  color: var(--platform-secondary, #56697a);
   margin-top: 16px;
 }
 .upload-form {
@@ -1485,7 +1485,7 @@ onBeforeUnmount(() => {
 .report-table td,
 .report-table th {
   padding: 6px 8px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--platform-border, #dfe7ef);
   text-align: left;
   white-space: nowrap;
 }

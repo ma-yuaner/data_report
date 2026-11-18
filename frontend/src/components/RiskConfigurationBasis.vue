@@ -50,9 +50,9 @@ const conditionLabels: Record<string, string> = {
 <style scoped>
 .basis-trigger{display:block;padding-left:0;height:auto;margin-top:6px}
 .configuration-basis{white-space:normal;overflow-wrap:anywhere;color:#253247}
-.basis-heading{display:grid;gap:6px;margin-bottom:16px;padding-right:16px}.basis-heading>span{font-size:12px;color:#69768a}.basis-heading strong{font-size:16px}
-p{margin:10px 0;line-height:1.7}h4{font-size:14px;margin:20px 0 10px}.muted{color:#69768a;font-size:13px;font-weight:400}
-.conditions-wrap{overflow-x:auto}.conditions-table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:13px}.conditions-table th,.conditions-table td{padding:10px;text-align:left;vertical-align:top;border-bottom:1px solid #e5eaf0;overflow-wrap:anywhere}.conditions-table thead{background:#f5f7fa}.conditions-table th{font-weight:500}
+.basis-heading{display:grid;gap:6px;margin-bottom:16px;padding-right:16px}.basis-heading>span{font-size:12px;color:var(--platform-secondary, #56697a)}.basis-heading strong{font-size:16px}
+p{margin:10px 0;line-height:1.7}h4{font-size:14px;margin:20px 0 10px}.muted{color:var(--platform-secondary, #56697a);font-size:13px;font-weight:400}
+.conditions-wrap{overflow-x:auto}.conditions-table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:13px}.conditions-table th,.conditions-table td{padding:10px;text-align:left;vertical-align:top;border-bottom:1px solid var(--platform-border, #dfe7ef);overflow-wrap:anywhere}.conditions-table thead{background:var(--platform-hover, #f0f6fc)}.conditions-table th{font-weight:500}
 .threshold-result{display:flex;justify-content:space-between;align-items:baseline;gap:16px;background:#f0f5ff;border:1px solid #dce6f5;padding:12px 14px;border-radius:6px;margin-top:14px}.threshold-result strong{font-size:20px;color:#245bbb;text-align:right}
 @media(max-width:520px){.conditions-table th,.conditions-table td{padding:8px 4px;font-size:12px}.threshold-result strong{font-size:17px}}
 </style>

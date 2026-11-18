@@ -14,6 +14,7 @@ import { setAuthFailureHandler } from './api/http'
 import { useAuthStore } from './stores/auth'
 import { initializeTelemetry } from './telemetry/tracker'
 import './styles/main.css'
+import './styles/content-theme.css'
 
 const app = createApp(App)
 const pinia = createPinia()

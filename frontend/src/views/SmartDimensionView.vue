@@ -266,13 +266,13 @@ onMounted(() => { void load(); void loadDimensionTemplates() })
 .view-template-bar strong { color: #3e526f; font-size: 12px; }
 .view-template-bar :deep(.ant-select) { width: 220px; }
 .view-template-bar > span { flex: 1; color: #7b899c; font-size: 12px; text-align: right; }
-.template-modal-note { color: #718096; font-size: 12px; }
+.template-modal-note { color: var(--platform-secondary, #56697a); font-size: 12px; }
 .template-public-check { display: block; margin-top: 14px; color: #5f6d82; }
 .dimension-toolbar { display: grid; grid-template-columns: minmax(260px,1fr) 170px 110px auto auto auto; align-items: end; gap: 10px; margin-bottom: 12px; }
-.dimension-toolbar label { display: grid; gap: 6px; color: #718096; font-size: 12px; }
+.dimension-toolbar label { display: grid; gap: 6px; color: var(--platform-secondary, #56697a); font-size: 12px; }
 .dimension-toolbar :deep(.ant-select) { width: 100%; }
 .dimension-hint { margin: 0 0 14px; padding: 10px 12px; color: #6c7b90; font-size: 12px; border-radius: 7px; background: #f5f8fc; }
-.dimension-value { color: #344258; font-weight: 600; }
+.dimension-value { color: var(--platform-text, #203447); font-weight: 600; }
 .metric-link { padding: 0; color: #2471e8; border: 0; background: none; cursor: pointer; font: inherit; }
 .metric-link:hover { text-decoration: underline; }
 .negative { color: #c14f5e; }
@@ -281,7 +281,7 @@ onMounted(() => { void load(); void loadDimensionTemplates() })
 .metric-modal-actions { margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; color: #788598; font-size: 12px; }
 .metric-modal-actions > div { display: flex; gap: 8px; }
 .metric-groups { max-height: 560px; overflow: auto; }
-.metric-groups section { padding: 13px 0; border-top: 1px solid #edf0f4; }
+.metric-groups section { padding: 13px 0; border-top: 1px solid var(--platform-border, #dfe7ef); }
 .metric-groups h3 { margin: 0 0 10px; color: #41516a; font-size: 12px; }
 .metric-groups section > div { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 9px; }
 .metric-groups label { display: flex; align-items: center; gap: 7px; color: #5f6d82; font-size: 12px; }

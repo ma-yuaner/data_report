@@ -101,10 +101,10 @@ async function submit() {
 <style scoped>
 .shared-form-grid { margin: 16px 0; }
 fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
-.change-preview { margin: 16px 0; padding: 12px; border: 1px solid #e5eaf0; border-radius: 6px; }
-.change-preview p { color: #64748b; font-size: 12px; margin: 4px 0 8px; }
+.change-preview { margin: 16px 0; padding: 12px; border: 1px solid var(--platform-border, #dfe7ef); border-radius: 6px; }
+.change-preview p { color: var(--platform-secondary, #56697a); font-size: 12px; margin: 4px 0 8px; }
 .change-table-wrap { overflow-x: auto; }
 table { width: 100%; min-width: 480px; border-collapse: collapse; table-layout: fixed; }
-th, td { border-bottom: 1px solid #edf0f5; padding: 8px; text-align: left; overflow-wrap: anywhere; vertical-align: top; }
-th { background: #f7f9fc; } th:first-child { width: 110px; }
+th, td { border-bottom: 1px solid var(--platform-border, #dfe7ef); padding: 8px; text-align: left; overflow-wrap: anywhere; vertical-align: top; }
+th { background: var(--platform-hover, #f0f6fc); } th:first-child { width: 110px; }
 </style>

@@ -35,10 +35,10 @@ const readiness = [
 .readiness-card { border: 1px solid #e6eaf0; }
 .readiness-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .readiness-card code { display: block; margin: 16px 0 10px; color: #3d6ba8; }
-.readiness-card p, .flow-card p { margin: 0; color: #748195; font-size: 12px; line-height: 1.7; }
+.readiness-card p, .flow-card p { margin: 0; color: var(--platform-secondary, #56697a); font-size: 12px; line-height: 1.7; }
 .flow-card { border: 1px solid #e6eaf0; }
 .future-flow { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
-.future-flow span { padding: 12px 15px; border-radius: 8px; color: #315d96; background: #eef5ff; font-size: 12px; }
+.future-flow span { padding: 12px 15px; border-radius: 8px; color: #315d96; background: var(--platform-selected, #eaf3fc); font-size: 12px; }
 .future-flow i { color: #98a5b6; font-style: normal; }
 @media (max-width: 1000px) { .readiness-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 600px) { .readiness-grid { grid-template-columns: 1fr; } }

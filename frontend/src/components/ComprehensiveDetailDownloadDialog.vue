@@ -108,7 +108,7 @@ async function submit() {
 </script>
 
 <style scoped>
-.download-scope p { margin: 6px 0 0; color: #69768a; overflow-wrap: anywhere; }
+.download-scope p { margin: 6px 0 0; color: var(--platform-secondary, #56697a); overflow-wrap: anywhere; }
 .download-note { margin-top: 16px; }
 .download-results { margin: 16px 0 0; padding-left: 20px; overflow-wrap: anywhere; }
 .download-results li + li { margin-top: 8px; }

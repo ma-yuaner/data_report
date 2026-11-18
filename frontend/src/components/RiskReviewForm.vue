@@ -65,5 +65,5 @@ async function save() {
 }
 </script>
 <style scoped>
-label{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:20px 0;color:#182235;font-weight:500}label>:last-child:not(span){flex-basis:100%;font-weight:400}.conclusion-options{display:flex;flex-wrap:wrap;margin-top:4px}.conclusion-options :deep(.ant-radio-button-wrapper){flex:1;text-align:center;min-width:110px}.required,.muted{font-size:12px;font-weight:400;color:#738298}.required{color:#a33b35}.ant-alert+.ant-alert{margin-top:12px}
+label{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:20px 0;color:var(--platform-text, #203447);font-weight:500}label>:last-child:not(span){flex-basis:100%;font-weight:400}.conclusion-options{display:flex;flex-wrap:wrap;margin-top:4px}.conclusion-options :deep(.ant-radio-button-wrapper){flex:1;text-align:center;min-width:110px}.required,.muted{font-size:12px;font-weight:400;color:#738298}.required{color:#a33b35}.ant-alert+.ant-alert{margin-top:12px}
 </style>

@@ -55,17 +55,17 @@ function describeCauses(insufficientCauses: Record<string, number>, statuses: Re
 }
 </script>
 <style scoped>
-.data-status { min-width: 0; display: grid; gap: 8px; padding: 12px 16px; border: 1px solid #e4e9ef; border-radius: 8px; background: #fff; }
+.data-status { min-width: 0; display: grid; gap: 8px; padding: 12px 16px; border: 1px solid var(--platform-border, #dfe7ef); border-radius: 8px; background: var(--platform-surface, #ffffff); }
 .status-summary, .status-facts { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 20px; }
 .status-summary { justify-content: space-between; }
-.status-facts { font-size: 13px; color: #69768a; }
-.status-facts > :first-child { color: #182235; font-weight: 500; }
+.status-facts { font-size: 13px; color: var(--platform-secondary, #56697a); }
+.status-facts > :first-child { color: var(--platform-text, #203447); font-weight: 500; }
 .insufficient-link { padding-inline: 0; color: #ad6800; height: auto; white-space: normal; text-align: left; }
 .status-details { min-width: 0; }
 summary { cursor: pointer; width: fit-content; max-width: 100%; font-size: 13px; color: #34506f; padding-block: 5px; overflow-wrap: anywhere; }
 summary:focus-visible { outline: 2px solid var(--platform-primary, #2673ad); outline-offset: 2px; }
 .details-content { padding: 8px 0; min-width: 0; }
-.status-note { color: #69768a; font-size: 12px; line-height: 1.7; }
+.status-note { color: var(--platform-secondary, #56697a); font-size: 12px; line-height: 1.7; }
 .status-note p { margin: 0 0 6px; }
 @media (max-width: 600px) { .data-status { padding: 12px; } .status-facts { gap: 6px 12px; } }
 </style>

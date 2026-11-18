@@ -124,7 +124,7 @@ onMounted(loadData)
 .assets-page :deep(.ant-table-cell) { vertical-align: top; overflow-wrap: anywhere; }
 .assets-page :deep(.asset-object code),
 .assets-page :deep(.metric-formula) { font-size: 12px; line-height: 1.7; white-space: normal; overflow-wrap: anywhere; }
-.assets-page :deep(.ant-table-thead > tr > th) { color: #334155; background: #f5f7fa; }
+.assets-page :deep(.ant-table-thead > tr > th) { color: var(--platform-text, #203447); background: var(--platform-hover, #f0f6fc); }
 .assets-page :deep(.ant-tabs-tab:focus-visible),
 .assets-page :deep(button:focus-visible) { outline: 2px solid var(--platform-primary, #2673ad); outline-offset: 3px; }
 @media (max-width: 760px) {

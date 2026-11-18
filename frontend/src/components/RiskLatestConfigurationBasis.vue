@@ -32,5 +32,5 @@ const time = (value?: string | null) => value ? formatDateTimeDisplay(value) : '
 const display = (value: unknown) => value == null ? '未记录' : typeof value === 'object' ? JSON.stringify(value) : String(value)
 </script>
 <style scoped>
-.latest-basis{border-top:1px solid #dce6f5;margin-top:20px;padding-top:8px;overflow-wrap:anywhere}.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse}th,td{text-align:left;vertical-align:top;padding:8px;border-bottom:1px solid #e5eaf0}th{background:#f5f7fa}.muted{color:#69768a;font-size:12px}
+.latest-basis{border-top:1px solid #dce6f5;margin-top:20px;padding-top:8px;overflow-wrap:anywhere}.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse}th,td{text-align:left;vertical-align:top;padding:8px;border-bottom:1px solid var(--platform-border, #dfe7ef)}th{background:var(--platform-hover, #f0f6fc)}.muted{color:var(--platform-secondary, #56697a);font-size:12px}
 </style>

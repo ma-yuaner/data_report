@@ -1875,5 +1875,5 @@ onMounted(async () => {
 </style>
 
 <style scoped>
-.master-facts{background:#fff;padding:16px;border:1px solid #e2e8f0;border-radius:6px;margin-bottom:16px}.master-facts-heading{display:flex;gap:12px;align-items:center;margin-bottom:12px}.master-facts-heading h2{font-size:16px;margin:0}.master-facts :deep(.ant-descriptions-item-label){width:140px;color:#64748b}.master-facts :deep(.ant-descriptions-item-content){overflow-wrap:anywhere;white-space:pre-wrap}.master-facts .summary-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.master-facts{background:var(--platform-surface, #ffffff);padding:16px;border:1px solid var(--platform-border, #dfe7ef);border-radius:6px;margin-bottom:16px}.master-facts-heading{display:flex;gap:12px;align-items:center;margin-bottom:12px}.master-facts-heading h2{font-size:16px;margin:0}.master-facts :deep(.ant-descriptions-item-label){width:140px;color:var(--platform-secondary, #56697a)}.master-facts :deep(.ant-descriptions-item-content){overflow-wrap:anywhere;white-space:pre-wrap}.master-facts .summary-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
 </style>

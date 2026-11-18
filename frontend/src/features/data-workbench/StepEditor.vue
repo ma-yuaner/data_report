@@ -317,7 +317,7 @@ group_count()</pre>
   min-width: 0;
 }
 .step-editor small {
-  color: #64748b;
+  color: var(--platform-secondary, #56697a);
   line-height: 1.6;
 }
 .field-chips {

@@ -53,6 +53,6 @@ function cancel() {
 <style>
 .shared-form-dialog .ant-modal { max-width: calc(100vw - 32px); top: 24px; padding-bottom: 24px; }
 .shared-form-dialog .ant-modal-body { padding-right: 4px; scrollbar-gutter: stable; }
-.shared-form-dialog .ant-modal-footer { margin-top: 16px; padding-top: 12px; border-top: 1px solid #edf0f5; }
+.shared-form-dialog .ant-modal-footer { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--platform-border, #dfe7ef); }
 @media (max-height: 560px) { .shared-form-dialog .ant-modal { top: 8px; padding-bottom: 8px; } }
 </style>

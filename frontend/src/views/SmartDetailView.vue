@@ -313,15 +313,15 @@ onMounted(() => {
 .view-template-bar strong { color: #3e526f; font-size: 12px; }
 .view-template-bar :deep(.ant-select) { width: 220px; }
 .view-template-bar > span { flex: 1; color: #7b899c; font-size: 12px; text-align: right; }
-.template-modal-note { color: #718096; font-size: 12px; }
+.template-modal-note { color: var(--platform-secondary, #56697a); font-size: 12px; }
 .template-public-check { display: block; margin-top: 14px; color: #5f6d82; }
 .detail-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin-bottom: 16px; }
-.detail-toolbar > label { width: 190px; display: grid; gap: 6px; color: #718096; font-size: 12px; }
+.detail-toolbar > label { width: 190px; display: grid; gap: 6px; color: var(--platform-secondary, #56697a); font-size: 12px; }
 .detail-toolbar > .ticket-scope { width: 330px; flex: 0 0 330px; }
 .ticket-scope :deep(.ant-select) { width: 100%; }
 .ticket-scope :deep(.ant-select-selection-item) { padding-inline-end: 28px; }
 .detail-toolbar > .export-scope { width: 170px; }
-.detail-scope { min-width: 150px; flex: 1; display: flex; align-items: center; gap: 9px; color: #7c899b; font-size: 12px; }
+.detail-scope { min-width: 150px; flex: 1; display: flex; align-items: center; gap: 9px; color: var(--platform-secondary, #56697a); font-size: 12px; }
 .detail-summary-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; margin-bottom: 16px; }
 .detail-summary-grid div { padding: 13px 15px; display: grid; gap: 5px; border-radius: 8px; background: #f5f8fc; }
 .detail-summary-grid span { color: #7a8798; font-size: 12px; }
@@ -331,7 +331,7 @@ onMounted(() => {
 .field-modal-actions { margin: 13px 0; display: flex; justify-content: space-between; align-items: center; color: #788598; font-size: 12px; }
 .field-modal-actions > div { display: flex; gap: 8px; }
 .field-groups { max-height: 520px; overflow: auto; }
-.field-groups section { padding: 13px 0; border-top: 1px solid #edf0f4; }
+.field-groups section { padding: 13px 0; border-top: 1px solid var(--platform-border, #dfe7ef); }
 .field-groups h3 { margin: 0 0 10px; color: #41516a; font-size: 12px; }
 .field-groups section > div { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 9px; }
 .field-groups label { display: flex; align-items: center; gap: 7px; color: #5f6d82; font-size: 12px; }
@@ -343,11 +343,11 @@ onMounted(() => {
 .ticket-core div { padding: 12px; display: grid; gap: 5px; border-radius: 8px; background: #f5f8fc; }
 .ticket-core span, .ticket-groups small { color: #8390a2; font-size: 12px; }
 .ticket-core b { color: #405069; font-size: 12px; }
-.ticket-groups details { border-top: 1px solid #e8edf4; }
+.ticket-groups details { border-top: 1px solid var(--platform-border, #dfe7ef); }
 .ticket-groups summary { padding: 14px 2px; display: flex; justify-content: space-between; color: #40516a; font-size: 13px; font-weight: 600; cursor: pointer; }
 .ticket-groups dl { margin: 0 0 14px; display: grid; grid-template-columns: 180px 1fr; font-size: 12px; }
 .ticket-groups dt, .ticket-groups dd { margin: 0; padding: 8px 10px; border-bottom: 1px solid #eef1f5; }
-.ticket-groups dt { color: #768398; background: #f8fafc; }
+.ticket-groups dt { color: #768398; background: var(--platform-hover, #f0f6fc); }
 .ticket-groups dd { color: #394a63; word-break: break-all; }
 .ticket-note { padding: 11px 12px; color: #708198; font-size: 12px; border-left: 3px solid #6da2ef; background: #f5f9ff; }
 @media (max-width: 850px) { .detail-toolbar, .drill-context, .view-template-bar { align-items: stretch; flex-direction: column; } .view-template-bar :deep(.ant-select) { width: 100%; } .view-template-bar > span { text-align: left; } .detail-toolbar > label, .detail-toolbar > .ticket-scope, .detail-toolbar > .export-scope { width: 100%; flex-basis: auto; } .detail-summary-grid, .field-groups section > div, .ticket-core { grid-template-columns: 1fr; } .detail-pagination { align-items: flex-start; flex-direction: column; gap: 12px; } }

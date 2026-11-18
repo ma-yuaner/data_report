@@ -40,6 +40,8 @@ export function platformTheme(isDark: boolean): ThemeConfig {
       colorPrimary: p.primary, colorInfo: p.primary, colorLink: p.primary,
       colorBgLayout: p.background, colorBgContainer: p.surface,
       colorText: p.text, colorTextSecondary: p.secondary, colorBorder: p.border,
+      colorTextHeading: p.text, colorBorderSecondary: p.border, colorSplit: p.border,
+      colorBgElevated: p.surface, colorFillAlter: p.hover, controlItemBgActive: p.selected,
       borderRadius: 8, fontSize: 14,
       fontFamily: '"Microsoft YaHei", "PingFang SC", Inter, system-ui, sans-serif',
     },
@@ -52,6 +54,10 @@ export function platformTheme(isDark: boolean): ThemeConfig {
         colorSubItemBg: 'transparent', colorItemBg: p.surface,
       },
       Table: { colorFillAlter: p.hover, colorFillSecondary: p.hover, colorBorderSecondary: p.border },
+      Card: { colorBgContainer: p.surface, colorBorderSecondary: p.border, boxShadowTertiary: 'none' },
+      Modal: { colorBgElevated: p.surface, colorTextHeading: p.text },
+      Drawer: { colorBgElevated: p.surface, colorSplit: p.border },
+      Tabs: { colorBorderSecondary: p.border },
     },
   }
 }

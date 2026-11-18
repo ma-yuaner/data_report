@@ -30,7 +30,7 @@ withDefaults(defineProps<{
   padding: 11px;
   border: 1px solid #e0e6ef;
   border-radius: 9px;
-  background: #f8fafc;
+  background: var(--platform-hover, #f0f6fc);
   transition: border-color .16s ease, box-shadow .16s ease, background .16s ease;
 }
 .placement-field:hover {
@@ -39,7 +39,7 @@ withDefaults(defineProps<{
 }
 .placement-field:focus-within {
   border-color: #78a2dc;
-  background: #fff;
+  background: var(--platform-surface, #ffffff);
   box-shadow: 0 0 0 3px rgba(40, 103, 183, .09);
 }
 .placement-field__heading {
@@ -64,8 +64,8 @@ withDefaults(defineProps<{
   padding: 2px 7px;
   border: 1px solid #dfe5ee;
   border-radius: 999px;
-  color: #69768a;
-  background: #fff;
+  color: var(--platform-secondary, #56697a);
+  background: var(--platform-surface, #ffffff);
   font-size: 12px;
   line-height: 1.35;
 }
@@ -92,7 +92,7 @@ withDefaults(defineProps<{
   min-height: 35px;
   border-color: #d8e0eb !important;
   border-radius: 7px !important;
-  background: #fff !important;
+  background: var(--platform-surface, #ffffff) !important;
   box-shadow: none !important;
 }
 .placement-field__control :deep(.ant-input-number-input) { height: 33px; }

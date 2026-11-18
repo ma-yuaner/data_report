@@ -17,8 +17,8 @@ const emit = defineEmits<{ change: [] }>()
 
 <style scoped>
 .shared-date-range { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
-.range-label { font-size: 13px; color: #69768a; }
-.range-separator { color: #69768a; }
+.range-label { font-size: 13px; color: var(--platform-secondary, #56697a); }
+.range-separator { color: var(--platform-secondary, #56697a); }
 .shared-date-range :deep(.shared-date-field) { width: 148px; }
 @media (max-width: 480px) { .shared-date-range { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; width: 100%; } .range-separator { text-align: center; } .shared-date-range :deep(.shared-date-field) { width: 100%; min-width: 0; } }
 </style>

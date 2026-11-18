@@ -30,5 +30,5 @@ async function load() {
 }
 </script>
 <style scoped>
-.check-history{border-bottom:1px solid #e5eaf0;padding:12px 0}summary{cursor:pointer;color:#2c68d7}.muted{color:#738298;font-size:12px}.history-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-top:1px solid #edf0f4;overflow-wrap:anywhere}.history-row .ant-btn{flex-shrink:0}@media(max-width:600px){.history-row{align-items:flex-start;flex-direction:column}}
+.check-history{border-bottom:1px solid var(--platform-border, #dfe7ef);padding:12px 0}summary{cursor:pointer;color:#2c68d7}.muted{color:#738298;font-size:12px}.history-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-top:1px solid var(--platform-border, #dfe7ef);overflow-wrap:anywhere}.history-row .ant-btn{flex-shrink:0}@media(max-width:600px){.history-row{align-items:flex-start;flex-direction:column}}
 </style>

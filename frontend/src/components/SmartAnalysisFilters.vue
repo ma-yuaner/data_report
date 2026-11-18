@@ -87,20 +87,20 @@ onMounted(() => { for (const field of ['airline', 'platform'] as (keyof SmartFil
 </script>
 
 <style scoped>
-.smart-filter-panel { margin-bottom: 16px; padding: 18px; border: 1px solid #e4e9f1; border-radius: 12px; background: #fff; box-shadow: 0 5px 18px rgba(28,45,72,.03); }
+.smart-filter-panel { margin-bottom: 16px; padding: 18px; border: 1px solid #e4e9f1; border-radius: 8px; background: var(--platform-surface, #ffffff); box-shadow: none; }
 .smart-filter-heading, .smart-filter-actions { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .smart-filter-heading > div:first-child { display: grid; gap: 3px; }
-.smart-filter-heading strong { color: #344258; font-size: 14px; }
+.smart-filter-heading strong { color: var(--platform-text, #203447); font-size: 14px; }
 .smart-filter-heading span { color: #8390a2; font-size: 12px; }
 .smart-quick-ranges, .smart-filter-actions > div { display: flex; gap: 8px; }
 .smart-date-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 16px; }
 .smart-date-grid label, .smart-filter-grid label { display: grid; gap: 6px; color: #66748a; font-size: 12px; }
 .smart-date-grid label > div { display: flex; align-items: center; gap: 7px; }
 .smart-date-grid :deep(.ant-picker) { min-width: 0; width: 100%; }
-.smart-date-grid i { color: #69768a; font-style: normal; }
+.smart-date-grid i { color: var(--platform-secondary, #56697a); font-style: normal; }
 .smart-filter-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
 .smart-filter-grid :deep(.ant-select) { width: 100%; }
-.smart-filter-actions { margin-top: 16px; padding-top: 14px; border-top: 1px solid #edf0f4; }
+.smart-filter-actions { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--platform-border, #dfe7ef); }
 .smart-filter-error { flex: 1; color: #c34f5d; font-size: 12px; }
 @media (max-width: 1100px) { .smart-date-grid { grid-template-columns: 1fr; } .smart-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 640px) { .smart-filter-heading, .smart-filter-actions { align-items: stretch; flex-direction: column; } .smart-filter-grid { grid-template-columns: 1fr; } }

@@ -131,6 +131,6 @@ async function load() {
 </script>
 <style scoped>
 .auto-detail, section { display: grid; gap: 16px; }
-.muted { color: #69768a; font-size: 13px; }
+.muted { color: var(--platform-secondary, #56697a); font-size: 13px; }
 h3 { margin-bottom: 0; }
 </style>

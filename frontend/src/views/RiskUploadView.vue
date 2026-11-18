@@ -182,23 +182,23 @@ onBeforeUnmount(() => { if (pollTimer) window.clearInterval(pollTimer) })
 <style scoped>
 .risk-upload-page { padding-bottom: 32px; }
 .page-alert { margin-bottom: 16px; border-radius: 10px; }
-.token-panel { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(260px, 420px) auto; gap: 14px; align-items: center; margin-bottom: 16px; padding: 15px 18px; border: 1px solid #e3e8f0; border-radius: 12px; background: #fff; }
+.token-panel { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(260px, 420px) auto; gap: 14px; align-items: center; margin-bottom: 16px; padding: 15px 18px; border: 1px solid #e3e8f0; border-radius: 8px; background: var(--platform-surface, #ffffff); }
 .token-panel > div { display: grid; gap: 3px; }
 .token-panel span { color: #8a95a7; font-size: 12px; }
 .upload-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-.upload-card { border: 1px solid #e4e9f1 !important; border-radius: 13px; box-shadow: 0 8px 24px rgba(31, 49, 77, .05); }
+.upload-card { border: 1px solid #e4e9f1 !important; border-radius: 8px; box-shadow: none; }
 .card-title { display: flex; align-items: center; gap: 10px; }
 .card-title > div { display: grid; gap: 2px; }
 .card-title small { color: #8e99aa; font-size: 12px; font-weight: 400; }
 .type-icon { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 9px; color: #fff; background: #4a79d8; }
-.target-table { display: grid; gap: 6px; margin-bottom: 17px; padding: 11px 12px; border-radius: 9px; background: #f6f8fb; }
+.target-table { display: grid; gap: 6px; margin-bottom: 17px; padding: 11px 12px; border-radius: 9px; background: var(--platform-hover, #f0f6fc); }
 .target-table span, .form-field > span { color: #6e7b90; font-size: 12px; }
-.target-table code { overflow-wrap: anywhere; color: #526079; font-size: 12px; }
+.target-table code { overflow-wrap: anywhere; color: var(--platform-secondary, #56697a); font-size: 12px; }
 .form-field { display: grid; gap: 7px; margin-bottom: 15px; }
-.form-field input[type='file'] { width: 100%; padding: 9px; border: 1px dashed #cfd7e4; border-radius: 8px; color: #59677d; background: #fafbfd; font-size: 12px; }
+.form-field input[type='file'] { width: 100%; padding: 9px; border: 1px dashed #cfd7e4; border-radius: 8px; color: #59677d; background: var(--platform-hover, #f0f6fc); font-size: 12px; }
 .form-field small { overflow: hidden; color: #929cad; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .form-field :deep(.ant-picker) { width: 100%; }
-.jobs-panel { border: 1px solid #e5eaf1 !important; border-radius: 13px; }
+.jobs-panel { border: 1px solid var(--platform-border, #dfe7ef) !important; border-radius: 8px; }
 .panel-title { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .panel-title > div { display: grid; gap: 2px; }
 .panel-title small { color: #8d98aa; font-size: 12px; font-weight: 400; }

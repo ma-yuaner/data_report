@@ -509,16 +509,16 @@ const detailText = computed(() =>
 .service-status > span:last-child,
 .muted,
 .section-heading > span {
-  color: #69768a;
+  color: var(--platform-secondary, #56697a);
   font-size: 13px;
 }
 .upload-panel,
 .batch-panel {
   min-width: 0;
   padding: 20px;
-  background: #fff;
-  border: 1px solid #e4e9ef;
-  border-radius: 12px;
+  background: var(--platform-surface, #ffffff);
+  border: 1px solid var(--platform-border, #dfe7ef);
+  border-radius: 8px;
   margin-bottom: 16px;
 }
 .section-heading {
@@ -533,7 +533,7 @@ h2,
 h3 {
   margin: 0;
   font-size: 16px;
-  color: #182235;
+  color: var(--platform-text, #203447);
 }
 .upload-grid {
   display: grid;
@@ -548,7 +548,7 @@ h3 {
   align-items: flex-start;
   gap: 8px;
   padding: 12px;
-  border: 1px solid #edf0f5;
+  border: 1px solid var(--platform-border, #dfe7ef);
   border-radius: 8px;
 }
 .upload-field > label {
@@ -574,7 +574,7 @@ code {
   margin-top: 16px;
 }
 .batch-meta {
-  color: #69768a;
+  color: var(--platform-secondary, #56697a);
   margin-bottom: 16px;
 }
 .counts {
@@ -614,7 +614,7 @@ code {
   padding-top: 16px;
 }
 .send-actions > span {
-  color: #69768a;
+  color: var(--platform-secondary, #56697a);
   font-size: 13px;
 }
 .preview-meta {
@@ -623,7 +623,7 @@ code {
   gap: 10px 12px;
 }
 .preview-meta dt {
-  color: #69768a;
+  color: var(--platform-secondary, #56697a);
 }
 .preview-meta dd {
   margin: 0;
@@ -643,7 +643,7 @@ code {
   display: block;
   width: 100%;
   height: 440px;
-  border: 1px solid #e4e9ef;
+  border: 1px solid var(--platform-border, #dfe7ef);
   background: white;
 }
 details {
@@ -657,7 +657,7 @@ pre {
   overflow-wrap: anywhere;
   max-height: 280px;
   overflow: auto;
-  background: #f6f8fb;
+  background: var(--platform-hover, #f0f6fc);
   padding: 12px;
 }
 .charts {

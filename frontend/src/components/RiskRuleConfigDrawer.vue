@@ -81,7 +81,7 @@ async function load() {
 .config-heading { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
 h2, h3, p { margin: 0; }
 h2 { font-size: 18px; } h3 { font-size: 14px; }
-.config-heading p, .notice, .secondary { color: #69768a; font-size: 12px; }
+.config-heading p, .notice, .secondary { color: var(--platform-secondary, #56697a); font-size: 12px; }
 .config-heading p { margin-top: 8px; line-height: 1.6; }
 .config-filter { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; }
 .config-filter label { display: grid; gap: 6px; width: 280px; max-width: 100%; }
@@ -90,8 +90,8 @@ h2 { font-size: 18px; } h3 { font-size: 14px; }
 .rule-detail { display: grid; gap: 12px; padding: 8px; overflow-wrap: anywhere; }
 .conditions { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin: 0; gap: 12px; }
 .conditions div { padding: 8px 12px; border-left: 2px solid #dce3ed; }
-dt { font-size: 12px; color: #69768a; } dd { margin: 4px 0 0; }
-pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; background: #f5f7fa; padding: 12px; }
+dt { font-size: 12px; color: var(--platform-secondary, #56697a); } dd { margin: 4px 0 0; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; background: var(--platform-hover, #f0f6fc); padding: 12px; }
 summary { cursor: pointer; } .notice { line-height: 1.7; }
 @media (max-width: 600px) { .config-heading { flex-direction: column; } .config-filter label { width: 100%; } }
 </style>

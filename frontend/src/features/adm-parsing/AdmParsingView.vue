@@ -510,11 +510,11 @@ onBeforeUnmount(() => {
   border: 0;
   border-bottom: 1px solid #e8edf3;
   cursor: pointer;
-  color: #182235;
+  color: var(--platform-text, #203447);
   overflow-wrap: anywhere;
 }
 .parsing-item[aria-pressed='true'] {
-  background: #eaf3ff;
+  background: var(--platform-selected, #eaf3fc);
   box-shadow: inset 3px 0 var(--platform-primary, #2673ad);
 }
 .parsing-item span,
@@ -544,7 +544,7 @@ onBeforeUnmount(() => {
 .parsing-document {
   max-height: 650px;
   overflow: auto;
-  background: #fafbfd;
+  background: var(--platform-hover, #f0f6fc);
   border: 1px solid #e1e6ed;
   padding: 12px;
 }
@@ -602,7 +602,7 @@ onBeforeUnmount(() => {
 }
 .parsing-feedback {
   padding: 12px;
-  background: #eef5ff;
+  background: var(--platform-selected, #eaf3fc);
   color: #1656a0;
 }
 .parsing-upload {
