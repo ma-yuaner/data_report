@@ -94,7 +94,7 @@ git -c core.autocrlf=false -c core.eol=lf --git-dir="$store/repository.git" arch
 [[ ! -e $release/source/.env && ! -L $release/source/.env ]] || die 'Tracked .env is forbidden'
 
 # Check without importing the candidate application. Backend changes need a new reviewed baseline.
-docker run --rm --network none --read-only --entrypoint python \
+docker run --rm --network none --read-only --user 0:0 --entrypoint python \
   -v "$bundle:/bundle:ro" -v "$release/source:/candidate:ro" \
   "$checker" /bundle/update-t43-helper.py verify-backend
 
@@ -124,7 +124,7 @@ fi
 # The first migration may have no saved active descriptor. Capture actual live env,
 # rather than assuming an edited .env still equals the environment of running containers.
 docker inspect data_report-api-1 data_report-web-1 |
-  docker run --rm -i --network none --read-only --entrypoint python \
+  docker run --rm -i --network none --read-only --user 0:0 --entrypoint python \
     -v "$bundle:/bundle:ro" -v "$release:/release:ro" "$checker" \
     /bundle/update-t43-helper.py capture-live /release/previous-template.json > "$release/previous.json"
 helper validate-runtime < "$release/previous.json"

@@ -15,7 +15,7 @@
 | `/data/data_report-updates/releases/<时间-提交-PID>` | 每次更新的源码、构建版本、私密运行配置和前一版本快照 |
 | `/data/data_report-updates/active.json`、`rollback.json` | 当前/回退运行配置；含凭据，仅 root 访问，禁止上传聊天或提交 Git |
 
-脚本使用已在 T43 导入的 API 镜像 ID `sha256:50f644a6a0338ec01b82d9d7586807a180c2183f0fd1820a96e3eda181dd0ec3` 运行 Python 检查器；请保留该镜像。它只运行校验器，不启动 Flask，也不访问数据库。
+脚本使用已在 T43 导入的 API 镜像 ID `sha256:50f644a6a0338ec01b82d9d7586807a180c2183f0fd1820a96e3eda181dd0ec3` 运行 Python 检查器；请保留该镜像。检查器统一显式使用 UID/GID 0:0 读取 root 私有版本目录，同时保持无网络、只读容器和只读宿主挂载。它只运行校验器，不启动 Flask，也不访问数据库；应用容器仍沿用 Dockerfile 的非 root 用户。不得通过放宽 `.env`、版本目录或快照权限解决校验器访问问题。
 
 ## 首次接入与后续命令
 
