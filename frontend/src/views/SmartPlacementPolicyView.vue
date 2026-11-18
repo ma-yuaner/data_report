@@ -78,8 +78,8 @@
             <a-space>
               <a-button type="link" size="small" @click="openDetail(record)">详情</a-button>
               <a-button v-if="canCreate" type="link" size="small" @click="openCopy(record)">复制</a-button>
-              <a-button v-if="canEditApproved(record)" type="link" size="small" @click="openEdit(record, true)">编辑已审核机会</a-button>
-              <a-button v-if="canEdit(record)" type="link" size="small" @click="openEdit(record)">编辑/提交</a-button>
+              <a-button v-if="canEditApproved(record)" type="link" size="small" @click="openEdit(record, true)">编辑</a-button>
+              <a-button v-if="canEdit(record)" type="link" size="small" @click="openEdit(record)">编辑</a-button>
               <a-button v-if="canChangePolicy(record)" type="link" size="small" @click="openPolicyChange([record])">修改已投放</a-button>
               <a-button v-if="canWithdraw(record)" type="link" size="small" @click="confirmWithdraw(record)">撤回修改</a-button>
               <a-button v-if="isReviewable(record)" type="link" size="small" @click="openReview(record)">审核</a-button>
@@ -111,7 +111,7 @@
       :mask-closable="false"
     >
       <template #title>
-        <div class="opportunity-modal-title"><strong>{{ approvedEditing ? '编辑已审核投放机会' : editingTaskId ? '编辑投放机会' : '新建投放机会' }}</strong><span>{{ approvedEditing ? '修改后直接生效，不重新审核；保留原审核记录和修改前后内容。' : '由数据分析人员录入业务条件和数据依据，提交后进入数据部经理审核。' }}</span></div>
+        <div class="opportunity-modal-title"><strong>{{ editingTaskId ? '编辑投放机会' : '新建投放机会' }}</strong><span>{{ approvedEditing ? '修改后直接生效，不重新审核；保留原审核记录和修改前后内容。' : '由数据分析人员录入业务条件和数据依据，提交后进入数据部经理审核。' }}</span></div>
       </template>
       <div class="form-intro">
         <div class="intro-mark">01</div>
@@ -147,8 +147,8 @@
             <PlacementField label="出发地"><PlacementLocationSelect v-model:type="taskForm.departureType" v-model:code="taskForm.departureCode" label="出发地" /></PlacementField>
             <PlacementField label="目的地"><PlacementLocationSelect v-model:type="taskForm.arrivalType" v-model:code="taskForm.arrivalCode" label="目的地" /></PlacementField>
             <PlacementField label="航班号" hint="多个航班号使用英文逗号分隔"><a-input v-model:value="taskForm.flightNos" placeholder="例如：HO1366,HO1365" /></PlacementField>
-            <PlacementField label="包含舱位" hint="允许匹配的舱位，例如：Y,B,M"><a-input v-model:value="taskForm.includeCabins" placeholder="请输入包含舱位" /></PlacementField>
-            <PlacementField label="排除舱位" hint="明确禁止匹配的舱位，例如：X,N"><a-input v-model:value="taskForm.excludeCabins" placeholder="请输入排除舱位" /></PlacementField>
+            <PlacementField label="包含舱位" hint="允许匹配的舱位，支持 Y/B/M、Y,B,M 或 Y|B|M"><a-input v-model:value="taskForm.includeCabins" placeholder="请输入包含舱位" /></PlacementField>
+            <PlacementField label="排除舱位" hint="禁止匹配的舱位，支持 X/N、X,N 或 X|N"><a-input v-model:value="taskForm.excludeCabins" placeholder="请输入排除舱位" /></PlacementField>
             <PlacementCabinReference v-if="!editingTaskId" :airline="taskForm.airlineCode" :active="createOpen && !editingTaskId" />
           </div>
         </section>
@@ -810,6 +810,7 @@ async function openEdit(row: PlacementTaskRow, approved = false) {
   } catch (failure) { message.error(failure instanceof Error ? failure.message : '任务加载失败') }
   finally { saving.value = false }
 }
+function normalizeCabins(value?: string) { return normalizeList(String(value || '').replace(/[／/|;；]/g, ',')) }
 function normalizeList(value?: string) { return String(value || '').replace(/，/g, ',').split(',').map(item => item.trim()).filter(Boolean).join(',') }
 function validateTaskForm(values: PlacementTaskInput, submit: boolean) {
   const required: [keyof PlacementTaskInput, string][] = [
@@ -841,8 +842,8 @@ function validateTaskForm(values: PlacementTaskInput, submit: boolean) {
   const hasLossMax = values.lossThresholdMax !== undefined && values.lossThresholdMax !== null
   if (hasLossMin !== hasLossMax) return '亏损阈值上下限必须同时填写或同时留空'
   if (hasLossMin && hasLossMax && Number(values.lossThresholdMax) < Number(values.lossThresholdMin)) return '亏损阈值上限不能小于下限'
-  const included = new Set(normalizeList(values.includeCabins).toUpperCase().split(',').filter(Boolean))
-  const excluded = normalizeList(values.excludeCabins).toUpperCase().split(',').filter(Boolean)
+  const included = new Set(normalizeCabins(values.includeCabins).toUpperCase().split(',').filter(Boolean))
+  const excluded = normalizeCabins(values.excludeCabins).toUpperCase().split(',').filter(Boolean)
   const overlap = excluded.filter(item => included.has(item))
   return overlap.length ? `包含舱位和排除舱位不能重复：${overlap.join(',')}` : ''
 }
@@ -852,8 +853,8 @@ async function saveTask(submit: boolean) {
   const values = {
     ...taskForm.value,
     flightNos: normalizeList(taskForm.value.flightNos),
-    includeCabins: normalizeList(taskForm.value.includeCabins).toUpperCase(),
-    excludeCabins: normalizeList(taskForm.value.excludeCabins).toUpperCase(),
+    includeCabins: normalizeCabins(taskForm.value.includeCabins).toUpperCase(),
+    excludeCabins: normalizeCabins(taskForm.value.excludeCabins).toUpperCase(),
   }
   if (approvedEditing.value && !approvedChangeReason.value.trim()) { message.warning('请填写修改原因'); return }
   const validationError = validateTaskForm(values, submit || approvedEditing.value)
@@ -1017,14 +1018,14 @@ function validateExecution() {
     if (!form.failureType || !form.failureReason) return '请填写失败类型和失败原因'
     if (form.retryRequired && !form.nextHandleAt) return '重新执行时必须填写下次处理时间'
   }
-  const included = new Set(normalizeList(form.includeCabins).toUpperCase().split(',').filter(Boolean))
-  const overlap = normalizeList(form.excludeCabins).toUpperCase().split(',').filter(Boolean).filter((item: string) => included.has(item))
+  const included = new Set(normalizeCabins(form.includeCabins).toUpperCase().split(',').filter(Boolean))
+  const overlap = normalizeCabins(form.excludeCabins).toUpperCase().split(',').filter(Boolean).filter((item: string) => included.has(item))
   return overlap.length ? `实际包含舱位和排除舱位不能重复：${overlap.join(',')}` : ''
 }
 async function submitExecution() {
   if (!activeTask.value) return
   const validationError = validateExecution(); if (validationError) { message.warning(validationError); return }
-  executionForm.value.includeCabins = normalizeList(executionForm.value.includeCabins).toUpperCase(); executionForm.value.excludeCabins = normalizeList(executionForm.value.excludeCabins).toUpperCase()
+  executionForm.value.includeCabins = normalizeCabins(executionForm.value.includeCabins).toUpperCase(); executionForm.value.excludeCabins = normalizeCabins(executionForm.value.excludeCabins).toUpperCase()
   saving.value = true
   try { const result = await executePlacementTask(activeTask.value.id, executionForm.value); message.success(result.monitorRule ? `投放已登记，监控规则 ${result.monitorRule.ruleCode} 已生效` : '投放结果已登记'); executionOpen.value = false; await load() } catch (failure) { message.error(failure instanceof Error ? failure.message : '登记失败') } finally { saving.value = false }
 }
