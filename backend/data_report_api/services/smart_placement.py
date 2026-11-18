@@ -18,6 +18,7 @@ from .placement_assessment import EXCLUSION_TABLE, assessment_aggregates, assess
 from ..shared.placement_locations import AIRPORT_TABLE, ACTIVE_AIRPORT, LOCATION_COLUMNS, location_fields, location_type, resolve_airports, resolved_location
 from ..time_utils import as_business_naive, business_now_naive
 from ..shared.placement_errors import PlacementChangeConflict
+from ..shared.placement_cabins import cabin_values
 
 
 LOGGER = logging.getLogger(__name__)
@@ -255,16 +256,8 @@ def _task_fields(values: dict[str, Any], *, submit: bool) -> dict[str, Any]:
 
     include_cabins = _text(values.get("includeCabins"), "包含舱位", 500)
     exclude_cabins = _text(values.get("excludeCabins"), "排除舱位", 500)
-    included_list = list(dict.fromkeys(
-        item.strip().upper()
-        for item in include_cabins.replace("，", ",").split(",")
-        if item.strip()
-    ))
-    excluded_list = list(dict.fromkeys(
-        item.strip().upper()
-        for item in exclude_cabins.replace("，", ",").split(",")
-        if item.strip()
-    ))
+    included_list = cabin_values(include_cabins)
+    excluded_list = cabin_values(exclude_cabins)
     overlap = sorted(set(included_list) & set(excluded_list))
     if overlap:
         raise ValueError(f"包含舱位和排除舱位不能重复：{','.join(overlap)}")
@@ -1203,8 +1196,8 @@ class SmartPlacementService:
                 execution_keys = {"platform_code", "platform_name", "site_code", "site_name", "airline_code", "departure_code", "arrival_code", "departure_type", "arrival_type", "route_text", "segment_type", "flight_nos", "include_cabins", "exclude_cabins", "product_type", "order_source", "loss_threshold_min", "loss_threshold_max"}
                 patch = {key: fields[key] for key in changed if key in execution_keys}
                 effective_execution = {**execution, **patch}
-                included = set(str(effective_execution.get("include_cabins") or "").split(",")) - {""}
-                excluded = set(str(effective_execution.get("exclude_cabins") or "").split(",")) - {""}
+                included = set(cabin_values(effective_execution.get("include_cabins")))
+                excluded = set(cabin_values(effective_execution.get("exclude_cabins")))
                 if included & excluded:
                     raise ValueError("调整后的实际包含与排除舱位存在重叠，请核对当前投放配置")
                 execution_before = {key: execution.get(key) for key in patch}
@@ -1278,7 +1271,7 @@ class SmartPlacementService:
         for key, column, label in (("includeCabins", "include_cabins", "包含舱位"), ("excludeCabins", "exclude_cabins", "排除舱位")):
             if key in patch:
                 raw = _text(patch[key], label, 500)
-                fields[column] = ",".join(dict.fromkeys(item.strip().upper() for item in raw.replace("，", ",").split(",") if item.strip())) or None
+                fields[column] = ",".join(cabin_values(raw)) or None
         if "effectivePeriod" in patch:
             period = patch["effectivePeriod"]
             if not isinstance(period, dict) or set(period) != {"effectiveStartAt", "effectiveEndAt", "longTerm"} or type(period["longTerm"]) is not bool:
@@ -1313,8 +1306,8 @@ class SmartPlacementService:
                     raise PlacementChangeConflict(f"政策{task_id}监控规则版本已变化；整批未保存，请重新预览")
                 before = {column: execution.get(column) for column in ("include_cabins", "exclude_cabins", "effective_start_at", "effective_end_at", "long_term_flag")}
                 after = {**before, **fields}
-                included = set(str(after["include_cabins"] or "").split(",")) - {""}
-                overlap = included & set(str(after["exclude_cabins"] or "").split(","))
+                included = set(cabin_values(after["include_cabins"]))
+                overlap = included & set(cabin_values(after["exclude_cabins"]))
                 if overlap:
                     raise ValueError(f"政策{task_id}包含与排除舱位不能重复：{','.join(sorted(overlap))}；整批未保存")
                 start = after["effective_start_at"]
@@ -1686,16 +1679,8 @@ class SmartPlacementService:
         next_handle_at = _datetime_value(values.get("nextHandleAt"), "下次处理时间", required=result == "FAILED" and retry_required)
         include_cabins = _text(values.get("includeCabins"), "包含舱位", 500)
         exclude_cabins = _text(values.get("excludeCabins"), "排除舱位", 500)
-        included_list = list(dict.fromkeys(
-            item.strip().upper()
-            for item in include_cabins.replace("，", ",").split(",")
-            if item.strip()
-        ))
-        excluded_list = list(dict.fromkeys(
-            item.strip().upper()
-            for item in exclude_cabins.replace("，", ",").split(",")
-            if item.strip()
-        ))
+        included_list = cabin_values(include_cabins)
+        excluded_list = cabin_values(exclude_cabins)
         overlap = sorted(set(included_list) & set(excluded_list))
         if overlap:
             raise ValueError(f"实际包含舱位和排除舱位不能重复：{','.join(overlap)}")
