@@ -11,14 +11,19 @@
           <span><SafetyCertificateOutlined /> {{ roleText }}</span>
         </div>
       </div>
-      <div class="workspace-hero-visual" aria-hidden="true">
-        <div class="workspace-orbit orbit-one" />
-        <div class="workspace-orbit orbit-two" />
-        <div class="workspace-core"><BarChartOutlined /></div>
-        <span class="workspace-node node-one"><DatabaseOutlined /></span>
-        <span class="workspace-node node-two"><SafetyCertificateOutlined /></span>
-        <span class="workspace-node node-three"><ThunderboltOutlined /></span>
-      </div>
+      <svg class="workspace-hero-visual" viewBox="0 0 240 160" aria-hidden="true" focusable="false">
+        <ellipse cx="125" cy="83" rx="105" ry="44" transform="rotate(-17 125 83)" fill="var(--platform-hover)" />
+        <g fill="none" stroke="var(--platform-accent)" stroke-width="1.2">
+          <ellipse cx="121" cy="80" rx="106" ry="41" transform="rotate(-17 121 80)" />
+          <path d="M25 100Q126 12 221 54" stroke-dasharray="3 4" opacity=".45" />
+          <rect x="139" y="62" width="43" height="41" rx="8" />
+        </g>
+        <g fill="var(--platform-accent)">
+          <path d="M92 45l13 7 25-11c5-2 8 2 3 5l-22 15-4 17-6 3-1-17-14 1-4-4 12-6-8-7z" />
+          <rect x="149" y="84" width="5" height="11" rx="1" /><rect x="158" y="76" width="5" height="19" rx="1" /><rect x="167" y="69" width="5" height="26" rx="1" />
+          <circle cx="20" cy="105" r="3" /><circle cx="202" cy="36" r="3" />
+        </g>
+      </svg>
     </section>
 
     <section class="workspace-section">
@@ -29,7 +34,7 @@
       <a-empty v-if="!quickEntries.length" description="暂无可用快捷入口" />
       <div v-else class="workspace-entry-grid">
         <button v-for="entry in quickEntries" :key="entry.to" type="button" class="workspace-entry" @click="router.push(entry.to)">
-          <span class="workspace-entry-icon" :style="{ color: entry.color, background: entry.background }"><component :is="entry.icon" /></span>
+          <span class="workspace-entry-icon"><component :is="entry.icon" /></span>
           <span class="workspace-entry-copy"><small>{{ entry.eyebrow }}</small><strong>{{ entry.title }}</strong><em>{{ entry.description }}</em></span>
           <ArrowRightOutlined class="workspace-entry-arrow" />
         </button>
@@ -65,7 +70,7 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  ApartmentOutlined, ArrowRightOutlined, BarChartOutlined, CheckCircleFilled, ClockCircleOutlined,
+  ApartmentOutlined, ArrowRightOutlined, CheckCircleFilled, ClockCircleOutlined,
   CompassOutlined, DashboardOutlined, DatabaseOutlined, DeploymentUnitOutlined, SafetyCertificateOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons-vue'
@@ -82,14 +87,14 @@ const todayText = new Intl.DateTimeFormat('zh-CN', {
 }).format(new Date())
 
 const entries = [
-  { to: '/adm/cases?scope=mine', eyebrow: 'ADM', title: 'ADM 控制台', description: '查看并处理分配给我的 ADM 任务', icon: CompassOutlined, color: '#396ec4', background: '#edf4ff' },
-  { to: '/resource-governance/gds', eyebrow: 'GDS GOVERNANCE', title: 'GDS资源治理', description: '分析GDS、PCC查询量、航段数与查定比', icon: DeploymentUnitOutlined, color: '#267b89', background: '#eaf7f8' },
-  { to: '/resource-governance/ota', eyebrow: 'OTA QUALITY', title: 'OTA渠道质量', description: '分析平台查询、验价与生单接口成功率', icon: DeploymentUnitOutlined, color: '#396ec4', background: '#edf4ff' },
-  { to: '/overview', eyebrow: 'OVERVIEW', title: '经营总览', description: '查看今日出、退、改、增利润全貌', icon: DashboardOutlined, color: '#2f6edb', background: '#edf4ff' },
-  { to: '/analysis/comprehensive', eyebrow: 'ANALYSIS', title: '综合分析', description: '按平台、航司、产品和政策员逐层下钻', icon: ApartmentOutlined, color: '#7257c5', background: '#f2efff' },
-  { to: '/risk-analysis', eyebrow: 'RISK CONTROL', title: '风控分析', description: '复核亏损结构并定位具体问题订单', icon: SafetyCertificateOutlined, color: '#cc5a5f', background: '#fff0f0' },
-  { to: '/smart-analysis/placement/policies', eyebrow: 'SMART PLACEMENT', title: '智能投放', description: '进入投放机会、审核和认领工作流', icon: ThunderboltOutlined, color: '#c97925', background: '#fff5e8' },
-  { to: '/data-assets', eyebrow: 'DATA ASSETS', title: '数据资产', description: '查看数据表、字段覆盖和资产状态', icon: DatabaseOutlined, color: '#19866a', background: '#eaf8f3' },
+  { to: '/adm/cases?scope=mine', eyebrow: 'ADM', title: 'ADM 控制台', description: '查看并处理分配给我的 ADM 任务', icon: CompassOutlined },
+  { to: '/resource-governance/gds', eyebrow: 'GDS GOVERNANCE', title: 'GDS资源治理', description: '分析GDS、PCC查询量、航段数与查定比', icon: DeploymentUnitOutlined },
+  { to: '/resource-governance/ota', eyebrow: 'OTA QUALITY', title: 'OTA渠道质量', description: '分析平台查询、验价与生单接口成功率', icon: DeploymentUnitOutlined },
+  { to: '/overview', eyebrow: 'OVERVIEW', title: '经营总览', description: '查看今日出、退、改、增利润全貌', icon: DashboardOutlined },
+  { to: '/analysis/comprehensive', eyebrow: 'ANALYSIS', title: '综合分析', description: '按平台、航司、产品和政策员逐层下钻', icon: ApartmentOutlined },
+  { to: '/risk-analysis', eyebrow: 'RISK CONTROL', title: '风控分析', description: '复核亏损结构并定位具体问题订单', icon: SafetyCertificateOutlined },
+  { to: '/smart-analysis/placement/policies', eyebrow: 'SMART PLACEMENT', title: '智能投放', description: '进入投放机会、审核和认领工作流', icon: ThunderboltOutlined },
+  { to: '/data-assets', eyebrow: 'DATA ASSETS', title: '数据资产', description: '查看数据表、字段覆盖和资产状态', icon: DatabaseOutlined },
 ]
 
 function canOpen(path: string) {

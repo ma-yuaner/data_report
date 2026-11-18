@@ -301,7 +301,7 @@ const detailColumns = [
 .business-count span { color: #919bac; font-size: 12px; }
 .business-count b { color: #5a6a83; font-size: 12px; font-weight: 600; }
 .business-preview-link { width: 100%; margin-top: 9px; padding: 4px 0; display: flex; align-items: center; justify-content: space-between; border: 0; background: none; color: #8a99ae; font: inherit; font-size: 12px; cursor: pointer; }
-.business-preview-link:hover { color: var(--platform-primary, #08757a); }
+.business-preview-link:hover { color: var(--platform-primary, #2673ad); }
 .business-preview-link:disabled { color: #b9c1cd; cursor: not-allowed; }
 .charts-grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr); gap: 16px; margin-bottom: 16px; }
 .analysis-panel { min-width: 0; border: 1px solid #e4e9f0; border-radius: 12px; }

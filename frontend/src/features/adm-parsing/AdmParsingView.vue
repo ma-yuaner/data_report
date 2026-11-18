@@ -515,7 +515,7 @@ onBeforeUnmount(() => {
 }
 .parsing-item[aria-pressed='true'] {
   background: #eaf3ff;
-  box-shadow: inset 3px 0 var(--platform-primary, #08757a);
+  box-shadow: inset 3px 0 var(--platform-primary, #2673ad);
 }
 .parsing-item span,
 .parsing-muted {
@@ -617,7 +617,7 @@ pre {
   overflow: auto;
 }
 button:focus-visible {
-  outline: 2px solid var(--platform-primary, #08757a);
+  outline: 2px solid var(--platform-primary, #2673ad);
   outline-offset: 2px;
 }
 h3 {

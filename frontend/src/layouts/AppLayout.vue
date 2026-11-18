@@ -23,9 +23,10 @@
       <a-button v-if="mobileMenuOpen" ref="mobileClose" type="text" class="sidebar-mobile-close" aria-label="收起主菜单" @click="closeMobileMenu"><MenuFoldOutlined /></a-button>
       <div class="sidebar-menu-scroll" tabindex="0" role="navigation" aria-label="主菜单">
         <p v-if="!appStore.collapsed" class="sidebar-menu-label">功能导航</p>
+        <a-config-provider :theme="navigationTheme">
         <a-menu
           v-model:openKeys="openKeys"
-          :theme="appStore.darkMode ? 'dark' : 'light'"
+          theme="dark"
           mode="inline"
           :selected-keys="selectedKeys"
           @click="handleMenuClick"
@@ -194,6 +195,7 @@
             <a-menu-item key="/admin/users">账号管理</a-menu-item>
           </a-sub-menu>
         </a-menu>
+        </a-config-provider>
       </div>
 
       <div v-if="!appStore.collapsed" class="sidebar-note">
@@ -280,7 +282,9 @@ import { useAuthStore } from '@/stores/auth'
 import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
 import ComprehensiveExportDrawer from '@/components/ComprehensiveExportDrawer.vue'
 import platformIcon from '@/assets/brand/data-platform.svg'
-import { platformVariables } from '@/theme/platform'
+import { platformVariables, platformNavigationTheme } from '@/theme/platform'
+
+const navigationTheme = platformNavigationTheme()
 
 const appStore = useAppStore()
 const sidebarBroken = ref(false)

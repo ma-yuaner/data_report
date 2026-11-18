@@ -186,7 +186,7 @@ onMounted(load)
 .smart-stage-grid strong { color: #2c3c55; font-size: 24px; }
 .smart-stage-grid strong small { font-size: 12px; }
 .smart-stage-grid p { margin: 0; color: #7d899a; font-size: 12px; }
-.smart-stage-grid p b { float: right; color: var(--platform-primary, #08757a); }
+.smart-stage-grid p b { float: right; color: var(--platform-primary, #2673ad); }
 @media (max-width: 1000px) { .smart-kpi-grid, .smart-stage-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 @media (max-width: 600px) { .smart-kpi-grid, .smart-stage-grid { grid-template-columns: 1fr; } .trend-toolbar { align-items: stretch; flex-direction: column; } .trend-toolbar :deep(.ant-select) { width: 100%; } .chart-extra { align-items: flex-end; flex-direction: column; } }
 </style>

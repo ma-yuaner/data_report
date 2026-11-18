@@ -2,17 +2,34 @@ import { theme } from 'ant-design-vue'
 import type { ThemeConfig } from 'ant-design-vue/es/config-provider/context'
 
 const light = {
-  primary: '#08757a', accent: '#40b3b6', background: '#f3f7f8', surface: '#ffffff',
-  text: '#18383f', secondary: '#5b747d', border: '#dce7e9', hover: '#f0f7f7', selected: '#e5f3f3',
+  primary: '#2673ad', accent: '#397eb8', background: '#f7f9fc', surface: '#ffffff',
+  text: '#203447', secondary: '#56697a', border: '#dfe7ef', hover: '#f0f6fc', selected: '#eaf3fc',
 }
 const dark = {
-  primary: '#60c9cb', accent: '#40b3b6', background: '#111f24', surface: '#192b31',
-  text: '#e2eff0', secondary: '#aac0c6', border: '#334a52', hover: '#233c43', selected: '#25494f',
+  primary: '#79b5e6', accent: '#79b5e6', background: '#141e28', surface: '#1c2b38',
+  text: '#e2ecf5', secondary: '#acbecf', border: '#374c5e', hover: '#263c4e', selected: '#233c50',
+}
+
+const navigation = {
+  'nav-background': '#30373e', 'nav-text': '#dce4eb', 'nav-secondary': '#b6c2cc',
+  'nav-selected': '#405568', 'nav-selected-text': '#d9efff', 'nav-hover': '#3b4751',
+  'nav-border': '#48535c', 'nav-indicator': '#5da5e0',
 }
 
 export function platformVariables(isDark: boolean) {
   const palette = isDark ? dark : light
-  return Object.fromEntries(Object.entries(palette).map(([name, value]) => [`--platform-${name}`, value]))
+  return Object.fromEntries(Object.entries({ ...palette, ...navigation }).map(([name, value]) => [`--platform-${name}`, value]))
+}
+
+// Keep navigation dark without applying its colors to account menus or content.
+export function platformNavigationTheme(): ThemeConfig {
+  return { components: { Menu: {
+    colorItemBg: navigation['nav-background'], colorSubItemBg: 'transparent',
+    colorItemText: navigation['nav-text'], colorGroupTitle: navigation['nav-secondary'],
+    colorItemTextHover: '#ffffff', colorItemBgHover: navigation['nav-hover'],
+    colorItemBgActive: navigation['nav-hover'],
+    colorItemBgSelected: navigation['nav-selected'], colorItemTextSelected: navigation['nav-selected-text'],
+  } } }
 }
 
 export function platformTheme(isDark: boolean): ThemeConfig {

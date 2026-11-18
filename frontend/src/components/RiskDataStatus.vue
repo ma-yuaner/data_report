@@ -63,7 +63,7 @@ function describeCauses(insufficientCauses: Record<string, number>, statuses: Re
 .insufficient-link { padding-inline: 0; color: #ad6800; height: auto; white-space: normal; text-align: left; }
 .status-details { min-width: 0; }
 summary { cursor: pointer; width: fit-content; max-width: 100%; font-size: 13px; color: #34506f; padding-block: 5px; overflow-wrap: anywhere; }
-summary:focus-visible { outline: 2px solid var(--platform-primary, #08757a); outline-offset: 2px; }
+summary:focus-visible { outline: 2px solid var(--platform-primary, #2673ad); outline-offset: 2px; }
 .details-content { padding: 8px 0; min-width: 0; }
 .status-note { color: #69768a; font-size: 12px; line-height: 1.7; }
 .status-note p { margin: 0 0 6px; }
