@@ -166,6 +166,9 @@ export interface PlacementDimensionOptions {
 }
 
 export interface PlacementTaskInput {
+  approvedEdit?: boolean
+  changeReason?: string
+  versionNo?: number
   opportunityName: string
   opportunitySource: string
   analysisRuleCode?: string

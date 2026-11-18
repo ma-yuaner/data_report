@@ -110,6 +110,8 @@ def register_routes(api: Blueprint) -> None:
             )
         except PermissionError as error:
             return jsonify({"success": False, "message": str(error), "data": None}), 403
+        except PlacementChangeConflict as error:
+            return jsonify(success=False, message=str(error), data=None), 409
         except ValueError as error:
             return jsonify({"success": False, "message": str(error), "data": None}), 400
         except SmartPlacementUnavailable as error:
