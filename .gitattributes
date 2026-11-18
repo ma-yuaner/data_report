@@ -1,0 +1,4 @@
+# T43 deployment scripts must retain Linux-compatible line endings.
+scripts/deploy/t43/*.sh text eol=lf
+scripts/deploy/t43/*.py text eol=lf
+scripts/deploy/t43/*.json text eol=lf
