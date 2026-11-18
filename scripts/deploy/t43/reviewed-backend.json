@@ -1,8 +1,8 @@
 {
-  "commit": "7fd374e0f1ae838167b9b18959789ae821cdf14c",
+  "commit": "fcf219eba8f0a579e00c4c6d5d8e560968e52f27",
   "files": {
     "backend/.dockerignore": "347d5a129fd71a0cc9942ce1c9b1479856421019704bc493cda6ed63afdf2692",
-    "backend/Dockerfile": "ac178c9e6dc7689bb0b2da142b0f13cc82b87f4a8b66e782e06543d068a4809e",
+    "backend/Dockerfile": "64b8645a312b0e2b09bdde35aac7dd0ef5305b6a023038a6c7a06cf706e7d557",
     "backend/README.md": "b56ad9078ef2913eab3def172ebb79c99e6e2fa671bbed14273880c57cff35a9",
     "backend/app.py": "881a8c9ce6b2d0fc57fc0990449e6c7ba1576b7d5aea01b65a943f5ea05358b5",
     "backend/data_report_api/__init__.py": "9c8c3d0312297733e8c303ffc990d42fc88f1d7ef72053b4f807567307023a4c",
@@ -26,7 +26,7 @@
     "backend/data_report_api/api/risk_upload.py": "9055c962efec1fd250495f4e3e082810abd901b6944b8fb22bbef65e0498e388",
     "backend/data_report_api/api/risk_verification.py": "d5ae90429c4248ff4c714b0539ad06752dbf2be4abff40ac5f32d8c830182bbd",
     "backend/data_report_api/api/smart_analysis.py": "0145d4f3cb5f9eeb65c9ce5f7b21a4f5d13df3636c2b190c036a4db9b2da559b",
-    "backend/data_report_api/api/smart_placement.py": "348c1e06ffa65003d51ea0c175b7256fbb4891b68e1abd15668734d9512be540",
+    "backend/data_report_api/api/smart_placement.py": "86ef8c1d6b688e7764f8886274546b643ae2adfdf70c581fafa31d6816f609e2",
     "backend/data_report_api/api/targets.py": "9bcc02f55d3cf7433aec9ebc412dd23eca5c4f12e780743625f8143196d9caab",
     "backend/data_report_api/api/telemetry.py": "1e724dd700b6af49e1d6547d7ee1b83c7c0256b3144aa8ebe481e71840090bc6",
     "backend/data_report_api/auth_routes.py": "0c3e026413b6d06352d281806c8344decf16e812c9bc9edbfe70440c864d20da",
@@ -57,7 +57,7 @@
     "backend/data_report_api/services/admwf/workflow.py": "c4454a353f1c8858c35c5d2b669c265a74418cc5b259ff4df754478725cb3dde",
     "backend/data_report_api/services/asset_catalog.py": "9fb5aea0b2ae7bc52092ed43f654feff2e8fad67654a29bb7016ecc1c535ff09",
     "backend/data_report_api/services/asset_inventory.py": "9f0f01538b3c73ad4d0bfa1acb73419fd736a413e1fa106e82a74f0456d52eb8",
-    "backend/data_report_api/services/auth.py": "578a2e8c010fc271ade8e618f3378b70720dd1536b46773b5ec02e669f13ef40",
+    "backend/data_report_api/services/auth.py": "3d71edebe20bf368f904f63a5bcd83848844faed5fbe4d5fe2a25c07bdda97ec",
     "backend/data_report_api/services/business_profit_analysis.py": "f9d7fc2678b6a704bcf695f39fd85fe96b263c133065698df60363c3c4d14430",
     "backend/data_report_api/services/comprehensive_analysis.py": "237a92074de04954d2637eb18e154c3c4226312998aa751aebb58ba17a293c03",
     "backend/data_report_api/services/comprehensive_detail.py": "2755ed0016fdedce590e48f72f77e0c9d9d0da36a0ba8c466a673c0db7cc61a9",
@@ -81,7 +81,7 @@
     "backend/data_report_api/services/issue_profit_analysis.py": "3c9a0673baeee7d0008f015bc7c5a3c6637027d7d576c5980fd17f5cd207151f",
     "backend/data_report_api/services/login_captcha.py": "058a3185341e5edcb0a800bede88a0aade6205c40e132d431f20746321a97721",
     "backend/data_report_api/services/missed_orders.py": "64e7bc7b5545299299f927319d802e520ad32a87f1cfaab2e9f80423f7ca3e93",
-    "backend/data_report_api/services/monitoring.py": "77567027d5550efde89594f066ecff184aed5a1bb2537b1d720b403b741a2445",
+    "backend/data_report_api/services/monitoring.py": "4b10da6b9002ba5b9407f50667db7b231ec0c1eb95d6e237270dee2884274f32",
     "backend/data_report_api/services/monitoring_notifications.py": "bea0ba42e6a378fdd6954ca0395f92b83ceff3b47e178e1d16e1bf70283cbd8d",
     "backend/data_report_api/services/monitoring_support.py": "11d94462aad67dc6d8138d6a697d06b80a5d2dc5a7d9d87eb7adad79d90ad95c",
     "backend/data_report_api/services/placement_assessment.py": "46ffee47d2471afa9df5ab009bc548fd9c93496b0f856db05261c32c6947c2dd",
@@ -138,7 +138,7 @@
     "backend/data_report_api/services/risk_workflow_analytics.py": "4b9160821a3159a6b116efcdcf4ba4ee5ff11370b76023c98bc6ff736dbfc3bd",
     "backend/data_report_api/services/risk_workflow_v3.py": "0577027f317ce00e7d16d5cf46598cc5f48c67b3449fb81b0d2ba6c621ba3178",
     "backend/data_report_api/services/smart_analysis.py": "777b54620f94799823fe7c3ca50892fac47b90c8014f1dd636c7414b77dfb2cd",
-    "backend/data_report_api/services/smart_placement.py": "5b99ff115a46815099d260d710342c39b904d391ab954e57388eb83388a1313e",
+    "backend/data_report_api/services/smart_placement.py": "668e9319b3f6cda0ec7fc1d534e6f3d19af45fddf3f4fb6f1a8473ce84ffea6e",
     "backend/data_report_api/services/smart_view_template.py": "0681c0bd6b0a03d53ddbdb3837fbec2bb3bce89ff11f07e153e4b02a52feb52a",
     "backend/data_report_api/services/target_etl_trigger.py": "ef84354455b1d1468f67401b9261c1775381e3eff080fae4e5868c9871da0188",
     "backend/data_report_api/services/target_management.py": "439741ab8d756f0c14ba4d308b264d34aec45812cf78a4efe2c5e6072f8a687a",
@@ -151,6 +151,7 @@
     "backend/data_report_api/shared/daily_segment.py": "86261c03f53ca9d0d57fd6003dcd9588cee16c51cc685f92d73bd55abf64e5b5",
     "backend/data_report_api/shared/periods.py": "886438c0082271c2d4329114892fa261a2a8bee1a8ef9bce117631c234667b4e",
     "backend/data_report_api/shared/permissions.py": "c61860518ff9904baf7743f62a7a34a1d8a7215941c0dc24e03c5260392d055f",
+    "backend/data_report_api/shared/placement_cabins.py": "6001ab8531a36a6ae3c72d3a8f981309c945d4225dd2b42224f9f56a64b60aa6",
     "backend/data_report_api/shared/placement_errors.py": "c5a0ed05dc1a42575af8610673638ff51a63adac8086cc3b9493380a70b34aa6",
     "backend/data_report_api/shared/placement_locations.py": "f8308ca57b5b43f0d65bb8d5dd8612a7d3c0622477d90fdfc83522f1889a3618",
     "backend/data_report_api/shared/target_permissions.py": "9bca1cef9e93f0ae6bb42f9a68a5f91214f4a7adc12f2da6edb4eda64e3c0eb7",
@@ -194,5 +195,8 @@
     "backend/tests/test_telemetry.py": "a077f7445197206de659582ef86d2f49d42709d15b0d5d0b14c2bd4f40393979",
     "backend/tests/test_time_utils.py": "d6da37710c968f6b57042263d6654471ff78f2851fe7530e456824bcafebaf6a",
     "backend/var/.gitignore": "a98d9a289bde9a1b3fe1ebfea40c11db8983ad392437107a7eb5a68144828efa"
-  }
+  },
+  "reviewed_changes": [
+    "backend/Dockerfile: pip HTTPS build arguments only; application USER/CMD unchanged"
+  ]
 }

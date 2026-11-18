@@ -12,7 +12,13 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends fonts-wqy-microhei \
     && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt ./
-RUN pip install --upgrade pip && pip install -r requirements.txt
+ARG PIP_INDEX_URL=https://pypi.org/simple
+ARG PIP_TIMEOUT=60
+ARG PIP_RETRIES=3
+RUN python -m pip --isolated install --no-cache-dir --disable-pip-version-check \
+        --index-url "$PIP_INDEX_URL" --timeout "$PIP_TIMEOUT" --retries "$PIP_RETRIES" --upgrade pip \
+    && python -m pip --isolated install --no-cache-dir --disable-pip-version-check \
+        --index-url "$PIP_INDEX_URL" --timeout "$PIP_TIMEOUT" --retries "$PIP_RETRIES" -r requirements.txt
 
 COPY --chown=appuser:appgroup app.py ./
 COPY --chown=appuser:appgroup data_report_api ./data_report_api

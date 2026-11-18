@@ -1638,3 +1638,12 @@ Node VM 用 10 个合成条目核对分类、分数、模拟角色切换、回�
 用户T43首次实际--update回执：配置校验及main fetch成功，随后在读取/candidate/scripts/deploy/t43/reviewed-backend.json时PermissionError。最早可证实偏差是后端校验容器读取权限；脚本umask077/版本目录700，而种子API镜像默认appuser，后端校验及后续capture-live两处docker run漏了--user。此前--check、源码文件在可读检出目录的单独校验及工具替身模拟没有覆盖私有目录与镜像默认UID的组合，不能当真实更新通过。失败发生在构建与up前；依据命令顺序本轮没有切换现有服务。
 
 主会话在隔离工作区保留并快进公司main并发更新到cd54099，再仅修复两处校验器--user0:0；统一3处校验器身份，无网络、只读容器/挂载保持，应用非root身份及root700/600权限不变。不通过chmod放宽敏感目录，不删失败版本或改历史任务。负向回归识别已提交旧脚本2处漏用户；新脚本3处身份/只读/无网络/挂载约束通过，Bash语法、24项helper与4个Shell流程模拟复验通过。证据.test-artifacts/t43-deployment-20261118/checker-user-results.txt及既有回执；无本机Docker或T43真实权限演练，目标环境复验待用户拉取修复后进行。修复推送仅GitLab main，不发外部消息、不查CI，不代用户更新服务器。下一步只拉脚本，不直接重跑--update。复盘将私有输入目录、实际镜像UID和只读挂载三者一起核对，局部配置通过不能替代完整执行入口验收。
+
+
+### T43-DEPLOY-20261118 R3：pip国内源构建链
+
+用户T43回执：基础镜像经docker.m.daocloud.io拉取已通，但pip依赖下载约29.8kB/s；用户按指导在构建阶段Ctrl+C，实际输出CANCELED [6/9] pip安装、2734.1秒及context canceled，未到容器切换。用户授权将国内pip源补入一键脚本，不操作历史任务/状态/邮件。
+
+在干净隔离工作区保留main并发更新至fcf219e；核对相对原清单5个后端增量均为显式投放编辑/舱位归一，API工厂/认证initialize AST、worker和导出/核查代码不变。仅修改Dockerfile增加PIP_INDEX_URL/TIMEOUT/RETRIES构建参数，通用默认官方源；新增T43构建覆盖默认清华HTTPS源、60秒/3次，支持服务器.env覆盖。脚本显式将三项传入API docker build，升级pip与requirements都使用该源；helper限制HTTPS无凭据/查询及数值范围，不加trusted-host、不改pip.conf、不改依赖范围或应用USER/CMD。清单随同批代码更新至194文件，并注明Dockerfile构建增量；不是盲目放开新的main。
+
+Bash/Python语法、24项helper/清单检查、16项pip参数/拒绝反例/实际Dockerfile RUN的假python执行检查及4个Shell部署回退模拟通过；保留3个校验容器显式UID0、readonly/network-none约束。证据.test-artifacts/t43-deployment-20261118/pip-results.txt等不入Git。无本机Docker真实构建，T43国内源连通性/提速及本次新版本实际部署待用户拉取后逐步验证。公开镜像/pip参数依据已核对清华及pip官方文档，未向搜索发送项目内容。无SQL、DDL、调度、外部通知或服务器操作；本次仅GitLab main提交推送。下一步仅指导T43拉取修复，不能直接假定构建已恢复或更新已完成。
