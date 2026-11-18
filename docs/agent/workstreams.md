@@ -1,5 +1,7 @@
 ## 已审核投放机会独立编辑（2026-11-18）
 
+通知补发回执：用户随后明确批准以马远尔名义将本次功能、提交号及验证限制发送至原配置发版群。2026-11-18 16:50:00（Asia/Shanghai）复用原任务placement-approved-edit-20261118发送一次，HTTP200、errcode=0、accepted，0.278秒；此前发送动作未执行，本次为唯一实际发送。脱敏回执在公司工作目录.test-artifacts/approved-edit-20261118/receipts。该批准仅解除通知阻塞；服务器仍未部署，构建/浏览器/MySQL限制按原通知如实保留。
+
 交付回执：GitLab main已正常推送功能`0dd06c0`；GitHub main历史与公司分叉（74/21），在独立worktree按该端基线仅移植本功能，保留各自历史、文档冲突仅合入本段，94项与Vue setup复验通过（3.21秒），功能`85cb3c5`已快进推送GitHub main。未强推、未把其他GitHub提交合入公司。按马远尔校验发版通知成功（validated_not_sent），发送动作在执行前被自动审批拒绝：需要明确授权将具体内部功能/提交号/验证限制发到现有配置群；未发送、无回执、未绕过。通知草稿仅本地`.test-artifacts/approved-edit-20261118/release-draft.txt`。服务器未部署，需API/Web更新及权限管理配置。
 
 用户授权开发发版、申请人马远尔；主会话磐石/星桥/明鉴，frontend-design，无子代理。原目录fat_cy/9d5dc13含其他任务改动，五个本任务文件迁至独立feat/placement-approved-edit-20261118、origin/main fbced74，三方应用干净，发布前在最新基线定向重验；不提交其他登录/ADM/Agent改动。
