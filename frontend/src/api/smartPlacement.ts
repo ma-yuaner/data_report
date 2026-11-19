@@ -166,6 +166,7 @@ export interface PlacementDimensionOptions {
 }
 
 export interface PlacementTaskInput {
+  executionEdit?: { id: number; values: Record<string, any> }
   approvedEdit?: boolean
   changeReason?: string
   versionNo?: number

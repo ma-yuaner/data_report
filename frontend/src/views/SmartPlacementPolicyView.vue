@@ -190,6 +190,9 @@
           </div>
         </section>
 
+        <section v-if="approvedEditing && approvedExecutionId" class="form-section"><header class="section-heading"><div><h3>当前投放登记</h3><p>修改后直接生效并保留前后记录；外部平台政策仍需按实际情况维护。</p></div></header>
+          <PlacementExecutionFields v-model="approvedExecutionForm" amending :dimensions="dimensions" :dimensions-loading="dimensionsLoading" :execution-result-options="executionResultOptions" :failure-type-options="failureTypeOptions" :segment-type-options="segmentTypeOptions" :order-source-options="orderSourceOptions" />
+        </section>
         <PlacementField v-if="approvedEditing" label="修改原因" required hint="保存后直接生效，请说明本次调整原因；外部平台政策需按实际情况维护。"><a-textarea v-model:value="approvedChangeReason" :maxlength="1000" :rows="3" /></PlacementField>
         <div class="modal-actions">
           <span v-if="approvedEditing">保存后直接生效，任务状态及审核记录保持不变</span>
@@ -239,50 +242,7 @@
 
     <a-modal v-model:open="executionOpen" title="登记投放结果" width="min(1120px, 96vw)" wrap-class-name="placement-create-modal" :footer="null" :mask-closable="false">
       <div class="action-context"><div><strong>{{ activeTask?.opportunityName }}</strong><span>{{ activeTask?.taskNo }}</span></div><p>成功后进入订单监控；失败时可选择重新执行或结束本次任务。</p></div>
-      <div class="task-form">
-        <section class="form-section">
-          <header class="section-heading"><span>1</span><div><h3>执行结果</h3><p>先选择结果，系统按成功或失败展示对应必填字段。</p></div></header>
-          <div class="form-grid three">
-            <PlacementField label="投放结果" required><a-select v-model:value="executionForm.result" :options="executionResultOptions" /></PlacementField>
-            <PlacementField v-if="executionForm.result === 'SUCCESS'" label="外部政策 ID" required hint="用于订单匹配和外部追溯"><a-input v-model:value="executionForm.externalPolicyId" /></PlacementField>
-            <PlacementField v-if="executionForm.result === 'SUCCESS'" label="外部政策名称" hint="外部系统中的政策名称"><a-input v-model:value="executionForm.externalPolicyName" /></PlacementField>
-            <PlacementField v-if="executionForm.result === 'SUCCESS'" label="实际投放时间" required><a-date-picker v-model:value="executionForm.actualPlacementAt" :locale="dateLocale" show-time value-format="YYYY-MM-DD HH:mm:ss" placeholder="请选择实际投放时间" /></PlacementField>
-            <PlacementField v-if="executionForm.result === 'SUCCESS'" label="政策生效时间" required hint="监控从登记成功时间与政策生效时间中较晚的时间开始"><a-date-picker v-model:value="executionForm.effectiveStartAt" :locale="dateLocale" show-time value-format="YYYY-MM-DD HH:mm:ss" placeholder="请选择政策生效时间" /></PlacementField>
-            <PlacementField v-if="executionForm.result === 'SUCCESS'" label="长期有效"><a-switch v-model:checked="executionForm.longTerm" checked-children="是" un-checked-children="否" /></PlacementField>
-            <PlacementField v-if="executionForm.result === 'SUCCESS'" label="政策失效时间" :required="!executionForm.longTerm"><a-date-picker v-model:value="executionForm.effectiveEndAt" :disabled="executionForm.longTerm" :locale="dateLocale" show-time value-format="YYYY-MM-DD HH:mm:ss" placeholder="请选择政策失效时间" /></PlacementField>
-            <PlacementField v-if="executionForm.result === 'FAILED'" label="失败类型" required><a-select v-model:value="executionForm.failureType" :options="failureTypeOptions" /></PlacementField>
-            <PlacementField v-if="executionForm.result === 'FAILED'" label="是否重新执行" hint="开启后任务仍保持执行中"><a-switch v-model:checked="executionForm.retryRequired" /></PlacementField>
-            <PlacementField v-if="executionForm.result === 'FAILED' && executionForm.retryRequired" label="下次处理时间" required><a-date-picker v-model:value="executionForm.nextHandleAt" :locale="dateLocale" show-time value-format="YYYY-MM-DD HH:mm:ss" placeholder="请选择下次处理时间" /></PlacementField>
-            <PlacementField v-if="executionForm.result === 'FAILED'" class="span-3" label="失败原因" required><a-textarea v-model:value="executionForm.failureReason" :rows="3" /></PlacementField>
-          </div>
-        </section>
-        <section v-if="executionForm.result === 'SUCCESS'" class="form-section">
-          <header class="section-heading"><span>2</span><div><h3>实际投放条件</h3><p>默认带出审核任务条件；实际值有变化时在这里修改，后续匹配使用实际条件。</p></div></header>
-          <div class="form-grid three">
-            <PlacementField label="平台名称" required hint="选择后自动带出平台编码"><a-select v-model:value="executionForm.platformName" :options="executionPlatformOptions" :loading="dimensionsLoading" show-search option-filter-prop="label" allow-clear placeholder="请选择平台" @change="selectExecutionPlatform" /></PlacementField>
-            <PlacementField label="平台编码" hint="由平台名称自动带出"><a-input v-model:value="executionForm.platformCode" readonly /></PlacementField>
-            <PlacementField label="产品类型"><a-select v-model:value="executionForm.productType" :options="executionProductOptions" :loading="dimensionsLoading" show-search option-filter-prop="label" allow-clear placeholder="请选择产品类型" /></PlacementField>
-            <PlacementField label="实际订单来源" hint="支持多选；两个都选或留空均表示匹配全部订单来源"><a-select v-model:value="executionForm.orderSource" mode="multiple" :options="orderSourceOptions" allow-clear placeholder="不限订单来源" /></PlacementField>
-            <PlacementField label="站点名称"><a-select v-model:value="executionForm.siteName" :options="executionSiteOptions" :loading="dimensionsLoading" show-search option-filter-prop="label" allow-clear placeholder="请选择站点" @change="selectExecutionSite" /></PlacementField>
-            <PlacementField label="站点编码" hint="由站点名称自动带出"><a-input v-model:value="executionForm.siteCode" readonly /></PlacementField>
-            <PlacementField label="航司" required><a-select v-model:value="executionForm.airlineCode" :options="executionAirlineOptions" :loading="dimensionsLoading" show-search option-filter-prop="label" allow-clear placeholder="请选择航司" /></PlacementField>
-            <PlacementField label="航段类型"><a-select v-model:value="executionForm.segmentType" :options="segmentTypeOptions" allow-clear placeholder="请选择航段类型" /></PlacementField>
-            <PlacementField label="出发地"><PlacementLocationSelect v-model:type="executionForm.departureType" v-model:code="executionForm.departureCode" label="实际出发地" /></PlacementField>
-            <PlacementField label="目的地"><PlacementLocationSelect v-model:type="executionForm.arrivalType" v-model:code="executionForm.arrivalCode" label="实际目的地" /></PlacementField>
-            <PlacementField label="航班号"><a-input v-model:value="executionForm.flightNos" /></PlacementField>
-            <PlacementField label="包含舱位"><a-input v-model:value="executionForm.includeCabins" /></PlacementField>
-            <PlacementField label="排除舱位"><a-input v-model:value="executionForm.excludeCabins" /></PlacementField>
-            <PlacementField label="投放渠道"><a-input v-model:value="executionForm.placementChannel" /></PlacementField>
-            <PlacementField label="亏损阈值下限（CNY）" hint="可选；上下限都留空表示不限制预估利润"><a-input-number v-model:value="executionForm.lossThresholdMin" :min="0" :precision="2" placeholder="可不填" /></PlacementField>
-            <PlacementField label="亏损阈值上限（CNY）" hint="如填写，必须与下限同时填写"><a-input-number v-model:value="executionForm.lossThresholdMax" :min="0" :precision="2" placeholder="可不填" /></PlacementField>
-            <PlacementField label="投放凭证地址" hint="填写可访问的截图或外部记录地址"><a-input v-model:value="executionForm.proofUrl" /></PlacementField>
-          </div>
-        </section>
-        <section class="form-section">
-          <header class="section-heading"><span>{{ executionForm.result === 'SUCCESS' ? 3 : 2 }}</span><div><h3>执行说明</h3><p>记录本次操作补充信息，便于后续追溯。</p></div></header>
-          <div class="form-grid one"><PlacementField label="执行说明"><a-textarea v-model:value="executionForm.executionNote" :rows="3" /></PlacementField></div>
-        </section>
-      </div>
+      <PlacementExecutionFields v-model="executionForm" :dimensions="dimensions" :dimensions-loading="dimensionsLoading" :execution-result-options="executionResultOptions" :failure-type-options="failureTypeOptions" :segment-type-options="segmentTypeOptions" :order-source-options="orderSourceOptions" />
       <div class="dialog-actions"><a-button @click="executionOpen=false">取消</a-button><a-button type="primary" :loading="saving" @click="submitExecution">保存执行结果</a-button></div>
     </a-modal>
 
@@ -469,6 +429,7 @@ import { ReloadOutlined, SearchOutlined } from '@ant-design/icons-vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '@/components/PageHeader.vue'
 import PlacementField from '@/components/PlacementField.vue'
+import PlacementExecutionFields from '@/components/PlacementExecutionFields.vue'
 import PlacementCabinReference from '@/components/PlacementCabinReference.vue'
 import PlacementLocationSelect from '@/components/PlacementLocationSelect.vue'
 import { placementLocationName, placementRouteName } from '@/utils/placementLocation'
@@ -515,6 +476,8 @@ const detailTab = ref('overview')
 const editingTaskId = ref<number>()
 const approvedEditing = ref(false)
 const approvedChangeReason = ref('')
+const approvedExecutionId = ref<number>()
+const approvedExecutionForm = ref<Record<string, any>>({})
 const editingVersion = ref<number>()
 const detail = ref<PlacementTaskDetail>()
 const monitoring = ref<PlacementTaskMonitoring>()
@@ -653,12 +616,12 @@ const actionLabelMap: Record<string, string> = {
 }
 const reviewResultMeta = (value: unknown) => reviewResultMap[String(value)] || { label: valueOrDash(value), color: 'default' }
 const actionLabel = (value: unknown) => actionLabelMap[String(value)] || valueOrDash(value)
-const approvedFieldLabels: Record<string, string> = {"opportunityName": "机会名称", "opportunitySource": "机会来源", "analysisRuleCode": "分析规则编号", "analysisStartDate": "分析开始日期", "analysisEndDate": "分析结束日期", "platformCode": "平台编码", "platformName": "平台名称", "siteCode": "站点编码", "siteName": "站点名称", "airlineCode": "航司", "departureCode": "出发代码", "arrivalCode": "到达代码", "departureType": "出发类型", "arrivalType": "到达类型", "journeyType": "航程类型", "segmentType": "航段类型", "flightNos": "航班号", "includeCabins": "包含舱位", "excludeCabins": "排除舱位", "productType": "产品类型", "orderSource": "订单来源", "orderStartDate": "销售开始日期", "orderEndDate": "销售结束日期", "advanceSaleDays": "提前销售天数", "travelStartDate": "旅行开始日期", "travelEndDate": "旅行结束日期", "placementMethod": "建议投放方式", "lossThresholdMin": "亏损阈值下限", "lossThresholdMax": "亏损阈值上限", "longTermFlag": "长期有效", "suggestedEffectiveStart": "建议生效时间", "suggestedEffectiveEnd": "建议失效时间", "historicalTicketCount": "历史票数", "historicalProfitCny": "历史利润", "estimatedMonthTicketCount": "预估月票数", "estimatedMonthProfitCny": "预估月利润", "analysisConclusion": "分析结论", "riskNote": "风险提示", "priority": "优先级", "expectedCompleteAt": "期望完成时间", "routeText": "历史航线文本"}
+const approvedFieldLabels: Record<string, string> = { externalPolicyId: '外部政策ID', externalPolicyName: '外部政策名称', actualPlacementAt: '实际投放时间', effectiveStartAt: '政策生效时间', effectiveEndAt: '政策失效时间', placementChannel: '投放渠道', proofUrl: '投放凭证地址', executionNote: '执行说明', failureType: '失败类型', failureReason: '失败原因', nextHandleAt: '下次处理时间',"opportunityName": "机会名称", "opportunitySource": "机会来源", "analysisRuleCode": "分析规则编号", "analysisStartDate": "分析开始日期", "analysisEndDate": "分析结束日期", "platformCode": "平台编码", "platformName": "平台名称", "siteCode": "站点编码", "siteName": "站点名称", "airlineCode": "航司", "departureCode": "出发代码", "arrivalCode": "到达代码", "departureType": "出发类型", "arrivalType": "到达类型", "journeyType": "航程类型", "segmentType": "航段类型", "flightNos": "航班号", "includeCabins": "包含舱位", "excludeCabins": "排除舱位", "productType": "产品类型", "orderSource": "订单来源", "orderStartDate": "销售开始日期", "orderEndDate": "销售结束日期", "advanceSaleDays": "提前销售天数", "travelStartDate": "旅行开始日期", "travelEndDate": "旅行结束日期", "placementMethod": "建议投放方式", "lossThresholdMin": "亏损阈值下限", "lossThresholdMax": "亏损阈值上限", "longTermFlag": "长期有效", "suggestedEffectiveStart": "建议生效时间", "suggestedEffectiveEnd": "建议失效时间", "historicalTicketCount": "历史票数", "historicalProfitCny": "历史利润", "estimatedMonthTicketCount": "预估月票数", "estimatedMonthProfitCny": "预估月利润", "analysisConclusion": "分析结论", "riskNote": "风险提示", "priority": "优先级", "expectedCompleteAt": "期望完成时间", "routeText": "历史航线文本"}
 function policyChangeLog(raw: unknown) {
   try {
     const log = JSON.parse(String(raw || '{}'))
     if (log.previousVersionNo !== undefined && log.before && log.after && log.externalExecution === 'MANUAL_REQUIRED' && log.executionBefore !== undefined) {
-      return [`版本：${log.previousVersionNo} → ${log.versionNo}`, `修改时间：${formatDateTimeDisplay(log.recordedAt)}`, ...Object.keys(log.after).filter(key => (log.fields || []).includes(key)).map(key => `${approvedFieldLabels[key] || key}：${valueOrDash(log.before[key])} → ${valueOrDash(log.after[key])}`)].join('\n')
+      return [`版本：${log.previousVersionNo} → ${log.versionNo}`, `修改时间：${formatDateTimeDisplay(log.recordedAt)}`, ...Object.keys(log.after).filter(key => (log.fields || []).includes(key)).map(key => `${approvedFieldLabels[key] || key}：${valueOrDash(log.before[key])} → ${valueOrDash(log.after[key])}`), ...(log.executionFields || []).map((key: string) => `投放登记·${approvedFieldLabels[key] || key}：${valueOrDash(log.executionBefore?.[key])} → ${valueOrDash(log.executionAfter?.[key])}`)].join('\n')
     }
     const labels: Record<string, string> = { includeCabins: '包含舱位', excludeCabins: '排除舱位', effectiveStartAt: '政策生效时间', effectiveEndAt: '政策失效时间', longTermFlag: '长期有效' }
     const selected = new Set((log.fields || []).flatMap((field: string) => field === 'effectivePeriod' ? ['effectiveStartAt', 'effectiveEndAt', 'longTermFlag'] : [field]))
@@ -685,14 +648,7 @@ const {
   selectPlatform,
   selectSite,
 } = usePlacementDimensions(dimensions, taskForm)
-const {
-  platformOptions: executionPlatformOptions,
-  siteOptions: executionSiteOptions,
-  productOptions: executionProductOptions,
-  airlineOptions: executionAirlineOptions,
-  selectPlatform: selectExecutionPlatform,
-  selectSite: selectExecutionSite,
-} = usePlacementDimensions(dimensions, executionForm)
+
 
 async function loadDimensions() {
   if (dimensions.value || dimensionsLoading.value) return
@@ -738,7 +694,7 @@ function selectWorkScope(value: string) {
   void load(1)
 }
 function changePage(value: { current?: number; pageSize?: number }) { const size = value.pageSize || pageSize.value; page.value = size === pageSize.value ? value.current || 1 : 1; pageSize.value = size; void load(page.value) }
-function openCreate() { approvedEditing.value = false; approvedChangeReason.value = ''; editingVersion.value = undefined; editingTaskId.value = undefined; taskForm.value = blankTask(); createOpen.value = true; void loadDimensions() }
+function openCreate() { approvedEditing.value = false; approvedChangeReason.value = ''; approvedExecutionId.value = undefined; approvedExecutionForm.value = {}; editingVersion.value = undefined; editingTaskId.value = undefined; taskForm.value = blankTask(); createOpen.value = true; void loadDimensions() }
 function queryText(key: string) {
   const value = route.query[key]
   return Array.isArray(value) ? String(value[0] || '') : String(value || '')
@@ -764,6 +720,8 @@ function openCreateFromAnalysis() {
   form.analysisConclusion = '来源于智能综合分析，请结合维度表现、样本范围和投放风险完成评估。'
   approvedEditing.value = false
   approvedChangeReason.value = ''
+  approvedExecutionId.value = undefined
+  approvedExecutionForm.value = {}
   editingVersion.value = undefined
   editingTaskId.value = undefined
   taskForm.value = form
@@ -786,6 +744,8 @@ async function openCopy(row: PlacementTaskRow) {
     copied.submit = false
     approvedEditing.value = false
     approvedChangeReason.value = ''
+    approvedExecutionId.value = undefined
+    approvedExecutionForm.value = {}
     editingVersion.value = undefined
     editingTaskId.value = undefined
     taskForm.value = copied
@@ -802,9 +762,20 @@ async function openEdit(row: PlacementTaskRow, approved = false) {
     if (approved && !canEditApproved(result.task)) { message.warning('任务状态或权限已变化，请刷新后重试'); return }
     approvedEditing.value = approved
     approvedChangeReason.value = ''
+    approvedExecutionId.value = undefined
+    approvedExecutionForm.value = {}
     editingVersion.value = result.task.versionNo
     editingTaskId.value = row.id
     taskForm.value = taskToForm(result.task)
+    if (approved && result.executions?.length) {
+      const current = result.executions[0]
+      approvedExecutionId.value = current.id
+      approvedExecutionForm.value = { ...taskToForm({ ...result.task, ...current }), ...current,
+        result: current.executionResult, longTerm: yesNo(current.longTermFlag) === '是',
+        retryRequired: Number(current.retryRequired) === 1, orderSource: orderSourceValues(current.orderSource),
+        lossThresholdMin: optionalNumber(current.lossThresholdMin), lossThresholdMax: optionalNumber(current.lossThresholdMax),
+      }
+    }
     createOpen.value = true
     void loadDimensions()
   } catch (failure) { message.error(failure instanceof Error ? failure.message : '任务加载失败') }
@@ -857,15 +828,19 @@ async function saveTask(submit: boolean) {
     excludeCabins: normalizeCabins(taskForm.value.excludeCabins).toUpperCase(),
   }
   if (approvedEditing.value && !approvedChangeReason.value.trim()) { message.warning('请填写修改原因'); return }
+  if (approvedEditing.value && approvedExecutionId.value) {
+    const executionError = validateExecution(approvedExecutionForm.value)
+    if (executionError) { message.warning(executionError); return }
+  }
   const validationError = validateTaskForm(values, submit || approvedEditing.value)
   if (validationError) { message.warning(validationError); return }
   taskForm.value = values
   saving.value = true
   try {
-    const payload = { ...values, submit, ...(approvedEditing.value ? { approvedEdit: true, changeReason: approvedChangeReason.value.trim(), versionNo: editingVersion.value } : {}) }
+    const payload = { ...values, submit, ...(approvedEditing.value ? { approvedEdit: true, changeReason: approvedChangeReason.value.trim(), versionNo: editingVersion.value, ...(approvedExecutionId.value ? { executionEdit: { id: approvedExecutionId.value, values: approvedExecutionForm.value } } : {}) } : {}) }
     const result = editingTaskId.value ? await updatePlacementTask(editingTaskId.value, payload) : await createPlacementTask(payload)
     message.success(approvedEditing.value ? `任务${result.taskNo}修改已生效` : submit ? `任务${result.taskNo}已提交审核` : `草稿${result.taskNo}已保存`)
-    createOpen.value = false; approvedEditing.value = false; approvedChangeReason.value = ''; editingVersion.value = undefined; editingTaskId.value = undefined; await load(1)
+    createOpen.value = false; approvedEditing.value = false; approvedChangeReason.value = ''; approvedExecutionId.value = undefined; approvedExecutionForm.value = {}; editingVersion.value = undefined; editingTaskId.value = undefined; await load(1)
   }
   catch (failure) { message.error(failure instanceof Error ? failure.message : '保存失败') }
   finally { saving.value = false }
@@ -1003,8 +978,7 @@ async function openExecution(row: PlacementTaskRow) {
   } catch (failure) { message.error(failure instanceof Error ? failure.message : '任务条件加载失败') }
   finally { saving.value = false }
 }
-function validateExecution() {
-  const form = executionForm.value
+function validateExecution(form = executionForm.value) {
   if (form.result === 'SUCCESS') {
     if (!form.externalPolicyId || !form.actualPlacementAt || !form.effectiveStartAt) return '请填写外部政策ID、实际投放时间和政策生效时间'
     if (!form.longTerm && !form.effectiveEndAt) return '非长期政策必须填写政策失效时间'

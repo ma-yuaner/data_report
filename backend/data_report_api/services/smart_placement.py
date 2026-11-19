@@ -318,6 +318,72 @@ def _task_fields(values: dict[str, Any], *, submit: bool) -> dict[str, Any]:
     }
 
 
+def _execution_input(values: dict[str, Any], now: datetime, *, require_future_end: bool = True) -> dict[str, Any]:
+    """Shared registration/amendment validation; performs no writes."""
+    result = _text(values.get("result"), "投放结果", 16, required=True).upper()
+    if result not in {"SUCCESS", "FAILED"}:
+        raise ValueError("投放结果不支持")
+    policy_id = _text(values.get("externalPolicyId"), "外部政策ID", 128, required=result == "SUCCESS")
+    if policy_id and not CODE_RE.fullmatch(policy_id):
+        raise ValueError("外部政策ID格式不合法")
+    failure_type = _text(values.get("failureType"), "失败类型", 64, required=result == "FAILED")
+    failure_reason = _text(values.get("failureReason"), "失败原因", 10_000, required=result == "FAILED")
+    actual_at = _datetime_value(values.get("actualPlacementAt"), "实际投放时间", required=result == "SUCCESS")
+    effective_start = _datetime_value(values.get("effectiveStartAt"), "政策生效时间", required=result == "SUCCESS")
+    long_term = result == "SUCCESS" and _bool(values.get("longTerm"))
+    effective_end = _datetime_value(
+        values.get("effectiveEndAt"), "政策失效时间",
+        required=result == "SUCCESS" and not long_term,
+    )
+    if long_term:
+        effective_end = None
+    monitoring_start = max(now, effective_start) if result == "SUCCESS" and effective_start else None
+    if result == "SUCCESS" and effective_start and effective_end and (effective_end <= effective_start or (require_future_end and monitoring_start and effective_end <= monitoring_start)):
+        raise ValueError("政策失效时间必须晚于最终监控生效时间")
+    loss_threshold_supplied = "lossThresholdMin" in values or "lossThresholdMax" in values
+    loss_threshold_min, loss_threshold_max = _loss_thresholds(values)
+    retry_required = _bool(values.get("retryRequired"))
+    next_handle_at = _datetime_value(values.get("nextHandleAt"), "下次处理时间", required=result == "FAILED" and retry_required)
+    include_cabins = _text(values.get("includeCabins"), "包含舱位", 500)
+    exclude_cabins = _text(values.get("excludeCabins"), "排除舱位", 500)
+    included_list = cabin_values(include_cabins)
+    excluded_list = cabin_values(exclude_cabins)
+    overlap = sorted(set(included_list) & set(excluded_list))
+    if overlap:
+        raise ValueError(f"实际包含舱位和排除舱位不能重复：{','.join(overlap)}")
+    order_source_supplied = "orderSource" in values
+    execution = {
+        "external_policy_id": policy_id or None,
+        "external_policy_name": _text(values.get("externalPolicyName"), "外部政策名称", 200) or None,
+        "actual_placement_at": actual_at,
+        "effective_start_at": effective_start,
+        "effective_end_at": effective_end,
+        "monitoring_start_at": monitoring_start,
+        "platform_code": _code(values.get("platformCode"), "平台编码") or None,
+        "platform_name": _text(values.get("platformName"), "平台名称", 100) or None,
+        "site_code": _code(values.get("siteCode"), "站点编码") or None,
+        "site_name": _text(values.get("siteName"), "站点名称", 150) or None,
+        "airline_code": _code(values.get("airlineCode"), "航司").upper() or None,
+        **location_fields(values, "departure"),
+        **location_fields(values, "arrival"),
+        "route_text": None,
+        "segment_type": _segment_type(values.get("segmentType"), "实际航段类型"),
+        "flight_nos": _text(values.get("flightNos"), "航班号", 500) or None,
+        "include_cabins": ",".join(included_list) or None,
+        "exclude_cabins": ",".join(excluded_list) or None,
+        "product_type": _text(values.get("productType"), "产品类型", 150) or None,
+        "order_source": _order_source(values.get("orderSource"), "实际订单来源"),
+        "loss_threshold_min": loss_threshold_min,
+        "loss_threshold_max": loss_threshold_max,
+        "long_term_flag": 1 if long_term else 0,
+        "placement_channel": _text(values.get("placementChannel"), "投放渠道", 100) or None,
+        "proof_url": _text(values.get("proofUrl"), "投放凭证", 500) or None,
+        "execution_note": _text(values.get("executionNote"), "执行说明", 10_000) or None,
+    }
+    next_status = "MONITORING" if result == "SUCCESS" else "IN_PROGRESS" if retry_required else "FAILED"
+    return {"execution": execution, "result": result, "retry_required": retry_required, "next_handle_at": next_handle_at, "failure_type": failure_type, "failure_reason": failure_reason, "loss_threshold_supplied": loss_threshold_supplied, "order_source_supplied": order_source_supplied, "next_status": next_status}
+
+
 def _is_missing_table(error: Exception) -> bool:
     return bool(getattr(error, "args", ())) and error.args[0] == 1146
 
@@ -1179,44 +1245,75 @@ class SmartPlacementService:
             fields["route_text"] = task.get("route_text")
             before = {key: task.get(key) for key in fields}
             changed = [key for key in fields if before[key] != fields[key]]
-            if not changed:
-                raise ValueError("内容没有变化，无需保存")
+            supplied_edit = values.get("executionEdit")
+            if supplied_edit is not None and (not isinstance(supplied_edit, dict) or set(supplied_edit) != {"id", "values"} or type(supplied_edit.get("id")) is not int or not isinstance(supplied_edit.get("values"), dict)):
+                raise ValueError("投放登记编辑参数不完整，请刷新后重试")
             monitor_rule = None
             execution_before = execution_after = None
-            if task["status"] == "MONITORING":
-                cursor.execute(f"SELECT * FROM {self._table(EXECUTION_TABLE)} WHERE task_id=%s AND execution_result='SUCCESS' ORDER BY attempt_no DESC LIMIT 1 FOR UPDATE", (task_id,))
+            execution_changed = []
+            execution = None
+            patch = {}
+            if supplied_edit is not None or task["status"] == "MONITORING":
+                cursor.execute(f"SELECT * FROM {self._table(EXECUTION_TABLE)} WHERE task_id=%s ORDER BY attempt_no DESC LIMIT 1 FOR UPDATE", (task_id,))
                 execution = _dict_row(cursor, cursor.fetchone())
                 if not execution:
+                    raise ValueError("缺少当前投放登记，请刷新核对")
+                if supplied_edit is not None:
+                    if execution["id"] != supplied_edit["id"]:
+                        raise PlacementChangeConflict("当前投放登记已变化，请刷新后重新编辑")
+                    parsed = _execution_input(supplied_edit["values"], now, require_future_end=task["status"] == "MONITORING")
+                    if parsed["result"] != execution["execution_result"] or bool(parsed["retry_required"]) != bool(execution.get("retry_required")):
+                        raise ValueError("编辑不能变更投放结果或是否重新执行，请按原执行流程处理")
+                    proposed_execution = {key: value for key, value in parsed["execution"].items() if key != "monitoring_start_at"}
+                    proposed_execution["route_text"] = execution.get("route_text")
+                    if parsed["result"] == "FAILED":
+                        proposed_execution = {"execution_note": proposed_execution["execution_note"], "failure_type": parsed["failure_type"] or None, "failure_reason": parsed["failure_reason"] or None, "next_handle_at": parsed["next_handle_at"]}
+                    else:
+                        # Keep previous failure metadata out of successful-record edits.
+                        proposed_execution.pop("failure_type", None)
+                        proposed_execution.pop("failure_reason", None)
+                    self._validate_locations(cursor, proposed_execution, now)
+                    execution_before = {key: execution.get(key) for key in proposed_execution}
+                    execution_after = proposed_execution
+                    patch = {key: value for key, value in proposed_execution.items() if execution.get(key) != value}
+                    execution_changed = list(_public_row(patch))
+                else:
+                    # Preserve the previous opportunity-only amendment behavior.
+                    execution_keys = {"platform_code", "platform_name", "site_code", "site_name", "airline_code", "departure_code", "arrival_code", "departure_type", "arrival_type", "route_text", "segment_type", "flight_nos", "include_cabins", "exclude_cabins", "product_type", "order_source", "loss_threshold_min", "loss_threshold_max"}
+                    patch = {key: fields[key] for key in changed if key in execution_keys}
+                    execution_before = {key: execution.get(key) for key in patch}
+                    execution_after = patch
+            if not changed and not patch:
+                raise ValueError("内容没有变化，无需保存")
+            if task["status"] == "MONITORING":
+                if not execution or execution["execution_result"] != "SUCCESS":
                     raise ValueError("缺少成功投放记录，无法同步当前监控规则")
                 cursor.execute(f"SELECT * FROM {self._table(MONITOR_RULE_TABLE)} WHERE source_business_type='SMART_PLACEMENT_EXECUTION' AND source_business_id=%s AND source_parent_id=%s FOR UPDATE", (execution["id"], task_id))
                 rules = _dict_rows(cursor, list(cursor.fetchall()))
                 if len(rules) != 1 or rules[0]["status"] not in {"ACTIVE", "SCHEDULED"}:
                     raise ValueError("监控规则状态已变化，请刷新核对后修改")
-                # Existing actual execution values remain authoritative unless that field is edited.
-                execution_keys = {"platform_code", "platform_name", "site_code", "site_name", "airline_code", "departure_code", "arrival_code", "departure_type", "arrival_type", "route_text", "segment_type", "flight_nos", "include_cabins", "exclude_cabins", "product_type", "order_source", "loss_threshold_min", "loss_threshold_max"}
-                patch = {key: fields[key] for key in changed if key in execution_keys}
                 effective_execution = {**execution, **patch}
                 included = set(cabin_values(effective_execution.get("include_cabins")))
                 excluded = set(cabin_values(effective_execution.get("exclude_cabins")))
                 if included & excluded:
                     raise ValueError("调整后的实际包含与排除舱位存在重叠，请核对当前投放配置")
-                execution_before = {key: execution.get(key) for key in patch}
-                execution_after = patch
                 monitor_rule = self.monitor_rule_compiler.sync_smart_placement(
                     cursor=cursor, database=self.source.database, task={**task, **fields},
                     execution_id=int(execution["id"]), attempt_no=int(execution["attempt_no"]),
-                    execution={**execution, **patch, "monitoring_start_at": max(now, execution["effective_start_at"])},
+                    execution={**effective_execution, "monitoring_start_at": max(now, effective_execution["effective_start_at"])},
                     actor=actor, now=now, existing_rule=rules[0], change_reason=reason,
                 )
-                if patch:
-                    cursor.execute(f"UPDATE {self._table(EXECUTION_TABLE)} SET {','.join(f'{key}=%s' for key in patch)} WHERE id=%s", tuple([*patch.values(), execution["id"]]))
+            if patch:
+                cursor.execute(f"UPDATE {self._table(EXECUTION_TABLE)} SET {','.join(f'{key}=%s' for key in patch)} WHERE id=%s", tuple([*patch.values(), execution["id"]]))
             cursor.execute(f"UPDATE {self._table(TASK_TABLE)} SET {','.join(f'{key}=%s' for key in fields)},version_no=version_no+1,updated_by_id=%s,updated_by_name=%s,updated_at=%s WHERE id=%s", tuple([*fields.values(), actor[0], actor[1], now, task_id]))
             self._log(cursor, task_id=task_id, action="APPROVED_EDIT", actor=actor,
                       from_status=task["status"], to_status=task["status"], note=reason,
                       detail={"before": _public_row(before), "after": _public_row(fields),
                               "fields": list(_public_row({key: fields[key] for key in changed})), "recordedAt": now,
                               "previousVersionNo": task["version_no"], "versionNo": int(task["version_no"]) + 1,
-                              "executionBefore": execution_before, "executionAfter": execution_after,
+                              "executionBefore": _public_row(execution_before) if supplied_edit is not None and execution_before is not None else execution_before,
+                              "executionAfter": _public_row(execution_after) if supplied_edit is not None and execution_after is not None else execution_after,
+                              "executionId": execution["id"] if execution else None, "executionFields": execution_changed,
                               "monitorRule": monitor_rule, "externalExecution": "MANUAL_REQUIRED"})
             connection.commit()
             return {"id": task_id, "taskNo": task["task_no"], "status": task["status"], "versionNo": int(task["version_no"]) + 1}
@@ -1652,68 +1749,15 @@ class SmartPlacementService:
     def register_execution(self, user: dict[str, Any], task_id: int, values: dict[str, Any]) -> dict[str, Any]:
         _require_permission(user, PERMISSION_EXECUTE, "当前账号没有投放结果登记权限")
         actor = _actor(user)
-        result = _text(values.get("result"), "投放结果", 16, required=True).upper()
-        if result not in {"SUCCESS", "FAILED"}:
-            raise ValueError("投放结果不支持")
         now = _now()
-        policy_id = _text(values.get("externalPolicyId"), "外部政策ID", 128, required=result == "SUCCESS")
-        if policy_id and not CODE_RE.fullmatch(policy_id):
-            raise ValueError("外部政策ID格式不合法")
-        failure_type = _text(values.get("failureType"), "失败类型", 64, required=result == "FAILED")
-        failure_reason = _text(values.get("failureReason"), "失败原因", 10_000, required=result == "FAILED")
-        actual_at = _datetime_value(values.get("actualPlacementAt"), "实际投放时间", required=result == "SUCCESS")
-        effective_start = _datetime_value(values.get("effectiveStartAt"), "政策生效时间", required=result == "SUCCESS")
-        long_term = result == "SUCCESS" and _bool(values.get("longTerm"))
-        effective_end = _datetime_value(
-            values.get("effectiveEndAt"), "政策失效时间",
-            required=result == "SUCCESS" and not long_term,
-        )
-        if long_term:
-            effective_end = None
-        monitoring_start = max(now, effective_start) if result == "SUCCESS" and effective_start else None
-        if monitoring_start and effective_end and effective_end <= monitoring_start:
-            raise ValueError("政策失效时间必须晚于最终监控生效时间")
-        loss_threshold_supplied = "lossThresholdMin" in values or "lossThresholdMax" in values
-        loss_threshold_min, loss_threshold_max = _loss_thresholds(values)
-        retry_required = _bool(values.get("retryRequired"))
-        next_handle_at = _datetime_value(values.get("nextHandleAt"), "下次处理时间", required=result == "FAILED" and retry_required)
-        include_cabins = _text(values.get("includeCabins"), "包含舱位", 500)
-        exclude_cabins = _text(values.get("excludeCabins"), "排除舱位", 500)
-        included_list = cabin_values(include_cabins)
-        excluded_list = cabin_values(exclude_cabins)
-        overlap = sorted(set(included_list) & set(excluded_list))
-        if overlap:
-            raise ValueError(f"实际包含舱位和排除舱位不能重复：{','.join(overlap)}")
-        order_source_supplied = "orderSource" in values
-        execution = {
-            "external_policy_id": policy_id or None,
-            "external_policy_name": _text(values.get("externalPolicyName"), "外部政策名称", 200) or None,
-            "actual_placement_at": actual_at,
-            "effective_start_at": effective_start,
-            "effective_end_at": effective_end,
-            "monitoring_start_at": monitoring_start,
-            "platform_code": _code(values.get("platformCode"), "平台编码") or None,
-            "platform_name": _text(values.get("platformName"), "平台名称", 100) or None,
-            "site_code": _code(values.get("siteCode"), "站点编码") or None,
-            "site_name": _text(values.get("siteName"), "站点名称", 150) or None,
-            "airline_code": _code(values.get("airlineCode"), "航司").upper() or None,
-            **location_fields(values, "departure"),
-            **location_fields(values, "arrival"),
-            "route_text": None,
-            "segment_type": _segment_type(values.get("segmentType"), "实际航段类型"),
-            "flight_nos": _text(values.get("flightNos"), "航班号", 500) or None,
-            "include_cabins": ",".join(included_list) or None,
-            "exclude_cabins": ",".join(excluded_list) or None,
-            "product_type": _text(values.get("productType"), "产品类型", 150) or None,
-            "order_source": _order_source(values.get("orderSource"), "实际订单来源"),
-            "loss_threshold_min": loss_threshold_min,
-            "loss_threshold_max": loss_threshold_max,
-            "long_term_flag": 1 if long_term else 0,
-            "placement_channel": _text(values.get("placementChannel"), "投放渠道", 100) or None,
-            "proof_url": _text(values.get("proofUrl"), "投放凭证", 500) or None,
-            "execution_note": _text(values.get("executionNote"), "执行说明", 10_000) or None,
-        }
-        next_status = "MONITORING" if result == "SUCCESS" else "IN_PROGRESS" if retry_required else "FAILED"
+        parsed = _execution_input(values, now)
+        execution = parsed["execution"]
+        result, retry_required, next_handle_at = parsed["result"], parsed["retry_required"], parsed["next_handle_at"]
+        failure_type, failure_reason = parsed["failure_type"], parsed["failure_reason"]
+        loss_threshold_supplied, order_source_supplied = parsed["loss_threshold_supplied"], parsed["order_source_supplied"]
+        loss_threshold_min, loss_threshold_max = execution["loss_threshold_min"], execution["loss_threshold_max"]
+        monitoring_start, policy_id = execution["monitoring_start_at"], execution["external_policy_id"]
+        next_status = parsed["next_status"]
         connection = cursor = None
         try:
             connection = self.source.connect(); connection.begin(); cursor = connection.cursor()
@@ -1749,7 +1793,7 @@ class SmartPlacementService:
                 (
                     task_id, attempt, result, policy_id or None,
                     execution["external_policy_name"],
-                    actual_at, effective_start, effective_end,
+                    execution["actual_placement_at"], execution["effective_start_at"], execution["effective_end_at"],
                     execution["platform_code"] or task.get("platform_code"),
                     execution["platform_name"] or task.get("platform_name"),
                     execution["site_code"] or task.get("site_code"),
