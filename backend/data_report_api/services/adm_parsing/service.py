@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from ..admwf.policy import AdmError, business_now, has
+from .classification import suggest
 from .contract import VERSION, template, validate
 from .documents import EXTENSIONS, extract
 from .model import PROMPT_VERSION, ParsingModel
@@ -86,6 +87,8 @@ class ParsingService:
 
     def _public(self, task, detail=False):
         result = copy.deepcopy(task)
+        if detail:
+            result["classification"] = suggest(result.get("candidate"))
         result.pop("requestHash", None)
         result.pop("attemptId", None)
         for file in result["files"]:

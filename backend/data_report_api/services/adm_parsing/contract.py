@@ -4,9 +4,9 @@ import re
 from datetime import date
 from decimal import Decimal
 
-VERSION = "adm-extraction/1.0"
-ADM_FIELDS = ("number", "issuer", "supplierName", "airline", "issuedDate", "amount", "currency", "reason", "dueDate")
-LINE_FIELDS = ("lineId", "transactionNumber", "pnrs", "ticketNumber", "ticketType", "flight", "flightDate", "origin", "destination", "gds", "pcc", "amount", "currency")
+VERSION = "adm-extraction/1.1"
+ADM_FIELDS = ("number", "issuer", "supplierName", "airline", "issuedDate", "amount", "currency", "reason", "dueDate", "reportingDate")
+LINE_FIELDS = ("lineId", "transactionNumber", "pnrs", "ticketNumber", "ticketType", "flight", "flightDate", "origin", "destination", "gds", "pcc", "amount", "currency", "airlinePnrs", "gdsPnrs", "transactionDate", "action", "amountPurpose", "commissionRate", "commissionAmount", "commissionCurrency", "amountText")
 CURRENCIES = set("CNY HKD USD EUR GBP JPY SGD AUD CAD KRW THB TWD MYR IDR AED".split())
 MONEY = re.compile(r"(?:0|[1-9]\d{0,14})(?:\.\d{1,4})?\Z")
 
@@ -47,7 +47,7 @@ def validate(value, segments):
         for key in names:
             v, p = record.get(key), path + "/" + key
             paths[p] = v
-            if key in {"pnrs", "ticketType"}:
+            if key in {"pnrs", "airlinePnrs", "gdsPnrs", "ticketType"}:
                 continue
             if key in required and (not isinstance(v, str) or not v.strip()):
                 issue("REQUIRED_FIELD", p, "必填字段未提取到")
@@ -55,9 +55,9 @@ def validate(value, segments):
                 issue("INVALID_VALUE", p, "须为非空字符串或null，且不超过2000字")
             if v is None:
                 continue
-            if key == "amount" and (not isinstance(v, str) or not MONEY.fullmatch(v)):
+            if key in {"amount", "commissionAmount", "commissionRate"} and (not isinstance(v, str) or not MONEY.fullmatch(v)):
                 issue("INVALID_AMOUNT", p, "金额须为非负十进制字符串，最多15位整数和4位小数")
-            if key == "currency" and (not isinstance(v, str) or v not in CURRENCIES):
+            if key in {"currency", "commissionCurrency"} and (not isinstance(v, str) or v not in CURRENCIES):
                 issue("INVALID_CURRENCY", p, "币种不在支持字典")
             if key.endswith("Date"):
                 try:
@@ -89,9 +89,10 @@ def validate(value, segments):
             issue("DUPLICATE_LINE", path, "明细编号必须为唯一字符串")
         elif isinstance(line_id, str):
             ids.add(line_id)
-        pnrs = line.get("pnrs")
-        if not isinstance(pnrs, list) or any(not isinstance(p, str) or not re.fullmatch(r"[A-Z0-9]{6}", p) for p in pnrs) or len(pnrs) != len(set(p for p in pnrs if isinstance(p, str))):
-            issue("INVALID_PNR", path + "/pnrs", "PNR须为去重的6位大写字母数字数组")
+        for pnr_key in ("pnrs", "airlinePnrs", "gdsPnrs"):
+            pnrs = line.get(pnr_key)
+            if not isinstance(pnrs, list) or any(not isinstance(p, str) or not re.fullmatch(r"[A-Z0-9]{6}", p) for p in pnrs) or len(pnrs) != len(set(p for p in pnrs if isinstance(p, str))):
+                issue("INVALID_PNR", path + "/" + pnr_key, "编码须为去重的6位大写字母数字数组")
         if not isinstance(line.get("ticketType"), str) or line["ticketType"] not in {"real", "virtual", "unknown"}:
             issue("INVALID_TICKET_TYPE", path + "/ticketType", "票号类型无效")
         if line.get("ticketType") == "virtual":
@@ -122,13 +123,23 @@ def validate(value, segments):
     for i, line in enumerate(lines[:2000]):
         if not isinstance(line, dict):
             continue
-        for key in ("pnrs", "ticketNumber", "gds", "pcc"):
+        for key in ("pnrs", "airlinePnrs", "gdsPnrs", "ticketNumber", "gds", "pcc", "amount", "currency", "commissionRate", "commissionAmount", "commissionCurrency", "action", "amountText"):
             v, path = line.get(key), f"/lines/{i}/{key}"
             if not v:
                 continue
             values = v if isinstance(v, list) else [v]
             quotes = normal(" ".join(proven_quotes.get(path, [])))
-            if path not in proven or any(not isinstance(v, str) or normal(v) not in quotes for v in values):
+            def sourced(v):
+                if not isinstance(v, str):
+                    return False
+                if normal(v) in quotes:
+                    return True
+                if key == "ticketNumber" and re.fullmatch(r"[0-9]{13}", v):
+                    raw_quote = " ".join(proven_quotes.get(path, []))
+                    compact = re.sub(r"[\s-]", "", raw_quote)
+                    return v in compact or ("airlinecode" in normal(raw_quote) and "serial" in normal(raw_quote) and v[:3] in quotes and v[3:] in quotes)
+                return False
+            if path not in proven or any(not sourced(v) for v in values):
                 issue("TRANSACTION_EVIDENCE", path, "PNR、票号、系统和PCC有值时必须能在所引原文找到，不能推造交易历史")
     conflicts = value.get("conflicts") if isinstance(value.get("conflicts"), list) else []
     for i, item in enumerate(conflicts[:2000]):
@@ -145,7 +156,62 @@ def validate(value, segments):
         if not lines:
             issue("NO_LINES", "/lines", "未提取明细，不代表材料完整", "warning")
         valid_money = lambda x: isinstance(x, str) and MONEY.fullmatch(x)
-        if valid_money(adm.get("amount")) and lines and all(isinstance(l, dict) and valid_money(l.get("amount")) and l.get("currency") == adm.get("currency") for l in lines):
+        if valid_money(adm.get("amount")) and lines and all(isinstance(l, dict) and valid_money(l.get("amount")) and l.get("currency") == adm.get("currency") and l.get("amountPurpose") == "admCharge" for l in lines):
             if sum((Decimal(l["amount"]) for l in lines), Decimal(0)) != Decimal(adm["amount"]):
                 issue("TOTAL_MISMATCH", "/adm/amount", "同币种明细合计与正式总额不同", "warning")
+    if isinstance(adm, dict):
+        for key, labels in (("issuedDate", r"Issue Date|Issued Date|开具日期"), ("reportingDate", r"Reporting Date|报表日期"), ("dueDate", r"Due Date|Deadline|截止日期|到期日")):
+            val = adm.get(key)
+            if isinstance(val, str) and val:
+                qs = proven_quotes.get("/adm/" + key, [])
+                if not qs or not any(re.search(labels, q, re.I) for q in qs):
+                    issue("DATE_ROLE_EVIDENCE", "/adm/" + key, "日期必须引用对应日期标签原文，不能用报表日或航班日替代")
+                else:
+                    try:
+                        d = date.fromisoformat(val) if isinstance(val, str) else None
+                    except ValueError:
+                        d = None
+                    tokens = {val}
+                    if d:
+                        tokens.update((d.strftime("%d/%m/%Y"), d.strftime("%d-%m-%Y")))
+                    if not any(any(t in q for t in tokens if isinstance(t, str)) for q in qs):
+                        issue("DATE_VALUE_EVIDENCE", "/adm/" + key, "日期值与所引原文不符；歧义日期请保留缺失并核对")
+        if adm.get("issuedDate") and adm.get("dueDate") and isinstance(adm["issuedDate"], str) and isinstance(adm["dueDate"], str) and adm["dueDate"] < adm["issuedDate"]:
+            issue("DATE_ORDER", "/adm/dueDate", "截止早于开具日期，请人工核对", "warning")
+        aq = " ".join(proven_quotes.get("/adm/amount", []))
+        if aq and not re.search(r"Total|Amount[ ,:]|正式金额|罚单金额", aq, re.I):
+            issue("ADM_AMOUNT_ROLE", "/adm/amount", "正式金额必须引用ADM总额上下文，不能使用每段费率、票价或佣金")
+    document_numbers = set()
+    for segment in segments:
+        text = segment["text"]
+        if re.search(r"ADMA|ADM Properties", text, re.I):
+            document_numbers.update(re.findall(r"Document Number\s+(\d{10})(?!\d)", text, re.I))
+    if len(document_numbers) > 1:
+        issue("MULTIPLE_ADM", "/adm/number", "材料包含多个ADM单号，请按单拆分来件")
+    elif document_numbers and isinstance(adm, dict) and adm.get("number") not in document_numbers:
+        issue("ADM_NUMBER_MISMATCH", "/adm/number", "提取单号与ADM原件的Document Number不一致")
+    virtual_source = any(re.search(r"(?:TKT|ticket).{0,100}(?:fictitious|virtual)|虚拟票号", seg["text"], re.I | re.S) for seg in segments)
+    for i, line in enumerate(lines[:2000]):
+        if not isinstance(line, dict):
+            continue
+        path = f"/lines/{i}"
+        if line.get("amountPurpose") not in {None, "admCharge", "unitPenalty", "ticketTotal", "other", "unknown"}:
+            issue("AMOUNT_PURPOSE", path + "/amountPurpose", "金额用途无效")
+        if line.get("amount") is not None and line.get("amountPurpose") in {None, "unknown"}:
+            issue("AMOUNT_PURPOSE_UNKNOWN", path, "明细金额用途待核对，不参与罚单合计", "warning")
+        if (line.get("commissionAmount") is None) != (line.get("commissionCurrency") is None):
+            issue("COMMISSION_PAIR", path, "佣金金额和币种须同时提供")
+        rate = line.get("commissionRate")
+        if isinstance(rate, str) and MONEY.fullmatch(rate) and Decimal(rate) > 100:
+            issue("COMMISSION_RATE", path + "/commissionRate", "佣金比例按百分数记录，范围0至100")
+        if virtual_source and line.get("ticketNumber") and line.get("ticketType") != "virtual":
+            issue("VIRTUAL_TICKET_REQUIRED", path + "/ticketType", "材料声明虚拟票号，禁止标为真实票号；混合材料需拆分核对")
+        ticket = line.get("ticketNumber")
+        if ticket is not None and (not isinstance(ticket, str) or not re.fullmatch(r"\d{13}", ticket)):
+            issue("TICKET_FORMAT", path + "/ticketNumber", "票号须为13位数字，缺失不可补造")
+        for key, label in (("airlinePnrs", r"(?<![A-Z_])RLOC(?![A-Z_])|airline.{0,12}(?:PNR|record)|航司.*(?:PNR|编码)"), ("gdsPnrs", r"GDS_RLOC|Booking Ref|GDS.{0,12}(?:PNR|record)|GDS编码")):
+            if line.get(key) and not re.search(label, " ".join(proven_quotes.get(path + "/" + key, [])), re.I):
+                issue("PNR_ROLE_EVIDENCE", path + "/" + key, "已分类编码须引用对应列名或来源标识；无法确定请放入来源未明PNR")
+        if line.get("pnrs"):
+            issue("PNR_ROLE_UNKNOWN", path + "/pnrs", "来源未明确的PNR单独保留，不用于自动恢复", "warning")
     return issues

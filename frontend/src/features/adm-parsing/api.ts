@@ -22,6 +22,7 @@ export type ParseTask = {
   issues?: ParseIssue[]
   error?: { code: string; message: string } | null
   history?: { at: string; attempt: number; state: string; candidate: unknown; issues: ParseIssue[] }[]
+  classification?: { status: string; matches: { reason: string; department: string }[]; requiresReview: boolean }
   model?: string
   promptVersion?: string
   usage?: { prompt_tokens: number; completion_tokens: number } | null

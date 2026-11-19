@@ -7,7 +7,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 from ..admwf.policy import AdmError
 from .contract import ADM_FIELDS, LINE_FIELDS, VERSION, strict_loads, template
 
-PROMPT_VERSION = "adm-parse-1.0"
+PROMPT_VERSION = "adm-parse-1.1"
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -42,6 +42,13 @@ evidence每项仅path(JSON Pointer)、segmentId(输入已有段落ID)、quote(�
 conflicts每项仅path、description、segmentIds(至少两个输入的不同段落ID)。不同币种、PDF总额和交易明细不要混淆。
 只提取材料明确给出的票号、系统GDS和PCC，PNR历史不存在就null，不能声称已恢复PNR、分配负责人或完成申诉。
 若材料含多张ADM，不能合并；返回adm.number=null并在conflicts记录冲突供人工拆分。禁止自行省略明细来满足输出上限。
+airlinePnrs仅存明确的航司记录号（附件RLOC），gdsPnrs仅存明确的GDS编码（GDS_RLOC、Booking Ref带系统标识）。无明确归属的PNR或PNRRef存pnrs，不复制到两类数组，不用航司PNR恢复GDS。三个数组未知均[]。
+保留每条航段/Booking/Cancel记录，不按PNR合并或把操作条数当罚款次数。action保留原文动作，transactionDate是操作日期，flightDate是航班日期。
+ADM amount/currency只取罚单正式总额，禁止拿40 USD每段费率、票价Total、佣金、税费替代。引用原文须含ADM/Total和金额上下文。明细amountPurpose取admCharge/单位罚款unitPenalty/票据总额ticketTotal/other/unknown；只有admCharge参与罚单合计。仅$不推断USD，无明确币种则金额币种均null，amountText保留原始金额文字（包括符号、单位及负号）与来源供核对，不丢弃原意。
+commissionRate为百分数（3%写"3"），commissionAmount和commissionCurrency独立记录，不能代替ADM金额。负值不能取绝对值，保留null并提示核对。
+issuedDate只取ADM Issue Date；reportingDate取Reporting Date；dueDate仅明确Due Date/Deadline，未知null，不用Reporting Date、票据出票日期或航班日期替代。日期证据必须包含标签与日期，标准化YYYY-MM-DD，歧义不猜。
+真实票号可去除原文分隔符；若票据仅提供明确Airline Code与Form & Serial No可组合为13位，来源同时引用两者，缺任一不补造。材料声明TKT fictitious/internal use时ticketType必须virtual，原号保留，禁止当真实出票匹配。未出票UNTICKETED不编造票号。GDS/PCC按原文保留（1A不替换成原文不存在的AMADEUS）。
+多附件必须属于同一ADM，不以文件顺序强行合并不相关单号。图片本身不在支持格式，先提供可读正文文件。
 lineId可按L1、L2顺序生成。完整结构骨架：{json.dumps(template(), ensure_ascii=False)}。
 """
         body = {"model": self.config["ADM_PARSING_AI_MODEL"], "messages": [{"role": "system", "content": instructions},

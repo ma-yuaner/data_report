@@ -140,30 +140,53 @@
                   <table>
                     <thead>
                       <tr>
-                        <th>交易 / PNR</th>
+                        <th>交易 / 编码（按来源区分）</th>
                         <th>票号 / 系统 / PCC</th>
-                        <th>金额 / 币种</th>
+                        <th>金额用途 / 币种 / 佣金</th>
                       </tr>
                     </thead>
                     <tbody>
                       <tr v-for="(entry, i) in displayLines" :key="i">
                         <td>
-                          <button class="parsing-source" @click="locate(`/lines/${entry.index}/pnrs`)">
-                            {{ entry.line.transactionNumber ?? entry.line.lineId }}<br />{{
-                              Array.isArray(entry.line.pnrs) ? entry.line.pnrs.join(' / ') : '未提取到'
-                            }}
+                          {{ entry.line.transactionNumber ?? entry.line.lineId }} · {{ entry.line.action ?? '—' }}<br />
+                          <button
+                            v-for="code in pnrFields"
+                            :key="code.key"
+                            class="parsing-source"
+                            @click="locate(`/lines/${entry.index}/${code.key}`)"
+                          >
+                            {{ code.label }}：{{ showCodes(entry.line[code.key]) }}<br />
                           </button>
+                          <div>
+                            操作 {{ entry.line.transactionDate ?? '—' }} / 航班 {{ entry.line.flightDate ?? '—' }}
+                          </div>
                         </td>
                         <td>
-                          {{ entry.line.ticketNumber ?? '未提取到' }}<br />{{ entry.line.gds ?? '—' }} /
+                          {{ entry.line.ticketNumber ?? '未提取到' }}（{{
+                            ticketLabel(entry.line.ticketType)
+                          }}）<br />{{ entry.line.gds ?? '—' }} /
                           {{ entry.line.pcc ?? '—' }}
                         </td>
-                        <td>{{ entry.line.amount ?? '未提取到' }} {{ entry.line.currency }}</td>
+                        <td>
+                          {{ amountLabel(entry.line.amountPurpose) }}<br />原文 {{ entry.line.amountText ?? '—'
+                          }}<br />{{ entry.line.amount ?? '未提取到' }} {{ entry.line.currency }}<br />佣金比例
+                          {{ entry.line.commissionRate ?? '—' }}%<br />佣金 {{ entry.line.commissionAmount ?? '—' }}
+                          {{ entry.line.commissionCurrency }}
+                        </td>
                       </tr>
                     </tbody>
                   </table>
                 </div>
               </template>
+              <p v-if="selected.classification">
+                原因归类建议（待核对）：{{
+                  selected.classification.matches.map((m) => `${m.reason} / ${m.department}`).join('；') ||
+                  '未匹配，人工核对'
+                }}。不自动分配负责人。
+              </p>
+              <p v-if="selected.candidate?.schemaVersion === 'adm-extraction/1.0'">
+                此为旧版结果，PNR来源未区分；重新解析后使用新版字段，历史原样保留。
+              </p>
               <h3>校验结果</h3>
               <p v-for="(issue, i) in selected.issues" :key="i" class="parsing-issue">
                 <a-tag :color="issue.level === 'error' ? 'error' : 'warning'">{{
@@ -224,6 +247,9 @@
       <p>
         API协议：chat-completions。服务端配置ADM_PARSING_AI_ENABLED、ADM_PARSING_AI_URL（完整HTTPS地址）、ADM_PARSING_AI_KEY、ADM_PARSING_AI_MODEL，重启服务后生效；页面不接收或展示密钥。
       </p>
+      <p>
+        航司PNR和GDS编码分别保留；来源未明编码不用于自动恢复。虚拟票号禁止匹配真实出票。正式金额、单位罚款、票据总额和佣金分开；只有罚单明细参与合计。报表日不能作为截止日。图片和扫描件需先转为可读正文。
+      </p>
       <p>文件和记录按上传人隔离；有ADM管理权限可查看全部。单件最多10次显式解析，不自动付费重试。</p>
       <pre>{{ JSON.stringify(status?.template, null, 2) }}</pre>
     </a-drawer>
@@ -282,9 +308,26 @@ const fields = [
   { key: 'issuedDate', label: '开具日期' },
   { key: 'amount', label: '正式金额', required: true },
   { key: 'currency', label: '币种', required: true },
+  { key: 'reportingDate', label: '报表日期' },
   { key: 'dueDate', label: '截止日期' },
   { key: 'reason', label: '下发原因' },
 ]
+const pnrFields = [
+  { key: 'airlinePnrs', label: '航司PNR' },
+  { key: 'gdsPnrs', label: 'GDS编码' },
+  { key: 'pnrs', label: '来源未明PNR' },
+]
+const showCodes = (value: unknown) => (Array.isArray(value) ? value.join(' / ') || '未提取到' : '未提取到')
+const ticketLabel = (value: unknown) =>
+  ({ real: '真实票号', virtual: '虚拟票号，禁止匹配出票', unknown: '类型待核对' })[String(value)] || '类型待核对'
+const amountLabel = (value: unknown) =>
+  ({
+    admCharge: '罚单明细',
+    unitPenalty: '单位罚款',
+    ticketTotal: '票据总额',
+    other: '其他金额',
+    unknown: '用途待核对',
+  })[String(value)] || '用途待核对'
 const busy = computed(
   () => ['QUEUED', 'RUNNING'].includes(selected.value?.state || '') && selected.value?.saveStatus !== 'FAILED',
 )
