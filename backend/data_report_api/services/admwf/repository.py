@@ -223,9 +223,9 @@ class AdmWorkflowRepository:
         return case
 
     def create_case(self, data, fx, actor, *, source_type="MANUAL", idempotency_key=None,
-                    import_batch_id=None, case_status="ACTIVE"):
+                    import_batch_id=None, case_status="ACTIVE", connection=None):
         """Create a balanced case, lines, FX snapshot, leader assignments and audit atomically."""
-        with self.transaction() as connection:
+        with (nullcontext(connection) if connection is not None else self.transaction()) as connection:
             if idempotency_key:
                 with connection.cursor() as cursor:
                     cursor.execute("SELECT id FROM admwf_case WHERE idempotency_key=%s", (idempotency_key,))
@@ -2567,8 +2567,8 @@ class AdmWorkflowRepository:
             )
             return self.get_case(case_id, connection=connection)
 
-    def add_attachment(self, case_id, actor, category, metadata, line_id=None):
-        with self.transaction() as connection:
+    def add_attachment(self, case_id, actor, category, metadata, line_id=None, connection=None):
+        with (nullcontext(connection) if connection is not None else self.transaction()) as connection:
             with connection.cursor() as cursor:
                 cursor.execute("SELECT * FROM admwf_case WHERE id=%s FOR UPDATE", (case_id,))
                 case = cursor.fetchone()

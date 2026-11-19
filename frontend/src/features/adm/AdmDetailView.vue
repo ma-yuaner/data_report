@@ -50,6 +50,12 @@
               </a-button>
             </div>
           </section>
+          <section v-if="record.case.lineDefaults?.parsingSource" class="v05-card" style="margin:12px 0">
+            <h3>解析来件登记来源</h3>
+            <p>登记于 {{ record.case.lineDefaults.parsingSource.registeredAt }} · 解析版本 {{ record.case.lineDefaults.parsingSource.version }}。以下保留登记时的结果；正式台账以主单信息为准。</p>
+            <a :href="`/adm/parsing?task=${record.case.lineDefaults.parsingSource.taskId}`" target="_blank" rel="noopener">查看关联解析来件（按来件权限）</a>
+            <details><summary>查看登记快照及字段来源</summary><AdmParsedSource :source="record.case.lineDefaults.parsingSource" /></details>
+          </section>
           <section v-if="isLegacyReadOnly" class="legacy-source-card">
             <header><div><h2>旧系统数据</h2><p>历史只读。以下内容直接来自迁移时封存的原始记录，不使用当前目录或汇率重算。</p></div><span class="pill amber">不进入新系统流程</span></header>
             <details>
@@ -696,6 +702,7 @@
 
 <script setup lang="ts">
 import AdmCauseModal from './AdmCauseModal.vue'
+import AdmParsedSource from './AdmParsedSource.vue'
 import { operationsApi, causeOptions } from './operationsApi'
 import { showDifferenceResult } from './differenceResult'
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'

@@ -34,6 +34,18 @@ def response(function):
 
 
 def register_routes(api):
+    @api.get("/v1/adm/parsing/pending")
+    @response
+    def adm_parsing_pending(service, user):
+        from ..services.adm_parsing.intake import pending
+        return ok(pending(service, user, request.args.get("search", ""), int(request.args.get("page", 1))))
+
+    @api.post("/v1/adm/parsing/tasks/<task_id>/register")
+    @response
+    def adm_parsing_register(service, user, task_id):
+        from ..services.adm_parsing.intake import register
+        return ok(register(service, user, task_id, json_body()), "台账登记结果已确认")
+
     @api.get("/v1/adm/parsing/status")
     @response
     def adm_parsing_status(service, user):

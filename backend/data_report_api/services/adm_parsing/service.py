@@ -180,6 +180,8 @@ class ParsingService:
 
     def enqueue(self, user, task_id, version):
         task = self._get(user, task_id, True)
+        if task.get("registration"):
+            raise AdmError("来件已登记台账，请在台账办理；解析快照已保留", 409, "PARSE_ALREADY_REGISTERED")
         if type(version) is not int or task["version"] != version:
             raise AdmError("任务版本已改变，请刷新后再试", 409, "PARSE_VERSION_CONFLICT")
         if task["state"] in {"QUEUED", "RUNNING"}:
@@ -273,6 +275,8 @@ class ParsingService:
 
     def revalidate(self, user, task_id, version):
         task = self._get(user, task_id, True)
+        if task.get("registration"):
+            raise AdmError("来件已登记台账，登记时解析快照已保留", 409, "PARSE_ALREADY_REGISTERED")
         if type(version) is not int or task["version"] != version:
             raise AdmError("任务版本已改变，请刷新后再试", 409, "PARSE_VERSION_CONFLICT")
         if task["state"] in {"QUEUED", "RUNNING"}:

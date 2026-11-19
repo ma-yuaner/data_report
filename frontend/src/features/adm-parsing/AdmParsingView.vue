@@ -3,7 +3,7 @@
     <PageHeader
       eyebrow="ADM 控制台 / ADM 解析"
       title="ADM 解析"
-      description="上传材料、提取字段并保存解析结果，原有台账与业务分析保持不变。"
+      description="上传材料、提取并核对字段；在ADM任务台账选择待登记来件，补充信息后登记。"
     >
       <a-button @click="rulesOpen = true">字段与校验规则</a-button
       ><a-button :loading="loading" @click="refresh">刷新</a-button
@@ -91,7 +91,7 @@
               >重试保存</a-button
             >
             <a-button
-              v-else-if="selected.candidate"
+              v-else-if="selected.candidate && !selected.registration"
               type="primary"
               :loading="acting"
               :disabled="!status?.canUpload || busy"
@@ -99,7 +99,7 @@
               >重新校验并保存（不调用模型）</a-button
             >
             <a-button
-              v-else
+              v-else-if="!selected.registration"
               type="primary"
               :loading="acting"
               :disabled="!status?.canUpload || busy"
@@ -110,7 +110,7 @@
               >解析耗时 {{ selected.elapsedSeconds }} 秒</span
             >
             <details
-              v-if="selected.candidate && !busy && selected.saveStatus !== 'FAILED'"
+              v-if="selected.candidate && !selected.registration && !busy && selected.saveStatus !== 'FAILED'"
               class="parsing-extra-actions"
             >
               <summary>其他操作</summary>
@@ -120,6 +120,9 @@
               >
             </details>
           </div>
+          <a-alert v-if="selected.registration" type="success" show-icon style="margin:12px 0">
+            <template #message>已登记台账：<router-link :to="`/adm/cases/${selected.registration.caseId}`">{{ selected.registration.internalNo }}</router-link> · 登记人 {{ selected.registration.by }} · {{ selected.registration.at }}</template>
+          </a-alert>
           <div
             v-if="busy || selected.saveStatus === 'FAILED'"
             class="parsing-progress"
@@ -382,6 +385,7 @@
 </template>
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import PageHeader from '@/components/PageHeader.vue'
 import FormDialog from '@/components/FormDialog.vue'
 import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
@@ -570,12 +574,14 @@ async function select(id: string, reset = true) {
     }
   }
 }
+const route = useRoute()
 async function refresh() {
   error.value = ''
   try {
     status.value = await parsingApi.status()
     await loadList()
     if (selected.value) await select(selected.value.id, false)
+    else if (typeof route.query.task === 'string') await select(route.query.task)
     else if (items.value[0]) await select(items.value[0].id)
   } catch (e) {
     error.value = message(e)

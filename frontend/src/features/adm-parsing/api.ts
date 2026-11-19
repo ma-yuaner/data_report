@@ -5,6 +5,7 @@ export type ParseTask = {
   ownerId: string
   title: string
   version: number
+  registration?: { caseId: number; internalNo: string; sourceVersion: number; at: string; by: string }
   state: string
   saveStatus: string
   createdAt: string
@@ -61,6 +62,9 @@ async function data<T>(promise: Promise<{ data: { data: T } }>): Promise<T> {
 }
 const base = '/v1/adm/parsing'
 export const parsingApi = {
+  pending: (search: string, page: number) => data<{ items: (ParseTask & { adm: Record<string, string | null>; warningCount: number })[]; total: number }>(http.get(`${base}/pending`, { params: { search, page } })),
+  register: (task: ParseTask, form: Record<string, unknown>, confirmed: boolean) =>
+    data<{ registration: NonNullable<ParseTask['registration']>; alreadyRegistered: boolean }>(http.post(`${base}/tasks/${task.id}/register`, { version: task.version, form, confirmed }, { timeout: 120000 })),
   status: () => data<ParseStatus>(http.get(`${base}/status`)),
   list: (page: number, state: string) =>
     data<{ items: ParseTask[]; total: number }>(http.get(`${base}/tasks`, { params: { page, pageSize: 20, state } })),

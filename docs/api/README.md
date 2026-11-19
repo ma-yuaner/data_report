@@ -439,3 +439,5 @@
 | `GET` | `/api/v1/risk-verification/rule-configs` | [risk_issue_rule_configs](../../backend/data_report_api/api/risk_verification.py) |
 | `GET` | `/api/v1/risk-verification/status` | [risk_verification_status](../../backend/data_report_api/api/risk_verification.py) |
 <!-- END:API_ROUTES -->
+
+ADM解析来件登记：`GET /api/v1/adm/parsing/pending`、`POST /api/v1/adm/parsing/tasks/{id}/register`，需要adm.create并遵守来件拥有者/管理权限。参数、原子性及错误见[接口与交付](../development/adm-parsing-ledger-intake-20261119.md)。

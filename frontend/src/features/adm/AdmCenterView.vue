@@ -3,6 +3,7 @@
     <main class="v05-main v05-page">
       <PageHeader eyebrow="" title="ADM 任务台账" description="按当前责任办理待办，也可查看全部主单与订单明细。">
         <a-space wrap>
+          <a-button v-if="canCreate" @click="parsePickerOpen = true">从解析结果新建</a-button>
           <a-button v-if="canCreate" @click="openImport">批量新增主单</a-button>
           <a-button v-if="canCreate" type="primary" @click="openCreate">新建 ADM 主单</a-button>
         </a-space>
@@ -583,6 +584,10 @@
       >
         <template #action><a-button size="small" @click="retryCreateReferences">重试</a-button></template>
       </a-alert>
+      <a-alert v-if="parseSource" type="info" show-icon message="已带入解析结果及全部原件。请核对并补充台账信息；虚拟票号和未明PNR不用于自动恢复编码。" style="margin-bottom:12px" />
+      <details v-if="parseSource" open style="margin-bottom:16px"><summary>核对解析来件、明细与来源</summary><AdmParsedSource :source="parseSource" />
+        <a :href="`/adm/parsing?task=${parseSource.id}`" target="_blank" rel="noopener">打开解析来件和原件</a>
+      </details>
       <div class="v05-form-grid adm-grouped-form">
           <h3>主单信息</h3>
           <label><span class="form-field-label">ADM 单号 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.admNo" /></label
@@ -650,12 +655,14 @@
           >
         </div>
         <p class="hint"><b>*</b> 为必填项。ADM负责人由系统自动记录；汇率保存为创建时快照。</p>
+        <a-checkbox v-if="parseSource" v-model:checked="parseConfirmed">已核对带入字段、原件、明细及待核对提示，确认登记台账</a-checkbox>
         <a-alert v-if="createError" type="error" show-icon :message="createError" class="block" />
         <div class="v05-modal-actions">
           <a-button :disabled="saving" @click="createOpen = false">取消</a-button>
-          <a-button type="primary" :loading="saving" @click="createCase">保存主单</a-button>
+          <a-button type="primary" :loading="saving" :disabled="!!parseSource && !parseConfirmed" @click="createCase">{{ parseSource ? '确认登记并关联' : '保存主单' }}</a-button>
         </div>
     </a-modal>
+    <AdmParseIntakePicker :open="parsePickerOpen" @close="parsePickerOpen = false" @select="useParseSource" />
     <a-modal
       v-model:open="importOpen"
       title="批量新增 ADM 主单（15列）"
@@ -718,6 +725,9 @@ import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
 import { createOperationIdentifier } from '@/utils/operationIdentifier'
 import PageHeader from '@/components/PageHeader.vue'
 import AdmCauseModal from './AdmCauseModal.vue'
+import AdmParseIntakePicker from './AdmParseIntakePicker.vue'
+import AdmParsedSource from './AdmParsedSource.vue'
+import { parsingApi, type ParseTask } from '../adm-parsing/api'
 import AdmDetailView from './AdmDetailView.vue'
 import { showDifferenceResult } from './differenceResult'
 import { taskStages, matchesTaskStage } from './taskStages'
@@ -1721,7 +1731,23 @@ const masterCnyAmount = computed(() => {
 function pickMasterFiles(e: Event) {
   masterFiles.value = Array.from((e.target as HTMLInputElement).files || [])
 }
+const parsePickerOpen = ref(false), parseSource = ref<ParseTask | null>(null), parseConfirmed = ref(false)
+function useParseSource(task: ParseTask) {
+  openCreate()
+  parseSource.value = task
+  parsePickerOpen.value = false
+  const adm = task.candidate?.adm || {}, match = task.airlineMatch
+  Object.assign(form, { admNo: adm.number || '', issuerType: 'AIRLINE', currency: adm.currency || '',
+    originalAmount: adm.amount || '', issuedDate: adm.issuedDate || '', replyDeadline: '',
+    differenceReason: (adm.reason || '').slice(0, 1000),
+    airline: match?.status === 'MATCHED' && match.code ? { value: match.code, label: match.name || match.code } : undefined,
+    ticketNo: (task.candidate?.lines || []).filter(l => l.ticketType === 'real').map(l => l.ticketNumber).filter(Boolean).join('、').slice(0, 500),
+  })
+  void loadExchangeRate()
+}
 function openCreate() {
+  parseSource.value = null
+  parseConfirmed.value = false
   masterFiles.value = []
   createIdempotencyKey = createOperationIdentifier()
   Object.assign(form, {
@@ -1777,9 +1803,19 @@ async function createCase() {
   try {
     const { supplier, airline, ...fields } = form
     const files = [...masterFiles.value]
-    const r = await admApi.create({
+    const body = {
       ...fields, supplierCode: supplier?.value ?? null, airlineCode: airline?.value ?? null, masterOnly: true,
-    }, createIdempotencyKey)
+    }
+    if (parseSource.value) {
+      const result = await parsingApi.register(parseSource.value, body, parseConfirmed.value)
+      createOpen.value = false
+      casePanelChanged.value = true
+      openCasePanel(result.registration.caseId)
+      void message.success(`${result.alreadyRegistered ? '来件已登记，打开关联主单' : '台账及原附件已保存并关联'}：${result.registration.internalNo}`)
+      if (files.length) void uploadCreatedCaseFiles(result.registration.caseId, files)
+      return
+    }
+    const r = await admApi.create(body, createIdempotencyKey)
     createOpen.value = false
     casePanelChanged.value = true
     openCasePanel(Number(r.case.id))

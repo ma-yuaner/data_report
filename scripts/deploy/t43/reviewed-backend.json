@@ -1,5 +1,5 @@
 {
-  "commit": "fcf219eba8f0a579e00c4c6d5d8e560968e52f27",
+  "commit": "0246f51bef71271fb6a6fbd8d5b6fcfd33d8ca2a",
   "files": {
     "backend/.dockerignore": "347d5a129fd71a0cc9942ce1c9b1479856421019704bc493cda6ed63afdf2692",
     "backend/Dockerfile": "64b8645a312b0e2b09bdde35aac7dd0ef5305b6a023038a6c7a06cf706e7d557",
@@ -9,7 +9,7 @@
     "backend/data_report_api/admwf_schema.py": "677a23afbcdaed2eeb9a64bf747d36bd295d9c8f0a9d33bffd7f166ee7bf4eba",
     "backend/data_report_api/admwf_worker.py": "5c6f369dd2b5f1af6fee70a669a6a3d295038b0bff9cb0b1b71c4c82f86291c1",
     "backend/data_report_api/api/__init__.py": "46f5dff73908c4739669923f2ca10db89b0e3aa9e8ca5e12dfbfb4a6fc5f7222",
-    "backend/data_report_api/api/adm_parsing.py": "31156fb86a88523f9bd2f7b20f22286951bbf1874c5acf031608d897c6fdc36f",
+    "backend/data_report_api/api/adm_parsing.py": "8d67f45d610683039deea1700b3f6f60863275fa3bed2d1fcc654bbc5ae763b6",
     "backend/data_report_api/api/admwf.py": "86d6e3d88191e0e1332d12523485e924a033e63c82c0d11e7f8dad0b13214049",
     "backend/data_report_api/api/analysis.py": "4ad1496b0344aa12a81ea3a37f16d1098a66e718db892eea279d5d505bd1d30a",
     "backend/data_report_api/api/asset_inventory.py": "d4eec34d3e6932a95785d8a51cb34cad8a14e4e70a0608f7c975ef7f47f45717",
@@ -42,9 +42,10 @@
     "backend/data_report_api/services/adm_parsing/classification.py": "a37f8b02764f6fe577b924681556fb8c230ca596074bca5a35656ece66f1b9a1",
     "backend/data_report_api/services/adm_parsing/contract.py": "94a646b24a26be52006734762af96e3a7533e848f7e66744a4fcc25503163ecb",
     "backend/data_report_api/services/adm_parsing/documents.py": "7dbc83aa348aeb9c1cb000cae6db6ce7abbea23aa39814f286a902245834de18",
+    "backend/data_report_api/services/adm_parsing/intake.py": "744efce3f1a2d50b91e31ae15c202e04eee70dbd97bf0b08e2376c700198a7af",
     "backend/data_report_api/services/adm_parsing/model.py": "b63590ccc838a4eb73737410a31d88e1caa7f6f57a42bcf85665a0fc539e695d",
     "backend/data_report_api/services/adm_parsing/recheck.py": "e229a420224bc8dda440ce15612bfc47aaeb643a4617f1db9154bda2d43056c4",
-    "backend/data_report_api/services/adm_parsing/service.py": "8fa96d5e2aa7be46c5fed08af2c93d199542e60c2513fc3b040383c69d7ec422",
+    "backend/data_report_api/services/adm_parsing/service.py": "80d39d935062babbc85cd9c82c71e34b30883ab09ee86c9a7107357bc248acba",
     "backend/data_report_api/services/adm_parsing/store.py": "556edeae1ab1007b54e56bd19cda6092ff445964d754fe77b6a3d1c05fc0733d",
     "backend/data_report_api/services/adm_parsing/table_sources.py": "dee1867dc5fdb203939e6f88dc73f046fcfe3c18cf95def8fafd2d173e90025b",
     "backend/data_report_api/services/admwf/__init__.py": "52775c7b6ba2f595d7b7699d78ec3903b7cf9206bf8a24fa79d500aadbde2f00",
@@ -55,7 +56,7 @@
     "backend/data_report_api/services/admwf/operations.py": "7dfbbf8aa312197e562e1761c8b053cc465caad1539bdd0fa8cbcebc9127f311",
     "backend/data_report_api/services/admwf/operations_schema.sql": "ae5701fe7caf8e1ea1a35c4cd87ac39739fe3b93463e3fb04243eac9e8cc22cb",
     "backend/data_report_api/services/admwf/policy.py": "e98e8fa9b1a708b5e22088bea20e461c66fb56b86cc529f7f5f204f19987aea6",
-    "backend/data_report_api/services/admwf/repository.py": "1dca35c09da180f9a9c64c04e59cbc5328d1c081eb7bab83bbe7ddf3c1d402e3",
+    "backend/data_report_api/services/admwf/repository.py": "e2a0bf550cb608ab9c3b689b48a5da9c955b88c0f035173ebee7c0a58120e2d7",
     "backend/data_report_api/services/admwf/service.py": "286181ee3ede412889544b246b9f7279fa3125dfe9d75c483f9c414ded380260",
     "backend/data_report_api/services/admwf/workflow.py": "c4454a353f1c8858c35c5d2b669c265a74418cc5b259ff4df754478725cb3dde",
     "backend/data_report_api/services/asset_catalog.py": "9fb5aea0b2ae7bc52092ed43f654feff2e8fad67654a29bb7016ecc1c535ff09",
@@ -206,6 +207,7 @@
     "Qwen3.8 Flash official Bailian non-thinking JSON extraction; shorter evidence prompt, timeout code separated from network errors; no startup/DDL/retry changes",
     "Saved candidate revalidation: versioned payload/history, exact existing ERP airline dictionary lookup, source-bound repair; request-only POST with auth/CSRF/CAS; no model replay, startup workers or DDL changes",
     "Related Document Number source-owned extraction and missing summary ticket completion; preserve virtual type, do not overwrite or guess multi-line relationships; no startup/DDL/SQL changes",
-    "Combined source revalidation: source-bound XLSX headers/cells, raw attachment fee metadata and no dollar-sign ISO guess; reordered quote fragments verified in same paragraph; no startup/DDL/SQL/model retry changes"
+    "Combined source revalidation: source-bound XLSX headers/cells, raw attachment fee metadata and no dollar-sign ISO guess; reordered quote fragments verified in same paragraph; no startup/DDL/SQL/model retry changes",
+    "Saved parsing intake registration: scoped pending search; reviewed master prefill; shared transaction for case, original attachment copies and versioned source linkage; row lock and content idempotency, no startup, DDL or model calls"
   ]
 }

@@ -248,3 +248,5 @@ python scripts/check_readme.py --check
 ```
 
 脚本只解析源文件并更新指定的文档目录块，不启动应用、读取真实`.env`或连接数据库。可复用的[明策README提示词](docs/agent/prompts.md#6-明策维护项目readme)和[能力卡](docs/agent/roles/product.md)用于后续维护。
+
+ADM解析来件登记台账：支持待登记搜索、人工核对后带入主单及原附件、关联回写与防重。实现和本地隔离验证完成，T43待更新复测，见[交付与步骤](docs/development/adm-parsing-ledger-intake-20261119.md)。
