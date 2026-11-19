@@ -9,6 +9,8 @@ export type ParseTask = {
   saveStatus: string
   createdAt: string
   updatedAt: string
+  stage?: string
+  elapsedSeconds?: number
   attempts: number
   files: { id: string; name: string; size: number; sha256: string }[]
   segments?: { id: string; fileId: string; locator: string; text: string }[]

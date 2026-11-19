@@ -74,7 +74,10 @@
               <b>{{ s.locator }}</b>
               <p>{{ s.text }}</p>
             </section>
-            <a-empty v-if="!segments.length" description="尚无可读取内容，点击解析后查看；文件已保存" />
+            <a-empty
+              v-if="!segments.length"
+              :description="busy ? '正在读取或等待处理结果；请查看右侧进度' : '暂无读取正文；原件仍可下载'"
+            />
           </div>
         </div>
         <a-empty v-else description="选择来件后查看原件" />
@@ -85,7 +88,11 @@
           <div class="parsing-tags">
             <a-tag :color="stateColor(selected.state)">{{ stateLabel(selected.state) }}</a-tag
             ><a-tag :color="selected.saveStatus === 'FAILED' ? 'error' : 'success'">{{
-              selected.saveStatus === 'FAILED' ? '保存失败，可重试' : '任务已保存'
+              selected.saveStatus === 'FAILED'
+                ? '结果保存失败，可重试'
+                : ['SUCCEEDED', 'FAILED'].includes(selected.state)
+                  ? '处理结果已保存'
+                  : '任务记录已保存'
             }}</a-tag
             ><a-tag>第 {{ selected.attempts }} 次解析</a-tag>
           </div>
@@ -118,6 +125,19 @@
               @click="startParse"
               >{{ selected.attempts ? '重新解析' : '开始解析' }}</a-button
             ><span v-if="busy">后台处理中，每3秒查询；切换页面后停止查询。</span>
+          </div>
+          <div class="parsing-progress" role="status" aria-live="polite">
+            <strong>{{ progressText }}</strong>
+            <p v-if="selected.elapsedSeconds !== undefined">
+              本次已用 {{ selected.elapsedSeconds }} 秒 · 最近获取状态 {{ lastChecked || '—' }}
+            </p>
+            <p v-if="busy">
+              排队 → 读取原件 → 等待模型 → 校验字段 → 保存结果。每3秒查询；模型未返回时无法提供生成百分比。
+            </p>
+            <p v-if="selected.stage === 'MODEL' && busy">原文已读取并保存，正在等待模型响应。请勿重复提交。</p>
+            <p v-if="selected.state === 'RUNNING' && !selected.stage">
+              此任务由旧版启动，未记录具体阶段；可等待结果，暂勿重新解析。
+            </p>
           </div>
           <a-tabs v-model:active-key="tab"
             ><a-tab-pane key="fields" tab="提取字段">
@@ -269,6 +289,7 @@ const status = ref<ParseStatus>(),
   filter = ref(''),
   error = ref(''),
   notice = ref(''),
+  lastChecked = ref(''),
   loading = ref(false),
   acting = ref(false),
   tab = ref('fields'),
@@ -331,6 +352,22 @@ const amountLabel = (value: unknown) =>
 const busy = computed(
   () => ['QUEUED', 'RUNNING'].includes(selected.value?.state || '') && selected.value?.saveStatus !== 'FAILED',
 )
+const progressText = computed(() => {
+  const task = selected.value
+  if (!task) return ''
+  if (task.saveStatus === 'FAILED') return '模型处理已结束，结果待重试保存'
+  if (task.state === 'SUCCEEDED') return '解析和结果保存完成，请核对字段'
+  if (task.state === 'FAILED') return '处理失败，失败原因已保存'
+  return (
+    {
+      UPLOADED: '原件已保存，等待开始解析',
+      QUEUED: '已排队，等待处理',
+      READING: '正在校验原件并读取正文',
+      MODEL: '正文已保存，正在等待模型响应',
+      VALIDATING: '模型已返回，正在校验字段并准备保存',
+    }[task.stage || task.state] || '后台处理中'
+  )
+})
 const segments = computed(() => selected.value?.segments?.filter((s) => s.fileId === fileId.value) || [])
 const displayLines = computed(() => {
   const lines = selected.value?.candidate?.lines
@@ -384,6 +421,7 @@ async function select(id: string, reset = true) {
     const task = await parsingApi.detail(id)
     if (stopped || token !== generation) return
     selected.value = task
+    lastChecked.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
     if (reset || !task.files.some((f) => f.id === fileId.value)) {
       fileId.value = task.files[0]?.id || ''
       located.value = ''
@@ -456,7 +494,7 @@ async function startParse() {
     const result = await parsingApi.parse(task)
     if (stopped || token !== generation) return
     selected.value = result
-    notice.value = '已排队，后台将读取原件并调用已配置的API。'
+    notice.value = '解析请求已提交，当前阶段见下方进度。'
     schedule()
   } catch (e) {
     error.value = message(e)
@@ -642,6 +680,15 @@ onBeforeUnmount(() => {
   display: block;
   overflow-wrap: anywhere;
   color: #58677b;
+}
+.parsing-progress {
+  padding: 12px;
+  border: 1px solid #dce3ec;
+  margin-bottom: 16px;
+}
+.parsing-progress p {
+  margin: 8px 0 0;
+  overflow-wrap: anywhere;
 }
 .parsing-feedback {
   padding: 12px;

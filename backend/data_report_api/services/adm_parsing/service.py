@@ -89,6 +89,9 @@ class ParsingService:
         result = copy.deepcopy(task)
         if detail:
             result["classification"] = suggest(result.get("candidate"))
+        if task.get("startedAt"):
+            end = business_now() if task["state"] in {"QUEUED", "RUNNING"} else datetime.fromisoformat(task["updatedAt"])
+            result["elapsedSeconds"] = max(0, int((end - datetime.fromisoformat(task["startedAt"])).total_seconds()))
         result.pop("requestHash", None)
         result.pop("attemptId", None)
         for file in result["files"]:
@@ -182,7 +185,7 @@ class ParsingService:
             raise AdmError("单件已达10次解析上限，请检查材料与配置", 429, "PARSE_ATTEMPT_LIMIT")
         if task["attempts"]:
             task["history"].append({"at": stamp(), "attempt": task["attempts"], "state": task["state"], "candidate": task["candidate"], "issues": task["issues"], "error": task.get("error"), "usage": task.get("usage")})
-        task.update(state="QUEUED", version=version+1, updatedAt=stamp(), candidate=None, issues=[], error=None, usage=None, saveStatus="SAVED")
+        task.update(stage="QUEUED", startedAt=None, state="QUEUED", version=version+1, updatedAt=stamp(), candidate=None, issues=[], error=None, usage=None, saveStatus="SAVED")
         self.store.save(task, version)
         self.wake()
         return self._public(task, True)
@@ -192,15 +195,23 @@ class ParsingService:
         if not task or task["state"] != "QUEUED":
             return
         expected = task["version"]
-        task.update(state="RUNNING", version=expected+1, updatedAt=stamp(), attemptId=uuid.uuid4().hex, attempts=task["attempts"]+1)
+        task.update(stage="READING", startedAt=stamp(), state="RUNNING", version=expected+1, updatedAt=stamp(), attemptId=uuid.uuid4().hex, attempts=task["attempts"]+1)
         self.store.save(task, expected)
         expected = task["version"]
+        def advance(stage):
+            nonlocal expected
+            task.update(stage=stage, version=expected+1, updatedAt=stamp())
+            self.store.save(task, expected)
+            expected = task["version"]
+
         try:
             for file in task["files"]:
                 if hashlib.sha256(self._path(file["storageKey"]).read_bytes()).hexdigest() != file["sha256"]:
                     raise AdmError("原件内容与上传时不一致，已阻止调用模型，请重新上传", 422, "PARSE_FILE_CHANGED")
             task["segments"] = extract(task["files"], self.root, int(self.config.get("ADM_PARSING_MAX_INPUT_CHARS", 60000)))
+            advance("MODEL")
             task["candidate"], task["usage"] = ParsingModel(self.config).call(task["files"], task["segments"])
+            advance("VALIDATING")
             task["issues"] = validate(task["candidate"], task["segments"])
             task["state"] = "FAILED" if any(i["level"] == "error" for i in task["issues"]) else "SUCCEEDED"
             task["error"] = {"code": "PARSE_VALIDATION_FAILED", "message": "返回字段未通过校验，请查看明细后重试"} if task["state"] == "FAILED" else None
@@ -209,7 +220,7 @@ class ParsingService:
         except Exception:
             task.update(state="FAILED", error={"code": "PARSE_INTERNAL", "message": "解析处理失败，请检查材料或联系管理员"})
             logging.error("ADM parsing task failed; no document content logged")
-        task.update(version=expected+1, updatedAt=stamp(), model=ParsingModel(self.config).status()["model"], promptVersion=PROMPT_VERSION)
+        task.update(stage="FINISHED", version=expected+1, updatedAt=stamp(), model=ParsingModel(self.config).status()["model"], promptVersion=PROMPT_VERSION)
         self._checkpoint(task)
         try:
             self.store.save(task, expected)
