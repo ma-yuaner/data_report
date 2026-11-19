@@ -1,5 +1,6 @@
 """Explicitly configured chat-completions JSON adapter; no vendor credentials shared."""
 import json
+import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -7,7 +8,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 from ..admwf.policy import AdmError
 from .contract import ADM_FIELDS, LINE_FIELDS, VERSION, strict_loads, template
 
-PROMPT_VERSION = "adm-parse-1.1"
+PROMPT_VERSION = "adm-parse-1.2"
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -38,12 +39,13 @@ class ParsingModel:
 adm的全部键为{','.join(ADM_FIELDS)}；lines每项全部键为{','.join(LINE_FIELDS)}。
 未知标量null，未知数组[]。金额为非负十进制字符串，不做汇率换算。PNR用6位大写字母数字数组。ticketType为real/virtual/unknown。
 issuer为原文发单方，supplierName仅提取有依据的供应商候选，不编造供应商编码；airline为原文航司。
+evidence.quote只引用包含字段值及必要标签的最短原文片段，禁止为每个字段重复整页正文；不得因此省略真实字段或来源。
 evidence每项仅path(JSON Pointer)、segmentId(输入已有段落ID)、quote(逐字原文)。每个非空字段尽量引用来源，编号/发单方/正式金额/币种必须引用原文。
 conflicts每项仅path、description、segmentIds(至少两个输入的不同段落ID)。不同币种、PDF总额和交易明细不要混淆。
 只提取材料明确给出的票号、系统GDS和PCC，PNR历史不存在就null，不能声称已恢复PNR、分配负责人或完成申诉。
 若材料含多张ADM，不能合并；返回adm.number=null并在conflicts记录冲突供人工拆分。禁止自行省略明细来满足输出上限。
 airlinePnrs仅存明确的航司记录号（附件RLOC），gdsPnrs仅存明确的GDS编码（GDS_RLOC、Booking Ref带系统标识）。无明确归属的PNR或PNRRef存pnrs，不复制到两类数组，不用航司PNR恢复GDS。三个数组未知均[]。
-保留每条航段/Booking/Cancel记录，不按PNR合并或把操作条数当罚款次数。action保留原文动作，transactionDate是操作日期，flightDate是航班日期。
+若仅在原因中给出PNR集合，没有逐笔交易记录，将这些来源未明PNR放入一条摘要明细的pnrs数组，不按PNR数量推造交易行。附件已有逐笔记录时，保留每条航段/Booking/Cancel记录，不按PNR合并或把操作条数当罚款次数。action保留原文动作，transactionDate是操作日期，flightDate是航班日期。
 ADM amount/currency只取罚单正式总额，禁止拿40 USD每段费率、票价Total、佣金、税费替代。引用原文须含ADM/Total和金额上下文。明细amountPurpose取admCharge/单位罚款unitPenalty/票据总额ticketTotal/other/unknown；只有admCharge参与罚单合计。仅$不推断USD，无明确币种则金额币种均null，amountText保留原始金额文字（包括符号、单位及负号）与来源供核对，不丢弃原意。
 commissionRate为百分数（3%写"3"），commissionAmount和commissionCurrency独立记录，不能代替ADM金额。负值不能取绝对值，保留null并提示核对。
 issuedDate只取ADM Issue Date；reportingDate取Reporting Date；dueDate仅明确Due Date/Deadline，未知null，不用Reporting Date、票据出票日期或航班日期替代。日期证据必须包含标签与日期，标准化YYYY-MM-DD，歧义不猜。
@@ -54,7 +56,11 @@ lineId可按L1、L2顺序生成。完整结构骨架：{json.dumps(template(), e
         body = {"model": self.config["ADM_PARSING_AI_MODEL"], "messages": [{"role": "system", "content": instructions},
                 {"role": "user", "content": json.dumps({"files": [{"fileId": f["id"], "name": f["name"]} for f in files], "segments": segments}, ensure_ascii=False)}],
                 "stream": False, "response_format": {"type": "json_object"}, "max_tokens": min(16000, max(1000, int(self.config.get("ADM_PARSING_AI_MAX_OUTPUT_TOKENS", 8000))))}
+        # Bailian Qwen3.8 Flash defaults to thinking; extraction uses explicit non-thinking JSON.
+        if self.config["ADM_PARSING_AI_MODEL"] == "qwen3.8-flash" and (parsed.hostname or "").endswith(".aliyuncs.com"):
+            body["enable_thinking"] = False
         req = Request(url, json.dumps(body, ensure_ascii=False).encode("utf-8"), {"Content-Type": "application/json", "Authorization": "Bearer " + str(self.config["ADM_PARSING_AI_KEY"])})
+        started = time.monotonic()
         try:
             with build_opener(NoRedirect()).open(req, timeout=min(120, max(5, int(self.config.get("ADM_PARSING_AI_TIMEOUT", 90))))) as response:
                 raw = response.read(1_000_001)
@@ -76,7 +82,15 @@ lineId可按L1、L2顺序生成。完整结构骨架：{json.dumps(template(), e
             raise
         except HTTPError as error:
             raise AdmError(f"模型接口返回HTTP {error.code}，请检查配置或限流后显式重试", 502, "PARSE_AI_HTTP") from None
-        except (URLError, TimeoutError, OSError):
-            raise AdmError("模型连接失败或超时，未自动重试付费调用", 503, "PARSE_AI_CONNECTION") from None
+        except TimeoutError:
+            elapsed = round(time.monotonic() - started, 1)
+            raise AdmError(f"等待模型响应超时（已等待{elapsed}秒），未自动重试；请核对模型模式及供应商响应", 504, "PARSE_AI_TIMEOUT") from None
+        except URLError as error:
+            if isinstance(error.reason, TimeoutError):
+                elapsed = round(time.monotonic() - started, 1)
+                raise AdmError(f"模型连接或响应超时（已等待{elapsed}秒），未自动重试", 504, "PARSE_AI_TIMEOUT") from None
+            raise AdmError("模型网络连接失败，未自动重试；请检查DNS、TLS及出口网络", 503, "PARSE_AI_CONNECTION") from None
+        except OSError:
+            raise AdmError("模型网络连接中断，未自动重试", 503, "PARSE_AI_CONNECTION") from None
         except (ValueError, TypeError, KeyError, IndexError):
             raise AdmError("模型返回不符合JSON协议，不能视为成功", 502, "PARSE_AI_RESPONSE") from None

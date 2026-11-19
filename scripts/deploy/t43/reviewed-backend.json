@@ -42,7 +42,7 @@
     "backend/data_report_api/services/adm_parsing/classification.py": "a37f8b02764f6fe577b924681556fb8c230ca596074bca5a35656ece66f1b9a1",
     "backend/data_report_api/services/adm_parsing/contract.py": "db80bdb53683a16748e45591ef3a46dbd9330bdaecf57d26e10cef510a1889b6",
     "backend/data_report_api/services/adm_parsing/documents.py": "7dbc83aa348aeb9c1cb000cae6db6ce7abbea23aa39814f286a902245834de18",
-    "backend/data_report_api/services/adm_parsing/model.py": "69eda4d64099c596ca9696ff7a69a0e07c24e3483b85aaa5dc94d14d67bce977",
+    "backend/data_report_api/services/adm_parsing/model.py": "2cf90079933247f42427211fee12c0e70e0da516b99832371d4673eef965e89f",
     "backend/data_report_api/services/adm_parsing/service.py": "9a22464a4ba529bf28e7e75b634dc89a95a81b5d384a26f776005c11d57a6e11",
     "backend/data_report_api/services/adm_parsing/store.py": "556edeae1ab1007b54e56bd19cda6092ff445964d754fe77b6a3d1c05fc0733d",
     "backend/data_report_api/services/admwf/__init__.py": "52775c7b6ba2f595d7b7699d78ec3903b7cf9206bf8a24fa79d500aadbde2f00",
@@ -200,6 +200,7 @@
   "reviewed_changes": [
     "backend/Dockerfile: pip HTTPS build arguments only; application USER/CMD unchanged",
     "ADM parsing 1.1: contract/model/service/classification reviewed; no startup/auth/DDL/notification changes; thread wake remains request-triggered; latest main retained",
-    "Progress patch: ADM stage CAS writes and early text persistence; no new startup workers/DDL. Existing main 7ec45f5 monitoring/smart-placement method-only changes reviewed for startup boundary, not business reacceptance."
+    "Progress patch: ADM stage CAS writes and early text persistence; no new startup workers/DDL. Existing main 7ec45f5 monitoring/smart-placement method-only changes reviewed for startup boundary, not business reacceptance.",
+    "Qwen3.8 Flash official Bailian non-thinking JSON extraction; shorter evidence prompt, timeout code separated from network errors; no startup/DDL/retry changes"
   ]
 }
