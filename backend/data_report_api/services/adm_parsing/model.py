@@ -8,7 +8,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 from ..admwf.policy import AdmError
 from .contract import ADM_FIELDS, LINE_FIELDS, VERSION, strict_loads, template
 
-PROMPT_VERSION = "adm-parse-1.4"
+PROMPT_VERSION = "adm-parse-1.5"
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -41,6 +41,7 @@ adm的全部键为{','.join(ADM_FIELDS)}；lines每项全部键为{','.join(LINE
 不提取issuer、supplierName或airline名称；airlineCode只提取原件Airline Code / Name的编码部分，三位数字保留前导零。系统另行匹配航司，不由模型决定中文名或系统编码。
 evidence.quote只引用包含字段值及必要标签的最短原文片段，禁止为每个字段重复整页正文；不得因此省略真实字段或来源。
 evidence每项仅path(JSON Pointer)、segmentId(输入已有段落ID)、quote(逐字原文)。每个非空字段尽量引用来源，编号/正式金额/币种必须引用原文。路径必须是/lines/0/pnrs这类JSON Pointer，禁止/lines[0]/pnrs；quote必须逐字原文，禁止插入...或省略号，表头和数值分开时引用完整原文段落。
+Excel的RLOC、GDS_RLOC要分别引用同工作表同列的表头段落和数据行段落；amountText若由列名及单元格组成，分别引用两处原文。ADM FEE $没有明确ISO币种时不能猜USD，amount/currency都null，只保留amountText。PDF表头和数据行在读取顺序不一致时引用完整原文段落，不重排或改写摘录。
 conflicts每项仅path、description、segmentIds(至少两个输入的不同段落ID)。不同币种、PDF总额和交易明细不要混淆。
 Related Document Number是需要保留的关联票号；即使声明fictitious/internal use也要提取原号，ticketType标virtual，不能因虚拟而把号码置空。票号不等于ADM单号。多个关联号没有逐行对应依据时不要复制到所有PNR，服务端会另保留原件关联清单。
 只提取材料明确给出的票号、系统GDS和PCC，PNR历史不存在就null，不能声称已恢复PNR、分配负责人或完成申诉。

@@ -194,6 +194,9 @@
                   </button>
                 </div>
                 <h3>交易明细 {{ displayLines.length }} 条</h3>
+                <p v-if="selected.attachmentFees?.length" class="parsing-muted">
+                  附件费用保留原始列名和数值；币种未明确时不猜测、不换汇，不与主单正式金额合计。
+                </p>
                 <div class="parsing-table">
                   <table>
                     <thead>
@@ -218,6 +221,12 @@
                           <div>
                             操作 {{ entry.line.transactionDate ?? '—' }} / 航班 {{ entry.line.flightDate ?? '—' }}
                           </div>
+                          <div>
+                            <button class="parsing-source" @click="locate(`/lines/${entry.index}/flight`)">
+                              航班 {{ entry.line.flight ?? '—' }}
+                            </button>
+                            · {{ entry.line.origin ?? '—' }} → {{ entry.line.destination ?? '—' }}
+                          </div>
                         </td>
                         <td>
                           {{ entry.line.ticketNumber ?? '未提取到' }}（{{
@@ -226,10 +235,26 @@
                           {{ entry.line.pcc ?? '—' }}
                         </td>
                         <td>
-                          {{ amountLabel(entry.line.amountPurpose) }}<br />原文 {{ entry.line.amountText ?? '—'
-                          }}<br />{{ entry.line.amount ?? '未提取到' }} {{ entry.line.currency }}<br />佣金比例
-                          {{ entry.line.commissionRate ?? '—' }}%<br />佣金 {{ entry.line.commissionAmount ?? '—' }}
-                          {{ entry.line.commissionCurrency }}
+                          <template v-if="feeFor(entry.index)">
+                            <b
+                              >附件费用：{{ feeFor(entry.index)?.amount }}
+                              {{ feeFor(entry.index)?.currency || '（币种未明确）' }}</b
+                            ><br />
+                            <button class="parsing-source" @click="locateSegment(feeFor(entry.index)?.headerSegmentId)">
+                              列名：{{ feeFor(entry.index)?.label }}</button
+                            ><br />
+                            <button class="parsing-source" @click="locateSegment(feeFor(entry.index)?.rowSegmentId)">
+                              单元格来源：{{ feeFor(entry.index)?.rowLocator }}</button
+                            ><br />
+                          </template>
+                          <template v-else
+                            >{{ amountLabel(entry.line.amountPurpose) }}<br />原始费用 {{ entry.line.amountText ?? '—'
+                            }}<br />{{ entry.line.amount ?? '未提取到' }} {{ entry.line.currency }}</template
+                          >
+                          <template v-if="entry.line.commissionRate != null || entry.line.commissionAmount != null"
+                            ><br />佣金比例 {{ entry.line.commissionRate ?? '—' }}%<br />佣金
+                            {{ entry.line.commissionAmount ?? '—' }} {{ entry.line.commissionCurrency }}</template
+                          >
                         </td>
                       </tr>
                     </tbody>
@@ -417,6 +442,7 @@ const pnrFields = [
   { key: 'gdsPnrs', label: 'GDS编码' },
   { key: 'pnrs', label: '来源未明PNR' },
 ]
+const feeFor = (index: number) => selected.value?.attachmentFees?.find((fee) => fee.lineIndex === index)
 const showCodes = (value: unknown) => (Array.isArray(value) ? value.join(' / ') || '未提取到' : '未提取到')
 const ticketLabel = (value: unknown) =>
   ({ real: '真实票号', virtual: '虚拟票号，禁止匹配出票', unknown: '类型待核对' })[String(value)] || '类型待核对'
@@ -437,11 +463,14 @@ const issueTarget = (issue: { path: string }) => {
 const issueLabel = (issue: { path: string }) => {
   const path = issueTarget(issue)
   const name = fields.find((item) => `/adm/${item.key}` === path)?.label
+  if (path === '/lines') return '明细／附件费用'
+  const row = /^\/lines\/(\d+)$/.exec(path)
+  if (row) return `明细${Number(row[1]) + 1}`
   const line = /^\/lines(?:\/|\[)(\d+)\]?\/(.+)$/.exec(path)
   return (
     name ||
     (line
-      ? `明细${Number(line[1]) + 1} · ${pnrFields.find((item) => item.key === line[2])?.label || line[2]}`
+      ? `明细${Number(line[1]) + 1} · ${pnrFields.find((item) => item.key === line[2])?.label || { currency: '币种', amount: '金额', amountText: '原始费用', gds: 'GDS系统', pcc: 'PCC', action: '动作', flight: '航班', flightDate: '航班日期', transactionDate: '操作日期', ticketNumber: '票号' }[line[2]] || line[2]}`
       : '来源引用')
   )
 }

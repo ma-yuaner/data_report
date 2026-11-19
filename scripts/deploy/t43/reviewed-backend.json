@@ -40,12 +40,13 @@
     "backend/data_report_api/services/__init__.py": "ac74225afed0c30c874dafb9fa708dfeab2d64ebe9b488a345e7e3119a6092fa",
     "backend/data_report_api/services/adm_parsing/__init__.py": "a9830c3e3577845eea99385c0b6186f9cc55cbbe360e43002d2ccf8178c09d86",
     "backend/data_report_api/services/adm_parsing/classification.py": "a37f8b02764f6fe577b924681556fb8c230ca596074bca5a35656ece66f1b9a1",
-    "backend/data_report_api/services/adm_parsing/contract.py": "91e5c02f6e8db088d6088a3669ba9145d6f99562f56c5d1ff07c822af1f77f4e",
+    "backend/data_report_api/services/adm_parsing/contract.py": "94a646b24a26be52006734762af96e3a7533e848f7e66744a4fcc25503163ecb",
     "backend/data_report_api/services/adm_parsing/documents.py": "7dbc83aa348aeb9c1cb000cae6db6ce7abbea23aa39814f286a902245834de18",
-    "backend/data_report_api/services/adm_parsing/model.py": "8fdfee21b08d9451ce561fe69e0eddc62b5ce83a5d41cde7f8fd8c66eb00c70c",
-    "backend/data_report_api/services/adm_parsing/recheck.py": "a04b526134ec45818a7f663e16378e484881eb07d7d51164906f337a84173026",
-    "backend/data_report_api/services/adm_parsing/service.py": "5247d1fca1dd0c0a06b583fca71839ff6a9a733957785bf3464b564a43cccf4b",
+    "backend/data_report_api/services/adm_parsing/model.py": "b63590ccc838a4eb73737410a31d88e1caa7f6f57a42bcf85665a0fc539e695d",
+    "backend/data_report_api/services/adm_parsing/recheck.py": "e229a420224bc8dda440ce15612bfc47aaeb643a4617f1db9154bda2d43056c4",
+    "backend/data_report_api/services/adm_parsing/service.py": "8fa96d5e2aa7be46c5fed08af2c93d199542e60c2513fc3b040383c69d7ec422",
     "backend/data_report_api/services/adm_parsing/store.py": "556edeae1ab1007b54e56bd19cda6092ff445964d754fe77b6a3d1c05fc0733d",
+    "backend/data_report_api/services/adm_parsing/table_sources.py": "dee1867dc5fdb203939e6f88dc73f046fcfe3c18cf95def8fafd2d173e90025b",
     "backend/data_report_api/services/admwf/__init__.py": "52775c7b6ba2f595d7b7699d78ec3903b7cf9206bf8a24fa79d500aadbde2f00",
     "backend/data_report_api/services/admwf/attachments.py": "8569b2a63ea39b6283a2e29dea340e023c2f0e6f6f4083c2f59ad4ef3b638d6a",
     "backend/data_report_api/services/admwf/catalog.py": "637e954ac26c9eb58779a251af107b9bc69d5d723f422016594ead7c675977c2",
@@ -204,6 +205,7 @@
     "Progress patch: ADM stage CAS writes and early text persistence; no new startup workers/DDL. Existing main 7ec45f5 monitoring/smart-placement method-only changes reviewed for startup boundary, not business reacceptance.",
     "Qwen3.8 Flash official Bailian non-thinking JSON extraction; shorter evidence prompt, timeout code separated from network errors; no startup/DDL/retry changes",
     "Saved candidate revalidation: versioned payload/history, exact existing ERP airline dictionary lookup, source-bound repair; request-only POST with auth/CSRF/CAS; no model replay, startup workers or DDL changes",
-    "Related Document Number source-owned extraction and missing summary ticket completion; preserve virtual type, do not overwrite or guess multi-line relationships; no startup/DDL/SQL changes"
+    "Related Document Number source-owned extraction and missing summary ticket completion; preserve virtual type, do not overwrite or guess multi-line relationships; no startup/DDL/SQL changes",
+    "Combined source revalidation: source-bound XLSX headers/cells, raw attachment fee metadata and no dollar-sign ISO guess; reordered quote fragments verified in same paragraph; no startup/DDL/SQL/model retry changes"
   ]
 }

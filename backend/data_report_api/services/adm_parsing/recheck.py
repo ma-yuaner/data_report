@@ -1,9 +1,10 @@
 """Deterministic source-bound compatibility repair. Never calls a model or invents evidence."""
 import copy
 import re
-from .contract import VERSION
+from .contract import VERSION, virtual_ticket_text
+from .table_sources import bind_sources
 
-VALIDATION_VERSION = "adm-validation/1.3"
+VALIDATION_VERSION = "adm-validation/1.4"
 REMOVED = {"/adm/issuer", "/adm/supplierName", "/adm/airline"}
 
 
@@ -21,7 +22,7 @@ def related_documents(segments):
     )
     for segment in segments:
         text = segment["text"]
-        virtual = bool(re.search(r"(?:TKT|ticket).{0,100}(?:fictitious|virtual)|虚拟票号", text, re.I | re.S))
+        virtual = virtual_ticket_text(text)
         for pattern in patterns:
             for match in pattern.finditer(text):
                 value = re.sub(r"[- ]", "", match.group("number"))
@@ -71,9 +72,11 @@ def prepare(candidate, segments):
         quote = item.get("quote")
         if source and isinstance(quote, str) and quote.strip() and normal(quote) not in normal(source["text"]):
             fragments = re.split(r"\.{3}|…+", quote)
+            if len(fragments) == 1:
+                fragments = [line for line in quote.splitlines() if line.strip()]
             if len(fragments) > 1 and all(normal(part) and normal(part) in normal(source["text"]) for part in fragments):
                 item["quote"] = source["text"]
-                changes.append({"code": "SOURCE_REBOUND", "path": item.get("path"), "segmentId": source["id"], "message": "省略号各片段均存在于同一原文段落，改引该完整原文；未伪造摘录"})
+                changes.append({"code": "SOURCE_REBOUND", "path": item.get("path"), "segmentId": source["id"], "message": "引用各片段或调序行均存在于同一原文段落，改引该完整原文；未拼造摘录"})
         kept.append(item)
     result["evidence"] = kept
     if adm.get("airlineCode") is None:
@@ -86,6 +89,7 @@ def prepare(candidate, segments):
             adm["airlineCode"] = code
             result["evidence"].append({"path": "/adm/airlineCode", "segmentId": sid, "quote": quote})
             changes.append({"code": "AIRLINE_CODE_FROM_SOURCE", "path": "/adm/airlineCode", "segmentId": sid, "message": "从唯一Airline Code / Name标签提取编码，不从航司名称猜测"})
+    changes.extend(bind_sources(result, segments))
     documents = related_documents(segments)
     numbers = {item["number"] for item in documents}
     lines = result.get("lines")

@@ -15,6 +15,7 @@ from .classification import suggest
 from ..admwf.catalog import AdmCatalog
 from .contract import VERSION, template, validate
 from .recheck import VALIDATION_VERSION, prepare, related_documents
+from .table_sources import fee_details
 from .documents import EXTENSIONS, extract
 from .model import PROMPT_VERSION, ParsingModel
 from .store import ParsingStore
@@ -99,7 +100,7 @@ class ParsingService:
         for file in result["files"]:
             file.pop("storageKey", None)
         if not detail:
-            for key in ("segments", "candidate", "issues", "history", "originalCandidate", "revalidationHistory", "adjustments", "relatedDocuments"):
+            for key in ("segments", "candidate", "issues", "history", "originalCandidate", "revalidationHistory", "adjustments", "relatedDocuments", "attachmentFees"):
                 result.pop(key, None)
         return result
 
@@ -187,7 +188,7 @@ class ParsingService:
             raise AdmError("单件已达10次解析上限，请检查材料与配置", 429, "PARSE_ATTEMPT_LIMIT")
         if task["attempts"]:
             task["history"].append({"at": stamp(), "attempt": task["attempts"], "state": task["state"], "candidate": task["candidate"], "issues": task["issues"], "error": task.get("error"), "usage": task.get("usage"), "originalCandidate": task.get("originalCandidate"), "adjustments": task.get("adjustments"), "airlineMatch": task.get("airlineMatch")})
-        task.update(stage="QUEUED", startedAt=None, finishedAt=None, originalCandidate=None, adjustments=[], airlineMatch=None, relatedDocuments=[], state="QUEUED", version=version+1, updatedAt=stamp(), candidate=None, issues=[], error=None, usage=None, saveStatus="SAVED")
+        task.update(stage="QUEUED", startedAt=None, finishedAt=None, originalCandidate=None, adjustments=[], airlineMatch=None, relatedDocuments=[], attachmentFees=[], state="QUEUED", version=version+1, updatedAt=stamp(), candidate=None, issues=[], error=None, usage=None, saveStatus="SAVED")
         self.store.save(task, version)
         self.wake()
         return self._public(task, True)
@@ -238,6 +239,7 @@ class ParsingService:
             task["originalCandidate"] = original
         task["candidate"], task["adjustments"] = prepare(original, task["segments"])
         task["relatedDocuments"] = related_documents(task["segments"])
+        task["attachmentFees"] = fee_details(task["candidate"], task["segments"])
         task["validationVersion"] = VALIDATION_VERSION
         task["issues"] = validate(task["candidate"], task["segments"])
         candidate = task["candidate"]
