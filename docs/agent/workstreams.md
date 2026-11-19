@@ -1,5 +1,7 @@
 ## 同一编辑入口支持当前投放登记（2026-11-19）
 
+通知最终回执：用户明确批准本次补充功能/提交号/验证限制后，2026-11-19 11:19:25（Asia/Shanghai）以马远尔向原配置发版群实际发送一次，HTTP200、errcode=0、accepted，0.219秒；任务placement-execution-edit-20261119，脱敏回执位于公司worktree的.test-artifacts/execution-edit-20261119/receipts。仅证明接口接收，未服务器部署或业务验收；新增通知待批准状态解除，验证限制不变。
+
 发布回执：公司GitLab main功能7ec45f5；GitHub仅移植本功能为89e4694，文档冲突仅增加本任务段，保留两端既有历史；140项和Vue setup在GitHub基线复验通过（3.60秒）。两端快进推送成功，服务器未部署。本轮新增通知内容未获单独批准，按此前自动审批对新payload单独授权的要求未尝试发送；通知草稿已在公司worktree本地.test-artifacts/execution-edit-20261119/release-draft.txt备妥，不含凭据。
 
 用户补充已有投放登记也应允许修改；主会话磐石/星桥/明鉴，frontend-design，无子代理。独立feat/placement-execution-edit-20261119基于公司origin/main 1b2f324。沿用edit_approved/原因/版本/范围/直接生效，带出并编辑最新投放登记，原记录/审核/投放结果状态/是否重试保留；登记单独变更也能保存，监控规则及审计同事务，历史收单不回算、结束不重启。原登记与编辑共用字段组件/校验。完整范围、API及边界见[交付](../development/placement-execution-edit-20261119.md)。
