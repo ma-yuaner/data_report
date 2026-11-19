@@ -22,7 +22,7 @@
 | [上传说明](../business/air_ticketing/risk-data-upload.md) / [行为监控](../product/user-behavior-monitoring-v1.md) | 上传队列和行为采集 |
 
 <!-- BEGIN:API_ROUTES -->
-共 **274个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
+共 **275个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
 
 <a id="adm_parsing"></a>
 
@@ -37,6 +37,7 @@
 | `GET` | `/api/v1/adm/parsing/tasks/<task_id>/files/<file_id>` | [adm_parsing_file](../../backend/data_report_api/api/adm_parsing.py) |
 | `POST` | `/api/v1/adm/parsing/tasks/<task_id>/parse` | [adm_parsing_start](../../backend/data_report_api/api/adm_parsing.py) |
 | `POST` | `/api/v1/adm/parsing/tasks/<task_id>/retry-save` | [adm_parsing_retry_save](../../backend/data_report_api/api/adm_parsing.py) |
+| `POST` | `/api/v1/adm/parsing/tasks/<task_id>/revalidate` | [adm_parsing_revalidate](../../backend/data_report_api/api/adm_parsing.py) |
 
 <a id="asset_inventory"></a>
 

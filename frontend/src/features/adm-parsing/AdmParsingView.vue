@@ -23,7 +23,7 @@
       description="可以真实上传并保存文件。点击解析会读取原文并保留配置缺失原因；配置API后可重新解析，不会生成模拟业务结果。"
     />
     <a-alert v-if="error" type="error" show-icon :message="error" closable @close="error = ''" />
-    <p v-if="notice" class="parsing-feedback" role="status">{{ notice }}</p>
+    <p v-if="notice && !selected?.candidate" class="parsing-feedback" role="status">{{ notice }}</p>
     <div class="parsing-filter">
       <label>解析状态<a-select v-model:value="filter" :options="stateOptions" @change="changeFilter" /></label
       ><span>共 {{ total }} 件材料 · 刷新后保留已选来件</span>
@@ -54,35 +54,7 @@
           @change="loadList"
         />
       </aside>
-      <section class="parsing-pane">
-        <h2>原件与读取内容</h2>
-        <div class="parsing-content" v-if="selected">
-          <label
-            >附件<a-select
-              v-model:value="fileId"
-              :options="selected.files.map((f) => ({ value: f.id, label: f.name }))"
-              style="width: 100%"
-          /></label>
-          <p>
-            <a v-if="fileId" :href="parsingApi.fileUrl(selected.id, fileId)" target="_blank" rel="noopener"
-              >查看 / 下载原件</a
-            >
-          </p>
-          <p class="parsing-muted">此处展示实际文件读取的文字；扫描件需先OCR，XLS需先另存为XLSX。</p>
-          <div class="parsing-document">
-            <section v-for="s in segments" :key="s.id" :id="`segment-${s.id}`" :class="{ located: located === s.id }">
-              <b>{{ s.locator }}</b>
-              <p>{{ s.text }}</p>
-            </section>
-            <a-empty
-              v-if="!segments.length"
-              :description="busy ? '正在读取或等待处理结果；请查看右侧进度' : '暂无读取正文；原件仍可下载'"
-            />
-          </div>
-        </div>
-        <a-empty v-else description="选择来件后查看原件" />
-      </section>
-      <section class="parsing-pane">
+      <section class="parsing-pane parsing-result">
         <h2>解析结果</h2>
         <div v-if="selected" class="parsing-content">
           <div class="parsing-tags">
@@ -97,7 +69,7 @@
             ><a-tag>第 {{ selected.attempts }} 次解析</a-tag>
           </div>
           <a-alert
-            v-if="selected.error"
+            v-if="selected.error && !selected.candidate"
             type="error"
             show-icon
             :message="selected.error.message"
@@ -117,16 +89,43 @@
               :disabled="!status?.canUpload"
               @click="retrySave"
               >重试保存</a-button
-            ><a-button
+            >
+            <a-button
+              v-else-if="selected.candidate"
+              type="primary"
+              :loading="acting"
+              :disabled="!status?.canUpload || busy"
+              @click="revalidate"
+              >重新校验并保存（不调用模型）</a-button
+            >
+            <a-button
               v-else
               type="primary"
               :loading="acting"
               :disabled="!status?.canUpload || busy"
               @click="startParse"
-              >{{ selected.attempts ? '重新解析' : '开始解析' }}</a-button
-            ><span v-if="busy">后台处理中，每3秒查询；切换页面后停止查询。</span>
+              >{{ selected.attempts ? '重试模型解析' : '开始解析' }}</a-button
+            >
+            <span v-if="selected.elapsedSeconds !== undefined" class="parsing-muted"
+              >解析耗时 {{ selected.elapsedSeconds }} 秒</span
+            >
+            <details
+              v-if="selected.candidate && !busy && selected.saveStatus !== 'FAILED'"
+              class="parsing-extra-actions"
+            >
+              <summary>其他操作</summary>
+              <p>重新调用模型会产生用量；来源校验问题请优先重新校验。</p>
+              <a-popconfirm title="确认重新调用模型？将产生额外用量，已有结果保留在历史中。" @confirm="startParse"
+                ><a-button :disabled="!status?.canUpload || acting">重新调用模型</a-button></a-popconfirm
+              >
+            </details>
           </div>
-          <div class="parsing-progress" role="status" aria-live="polite">
+          <div
+            v-if="busy || selected.saveStatus === 'FAILED'"
+            class="parsing-progress"
+            role="status"
+            aria-live="polite"
+          >
             <strong>{{ progressText }}</strong>
             <p v-if="selected.elapsedSeconds !== undefined">
               本次已用 {{ selected.elapsedSeconds }} 秒 · 最近获取状态 {{ lastChecked || '—' }}
@@ -139,6 +138,25 @@
               此任务由旧版启动，未记录具体阶段；可等待结果，暂勿重新解析。
             </p>
           </div>
+          <div v-if="selected.candidate && !busy" class="parsing-review" aria-live="polite">
+            <strong>{{
+              errorIssues.length ? `校验未通过：${errorIssues.length}项需处理` : '字段和来源校验通过'
+            }}</strong
+            ><span> · {{ warningIssues.length }}项待核对</span>
+            <p v-if="errorIssues.length">候选字段已保存。查看具体问题后重新校验，无需再次调用模型。</p>
+            <p v-for="(issue, i) in errorIssues.slice(0, 3)" :key="i">
+              <button class="parsing-source" @click="locate(issueTarget(issue))">{{ issueLabel(issue) }}</button>：{{
+                issue.message
+              }}
+            </p>
+            <button v-if="selected.issues?.length" class="parsing-source" @click="tab = 'issues'">
+              查看全部校验问题
+            </button>
+            <p v-if="selected.adjustments?.length">
+              已按原文完成 {{ selected.adjustments.length }}项兼容处理，原始模型结果保留在解析记录中。
+            </p>
+          </div>
+          <p v-if="sourceNotice" class="parsing-feedback" role="status">{{ sourceNotice }}</p>
           <a-tabs v-model:active-key="tab"
             ><a-tab-pane key="fields" tab="提取字段">
               <p v-if="!selected.candidate" class="parsing-muted">
@@ -149,12 +167,20 @@
                   v-for="field in fields"
                   :key="field.key"
                   class="parsing-field"
+                  :class="{ 'parsing-field-error': errorIssues.some((issue) => issue.path === `/adm/${field.key}`) }"
+                  :disabled="selected.candidate.adm?.[field.key] == null"
                   @click="locate(`/adm/${field.key}`)"
                 >
                   <span>{{ field.label }}{{ field.required ? ' *' : '' }}</span
                   ><b>{{ selected.candidate.adm?.[field.key] ?? '未提取到' }}</b
-                  ><small>来源</small>
+                  ><small>{{ selected.candidate.adm?.[field.key] == null ? '未提供' : '来源' }}</small>
                 </button>
+                <div class="parsing-airline">
+                  <span>系统航司</span
+                  ><b v-if="selected.airlineMatch?.status === 'MATCHED'"
+                    >{{ selected.airlineMatch.name }}（{{ selected.airlineMatch.code }}）</b
+                  ><span v-else>{{ airlineStatus(selected.airlineMatch?.status) }}</span>
+                </div>
                 <h3>交易明细 {{ displayLines.length }} 条</h3>
                 <div class="parsing-table">
                   <table>
@@ -204,20 +230,26 @@
                   '未匹配，人工核对'
                 }}。不自动分配负责人。
               </p>
-              <p v-if="selected.candidate?.schemaVersion === 'adm-extraction/1.0'">
-                此为旧版结果，PNR来源未区分；重新解析后使用新版字段，历史原样保留。
+              <p v-if="selected.candidate && selected.candidate.schemaVersion !== 'adm-extraction/1.2'">
+                此为旧版结果，点击“重新校验并保存”应用新口径，不调用模型。
               </p>
-              <h3>校验结果</h3>
+              <p class="parsing-muted">解析结果用于人工核对，不自动新建ADM或恢复PNR。</p>
+            </a-tab-pane>
+            <a-tab-pane key="issues" tab="校验问题">
+              <p v-if="!selected.issues?.length">暂无校验问题。</p>
               <p v-for="(issue, i) in selected.issues" :key="i" class="parsing-issue">
                 <a-tag :color="issue.level === 'error' ? 'error' : 'warning'">{{
-                  issue.level === 'error' ? '失败' : '待核对'
+                  issue.level === 'error' ? '需处理' : '待核对'
                 }}</a-tag
-                >{{ issue.message }}<small>{{ issue.path }} · {{ issue.code }}</small>
+                ><button class="parsing-source" @click="locate(issueTarget(issue))">{{ issueLabel(issue) }}</button>：{{
+                  issue.message
+                }}<small>{{ issue.path }} · {{ issue.code }}</small>
               </p>
-              <p v-if="selected.candidate && !selected.issues?.length">
-                字段与来源校验通过；解析成功不代表业务核对或申诉完成。
-              </p> </a-tab-pane
-            ><a-tab-pane key="json" tab="固定 JSON">
+              <details v-if="selected.adjustments?.length">
+                <summary>来源兼容处理记录</summary>
+                <p v-for="(item, i) in selected.adjustments" :key="i">{{ item.path }}：{{ item.message }}</p>
+              </details> </a-tab-pane
+            ><a-tab-pane key="json" tab="结果 JSON">
               <pre>{{ JSON.stringify(selected.candidate, null, 2) }}</pre></a-tab-pane
             ><a-tab-pane key="history" tab="解析记录"
               ><p>模型 {{ selected.model || '未调用' }} · 规则 {{ selected.promptVersion || status?.schemaVersion }}</p>
@@ -225,6 +257,16 @@
                 输入 {{ selected.usage.prompt_tokens }} / 输出 {{ selected.usage.completion_tokens }} tokens
               </p>
               <p v-else>本次用量未知或尚未调用，不推算费用。</p>
+              <details v-if="selected.originalCandidate">
+                <summary>原始模型返回（未改写）</summary>
+                <pre>{{ JSON.stringify(selected.originalCandidate, null, 2) }}</pre>
+              </details>
+              <div v-for="(check, i) in selected.revalidationHistory" :key="`check-${i}`">
+                <details>
+                  <summary>{{ check.at }} · 重新校验前记录（未调用模型）</summary>
+                  <pre>{{ JSON.stringify(check, null, 2) }}</pre>
+                </details>
+              </div>
               <div v-for="(run, i) in selected.history" :key="i">
                 {{ run.at }} · 第{{ run.attempt }}次 · {{ stateLabel(run.state) }}
                 <details>
@@ -234,9 +276,36 @@
               </div></a-tab-pane
             ></a-tabs
           >
-          <a-alert type="info" message="这里只保存解析来件与结果，不自动新建ADM、恢复PNR、分配负责人或修改原有业务。" />
         </div>
         <a-empty v-else description="选择来件后查看解析结果" />
+      </section>
+      <section class="parsing-pane parsing-original">
+        <h2>原件与读取内容</h2>
+        <div class="parsing-content" v-if="selected">
+          <label
+            >附件<a-select
+              v-model:value="fileId"
+              :options="selected.files.map((f) => ({ value: f.id, label: f.name }))"
+              style="width: 100%"
+          /></label>
+          <p>
+            <a v-if="fileId" :href="parsingApi.fileUrl(selected.id, fileId)" target="_blank" rel="noopener"
+              >查看 / 下载原件</a
+            >
+          </p>
+          <p class="parsing-muted">此处展示实际文件读取的文字；扫描件需先OCR，XLS需先另存为XLSX。</p>
+          <div class="parsing-document">
+            <section v-for="s in segments" :key="s.id" :id="`segment-${s.id}`" :class="{ located: located === s.id }">
+              <b>{{ s.locator }}</b>
+              <p>{{ s.text }}</p>
+            </section>
+            <a-empty
+              v-if="!segments.length"
+              :description="busy ? '正在读取或等待处理结果；请查看右侧进度' : '暂无读取正文；原件仍可下载'"
+            />
+          </div>
+        </div>
+        <a-empty v-else description="选择来件后查看原件" />
       </section>
     </div>
     <FormDialog
@@ -258,11 +327,10 @@
       <a-alert type="info" message="上传先保存原件，随后点击开始解析。API配置缺失不会阻止保存材料。" />
     </FormDialog>
     <a-drawer v-model:open="rulesOpen" title="固定 JSON 与成功失败规则" width="min(760px, 95vw)"
-      ><p>
-        必填：ADM编号、发单方、正式金额、币种，且需引用实际上传原文。未知值用null，金额为非负十进制字符串，允许0，不换汇。
-      </p>
+      ><p>必填：ADM编号、正式金额、币种，且需引用实际上传原文。未知值用null，金额为非负十进制字符串，允许0，不换汇。</p>
       <p>
-        缺必填、类型错误、来源不匹配：解析失败；来源冲突、缺可选字段、币种不同、明细合计差异：解析成功但待人工核对。供应商、航司、日期、截止日期、票号、系统、PCC按原件提取，不编造交易历史。
+        缺必填、类型错误、来源不匹配：解析失败；来源冲突、缺可选字段、币种不同、明细合计差异：解析成功但待人工核对。航司提取Airline
+        Code并匹配系统航司；日期、截止日期、票号、系统、PCC按原件提取，不编造交易历史。
       </p>
       <p>
         API协议：chat-completions。服务端配置ADM_PARSING_AI_ENABLED、ADM_PARSING_AI_URL（完整HTTPS地址）、ADM_PARSING_AI_KEY、ADM_PARSING_AI_MODEL，重启服务后生效；页面不接收或展示密钥。
@@ -290,6 +358,7 @@ const status = ref<ParseStatus>(),
   error = ref(''),
   notice = ref(''),
   lastChecked = ref(''),
+  sourceNotice = ref(''),
   loading = ref(false),
   acting = ref(false),
   tab = ref('fields'),
@@ -323,9 +392,7 @@ const stateColor = (s: string) =>
         : 'default'
 const fields = [
   { key: 'number', label: 'ADM编号', required: true },
-  { key: 'issuer', label: '发单方', required: true },
-  { key: 'supplierName', label: '供应商候选' },
-  { key: 'airline', label: '航司' },
+  { key: 'airlineCode', label: 'Airline Code' },
   { key: 'issuedDate', label: '开具日期' },
   { key: 'amount', label: '正式金额', required: true },
   { key: 'currency', label: '币种', required: true },
@@ -349,6 +416,31 @@ const amountLabel = (value: unknown) =>
     other: '其他金额',
     unknown: '用途待核对',
   })[String(value)] || '用途待核对'
+const errorIssues = computed(() => selected.value?.issues?.filter((item) => item.level === 'error') || [])
+const warningIssues = computed(() => selected.value?.issues?.filter((item) => item.level === 'warning') || [])
+const issueTarget = (issue: { path: string }) => {
+  const index = /^\/evidence\/(\d+)$/.exec(issue.path)
+  return index ? selected.value?.candidate?.evidence?.[Number(index[1])]?.path || issue.path : issue.path
+}
+const issueLabel = (issue: { path: string }) => {
+  const path = issueTarget(issue)
+  const name = fields.find((item) => `/adm/${item.key}` === path)?.label
+  const line = /^\/lines(?:\/|\[)(\d+)\]?\/(.+)$/.exec(path)
+  return (
+    name ||
+    (line
+      ? `明细${Number(line[1]) + 1} · ${pnrFields.find((item) => item.key === line[2])?.label || line[2]}`
+      : '来源引用')
+  )
+}
+const airlineStatus = (status?: string) =>
+  ({
+    NOT_PROVIDED: '未提取到Airline Code',
+    NOT_FOUND: '编码未匹配到系统航司',
+    AMBIGUOUS: '系统资料多个匹配，待核对',
+    UNAVAILABLE: '系统航司资料暂不可用，请重新校验',
+    SOURCE_INVALID: '编码来源校验未通过',
+  })[status || ''] || '尚未按新口径匹配，请重新校验'
 const busy = computed(
   () => ['QUEUED', 'RUNNING'].includes(selected.value?.state || '') && selected.value?.saveStatus !== 'FAILED',
 )
@@ -425,6 +517,7 @@ async function select(id: string, reset = true) {
     if (reset || !task.files.some((f) => f.id === fileId.value)) {
       fileId.value = task.files[0]?.id || ''
       located.value = ''
+      sourceNotice.value = ''
       tab.value = 'fields'
     }
     items.value = items.value.map((item) => (item.id === id ? task : item))
@@ -503,6 +596,24 @@ async function startParse() {
     acting.value = false
   }
 }
+async function revalidate() {
+  if (!selected.value || acting.value || busy.value) return
+  acting.value = true
+  error.value = ''
+  const task = selected.value,
+    token = generation
+  try {
+    const result = await parsingApi.revalidate(task)
+    if (stopped || token !== generation) return
+    selected.value = result
+    tab.value = result.issues?.some((item) => item.level === 'error') ? 'issues' : 'fields'
+    await loadList()
+  } catch (e) {
+    if (token === generation) error.value = message(e)
+  } finally {
+    acting.value = false
+  }
+}
 async function retrySave() {
   if (!selected.value || acting.value) return
   acting.value = true
@@ -523,12 +634,13 @@ async function retrySave() {
 async function locate(path: string) {
   const evidence = selected.value?.candidate?.evidence
   if (!Array.isArray(evidence)) return
-  const e = evidence.find((e) => e.path === path)
+  const e = evidence.find((e) => e.path === path) || evidence.find((e) => e.path.startsWith(`${path}/`))
   const segment = selected.value?.segments?.find((s) => s.id === e?.segmentId)
   if (!segment) {
-    notice.value = '该字段暂无有效来源，请核对原件。'
+    sourceNotice.value = '该字段暂无有效来源，请先重新校验或查看校验问题。'
     return
   }
+  sourceNotice.value = ''
   fileId.value = segment.fileId
   located.value = segment.id
   await nextTick()
@@ -562,7 +674,7 @@ onBeforeUnmount(() => {
 }
 .parsing-workspace {
   display: grid;
-  grid-template-columns: 230px minmax(260px, 1fr) minmax(350px, 1.3fr);
+  grid-template-columns: 190px minmax(420px, 1.6fr) minmax(280px, 1fr);
   gap: 16px;
   align-items: start;
 }
@@ -580,6 +692,11 @@ onBeforeUnmount(() => {
 }
 .parsing-content {
   padding: 16px;
+}
+.parsing-workspace > aside :deep(.ant-spin-container) {
+  max-height: calc(100dvh - 410px);
+  min-height: 160px;
+  overflow: auto;
 }
 .parsing-item {
   display: grid;
@@ -615,6 +732,14 @@ onBeforeUnmount(() => {
   background: white;
   cursor: pointer;
 }
+.parsing-field-error {
+  border-left: 3px solid #cf1322;
+  padding-left: 8px;
+}
+.parsing-field:disabled {
+  cursor: default;
+  color: #58677b;
+}
 .parsing-field b {
   overflow-wrap: anywhere;
 }
@@ -623,7 +748,8 @@ onBeforeUnmount(() => {
   color: #1667ce;
 }
 .parsing-document {
-  max-height: 650px;
+  max-height: calc(100dvh - 470px);
+  min-height: 240px;
   overflow: auto;
   background: var(--platform-hover, #f0f6fc);
   border: 1px solid #e1e6ed;
@@ -690,6 +816,31 @@ onBeforeUnmount(() => {
   margin: 8px 0 0;
   overflow-wrap: anywhere;
 }
+.parsing-review {
+  padding: 12px;
+  margin-bottom: 16px;
+  border-left: 3px solid var(--platform-primary, #2673ad);
+  background: var(--platform-hover, #f0f6fc);
+}
+.parsing-review p {
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+.parsing-extra-actions {
+  margin-left: auto;
+  font-size: 12px;
+}
+.parsing-airline {
+  display: grid;
+  gap: 8px;
+  padding: 12px 0;
+  border-bottom: 1px solid #e8edf3;
+}
+.parsing-result > .parsing-content {
+  max-height: calc(100dvh - 350px);
+  min-height: 360px;
+  overflow: auto;
+}
 .parsing-feedback {
   padding: 12px;
   background: var(--platform-selected, #eaf3fc);
@@ -719,7 +870,7 @@ h3 {
 }
 @media (max-width: 1250px) {
   .parsing-workspace {
-    grid-template-columns: 210px minmax(0, 1fr);
+    grid-template-columns: 190px minmax(0, 1fr);
   }
   .parsing-pane:last-child {
     grid-column: 1/-1;
@@ -731,6 +882,9 @@ h3 {
   }
   .parsing-pane:last-child {
     grid-column: auto;
+  }
+  .parsing-result > .parsing-content {
+    max-height: none;
   }
   .parsing-filter {
     flex-wrap: wrap;

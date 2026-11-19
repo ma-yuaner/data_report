@@ -8,7 +8,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 from ..admwf.policy import AdmError
 from .contract import ADM_FIELDS, LINE_FIELDS, VERSION, strict_loads, template
 
-PROMPT_VERSION = "adm-parse-1.2"
+PROMPT_VERSION = "adm-parse-1.3"
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -38,9 +38,9 @@ class ParsingModel:
 严格使用契约{VERSION}，顶层仅schemaVersion、adm、lines、evidence、conflicts。
 adm的全部键为{','.join(ADM_FIELDS)}；lines每项全部键为{','.join(LINE_FIELDS)}。
 未知标量null，未知数组[]。金额为非负十进制字符串，不做汇率换算。PNR用6位大写字母数字数组。ticketType为real/virtual/unknown。
-issuer为原文发单方，supplierName仅提取有依据的供应商候选，不编造供应商编码；airline为原文航司。
+不提取issuer、supplierName或airline名称；airlineCode只提取原件Airline Code / Name的编码部分，三位数字保留前导零。系统另行匹配航司，不由模型决定中文名或系统编码。
 evidence.quote只引用包含字段值及必要标签的最短原文片段，禁止为每个字段重复整页正文；不得因此省略真实字段或来源。
-evidence每项仅path(JSON Pointer)、segmentId(输入已有段落ID)、quote(逐字原文)。每个非空字段尽量引用来源，编号/发单方/正式金额/币种必须引用原文。
+evidence每项仅path(JSON Pointer)、segmentId(输入已有段落ID)、quote(逐字原文)。每个非空字段尽量引用来源，编号/正式金额/币种必须引用原文。路径必须是/lines/0/pnrs这类JSON Pointer，禁止/lines[0]/pnrs；quote必须逐字原文，禁止插入...或省略号，表头和数值分开时引用完整原文段落。
 conflicts每项仅path、description、segmentIds(至少两个输入的不同段落ID)。不同币种、PDF总额和交易明细不要混淆。
 只提取材料明确给出的票号、系统GDS和PCC，PNR历史不存在就null，不能声称已恢复PNR、分配负责人或完成申诉。
 若材料含多张ADM，不能合并；返回adm.number=null并在conflicts记录冲突供人工拆分。禁止自行省略明细来满足输出上限。

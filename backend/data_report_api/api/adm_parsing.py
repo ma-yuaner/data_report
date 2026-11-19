@@ -59,6 +59,11 @@ def register_routes(api):
     def adm_parsing_start(service, user, task_id):
         return ok(service.enqueue(user, task_id, json_body().get("version")), "已加入解析队列")
 
+    @api.post("/v1/adm/parsing/tasks/<task_id>/revalidate")
+    @response
+    def adm_parsing_revalidate(service, user, task_id):
+        return ok(service.revalidate(user, task_id, json_body().get("version")), "已重新校验并保存，未调用模型")
+
     @api.post("/v1/adm/parsing/tasks/<task_id>/retry-save")
     @response
     def adm_parsing_retry_save(service, user, task_id):

@@ -9,6 +9,11 @@ export type ParseTask = {
   saveStatus: string
   createdAt: string
   updatedAt: string
+  originalCandidate?: unknown
+  validationVersion?: string
+  adjustments?: { code: string; path: string; message: string }[]
+  revalidationHistory?: { at: string; version: number; candidate: unknown; issues: ParseIssue[] }[]
+  airlineMatch?: { sourceCode: string | null; status: string; code: string | null; name: string | null }
   stage?: string
   elapsedSeconds?: number
   attempts: number
@@ -55,6 +60,8 @@ export const parsingApi = {
     return data<ParseTask>(http.post(`${base}/tasks`, body, { headers: { 'Idempotency-Key': key }, timeout: 120000 }))
   },
   parse: (task: ParseTask) => data<ParseTask>(http.post(`${base}/tasks/${task.id}/parse`, { version: task.version })),
+  revalidate: (task: ParseTask) =>
+    data<ParseTask>(http.post(`${base}/tasks/${task.id}/revalidate`, { version: task.version })),
   retrySave: (task: ParseTask) =>
     data<ParseTask>(http.post(`${base}/tasks/${task.id}/retry-save`, { version: task.version })),
   fileUrl: (task: string, file: string) => `/api${base}/tasks/${task}/files/${file}`,

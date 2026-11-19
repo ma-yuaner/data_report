@@ -4,8 +4,8 @@ import re
 from datetime import date
 from decimal import Decimal
 
-VERSION = "adm-extraction/1.1"
-ADM_FIELDS = ("number", "issuer", "supplierName", "airline", "issuedDate", "amount", "currency", "reason", "dueDate", "reportingDate")
+VERSION = "adm-extraction/1.2"
+ADM_FIELDS = ("number", "airlineCode", "issuedDate", "amount", "currency", "reason", "dueDate", "reportingDate")
 LINE_FIELDS = ("lineId", "transactionNumber", "pnrs", "ticketNumber", "ticketType", "flight", "flightDate", "origin", "destination", "gds", "pcc", "amount", "currency", "airlinePnrs", "gdsPnrs", "transactionDate", "action", "amountPurpose", "commissionRate", "commissionAmount", "commissionCurrency", "amountText")
 CURRENCIES = set("CNY HKD USD EUR GBP JPY SGD AUD CAD KRW THB TWD MYR IDR AED".split())
 MONEY = re.compile(r"(?:0|[1-9]\d{0,14})(?:\.\d{1,4})?\Z")
@@ -48,6 +48,9 @@ def validate(value, segments):
             v, p = record.get(key), path + "/" + key
             paths[p] = v
             if key in {"pnrs", "airlinePnrs", "gdsPnrs", "ticketType"}:
+                if isinstance(v, list):
+                    for index, item in enumerate(v):
+                        paths[f"{p}/{index}"] = item
                 continue
             if key in required and (not isinstance(v, str) or not v.strip()):
                 issue("REQUIRED_FIELD", p, "必填字段未提取到")
@@ -55,6 +58,8 @@ def validate(value, segments):
                 issue("INVALID_VALUE", p, "须为非空字符串或null，且不超过2000字")
             if v is None:
                 continue
+            if key == "airlineCode" and (not isinstance(v, str) or not re.fullmatch(r"(?:[0-9]{3}|[A-Z0-9]{2})", v)):
+                issue("INVALID_AIRLINE_CODE", p, "须为原件Airline Code的三位数字或两位航司编码，不填航司名称")
             if key in {"amount", "commissionAmount", "commissionRate"} and (not isinstance(v, str) or not MONEY.fullmatch(v)):
                 issue("INVALID_AMOUNT", p, "金额须为非负十进制字符串，最多15位整数和4位小数")
             if key in {"currency", "commissionCurrency"} and (not isinstance(v, str) or v not in CURRENCIES):
@@ -73,7 +78,7 @@ def validate(value, segments):
     if value.get("schemaVersion") != VERSION:
         issue("INVALID_VERSION", "/schemaVersion", "解析契约版本不支持")
     adm = value.get("adm")
-    fields(adm, ADM_FIELDS, "/adm", ("number", "issuer", "amount", "currency"))
+    fields(adm, ADM_FIELDS, "/adm", ("number", "amount", "currency"))
     for name in ("lines", "evidence", "conflicts"):
         if not isinstance(value.get(name), list) or len(value[name]) > 2000:
             issue("INVALID_ARRAY", "/" + name, "必须为数组且不超过2000项")
@@ -109,15 +114,31 @@ def validate(value, segments):
             continue
         path, segment_id, quote = item.get("path"), item.get("segmentId"), item.get("quote")
         if not isinstance(path, str) or not isinstance(segment_id, str) or path not in paths or segment_id not in sources or not isinstance(quote, str) or not quote.strip():
-            issue("INVALID_EVIDENCE", f"/evidence/{i}", "字段路径、原件段落或原文摘录无效")
+            issue("INVALID_EVIDENCE", f"/evidence/{i}", "；".join(
+                reason for condition, reason in (
+                    (not isinstance(path, str) or path not in paths, "字段路径不存在"),
+                    (not isinstance(segment_id, str) or segment_id not in sources, "原件段落ID不存在"),
+                    (not isinstance(quote, str) or not quote.strip(), "原文摘录为空"),
+                ) if condition
+            ))
         elif normal(quote) not in normal(sources[segment_id]["text"]):
             issue("QUOTE_NOT_FOUND", path, "来源摘录与实际上传原文不符")
-        elif path in {"/adm/number", "/adm/issuer", "/adm/amount", "/adm/currency"} and paths[path] is not None and normal(paths[path]) not in normal(quote):
+        elif path in {"/adm/number", "/adm/amount", "/adm/currency"} and paths[path] is not None and normal(paths[path]) not in normal(quote):
             issue("VALUE_NOT_IN_SOURCE", path, "必填字段值未在所引原文中找到")
         else:
             proven.add(path)
             proven_quotes.setdefault(path, []).append(quote)
-    for key in ("number", "issuer", "amount", "currency"):
+    for path in list(proven):
+        match = re.fullmatch(r"(/lines/[0-9]+/(?:pnrs|airlinePnrs|gdsPnrs))/[0-9]+", path)
+        if match:
+            parent = match[1]
+            proven.add(parent)
+            proven_quotes.setdefault(parent, []).extend(proven_quotes[path])
+    if isinstance(adm, dict) and adm.get("airlineCode"):
+        quote = " ".join(proven_quotes.get("/adm/airlineCode", []))
+        if "/adm/airlineCode" not in proven or normal(adm["airlineCode"]) not in normal(quote) or not re.search(r"(?:Airline\s+Code(?:\s*/\s*Name)?|航司编码)\s*[:：]?\s*" + re.escape(str(adm["airlineCode"])) + r"(?![A-Z0-9])", quote, re.I):
+            issue("AIRLINE_CODE_EVIDENCE", "/adm/airlineCode", "航司编码须引用原件Airline Code及编码原文")
+    for key in ("number", "amount", "currency"):
         if "/adm/" + key not in proven:
             issue("REQUIRED_EVIDENCE", "/adm/" + key, "必填字段须引用有效原文")
     for i, line in enumerate(lines[:2000]):
@@ -150,7 +171,7 @@ def validate(value, segments):
         else:
             issue("SOURCE_CONFLICT", item["path"], item["description"], "warning")
     if isinstance(adm, dict):
-        for key in ("supplierName", "airline", "issuedDate", "reason", "dueDate"):
+        for key in ("airlineCode", "issuedDate", "reason", "dueDate"):
             if adm.get(key) is None:
                 issue("OPTIONAL_MISSING", "/adm/" + key, "未提供，待人工核对", "warning")
         if not lines:

@@ -210,11 +210,11 @@ docker compose up -d --build
 API统一前缀为`/api`。认证与账号管理使用`/api/auth/*`、`/api/admin/*`；业务接口主要使用`/api/v1/*`。登录后使用会话Cookie，非安全方法需携带CSRF头；JSON通常返回`success/message/data`，导出接口返回文件。具体权限、参数与错误见[完整接口目录](docs/api/README.md)及对应源码。
 
 <!-- BEGIN:API_SUMMARY -->
-当前静态登记 **274个HTTP方法/路径条目**（含认证与管理接口，不重复列自动HEAD/OPTIONS）。
+当前静态登记 **275个HTTP方法/路径条目**（含认证与管理接口，不重复列自动HEAD/OPTIONS）。
 
 | 接口领域 | 条目数 | 完整清单 |
 |---|---:|---|
-| ADM材料解析与独立结果存储 | 7 | [adm_parsing](docs/api/README.md#adm_parsing) |
+| ADM材料解析与独立结果存储 | 8 | [adm_parsing](docs/api/README.md#adm_parsing) |
 | 数据资产快照、字典与依赖证据 | 7 | [asset_inventory](docs/api/README.md#asset_inventory) |
 | 账号认证与权限管理 | 27 | [auth](docs/api/README.md#auth) |
 | 基础信息、资产与兼容入口 | 5 | [core](docs/api/README.md#core) |

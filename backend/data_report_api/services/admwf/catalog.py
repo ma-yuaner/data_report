@@ -355,6 +355,21 @@ class AdmCatalog:
             option["ticketingCode"] = str(result.get("ticketingCode") or "").strip() or None
         return option
 
+    def document_airline_options(self, source_code):
+        """Exact document Airline Code lookup; never use fuzzy name matches."""
+        raw = str(source_code or "").strip().upper()
+        if len(raw) == 3 and raw.isascii() and raw.isdigit():
+            field = "ticketing_code"
+        elif len(raw) == 2 and raw.isascii() and raw.isalnum():
+            field = "airline_code"
+        else:
+            raise AdmError("原件航司编码格式无效")
+        return self._query_all(
+            "SELECT airline_code AS code,COALESCE(NULLIF(airline_cname,''),airline_code) AS name,"
+            "ticketing_code AS ticketingCode FROM sibedb.base_airline "
+            "WHERE status=1 AND " + field + "=%s LIMIT 2", (raw,), erp=True,
+        )
+
     def optional_master_value(self, kind, value):
         raw = str(value or "").strip()
         if not raw:

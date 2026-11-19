@@ -9,7 +9,7 @@
     "backend/data_report_api/admwf_schema.py": "677a23afbcdaed2eeb9a64bf747d36bd295d9c8f0a9d33bffd7f166ee7bf4eba",
     "backend/data_report_api/admwf_worker.py": "5c6f369dd2b5f1af6fee70a669a6a3d295038b0bff9cb0b1b71c4c82f86291c1",
     "backend/data_report_api/api/__init__.py": "46f5dff73908c4739669923f2ca10db89b0e3aa9e8ca5e12dfbfb4a6fc5f7222",
-    "backend/data_report_api/api/adm_parsing.py": "30d069d4c619dfe3a5e8c77c2e9391e1c841e0c474f6d3ad08243385efd215c9",
+    "backend/data_report_api/api/adm_parsing.py": "31156fb86a88523f9bd2f7b20f22286951bbf1874c5acf031608d897c6fdc36f",
     "backend/data_report_api/api/admwf.py": "86d6e3d88191e0e1332d12523485e924a033e63c82c0d11e7f8dad0b13214049",
     "backend/data_report_api/api/analysis.py": "4ad1496b0344aa12a81ea3a37f16d1098a66e718db892eea279d5d505bd1d30a",
     "backend/data_report_api/api/asset_inventory.py": "d4eec34d3e6932a95785d8a51cb34cad8a14e4e70a0608f7c975ef7f47f45717",
@@ -40,14 +40,15 @@
     "backend/data_report_api/services/__init__.py": "ac74225afed0c30c874dafb9fa708dfeab2d64ebe9b488a345e7e3119a6092fa",
     "backend/data_report_api/services/adm_parsing/__init__.py": "a9830c3e3577845eea99385c0b6186f9cc55cbbe360e43002d2ccf8178c09d86",
     "backend/data_report_api/services/adm_parsing/classification.py": "a37f8b02764f6fe577b924681556fb8c230ca596074bca5a35656ece66f1b9a1",
-    "backend/data_report_api/services/adm_parsing/contract.py": "db80bdb53683a16748e45591ef3a46dbd9330bdaecf57d26e10cef510a1889b6",
+    "backend/data_report_api/services/adm_parsing/contract.py": "91e5c02f6e8db088d6088a3669ba9145d6f99562f56c5d1ff07c822af1f77f4e",
     "backend/data_report_api/services/adm_parsing/documents.py": "7dbc83aa348aeb9c1cb000cae6db6ce7abbea23aa39814f286a902245834de18",
-    "backend/data_report_api/services/adm_parsing/model.py": "2cf90079933247f42427211fee12c0e70e0da516b99832371d4673eef965e89f",
-    "backend/data_report_api/services/adm_parsing/service.py": "9a22464a4ba529bf28e7e75b634dc89a95a81b5d384a26f776005c11d57a6e11",
+    "backend/data_report_api/services/adm_parsing/model.py": "52f182c7621c99bd1f4597983120b9ce34ff42dfcf37299f039a2bd02d840690",
+    "backend/data_report_api/services/adm_parsing/recheck.py": "a4a758789bfab7bbc8cbdd0cceac0c6c7b9afc5db63cb52844c9bb8ff34150d3",
+    "backend/data_report_api/services/adm_parsing/service.py": "3edb625256e595ec1f66b648c3102e72cb595e885a91a4331380a9d9f069a470",
     "backend/data_report_api/services/adm_parsing/store.py": "556edeae1ab1007b54e56bd19cda6092ff445964d754fe77b6a3d1c05fc0733d",
     "backend/data_report_api/services/admwf/__init__.py": "52775c7b6ba2f595d7b7699d78ec3903b7cf9206bf8a24fa79d500aadbde2f00",
     "backend/data_report_api/services/admwf/attachments.py": "8569b2a63ea39b6283a2e29dea340e023c2f0e6f6f4083c2f59ad4ef3b638d6a",
-    "backend/data_report_api/services/admwf/catalog.py": "fe31d7bd020a2a9d449f436efceaf65e5f3c7fe648727e418b03345c336ba658",
+    "backend/data_report_api/services/admwf/catalog.py": "637e954ac26c9eb58779a251af107b9bc69d5d723f422016594ead7c675977c2",
     "backend/data_report_api/services/admwf/domain.py": "e07964596e7e10d894619f5d18f7155ba6634ee926eeb53d28813252a5fafd9e",
     "backend/data_report_api/services/admwf/excel.py": "0742a003b0ed105e4159232c03164d5056e27e0728f08b479dc6d5a3e59faf10",
     "backend/data_report_api/services/admwf/operations.py": "7dfbbf8aa312197e562e1761c8b053cc465caad1539bdd0fa8cbcebc9127f311",
@@ -201,6 +202,7 @@
     "backend/Dockerfile: pip HTTPS build arguments only; application USER/CMD unchanged",
     "ADM parsing 1.1: contract/model/service/classification reviewed; no startup/auth/DDL/notification changes; thread wake remains request-triggered; latest main retained",
     "Progress patch: ADM stage CAS writes and early text persistence; no new startup workers/DDL. Existing main 7ec45f5 monitoring/smart-placement method-only changes reviewed for startup boundary, not business reacceptance.",
-    "Qwen3.8 Flash official Bailian non-thinking JSON extraction; shorter evidence prompt, timeout code separated from network errors; no startup/DDL/retry changes"
+    "Qwen3.8 Flash official Bailian non-thinking JSON extraction; shorter evidence prompt, timeout code separated from network errors; no startup/DDL/retry changes",
+    "Saved candidate revalidation: versioned payload/history, exact existing ERP airline dictionary lookup, source-bound repair; request-only POST with auth/CSRF/CAS; no model replay, startup workers or DDL changes"
   ]
 }

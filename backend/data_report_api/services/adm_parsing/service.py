@@ -12,7 +12,9 @@ from pathlib import Path
 
 from ..admwf.policy import AdmError, business_now, has
 from .classification import suggest
+from ..admwf.catalog import AdmCatalog
 from .contract import VERSION, template, validate
+from .recheck import VALIDATION_VERSION, prepare
 from .documents import EXTENSIONS, extract
 from .model import PROMPT_VERSION, ParsingModel
 from .store import ParsingStore
@@ -90,14 +92,14 @@ class ParsingService:
         if detail:
             result["classification"] = suggest(result.get("candidate"))
         if task.get("startedAt"):
-            end = business_now() if task["state"] in {"QUEUED", "RUNNING"} else datetime.fromisoformat(task["updatedAt"])
+            end = business_now() if task["state"] in {"QUEUED", "RUNNING"} else datetime.fromisoformat(task.get("finishedAt") or task["updatedAt"])
             result["elapsedSeconds"] = max(0, int((end - datetime.fromisoformat(task["startedAt"])).total_seconds()))
         result.pop("requestHash", None)
         result.pop("attemptId", None)
         for file in result["files"]:
             file.pop("storageKey", None)
         if not detail:
-            for key in ("segments", "candidate", "issues", "history"):
+            for key in ("segments", "candidate", "issues", "history", "originalCandidate", "revalidationHistory", "adjustments"):
                 result.pop(key, None)
         return result
 
@@ -184,8 +186,8 @@ class ParsingService:
         if task["attempts"] >= 10:
             raise AdmError("单件已达10次解析上限，请检查材料与配置", 429, "PARSE_ATTEMPT_LIMIT")
         if task["attempts"]:
-            task["history"].append({"at": stamp(), "attempt": task["attempts"], "state": task["state"], "candidate": task["candidate"], "issues": task["issues"], "error": task.get("error"), "usage": task.get("usage")})
-        task.update(stage="QUEUED", startedAt=None, state="QUEUED", version=version+1, updatedAt=stamp(), candidate=None, issues=[], error=None, usage=None, saveStatus="SAVED")
+            task["history"].append({"at": stamp(), "attempt": task["attempts"], "state": task["state"], "candidate": task["candidate"], "issues": task["issues"], "error": task.get("error"), "usage": task.get("usage"), "originalCandidate": task.get("originalCandidate"), "adjustments": task.get("adjustments"), "airlineMatch": task.get("airlineMatch")})
+        task.update(stage="QUEUED", startedAt=None, finishedAt=None, originalCandidate=None, adjustments=[], airlineMatch=None, state="QUEUED", version=version+1, updatedAt=stamp(), candidate=None, issues=[], error=None, usage=None, saveStatus="SAVED")
         self.store.save(task, version)
         self.wake()
         return self._public(task, True)
@@ -212,7 +214,7 @@ class ParsingService:
             advance("MODEL")
             task["candidate"], task["usage"] = ParsingModel(self.config).call(task["files"], task["segments"])
             advance("VALIDATING")
-            task["issues"] = validate(task["candidate"], task["segments"])
+            self._evaluate(task)
             task["state"] = "FAILED" if any(i["level"] == "error" for i in task["issues"]) else "SUCCEEDED"
             task["error"] = {"code": "PARSE_VALIDATION_FAILED", "message": "返回字段未通过校验，请查看明细后重试"} if task["state"] == "FAILED" else None
         except AdmError as error:
@@ -220,7 +222,7 @@ class ParsingService:
         except Exception:
             task.update(state="FAILED", error={"code": "PARSE_INTERNAL", "message": "解析处理失败，请检查材料或联系管理员"})
             logging.error("ADM parsing task failed; no document content logged")
-        task.update(stage="FINISHED", version=expected+1, updatedAt=stamp(), model=ParsingModel(self.config).status()["model"], promptVersion=PROMPT_VERSION)
+        task.update(stage="FINISHED", finishedAt=stamp(), version=expected+1, updatedAt=stamp(), model=ParsingModel(self.config).status()["model"], promptVersion=PROMPT_VERSION)
         self._checkpoint(task)
         try:
             self.store.save(task, expected)
@@ -228,6 +230,61 @@ class ParsingService:
         except Exception:
             self._checkpoint(task, failed=True)
             logging.error("ADM parsing save failed; durable checkpoint retained for explicit save retry")
+
+    def _evaluate(self, task):
+        original = task.get("originalCandidate")
+        if original is None:
+            original = copy.deepcopy(task.get("candidate"))
+            task["originalCandidate"] = original
+        task["candidate"], task["adjustments"] = prepare(original, task["segments"])
+        task["validationVersion"] = VALIDATION_VERSION
+        task["issues"] = validate(task["candidate"], task["segments"])
+        candidate = task["candidate"]
+        adm = candidate.get("adm") if isinstance(candidate, dict) else None
+        code = adm.get("airlineCode") if isinstance(adm, dict) else None
+        matched = {"sourceCode": code, "status": "NOT_PROVIDED", "code": None, "name": None}
+        if code and isinstance(code, str) and re.fullmatch(r"[0-9]{3}|[A-Z0-9]{2}", code):
+            if any(i["level"] == "error" and i["path"] == "/adm/airlineCode" for i in task["issues"]):
+                matched["status"] = "SOURCE_INVALID"
+            else:
+                try:
+                    options = AdmCatalog(self.config).document_airline_options(code)
+                    # A three-digit Airline Code is matched to ticketingCode, never to a name substring.
+                    field = "ticketingCode" if len(code) == 3 else "code"
+                    def source_key(row):
+                        token = str(row.get(field) or "").strip().upper()
+                        if field == "ticketingCode" and token.isascii() and token.isdigit() and len(token) <= 3:
+                            token = token.zfill(3)
+                        return token
+                    exact = [r for r in options if source_key(r) == code]
+                    if len(exact) == 1:
+                        matched.update(status="MATCHED", code=str(exact[0]["code"]), name=str(exact[0]["name"]))
+                    else:
+                        matched["status"] = "AMBIGUOUS" if exact else "NOT_FOUND"
+                except AdmError:
+                    matched["status"] = "UNAVAILABLE"
+                if matched["status"] != "MATCHED":
+                    message = {"UNAVAILABLE": "系统航司资料读取失败，可稍后重新校验，不调用模型", "AMBIGUOUS": "航司编码匹配到多条系统资料，待人工核对", "NOT_FOUND": "系统中未找到该Airline Code对应的启用航司"}[matched["status"]]
+                    task["issues"].append({"code": "AIRLINE_" + matched["status"], "path": "/adm/airlineCode", "message": message, "level": "warning"})
+        task["airlineMatch"] = matched
+
+    def revalidate(self, user, task_id, version):
+        task = self._get(user, task_id, True)
+        if type(version) is not int or task["version"] != version:
+            raise AdmError("任务版本已改变，请刷新后再试", 409, "PARSE_VERSION_CONFLICT")
+        if task["state"] in {"QUEUED", "RUNNING"}:
+            raise AdmError("任务尚在处理，请等待完成后重新校验", 409, "PARSE_BUSY")
+        if not isinstance(task.get("candidate"), dict) or not task.get("segments"):
+            raise AdmError("没有已保存的模型结果及原文，无法重新校验", 422, "PARSE_NO_CANDIDATE")
+        task.setdefault("revalidationHistory", []).append({"at": stamp(), "actorId": str(user["id"]), "version": version, "candidate": copy.deepcopy(task["candidate"]), "issues": copy.deepcopy(task["issues"]), "state": task["state"], "validationVersion": task.get("validationVersion")})
+        task.setdefault("finishedAt", task["updatedAt"])
+        self._evaluate(task)
+        failed = any(i["level"] == "error" for i in task["issues"])
+        task.update(state="FAILED" if failed else "SUCCEEDED", stage="FINISHED", version=version+1,
+                    updatedAt=stamp(), revalidatedAt=stamp(), revalidatedById=str(user["id"]), saveStatus="SAVED",
+                    error={"code": "PARSE_VALIDATION_FAILED", "message": "已有结果仍有校验问题，请核对具体字段"} if failed else None)
+        self.store.save(task, version)
+        return self._public(task, True)
 
     def retry_save(self, user, task_id, version):
         task = self._get(user, task_id, True)
