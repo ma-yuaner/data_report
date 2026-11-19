@@ -94,6 +94,8 @@ def required_menu_code(path: str) -> str | None:
         return "overview"
     if path.startswith("/api/v1/analysis/comprehensive"):
         return "analysis.comprehensive"
+    if path == "/api/v1/analysis/change-sla":
+        return "analysis.change_sla"
     if path.startswith("/api/v1/analysis/issue-profit"):
         return "analysis.issue"
     if path.startswith("/api/v1/analysis/business-profit/refund"):

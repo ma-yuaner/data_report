@@ -60,6 +60,7 @@
             <a-menu-item v-if="canSeeMenu('analysis.issue')" key="/analysis/issue">出票分析</a-menu-item>
             <a-menu-item v-if="canSeeMenu('analysis.refund')" key="/analysis/refund">退票分析</a-menu-item>
             <a-menu-item v-if="canSeeMenu('analysis.change')" key="/analysis/change">改签分析</a-menu-item>
+            <a-menu-item v-if="canSeeMenu('analysis.change_sla')" key="/analysis/change-sla">改签 SLA 看板</a-menu-item>
             <a-menu-item v-if="canSeeMenu('analysis.ancillary')" key="/analysis/ancillary">增值分析</a-menu-item>
           </a-sub-menu>
           <a-sub-menu v-if="canSeeGroup('risk')" key="risk">

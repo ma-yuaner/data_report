@@ -421,3 +421,7 @@
 | `GET` | `/api/v1/risk-verification/rule-configs` | [risk_issue_rule_configs](../../backend/data_report_api/api/risk_verification.py) |
 | `GET` | `/api/v1/risk-verification/status` | [risk_verification_status](../../backend/data_report_api/api/risk_verification.py) |
 <!-- END:API_ROUTES -->
+
+### 改签 SLA 看板
+
+`GET /api/v1/analysis/change-sla` 需要菜单权限 `analysis.change_sla`。可传 `from`、`to`（YYYY-MM-DD，含首末日，默认北京时间当天）。返回 ERP 只读快照时间、日期范围、审核与操作节点记录和已配置阈值。单次最多 31 天且单节点最多 5,000 条，超限返回 400，请缩短日期。响应 `Cache-Control: no-store`。阈值由 `CHANGE_SLA_AUDIT_MINUTES`、`CHANGE_SLA_OPERATION_MINUTES` 配置，未配置的节点显示待配置。
