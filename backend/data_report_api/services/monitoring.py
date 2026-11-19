@@ -12,6 +12,7 @@ from decimal import Decimal
 from typing import Any
 
 from .data_source import DataSource
+from ..shared.placement_cabins import cabin_values
 from ..shared.placement_locations import resolve_airports, resolved_location
 from ..time_utils import business_now_naive
 from ..shared.daily_segment import TEMPLATE as DAILY_SEGMENT_TEMPLATE, EVENT as DAILY_SEGMENT_EVENT, validate_daily_conditions
@@ -188,8 +189,8 @@ class MonitorRuleCompiler:
                 location_scopes[side] = {"type": kind, "code": code, "airportCodes": airports}
 
         add("flight_nos", "OVERLAP", "STRING_SET", _split_values(execution.get("flight_nos") or task.get("flight_nos")))
-        add("cabin_codes", "SUBSET_OF", "STRING_SET", _split_values(execution.get("include_cabins") or task.get("include_cabins")))
-        add("cabin_codes", "DISJOINT", "STRING_SET", _split_values(execution.get("exclude_cabins") or task.get("exclude_cabins")), "EXCLUDE")
+        add("cabin_codes", "SUBSET_OF", "STRING_SET", cabin_values(execution.get("include_cabins") or task.get("include_cabins")))
+        add("cabin_codes", "DISJOINT", "STRING_SET", cabin_values(execution.get("exclude_cabins") or task.get("exclude_cabins")), "EXCLUDE")
         add("product_type", "IN", "STRING_SET", _split_values(execution.get("product_type") or task.get("product_type")))
         trip_type = _clean_text(task.get("journey_type"))
         trip_type_values = {

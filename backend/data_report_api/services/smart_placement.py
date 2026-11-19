@@ -18,6 +18,7 @@ from .placement_assessment import EXCLUSION_TABLE, assessment_aggregates, assess
 from ..shared.placement_locations import AIRPORT_TABLE, ACTIVE_AIRPORT, LOCATION_COLUMNS, location_fields, location_type, resolve_airports, resolved_location
 from ..time_utils import as_business_naive, business_now_naive
 from ..shared.placement_errors import PlacementChangeConflict
+from ..shared.placement_cabins import cabin_values
 
 
 LOGGER = logging.getLogger(__name__)
@@ -58,6 +59,8 @@ SEGMENT_TYPES = frozenset({"直达", "中转"})
 CODE_RE = re.compile(r"^[A-Za-z0-9._:/-]{1,128}$")
 PERMISSION_CREATE = "smart_placement.create"
 PERMISSION_EDIT = "smart_placement.edit"
+PERMISSION_EDIT_APPROVED = "smart_placement.edit_approved"
+APPROVED_EDIT_STATUSES = frozenset({"CLAIMABLE", "IN_PROGRESS", "MONITORING", "FAILED", "ENDED"})
 PERMISSION_DELETE = "smart_placement.delete"
 PERMISSION_WITHDRAW = "smart_placement.withdraw"
 PERMISSION_CANCEL = "smart_placement.cancel"
@@ -253,16 +256,8 @@ def _task_fields(values: dict[str, Any], *, submit: bool) -> dict[str, Any]:
 
     include_cabins = _text(values.get("includeCabins"), "包含舱位", 500)
     exclude_cabins = _text(values.get("excludeCabins"), "排除舱位", 500)
-    included_list = list(dict.fromkeys(
-        item.strip().upper()
-        for item in include_cabins.replace("，", ",").split(",")
-        if item.strip()
-    ))
-    excluded_list = list(dict.fromkeys(
-        item.strip().upper()
-        for item in exclude_cabins.replace("，", ",").split(",")
-        if item.strip()
-    ))
+    included_list = cabin_values(include_cabins)
+    excluded_list = cabin_values(exclude_cabins)
     overlap = sorted(set(included_list) & set(excluded_list))
     if overlap:
         raise ValueError(f"包含舱位和排除舱位不能重复：{','.join(overlap)}")
@@ -617,9 +612,14 @@ class SmartPlacementService:
         clauses: list[str] = []
         params: list[Any] = []
         permissions = _permissions(user)
-        if permissions.intersection({PERMISSION_CREATE, PERMISSION_EDIT, PERMISSION_DELETE, PERMISSION_WITHDRAW}):
+        if permissions.intersection({PERMISSION_CREATE, PERMISSION_EDIT, PERMISSION_EDIT_APPROVED, PERMISSION_DELETE, PERMISSION_WITHDRAW}):
             clauses.append(f"{alias}.created_by_id=%s")
             params.append(actor_id)
+        if PERMISSION_EDIT_APPROVED in permissions:
+            clauses.append(f"{alias}.current_assignee_id=%s")
+            params.append(actor_id)
+            if scope_type in {"WORKFLOW", ""}:
+                clauses.append(f"{alias}.status IN ('CLAIMABLE','IN_PROGRESS','MONITORING','FAILED','ENDED')")
         if PERMISSION_CLAIM in permissions or PERMISSION_EXECUTE in permissions:
             clauses.append(f"({alias}.status='CLAIMABLE' OR {alias}.current_assignee_id=%s)")
             params.append(actor_id)
@@ -1103,6 +1103,8 @@ class SmartPlacementService:
             if connection is not None: connection.close()
 
     def update_task(self, user: dict[str, Any], task_id: int, values: dict[str, Any]) -> dict[str, Any]:
+        if values.get("approvedEdit") is True:
+            return self.update_approved_task(user, task_id, values)
         _require_permission(user, PERMISSION_EDIT, "当前账号没有投放机会编辑权限")
         actor = _actor(user)
         submit = _bool(values.get("submit"))
@@ -1150,6 +1152,85 @@ class SmartPlacementService:
             if cursor is not None: cursor.close()
             if connection is not None: connection.close()
 
+    def update_approved_task(self, user: dict[str, Any], task_id: int, values: dict[str, Any]) -> dict[str, Any]:
+        """Privileged amendment: preserve approval/workflow, atomically publish current rules."""
+        _require_permission(user, PERMISSION_EDIT_APPROVED, "当前账号没有已审核投放编辑权限")
+        actor = _actor(user)
+        reason = _text(values.get("changeReason"), "修改原因", 1000, required=True)
+        if values.get("submit") is not False:
+            raise ValueError("已审核编辑直接生效，不支持重新提交审核")
+        if type(values.get("versionNo")) is not int:
+            raise ValueError("缺少有效的任务版本，请刷新后重试")
+        fields = _task_fields(values, submit=True)
+        now = _now()
+        connection = cursor = None
+        try:
+            connection = self.source.connect(); connection.begin(); cursor = connection.cursor()
+            visibility, params = self._visibility_condition(user)
+            cursor.execute(f"SELECT t.* FROM {self._table(TASK_TABLE)} t WHERE t.id=%s AND t.is_deleted=0 AND {visibility} FOR UPDATE", tuple([task_id, *params]))
+            task = _dict_row(cursor, cursor.fetchone())
+            if not task:
+                raise PermissionError("任务不存在或不在当前账号的数据范围内")
+            if task["status"] not in APPROVED_EDIT_STATUSES:
+                raise ValueError("该任务尚未全部审核通过或已作废，不能使用已审核编辑")
+            if int(task["version_no"]) != values["versionNo"]:
+                raise PlacementChangeConflict("任务已被其他人修改，请刷新后重新编辑")
+            self._validate_locations(cursor, fields, now)
+            fields["route_text"] = task.get("route_text")
+            before = {key: task.get(key) for key in fields}
+            changed = [key for key in fields if before[key] != fields[key]]
+            if not changed:
+                raise ValueError("内容没有变化，无需保存")
+            monitor_rule = None
+            execution_before = execution_after = None
+            if task["status"] == "MONITORING":
+                cursor.execute(f"SELECT * FROM {self._table(EXECUTION_TABLE)} WHERE task_id=%s AND execution_result='SUCCESS' ORDER BY attempt_no DESC LIMIT 1 FOR UPDATE", (task_id,))
+                execution = _dict_row(cursor, cursor.fetchone())
+                if not execution:
+                    raise ValueError("缺少成功投放记录，无法同步当前监控规则")
+                cursor.execute(f"SELECT * FROM {self._table(MONITOR_RULE_TABLE)} WHERE source_business_type='SMART_PLACEMENT_EXECUTION' AND source_business_id=%s AND source_parent_id=%s FOR UPDATE", (execution["id"], task_id))
+                rules = _dict_rows(cursor, list(cursor.fetchall()))
+                if len(rules) != 1 or rules[0]["status"] not in {"ACTIVE", "SCHEDULED"}:
+                    raise ValueError("监控规则状态已变化，请刷新核对后修改")
+                # Existing actual execution values remain authoritative unless that field is edited.
+                execution_keys = {"platform_code", "platform_name", "site_code", "site_name", "airline_code", "departure_code", "arrival_code", "departure_type", "arrival_type", "route_text", "segment_type", "flight_nos", "include_cabins", "exclude_cabins", "product_type", "order_source", "loss_threshold_min", "loss_threshold_max"}
+                patch = {key: fields[key] for key in changed if key in execution_keys}
+                effective_execution = {**execution, **patch}
+                included = set(cabin_values(effective_execution.get("include_cabins")))
+                excluded = set(cabin_values(effective_execution.get("exclude_cabins")))
+                if included & excluded:
+                    raise ValueError("调整后的实际包含与排除舱位存在重叠，请核对当前投放配置")
+                execution_before = {key: execution.get(key) for key in patch}
+                execution_after = patch
+                monitor_rule = self.monitor_rule_compiler.sync_smart_placement(
+                    cursor=cursor, database=self.source.database, task={**task, **fields},
+                    execution_id=int(execution["id"]), attempt_no=int(execution["attempt_no"]),
+                    execution={**execution, **patch, "monitoring_start_at": max(now, execution["effective_start_at"])},
+                    actor=actor, now=now, existing_rule=rules[0], change_reason=reason,
+                )
+                if patch:
+                    cursor.execute(f"UPDATE {self._table(EXECUTION_TABLE)} SET {','.join(f'{key}=%s' for key in patch)} WHERE id=%s", tuple([*patch.values(), execution["id"]]))
+            cursor.execute(f"UPDATE {self._table(TASK_TABLE)} SET {','.join(f'{key}=%s' for key in fields)},version_no=version_no+1,updated_by_id=%s,updated_by_name=%s,updated_at=%s WHERE id=%s", tuple([*fields.values(), actor[0], actor[1], now, task_id]))
+            self._log(cursor, task_id=task_id, action="APPROVED_EDIT", actor=actor,
+                      from_status=task["status"], to_status=task["status"], note=reason,
+                      detail={"before": _public_row(before), "after": _public_row(fields),
+                              "fields": list(_public_row({key: fields[key] for key in changed})), "recordedAt": now,
+                              "previousVersionNo": task["version_no"], "versionNo": int(task["version_no"]) + 1,
+                              "executionBefore": execution_before, "executionAfter": execution_after,
+                              "monitorRule": monitor_rule, "externalExecution": "MANUAL_REQUIRED"})
+            connection.commit()
+            return {"id": task_id, "taskNo": task["task_no"], "status": task["status"], "versionNo": int(task["version_no"]) + 1}
+        except (ValueError, PermissionError, PlacementChangeConflict):
+            if connection is not None: connection.rollback()
+            raise
+        except Exception as error:
+            if connection is not None: connection.rollback()
+            LOGGER.exception("Approved placement amendment failed")
+            raise SmartPlacementUnavailable("已审核投放修改失败，整笔未保存，请核对后重试") from error
+        finally:
+            if cursor is not None: cursor.close()
+            if connection is not None: connection.close()
+
     def change_placed_policies(self, user: dict[str, Any], values: dict[str, Any], *, preview: bool = False) -> dict[str, Any]:
         """A single atomic patch; requests never claim that an external system was changed."""
         _require_permission(user, PERMISSION_EXECUTE, "当前账号没有已投放政策修改权限（投放结果登记）")
@@ -1190,7 +1271,7 @@ class SmartPlacementService:
         for key, column, label in (("includeCabins", "include_cabins", "包含舱位"), ("excludeCabins", "exclude_cabins", "排除舱位")):
             if key in patch:
                 raw = _text(patch[key], label, 500)
-                fields[column] = ",".join(dict.fromkeys(item.strip().upper() for item in raw.replace("，", ",").split(",") if item.strip())) or None
+                fields[column] = ",".join(cabin_values(raw)) or None
         if "effectivePeriod" in patch:
             period = patch["effectivePeriod"]
             if not isinstance(period, dict) or set(period) != {"effectiveStartAt", "effectiveEndAt", "longTerm"} or type(period["longTerm"]) is not bool:
@@ -1225,8 +1306,8 @@ class SmartPlacementService:
                     raise PlacementChangeConflict(f"政策{task_id}监控规则版本已变化；整批未保存，请重新预览")
                 before = {column: execution.get(column) for column in ("include_cabins", "exclude_cabins", "effective_start_at", "effective_end_at", "long_term_flag")}
                 after = {**before, **fields}
-                included = set(str(after["include_cabins"] or "").split(",")) - {""}
-                overlap = included & set(str(after["exclude_cabins"] or "").split(","))
+                included = set(cabin_values(after["include_cabins"]))
+                overlap = included & set(cabin_values(after["exclude_cabins"]))
                 if overlap:
                     raise ValueError(f"政策{task_id}包含与排除舱位不能重复：{','.join(sorted(overlap))}；整批未保存")
                 start = after["effective_start_at"]
@@ -1598,16 +1679,8 @@ class SmartPlacementService:
         next_handle_at = _datetime_value(values.get("nextHandleAt"), "下次处理时间", required=result == "FAILED" and retry_required)
         include_cabins = _text(values.get("includeCabins"), "包含舱位", 500)
         exclude_cabins = _text(values.get("excludeCabins"), "排除舱位", 500)
-        included_list = list(dict.fromkeys(
-            item.strip().upper()
-            for item in include_cabins.replace("，", ",").split(",")
-            if item.strip()
-        ))
-        excluded_list = list(dict.fromkeys(
-            item.strip().upper()
-            for item in exclude_cabins.replace("，", ",").split(",")
-            if item.strip()
-        ))
+        included_list = cabin_values(include_cabins)
+        excluded_list = cabin_values(exclude_cabins)
         overlap = sorted(set(included_list) & set(excluded_list))
         if overlap:
             raise ValueError(f"实际包含舱位和排除舱位不能重复：{','.join(overlap)}")

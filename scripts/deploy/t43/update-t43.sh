@@ -13,7 +13,7 @@ store=/data/data_report-updates
 repo_url=${T43_REPO_URL:-https://git.ndccloud.com/analytics/data_report.git}
 checker=sha256:50f644a6a0338ec01b82d9d7586807a180c2183f0fd1820a96e3eda181dd0ec3
 for command in docker git curl flock mountpoint tar; do command -v "$command" >/dev/null || die "Missing tool: $command"; done
-for file in update-t43-helper.py reviewed-backend.json; do
+for file in update-t43-helper.py reviewed-backend.json build-args.t43.yml; do
   [[ -f $bundle/$file && ! -L $bundle/$file ]] || die "Missing or symlinked helper: $file"
 done
 [[ -f $app/.env && $(stat -c '%a:%u' "$app/.env") == 600:0 ]] || die '.env must be root-owned, mode 600'
@@ -47,7 +47,7 @@ for suffix in asset_inventory_data risk_upload_data comprehensive_export_data ad
   data_workbench_data hr_mail_data risk_verification_data; do
   docker volume inspect "data_report_$suffix" >/dev/null || die "Missing volume: $suffix"
 done
-dc "${base[@]}" config --format json | helper validate-source
+dc "${base[@]}" -f "$bundle/build-args.t43.yml" config --format json | helper validate-source
 
 if [[ $mode == --check ]]; then
   echo 'CHECK PASSED: required tools/config/images/volumes available; no Git fetch/build/deploy performed.'
@@ -94,19 +94,29 @@ git -c core.autocrlf=false -c core.eol=lf --git-dir="$store/repository.git" arch
 [[ ! -e $release/source/.env && ! -L $release/source/.env ]] || die 'Tracked .env is forbidden'
 
 # Check without importing the candidate application. Backend changes need a new reviewed baseline.
-docker run --rm --network none --read-only --entrypoint python \
+docker run --rm --network none --read-only --user 0:0 --entrypoint python \
   -v "$bundle:/bundle:ro" -v "$release/source:/candidate:ro" \
   "$checker" /bundle/update-t43-helper.py verify-backend
 
-candidate=(-f "$release/source/docker-compose.yml" -f "$release/source/docker-compose.hr-mail.yml" -f "$app/docker-compose.t43.yml")
+candidate=(-f "$release/source/docker-compose.yml" -f "$release/source/docker-compose.hr-mail.yml"
+  -f "$app/docker-compose.t43.yml" -f "$release/source/scripts/deploy/t43/build-args.t43.yml")
 dc "${candidate[@]}" config --format json > "$release/candidate.json"
 helper validate-source < "$release/candidate.json"
 mirror=$(helper build-mirror < "$release/candidate.json")
+pip_text=$(helper build-pip-settings < "$release/candidate.json")
+mapfile -t pip_settings <<< "$pip_text"
+[[ ${#pip_settings[@]} -eq 3 ]] || die 'Invalid pip build settings'
+pip_index=${pip_settings[0]}
+pip_timeout=${pip_settings[1]}
+pip_retries=${pip_settings[2]}
+printf 'API build pip index: %s (timeout=%s, retries=%s)\n' "$pip_index" "$pip_timeout" "$pip_retries"
 
 # Sequential builds keep peak resource usage lower. No current container is stopped here.
 api_tag=data-report-t43/api:$run
 web_tag=data-report-t43/web:$run
-docker build --build-arg "DOCKERHUB_MIRROR=$mirror" -t "$api_tag" "$release/source/backend"
+docker build --build-arg "DOCKERHUB_MIRROR=$mirror" \
+  --build-arg "PIP_INDEX_URL=$pip_index" --build-arg "PIP_TIMEOUT=$pip_timeout" \
+  --build-arg "PIP_RETRIES=$pip_retries" -t "$api_tag" "$release/source/backend"
 docker build --build-arg "DOCKERHUB_MIRROR=$mirror" -t "$web_tag" "$release/source/frontend"
 api_id=$(docker image inspect "$api_tag" --format '{{.Id}}')
 web_id=$(docker image inspect "$web_tag" --format '{{.Id}}')
@@ -124,7 +134,7 @@ fi
 # The first migration may have no saved active descriptor. Capture actual live env,
 # rather than assuming an edited .env still equals the environment of running containers.
 docker inspect data_report-api-1 data_report-web-1 |
-  docker run --rm -i --network none --read-only --entrypoint python \
+  docker run --rm -i --network none --read-only --user 0:0 --entrypoint python \
     -v "$bundle:/bundle:ro" -v "$release:/release:ro" "$checker" \
     /bundle/update-t43-helper.py capture-live /release/previous-template.json > "$release/previous.json"
 helper validate-runtime < "$release/previous.json"

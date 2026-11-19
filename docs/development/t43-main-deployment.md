@@ -10,12 +10,13 @@
 | `/data/data_report-source` | 新的 Git main 检出目录，只用于获取版本化脚本；不放 `.env` 或生产数据 |
 | `scripts/deploy/t43/update-t43.sh` | Bash 更新入口，默认 `--check`，不隐式执行更新 |
 | `scripts/deploy/t43/update-t43-helper.py` | 隔离 Python 校验器，不导入应用、无网络 |
+| `scripts/deploy/t43/build-args.t43.yml` | T43 构建参数覆盖，默认国内 HTTPS pip 源，可由服务器 `.env` 覆盖 |
 | `scripts/deploy/t43/reviewed-backend.json` | 已复核后端文件的 SHA256 清单；和代码一起提交，无凭据或业务明细 |
 | `/data/data_report-updates/repository.git` | 更新脚本的 main 拉取缓存 |
 | `/data/data_report-updates/releases/<时间-提交-PID>` | 每次更新的源码、构建版本、私密运行配置和前一版本快照 |
 | `/data/data_report-updates/active.json`、`rollback.json` | 当前/回退运行配置；含凭据，仅 root 访问，禁止上传聊天或提交 Git |
 
-脚本使用已在 T43 导入的 API 镜像 ID `sha256:50f644a6a0338ec01b82d9d7586807a180c2183f0fd1820a96e3eda181dd0ec3` 运行 Python 检查器；请保留该镜像。它只运行校验器，不启动 Flask，也不访问数据库。
+脚本使用已在 T43 导入的 API 镜像 ID `sha256:50f644a6a0338ec01b82d9d7586807a180c2183f0fd1820a96e3eda181dd0ec3` 运行 Python 检查器；请保留该镜像。检查器统一显式使用 UID/GID 0:0 读取 root 私有版本目录，同时保持无网络、只读容器和只读宿主挂载。它只运行校验器，不启动 Flask，也不访问数据库；应用容器仍沿用 Dockerfile 的非 root 用户。不得通过放宽 `.env`、版本目录或快照权限解决校验器访问问题。
 
 ## 首次接入与后续命令
 
@@ -64,9 +65,19 @@ bash /data/data_report-source/scripts/deploy/t43/update-t43.sh --rollback
 
 ## 审查清单维护
 
-当前后端清单源自 `7fd374e0f1ae838167b9b18959789ae821cdf14c`；公司 main `c52e224` 的后端字节内容相同，仅前端主题等变化。后端共 193 个受控文件。清单中的 commit 是源码复核依据，不需要写成包含清单自身的提交，避免自引用。
+初始后端清单源自 `7fd374e0f1ae838167b9b18959789ae821cdf14c`。当前清单已核对后续 main 至 `fcf219e` 的后端增量（投放机会显式编辑及舱位输入归一）及本次 Dockerfile pip 构建参数；共 194 个受控文件。API工厂、认证初始化及 worker/导出/核查自动执行代码未改变；这是部署启动边界审查，不冒充投放功能业务复验。清单中的 commit 是源码复核基线，reviewed_changes注明同批Dockerfile增量，不需要写成包含清单自身的提交，避免自引用。
 
 后续 backend 变化必须先复核启动入口、导入副作用、认证初始化、所有自动恢复/领取/通知路径，再更新清单并与实现同批提交 main。禁止在 T43 对任意新 main 盲目重算清单来绕过保护。维护者可使用 Git LF archive 的文件内容计算 SHA256；Windows 工作区 CRLF 不能直接作为 Linux 清单依据。仓库清单只证明文件匹配已审版本，不是普遍的安全或业务正确性证明。
+
+## pip 下载加速
+
+Docker Hub镜像代理只影响FROM基础镜像，不会加速容器内的pip下载。T43版本化构建覆盖默认使用 `https://pypi.tuna.tsinghua.edu.cn/simple`；该域名和 `/simple` 用法见[清华镜像官方帮助](https://mirrors.tuna.tsinghua.edu.cn/help/pypi/)，`--index-url` 见[pip官方安装参数](https://pip.pypa.io/en/stable/cli/pip_install/)。实际T43连通性/下载速度须实测，不承诺耗时。
+
+更新脚本通过Compose读取服务器 `.env` 中可选的 `PIP_INDEX_URL`、`PIP_TIMEOUT`（默认60秒）和 `PIP_RETRIES`（默认3）；分别允许HTTPS、无账号密码/查询串/片段且以 `/simple` 结尾的索引，超时5–300秒、重试0–10次。索引可改为经确认的其他国内源或官方源。地址不允许放凭据，私有认证源须另行设计Secret接入。
+
+这些仅是API构建参数；两条pip命令（升级pip、安装requirements）均显式传入同一索引/超时/重试，`--isolated` 避免隐式用户配置影响，`--no-cache-dir` 保留原无下载缓存策略。不使用HTTP、不加trusted-host、不关闭TLS，不配置额外索引，不写宿主机或镜像的pip.conf，不修改运行容器环境，也不重启Docker。普通直接docker build默认仍用官方PyPI；T43由build-args.t43.yml覆盖为国内源，不改247服务配置。
+
+首次切换pip构建参数会重建依赖安装层；下载完成的镜像层随后可按Docker缓存规则复用。保留requirements原有版本约束，不借加速修改或锁定依赖版本。构建可占用CPU/内存/网络，但构建阶段不停止现有API/web；源码及健康检查通过后才进入已授权的容器切换。
 
 ## 当前证据与未验
 

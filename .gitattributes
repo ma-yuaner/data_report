@@ -2,3 +2,4 @@
 scripts/deploy/t43/*.sh text eol=lf
 scripts/deploy/t43/*.py text eol=lf
 scripts/deploy/t43/*.json text eol=lf
+scripts/deploy/t43/*.yml text eol=lf

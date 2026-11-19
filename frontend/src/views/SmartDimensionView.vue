@@ -14,7 +14,7 @@
         <span>私人模板仅本人可见；可在保存时公开供其他账号使用</span>
       </div>
       <div class="dimension-toolbar">
-        <label><span>分析维度</span><a-select v-model:value="groups" mode="multiple" :options="dimensionOptions" :max-tag-count="4" placeholder="至少选择一个维度" @change="queryFromStart" /></label>
+        <label><span>分析维度</span><a-select v-model:value="groups" mode="multiple" :options="dimensionOptions" placeholder="至少选择一个维度" @change="queryFromStart" /></label>
         <label><span>排序指标</span><a-select v-model:value="sortBy" :options="sortOptions" @change="queryFromStart" /></label>
         <label><span>排序方向</span><a-select v-model:value="direction" :options="directionOptions" @change="queryFromStart" /></label>
         <a-button @click="openMetricModal"><SettingOutlined />显示指标</a-button>
@@ -162,7 +162,7 @@ function dimensionStorageKey() { return `smart-dimension-config-v1:user-${authSt
 function normalizeDimensionConfig(value: DimensionTemplateValue): DimensionTemplateValue {
   const validGroups = new Set(dimensionOptions.map(item => item.value))
   const validMetrics = new Set(metricOptions.map(item => item.key))
-  const normalizedGroups = value.groups.filter((key, index) => validGroups.has(key) && value.groups.indexOf(key) === index).slice(0, 4)
+  const normalizedGroups = value.groups.filter((key, index) => validGroups.has(key) && value.groups.indexOf(key) === index)
   const normalizedMetrics = metricOptions.filter(item => value.metrics.includes(item.key) && validMetrics.has(item.key)).map(item => item.key)
   return {
     groups: normalizedGroups.length ? normalizedGroups : ['airline', 'platform'],

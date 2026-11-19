@@ -78,7 +78,8 @@
             <a-space>
               <a-button type="link" size="small" @click="openDetail(record)">详情</a-button>
               <a-button v-if="canCreate" type="link" size="small" @click="openCopy(record)">复制</a-button>
-              <a-button v-if="canEdit(record)" type="link" size="small" @click="openEdit(record)">编辑/提交</a-button>
+              <a-button v-if="canEditApproved(record)" type="link" size="small" @click="openEdit(record, true)">编辑</a-button>
+              <a-button v-if="canEdit(record)" type="link" size="small" @click="openEdit(record)">编辑</a-button>
               <a-button v-if="canChangePolicy(record)" type="link" size="small" @click="openPolicyChange([record])">修改已投放</a-button>
               <a-button v-if="canWithdraw(record)" type="link" size="small" @click="confirmWithdraw(record)">撤回修改</a-button>
               <a-button v-if="isReviewable(record)" type="link" size="small" @click="openReview(record)">审核</a-button>
@@ -104,11 +105,13 @@
       v-model:open="createOpen"
       width="min(1180px, 96vw)"
       wrap-class-name="placement-create-modal"
+      :closable="!saving"
+      :keyboard="!saving"
       :footer="null"
       :mask-closable="false"
     >
       <template #title>
-        <div class="opportunity-modal-title"><strong>{{ editingTaskId ? '编辑投放机会' : '新建投放机会' }}</strong><span>由数据分析人员录入业务条件和数据依据，提交后进入数据部经理审核。</span></div>
+        <div class="opportunity-modal-title"><strong>{{ editingTaskId ? '编辑投放机会' : '新建投放机会' }}</strong><span>{{ approvedEditing ? '修改后直接生效，不重新审核；保留原审核记录和修改前后内容。' : '由数据分析人员录入业务条件和数据依据，提交后进入数据部经理审核。' }}</span></div>
       </template>
       <div class="form-intro">
         <div class="intro-mark">01</div>
@@ -144,8 +147,8 @@
             <PlacementField label="出发地"><PlacementLocationSelect v-model:type="taskForm.departureType" v-model:code="taskForm.departureCode" label="出发地" /></PlacementField>
             <PlacementField label="目的地"><PlacementLocationSelect v-model:type="taskForm.arrivalType" v-model:code="taskForm.arrivalCode" label="目的地" /></PlacementField>
             <PlacementField label="航班号" hint="多个航班号使用英文逗号分隔"><a-input v-model:value="taskForm.flightNos" placeholder="例如：HO1366,HO1365" /></PlacementField>
-            <PlacementField label="包含舱位" hint="允许匹配的舱位，例如：Y,B,M"><a-input v-model:value="taskForm.includeCabins" placeholder="请输入包含舱位" /></PlacementField>
-            <PlacementField label="排除舱位" hint="明确禁止匹配的舱位，例如：X,N"><a-input v-model:value="taskForm.excludeCabins" placeholder="请输入排除舱位" /></PlacementField>
+            <PlacementField label="包含舱位" hint="允许匹配的舱位，支持 Y/B/M、Y,B,M 或 Y|B|M"><a-input v-model:value="taskForm.includeCabins" placeholder="请输入包含舱位" /></PlacementField>
+            <PlacementField label="排除舱位" hint="禁止匹配的舱位，支持 X/N、X,N 或 X|N"><a-input v-model:value="taskForm.excludeCabins" placeholder="请输入排除舱位" /></PlacementField>
             <PlacementCabinReference v-if="!editingTaskId" :airline="taskForm.airlineCode" :active="createOpen && !editingTaskId" />
           </div>
         </section>
@@ -187,9 +190,11 @@
           </div>
         </section>
 
+        <PlacementField v-if="approvedEditing" label="修改原因" required hint="保存后直接生效，请说明本次调整原因；外部平台政策需按实际情况维护。"><a-textarea v-model:value="approvedChangeReason" :maxlength="1000" :rows="3" /></PlacementField>
         <div class="modal-actions">
-          <span>保存草稿不会进入审核流程；提交后进入数据部经理审核</span>
-          <div><a-button @click="createOpen=false">取消</a-button><a-button :loading="saving" @click="saveTask(false)">保存草稿</a-button><a-button type="primary" :loading="saving" @click="saveTask(true)">提交数据审核</a-button></div>
+          <span v-if="approvedEditing">保存后直接生效，任务状态及审核记录保持不变</span>
+          <span v-else>保存草稿不会进入审核流程；提交后进入数据部经理审核</span>
+          <div><a-button :disabled="saving" @click="createOpen=false">取消</a-button><a-button v-if="approvedEditing" type="primary" :loading="saving" @click="saveTask(false)">保存并生效</a-button><template v-else><a-button :loading="saving" @click="saveTask(false)">保存草稿</a-button><a-button type="primary" :loading="saving" @click="saveTask(true)">提交数据审核</a-button></template></div>
         </div>
       </a-form>
     </a-modal>
@@ -430,7 +435,7 @@
             </a-tab-pane>
             <a-tab-pane key="logs" :tab="`流转日志（${detail.logs.length}）`">
               <a-timeline :items="detail.logs.map(log => ({ color: log.toStatus === 'REJECTED' || log.toStatus === 'FAILED' ? 'red' : 'blue', children: `${displayTime(log.createdAt)} · ${log.operatorName} · ${actionLabel(log.actionCode)} · ${log.operationNote || ''}` }))" />
-              <details v-for="log in detail.logs.filter(item => item.actionCode.startsWith('POLICY_CHANGE_'))" :key="log.id" class="record-card">
+              <details v-for="log in detail.logs.filter(item => item.actionCode === 'APPROVED_EDIT' || item.actionCode.startsWith('POLICY_CHANGE_'))" :key="log.id" class="record-card">
                 <summary>{{ displayTime(log.createdAt) }} · {{ log.operatorName }} · {{ actionLabel(log.actionCode) }}（展开原值/新值）</summary>
                 <pre class="policy-change-log">{{ policyChangeLog(log.detailJson) }}</pre>
               </details>
@@ -508,6 +513,9 @@ const detailOpen = ref(false)
 const detailLoading = ref(false)
 const detailTab = ref('overview')
 const editingTaskId = ref<number>()
+const approvedEditing = ref(false)
+const approvedChangeReason = ref('')
+const editingVersion = ref<number>()
 const detail = ref<PlacementTaskDetail>()
 const monitoring = ref<PlacementTaskMonitoring>()
 const activeTask = ref<PlacementTaskRow>()
@@ -640,13 +648,18 @@ const actionLabelMap: Record<string, string> = {
   ROUTE_FOLLOWUP: '航线/平台跟进',
   ASSESSMENT_EXCLUDE: '标记异常（不计考核）', ASSESSMENT_RESTORE: '恢复正常（计入考核）',
   POLICY_CHANGE_REQUESTED: '待人工外部执行（仅请求）', POLICY_CHANGE_APPLIED: '已线下处理·补登记实际配置',
+  APPROVED_EDIT: '已审核机会修改（直接生效）',
   CREATE: '保存草稿', UPDATE: '更新草稿', DELETE: '删除任务', WITHDRAW: '撤回修改', CANCEL: '作废任务', SUBMIT: '提交审核', RESUBMIT: '重新提交', REVIEW: '审核', CLAIM: '认领', EXECUTE: '登记投放', ATTENTION: '订单关注', STOP_MONITORING: '停止监控', STOP_MONITORING_CENTER: '从监控中心停止',
 }
 const reviewResultMeta = (value: unknown) => reviewResultMap[String(value)] || { label: valueOrDash(value), color: 'default' }
 const actionLabel = (value: unknown) => actionLabelMap[String(value)] || valueOrDash(value)
+const approvedFieldLabels: Record<string, string> = {"opportunityName": "机会名称", "opportunitySource": "机会来源", "analysisRuleCode": "分析规则编号", "analysisStartDate": "分析开始日期", "analysisEndDate": "分析结束日期", "platformCode": "平台编码", "platformName": "平台名称", "siteCode": "站点编码", "siteName": "站点名称", "airlineCode": "航司", "departureCode": "出发代码", "arrivalCode": "到达代码", "departureType": "出发类型", "arrivalType": "到达类型", "journeyType": "航程类型", "segmentType": "航段类型", "flightNos": "航班号", "includeCabins": "包含舱位", "excludeCabins": "排除舱位", "productType": "产品类型", "orderSource": "订单来源", "orderStartDate": "销售开始日期", "orderEndDate": "销售结束日期", "advanceSaleDays": "提前销售天数", "travelStartDate": "旅行开始日期", "travelEndDate": "旅行结束日期", "placementMethod": "建议投放方式", "lossThresholdMin": "亏损阈值下限", "lossThresholdMax": "亏损阈值上限", "longTermFlag": "长期有效", "suggestedEffectiveStart": "建议生效时间", "suggestedEffectiveEnd": "建议失效时间", "historicalTicketCount": "历史票数", "historicalProfitCny": "历史利润", "estimatedMonthTicketCount": "预估月票数", "estimatedMonthProfitCny": "预估月利润", "analysisConclusion": "分析结论", "riskNote": "风险提示", "priority": "优先级", "expectedCompleteAt": "期望完成时间", "routeText": "历史航线文本"}
 function policyChangeLog(raw: unknown) {
   try {
     const log = JSON.parse(String(raw || '{}'))
+    if (log.previousVersionNo !== undefined && log.before && log.after && log.externalExecution === 'MANUAL_REQUIRED' && log.executionBefore !== undefined) {
+      return [`版本：${log.previousVersionNo} → ${log.versionNo}`, `修改时间：${formatDateTimeDisplay(log.recordedAt)}`, ...Object.keys(log.after).filter(key => (log.fields || []).includes(key)).map(key => `${approvedFieldLabels[key] || key}：${valueOrDash(log.before[key])} → ${valueOrDash(log.after[key])}`)].join('\n')
+    }
     const labels: Record<string, string> = { includeCabins: '包含舱位', excludeCabins: '排除舱位', effectiveStartAt: '政策生效时间', effectiveEndAt: '政策失效时间', longTermFlag: '长期有效' }
     const selected = new Set((log.fields || []).flatMap((field: string) => field === 'effectivePeriod' ? ['effectiveStartAt', 'effectiveEndAt', 'longTermFlag'] : [field]))
     return [`外部政策：${log.externalPolicyId || '—'}`, `登记时间：${formatDateTimeDisplay(log.recordedAt || '—')}；线下实际修改：${formatDateTimeDisplay(log.appliedAt || '未确认')}；监控生效：${formatDateTimeDisplay(log.monitorEffectiveAt || '未变更')}`, ...Object.entries(labels).filter(([key]) => selected.has(key)).map(([key, label]) => `${label}：${valueOrDash(displayDateTimeField(log.before?.[key], key))} → ${valueOrDash(displayDateTimeField(log.after?.[key], key))}`)].join('\n')
@@ -725,7 +738,7 @@ function selectWorkScope(value: string) {
   void load(1)
 }
 function changePage(value: { current?: number; pageSize?: number }) { const size = value.pageSize || pageSize.value; page.value = size === pageSize.value ? value.current || 1 : 1; pageSize.value = size; void load(page.value) }
-function openCreate() { editingTaskId.value = undefined; taskForm.value = blankTask(); createOpen.value = true; void loadDimensions() }
+function openCreate() { approvedEditing.value = false; approvedChangeReason.value = ''; editingVersion.value = undefined; editingTaskId.value = undefined; taskForm.value = blankTask(); createOpen.value = true; void loadDimensions() }
 function queryText(key: string) {
   const value = route.query[key]
   return Array.isArray(value) ? String(value[0] || '') : String(value || '')
@@ -749,6 +762,9 @@ function openCreateFromAnalysis() {
   form.historicalTicketCount = optionalNumber(queryText('historicalTicketCount'))
   form.historicalProfitCny = optionalNumber(queryText('historicalProfitCny'))
   form.analysisConclusion = '来源于智能综合分析，请结合维度表现、样本范围和投放风险完成评估。'
+  approvedEditing.value = false
+  approvedChangeReason.value = ''
+  editingVersion.value = undefined
   editingTaskId.value = undefined
   taskForm.value = form
   createOpen.value = true
@@ -768,6 +784,9 @@ async function openCopy(row: PlacementTaskRow) {
     copied.siteCode = ''
     copied.productType = ''
     copied.submit = false
+    approvedEditing.value = false
+    approvedChangeReason.value = ''
+    editingVersion.value = undefined
     editingTaskId.value = undefined
     taskForm.value = copied
     createOpen.value = true
@@ -776,10 +795,14 @@ async function openCopy(row: PlacementTaskRow) {
   } catch (failure) { message.error(failure instanceof Error ? failure.message : '任务复制失败') }
   finally { saving.value = false }
 }
-async function openEdit(row: PlacementTaskRow) {
+async function openEdit(row: PlacementTaskRow, approved = false) {
   saving.value = true
   try {
     const result = await fetchPlacementTask(row.id)
+    if (approved && !canEditApproved(result.task)) { message.warning('任务状态或权限已变化，请刷新后重试'); return }
+    approvedEditing.value = approved
+    approvedChangeReason.value = ''
+    editingVersion.value = result.task.versionNo
     editingTaskId.value = row.id
     taskForm.value = taskToForm(result.task)
     createOpen.value = true
@@ -787,6 +810,7 @@ async function openEdit(row: PlacementTaskRow) {
   } catch (failure) { message.error(failure instanceof Error ? failure.message : '任务加载失败') }
   finally { saving.value = false }
 }
+function normalizeCabins(value?: string) { return normalizeList(String(value || '').replace(/[／/|;；]/g, ',')) }
 function normalizeList(value?: string) { return String(value || '').replace(/，/g, ',').split(',').map(item => item.trim()).filter(Boolean).join(',') }
 function validateTaskForm(values: PlacementTaskInput, submit: boolean) {
   const required: [keyof PlacementTaskInput, string][] = [
@@ -818,31 +842,35 @@ function validateTaskForm(values: PlacementTaskInput, submit: boolean) {
   const hasLossMax = values.lossThresholdMax !== undefined && values.lossThresholdMax !== null
   if (hasLossMin !== hasLossMax) return '亏损阈值上下限必须同时填写或同时留空'
   if (hasLossMin && hasLossMax && Number(values.lossThresholdMax) < Number(values.lossThresholdMin)) return '亏损阈值上限不能小于下限'
-  const included = new Set(normalizeList(values.includeCabins).toUpperCase().split(',').filter(Boolean))
-  const excluded = normalizeList(values.excludeCabins).toUpperCase().split(',').filter(Boolean)
+  const included = new Set(normalizeCabins(values.includeCabins).toUpperCase().split(',').filter(Boolean))
+  const excluded = normalizeCabins(values.excludeCabins).toUpperCase().split(',').filter(Boolean)
   const overlap = excluded.filter(item => included.has(item))
   return overlap.length ? `包含舱位和排除舱位不能重复：${overlap.join(',')}` : ''
 }
 async function saveTask(submit: boolean) {
+  if (saving.value) return
+  if (approvedEditing.value && submit) { message.warning('已审核编辑直接保存生效，无需提交审核'); return }
   const values = {
     ...taskForm.value,
     flightNos: normalizeList(taskForm.value.flightNos),
-    includeCabins: normalizeList(taskForm.value.includeCabins).toUpperCase(),
-    excludeCabins: normalizeList(taskForm.value.excludeCabins).toUpperCase(),
+    includeCabins: normalizeCabins(taskForm.value.includeCabins).toUpperCase(),
+    excludeCabins: normalizeCabins(taskForm.value.excludeCabins).toUpperCase(),
   }
-  const validationError = validateTaskForm(values, submit)
+  if (approvedEditing.value && !approvedChangeReason.value.trim()) { message.warning('请填写修改原因'); return }
+  const validationError = validateTaskForm(values, submit || approvedEditing.value)
   if (validationError) { message.warning(validationError); return }
   taskForm.value = values
   saving.value = true
   try {
-    const payload = { ...values, submit }
+    const payload = { ...values, submit, ...(approvedEditing.value ? { approvedEdit: true, changeReason: approvedChangeReason.value.trim(), versionNo: editingVersion.value } : {}) }
     const result = editingTaskId.value ? await updatePlacementTask(editingTaskId.value, payload) : await createPlacementTask(payload)
-    message.success(submit ? `任务${result.taskNo}已提交审核` : `草稿${result.taskNo}已保存`)
-    createOpen.value = false; editingTaskId.value = undefined; await load(1)
+    message.success(approvedEditing.value ? `任务${result.taskNo}修改已生效` : submit ? `任务${result.taskNo}已提交审核` : `草稿${result.taskNo}已保存`)
+    createOpen.value = false; approvedEditing.value = false; approvedChangeReason.value = ''; editingVersion.value = undefined; editingTaskId.value = undefined; await load(1)
   }
   catch (failure) { message.error(failure instanceof Error ? failure.message : '保存失败') }
   finally { saving.value = false }
 }
+const canEditApproved = (row: PlacementTaskRow) => hasPermission('smart_placement.edit_approved') && ['CLAIMABLE', 'IN_PROGRESS', 'MONITORING', 'FAILED', 'ENDED'].includes(row.status)
 const canEdit = (row: PlacementTaskRow) => canEditTasks.value && row.status === 'DRAFT' && (Boolean(authStore.user?.isAdmin) || row.createdById === authStore.user?.id || row.currentAssigneeId === authStore.user?.id)
 const canChangePolicy = (row: PlacementTaskRow) => canExecuteTasks.value && row.status === 'MONITORING' && (Boolean(authStore.user?.isAdmin) || row.currentAssigneeId === authStore.user?.id)
 function openPolicyChange(rows: PlacementTaskRow[]) { policyChangeRows.value = rows.map(row => ({ ...row })); policyChangeOpen.value = true }
@@ -990,14 +1018,14 @@ function validateExecution() {
     if (!form.failureType || !form.failureReason) return '请填写失败类型和失败原因'
     if (form.retryRequired && !form.nextHandleAt) return '重新执行时必须填写下次处理时间'
   }
-  const included = new Set(normalizeList(form.includeCabins).toUpperCase().split(',').filter(Boolean))
-  const overlap = normalizeList(form.excludeCabins).toUpperCase().split(',').filter(Boolean).filter((item: string) => included.has(item))
+  const included = new Set(normalizeCabins(form.includeCabins).toUpperCase().split(',').filter(Boolean))
+  const overlap = normalizeCabins(form.excludeCabins).toUpperCase().split(',').filter(Boolean).filter((item: string) => included.has(item))
   return overlap.length ? `实际包含舱位和排除舱位不能重复：${overlap.join(',')}` : ''
 }
 async function submitExecution() {
   if (!activeTask.value) return
   const validationError = validateExecution(); if (validationError) { message.warning(validationError); return }
-  executionForm.value.includeCabins = normalizeList(executionForm.value.includeCabins).toUpperCase(); executionForm.value.excludeCabins = normalizeList(executionForm.value.excludeCabins).toUpperCase()
+  executionForm.value.includeCabins = normalizeCabins(executionForm.value.includeCabins).toUpperCase(); executionForm.value.excludeCabins = normalizeCabins(executionForm.value.excludeCabins).toUpperCase()
   saving.value = true
   try { const result = await executePlacementTask(activeTask.value.id, executionForm.value); message.success(result.monitorRule ? `投放已登记，监控规则 ${result.monitorRule.ruleCode} 已生效` : '投放结果已登记'); executionOpen.value = false; await load() } catch (failure) { message.error(failure instanceof Error ? failure.message : '登记失败') } finally { saving.value = false }
 }

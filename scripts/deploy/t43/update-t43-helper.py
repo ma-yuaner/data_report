@@ -4,6 +4,7 @@ import json
 import pathlib
 import re
 import sys
+from urllib.parse import urlsplit
 
 MOUNTS = {
     "/app/var/assets": "asset_inventory_data",
@@ -19,6 +20,25 @@ MOUNTS = {
 def require(ok, message):
     if not ok:
         raise SystemExit("ERROR: " + message)
+
+
+def pip_settings(c):
+    args = c["services"]["api"].get("build", {}).get("args", {})
+    index = args.get("PIP_INDEX_URL", "https://pypi.tuna.tsinghua.edu.cn/simple")
+    require(isinstance(index, str), "pip index must be an HTTPS URL")
+    parsed = urlsplit(index)
+    require(parsed.scheme == "https" and parsed.hostname
+            and not parsed.username and not parsed.password and not parsed.query
+            and not parsed.fragment and parsed.path.rstrip("/").endswith("/simple")
+            and not any(char.isspace() for char in index),
+            "pip index must use HTTPS /simple without credentials, query, or fragment")
+    timeout = str(args.get("PIP_TIMEOUT", "60"))
+    retries = str(args.get("PIP_RETRIES", "3"))
+    require(timeout.isascii() and timeout.isdigit() and 5 <= int(timeout) <= 300,
+            "pip timeout must be an integer from 5 to 300")
+    require(retries.isascii() and retries.isdigit() and 0 <= int(retries) <= 10,
+            "pip retries must be an integer from 0 to 10")
+    return index, timeout, retries
 
 
 def validate(c, runtime=False):
@@ -51,6 +71,8 @@ def validate(c, runtime=False):
     require(not services["api"].get("command") and not services["web"].get("command"),
             "Custom command needs review")
     env = services["api"].get("environment", {})
+    if not runtime:
+        pip_settings(c)
     for key in ("HR_MAIL_SEND_ENABLED", "ADM_EXTERNAL_DELIVERY_ENABLED", "AUTH_AUTO_CREATE_TABLES"):
         require(str(env.get(key, "")).lower() == "false", "Unsafe switch: " + key)
     for key in ("AUTH_BOOTSTRAP_ADMIN_USERNAME", "AUTH_BOOTSTRAP_ADMIN_PASSWORD"):
@@ -141,6 +163,8 @@ def main():
         value = c["services"]["api"].get("build", {}).get("args", {}).get("DOCKERHUB_MIRROR", "docker.io")
         require(isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9._:/-]+", value), "Invalid mirror name")
         print(value)
+    elif action == "build-pip-settings":
+        print("\n".join(pip_settings(c)))
     else:
         raise SystemExit("Unknown action")
 

@@ -212,3 +212,7 @@
 上线前在`sibebid`执行`docs/sql/smart-placement-lifecycle-notification-v2.sql`，并在账号管理中把需要被动态@的中台账号绑定到ERP花名册员工。
 
 2026-11-04用户明确要求参考舱位保留原始顺序和内容：接口cabins数组每项为一条原始cabin字符串，不再拆分、转大写、去重或排序；前端原值展示，多条配置分行，保留原有竖线、大小写、重复值及空格。NULL/纯空白仍提示未明确配置。更新API与Web配套部署。
+
+## 已审核机会的负责人编辑（2026-11-18）
+
+独立权限smart_placement.edit_approved，由权限管理配置；原因必填、直接生效、不重审，审核及状态不变，日志保留前后值。按数据范围控制，监控条件同事务同步。入口/边界/部署详见[交付说明](../../development/placement-approved-edit-20261118.md)。
