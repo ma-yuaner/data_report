@@ -1647,3 +1647,6 @@ Node VM 用 10 个合成条目核对分类、分数、模拟角色切换、回�
 在干净隔离工作区保留main并发更新至fcf219e；核对相对原清单5个后端增量均为显式投放编辑/舱位归一，API工厂/认证initialize AST、worker和导出/核查代码不变。仅修改Dockerfile增加PIP_INDEX_URL/TIMEOUT/RETRIES构建参数，通用默认官方源；新增T43构建覆盖默认清华HTTPS源、60秒/3次，支持服务器.env覆盖。脚本显式将三项传入API docker build，升级pip与requirements都使用该源；helper限制HTTPS无凭据/查询及数值范围，不加trusted-host、不改pip.conf、不改依赖范围或应用USER/CMD。清单随同批代码更新至194文件，并注明Dockerfile构建增量；不是盲目放开新的main。
 
 Bash/Python语法、24项helper/清单检查、16项pip参数/拒绝反例/实际Dockerfile RUN的假python执行检查及4个Shell部署回退模拟通过；保留3个校验容器显式UID0、readonly/network-none约束。证据.test-artifacts/t43-deployment-20261118/pip-results.txt等不入Git。无本机Docker真实构建，T43国内源连通性/提速及本次新版本实际部署待用户拉取后逐步验证。公开镜像/pip参数依据已核对清华及pip官方文档，未向搜索发送项目内容。无SQL、DDL、调度、外部通知或服务器操作；本次仅GitLab main提交推送。下一步仅指导T43拉取修复，不能直接假定构建已恢复或更新已完成。
+
+## 修改密码页UI补齐（2026-11-19）
+用户反馈旧改密页漏改，已统一登录品牌风格；认证逻辑保持。类型、lint、构建及合成状态/SSR验证通过。浏览器停用未实测，未部署。详见 [交付记录](../development/change-password-ui-20261119.md)。
