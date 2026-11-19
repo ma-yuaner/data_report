@@ -441,3 +441,7 @@
 <!-- END:API_ROUTES -->
 
 ADM解析来件登记：`GET /api/v1/adm/parsing/pending`、`POST /api/v1/adm/parsing/tasks/{id}/register`，需要adm.create并遵守来件拥有者/管理权限。参数、原子性及错误见[接口与交付](../development/adm-parsing-ledger-intake-20261119.md)。
+
+### 改签 SLA 看板
+
+`GET /api/v1/analysis/change-sla` 需要菜单权限 `analysis.change_sla`。可传 `from`、`to`（YYYY-MM-DD，含首末日，默认北京时间当天）。返回 ERP 只读快照时间、日期范围、审核与操作节点记录和已配置阈值。单次最多 31 天且单节点最多 5,000 条，超限返回 400，请缩短日期。响应 `Cache-Control: no-store`。阈值由 `CHANGE_SLA_AUDIT_MINUTES`、`CHANGE_SLA_OPERATION_MINUTES` 配置，未配置的节点显示待配置。
