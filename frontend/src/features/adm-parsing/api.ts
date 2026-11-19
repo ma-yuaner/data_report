@@ -9,6 +9,7 @@ export type ParseTask = {
   saveStatus: string
   createdAt: string
   updatedAt: string
+  relatedDocuments?: { number: string; segmentId: string; locator: string; ticketType: string }[]
   originalCandidate?: unknown
   validationVersion?: string
   adjustments?: { code: string; path: string; message: string }[]

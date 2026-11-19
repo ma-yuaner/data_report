@@ -3,12 +3,35 @@ import copy
 import re
 from .contract import VERSION
 
-VALIDATION_VERSION = "adm-validation/1.2"
+VALIDATION_VERSION = "adm-validation/1.3"
 REMOVED = {"/adm/issuer", "/adm/supplierName", "/adm/airline"}
 
 
 def normal(value):
     return re.sub(r"\s+", "", str(value)).replace(",", "").casefold()
+
+
+def related_documents(segments):
+    """Only numbers directly adjacent to the Related Document Number label."""
+    items, seen = [], set()
+    number = r"[0-9]{3}[- ]?[0-9]{10}"
+    patterns = (
+        re.compile(r"Related\s+Document\s+Numbers?\s*[:：]?\s*(?P<number>" + number + r")(?![0-9])", re.I),
+        re.compile(r"(?<![0-9])(?P<number>" + number + r")\s+Related\s+Document\s+Numbers?\b", re.I),
+    )
+    for segment in segments:
+        text = segment["text"]
+        virtual = bool(re.search(r"(?:TKT|ticket).{0,100}(?:fictitious|virtual)|虚拟票号", text, re.I | re.S))
+        for pattern in patterns:
+            for match in pattern.finditer(text):
+                value = re.sub(r"[- ]", "", match.group("number"))
+                key = (value, segment["id"])
+                if key in seen:
+                    continue
+                seen.add(key)
+                items.append({"number": value, "segmentId": segment["id"], "locator": segment.get("locator", ""),
+                              "quote": match.group(0), "ticketType": "virtual" if virtual else "unknown"})
+    return items
 
 
 def prepare(candidate, segments):
@@ -63,4 +86,15 @@ def prepare(candidate, segments):
             adm["airlineCode"] = code
             result["evidence"].append({"path": "/adm/airlineCode", "segmentId": sid, "quote": quote})
             changes.append({"code": "AIRLINE_CODE_FROM_SOURCE", "path": "/adm/airlineCode", "segmentId": sid, "message": "从唯一Airline Code / Name标签提取编码，不从航司名称猜测"})
+    documents = related_documents(segments)
+    numbers = {item["number"] for item in documents}
+    lines = result.get("lines")
+    if len(numbers) == 1 and isinstance(lines, list) and len(lines) == 1 and isinstance(lines[0], dict) and lines[0].get("ticketNumber") is None:
+        item = documents[0]
+        lines[0]["ticketNumber"] = item["number"]
+        # Never infer that a labelled document is a real ticket simply from its shape.
+        if item["ticketType"] == "virtual":
+            lines[0]["ticketType"] = "virtual"
+        result["evidence"].append({"path": "/lines/0/ticketNumber", "segmentId": item["segmentId"], "quote": item["quote"]})
+        changes.append({"code": "RELATED_TICKET_FROM_SOURCE", "path": "/lines/0/ticketNumber", "segmentId": item["segmentId"], "message": "从唯一Related Document Number提取关联票号；虚拟号保留原号，不用于真实出票匹配"})
     return result, changes

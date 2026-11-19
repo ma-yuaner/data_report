@@ -181,6 +181,18 @@
                     >{{ selected.airlineMatch.name }}（{{ selected.airlineMatch.code }}）</b
                   ><span v-else>{{ airlineStatus(selected.airlineMatch?.status) }}</span>
                 </div>
+                <div class="parsing-airline">
+                  <span>Related Document Number（关联票号）</span>
+                  <span v-if="!selected.relatedDocuments?.length">未提取到关联票号，可重新校验已保存结果</span>
+                  <button
+                    v-for="document in selected.relatedDocuments"
+                    :key="`${document.segmentId}-${document.number}`"
+                    class="parsing-source"
+                    @click="locateSegment(document.segmentId)"
+                  >
+                    {{ document.number }} · {{ ticketLabel(document.ticketType) }} · {{ document.locator }}
+                  </button>
+                </div>
                 <h3>交易明细 {{ displayLines.length }} 条</h3>
                 <div class="parsing-table">
                   <table>
@@ -635,7 +647,10 @@ async function locate(path: string) {
   const evidence = selected.value?.candidate?.evidence
   if (!Array.isArray(evidence)) return
   const e = evidence.find((e) => e.path === path) || evidence.find((e) => e.path.startsWith(`${path}/`))
-  const segment = selected.value?.segments?.find((s) => s.id === e?.segmentId)
+  await locateSegment(e?.segmentId)
+}
+async function locateSegment(segmentId?: string) {
+  const segment = selected.value?.segments?.find((s) => s.id === segmentId)
   if (!segment) {
     sourceNotice.value = '该字段暂无有效来源，请先重新校验或查看校验问题。'
     return
@@ -646,6 +661,7 @@ async function locate(path: string) {
   await nextTick()
   document.getElementById(`segment-${segment.id}`)?.scrollIntoView({ block: 'nearest', behavior: 'auto' })
 }
+
 onMounted(refresh)
 onBeforeUnmount(() => {
   stopped = true
