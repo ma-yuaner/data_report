@@ -241,10 +241,10 @@ class MonitorRuleCompiler:
             rule_id = int(existing_rule["id"])
             rule_code = existing_rule["rule_code"]
             cursor.execute(
-                f"""UPDATE {_qualified(database, RULE_TABLE)} SET status=%s,
+                f"""UPDATE {_qualified(database, RULE_TABLE)} SET status=%s,rule_name=%s,
                     effective_start_at=%s,effective_end_at=%s,current_version_no=%s,
                     updated_by_id=%s,updated_by_name=%s,updated_at=%s WHERE id=%s""",
-                (status, effective_start, effective_end, version_no, actor[0], actor[1], now, rule_id),
+                (status, rule_name, effective_start, effective_end, version_no, actor[0], actor[1], now, rule_id),
             )
         else:
             cursor.execute(

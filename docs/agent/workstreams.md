@@ -1,3 +1,9 @@
+## 同一编辑入口支持当前投放登记（2026-11-19）
+
+用户补充已有投放登记也应允许修改；主会话磐石/星桥/明鉴，frontend-design，无子代理。独立feat/placement-execution-edit-20261119基于公司origin/main 1b2f324。沿用edit_approved/原因/版本/范围/直接生效，带出并编辑最新投放登记，原记录/审核/投放结果状态/是否重试保留；登记单独变更也能保存，监控规则及审计同事务，历史收单不回算、结束不重启。原登记与编辑共用字段组件/校验。完整范围、API及边界见[交付](../development/placement-execution-edit-20261119.md)。
+
+140项相关后端/真实Flask隔离SQLite/回滚及监控编译验证通过3.00秒；Vue实际setup、模板/CSS、类型、ESLint通过；AntD注册88页通过。测试仅本地.test-artifacts/execution-edit-20261119，非生产数据；MySQL/浏览器/部署未验，沿用既有esbuild权限限制不重复构建。SQL资产PLACEMENT-EXEC-EDIT-002已归档并维护索引，无DDL/ETL。需API/Web更新。代码交付/推送回执另补；本轮尚未单独批准新通知内容，不发群。
+
 ## 编辑名称与舱位分隔符兼容（2026-11-18）
 
 通知回执补记：用户明确批准本补丁说明/提交号/验证限制后，2026-11-18 17:00:31—17:00:32（Asia/Shanghai）按马远尔向原配置发版群实际发送一次，HTTP200、errcode=0、accepted，0.259秒；任务placement-approved-edit-separators-20261118，脱敏回执在公司worktree的.test-artifacts/approved-edit-20261118/separator-receipts。此前自动审批拦截未执行，本次为唯一实际发送；通知阻塞已解除，服务器仍未部署，原验证限制不变。
