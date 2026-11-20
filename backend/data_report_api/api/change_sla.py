@@ -7,7 +7,8 @@ from openpyxl import load_workbook
 
 from .common import ok
 from ..services.change_sla import ChangeSlaQueryError, read_change_sla
-from ..services.change_sla_limits import ChangeSlaLimits, FIELDS, InvalidLimit, LimitsChanged
+from ..services.change_sla_limits import ChangeSlaLimits, FIELDS, InvalidLimit, LimitsChanged, SharedChangeSlaLimits
+from ..services.data_source import DataSource
 from ..services.change_sla_snapshot import ChangeSlaSnapshotUnavailable, read_reporting_snapshot
 
 
@@ -79,7 +80,12 @@ def register_routes(api):
         user = getattr(g, "current_user", {})
         if not _can_access(user):
             return jsonify(success=False, message="仅系统管理员或客服经理可管理改签时限", code="PERMISSION_FORBIDDEN", data=None), 403
-        store = ChangeSlaLimits(current_app.config["DATA_WORKBENCH_DIR"])
+        config = current_app.config
+        root = config["DATA_WORKBENCH_DIR"]
+        store = (
+            SharedChangeSlaLimits(root, DataSource({**config, "DATA_MODE": "mysql"}).connect)
+            if config.get("CHANGE_SLA_SHARED_RULES") else ChangeSlaLimits(root)
+        )
         try:
             if request.method == "POST":
                 if request.content_length and request.content_length > 3 * 1024 * 1024:

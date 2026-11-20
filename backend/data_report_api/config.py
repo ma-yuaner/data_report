@@ -20,6 +20,7 @@ class Config:
     CHANGE_SLA_AUDIT_MINUTES = os.getenv("CHANGE_SLA_AUDIT_MINUTES", "45")
     CHANGE_SLA_OPERATION_MINUTES = os.getenv("CHANGE_SLA_OPERATION_MINUTES", "90")
     CHANGE_SLA_SNAPSHOT_PATH = os.getenv("CHANGE_SLA_SNAPSHOT_PATH", "")
+    CHANGE_SLA_SHARED_RULES = os.getenv("CHANGE_SLA_SHARED_RULES", "0") == "1"
     ADM_PARSING_ROOT = os.getenv("ADM_PARSING_ROOT", "").strip() or str(Path(__file__).resolve().parents[1] / "var/adm/parsing")
     ADM_PARSING_STORAGE_MODE = os.getenv("ADM_PARSING_STORAGE_MODE", "mysql")
     ADM_PARSING_AI_ENABLED = env_bool("ADM_PARSING_AI_ENABLED", False)
