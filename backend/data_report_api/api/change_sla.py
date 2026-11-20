@@ -1,5 +1,5 @@
 """ERP change SLA dashboard read endpoint."""
-from flask import current_app, jsonify, request
+from flask import current_app, g, jsonify, request
 
 from .common import ok
 from ..services.change_sla import ChangeSlaQueryError, read_change_sla
@@ -8,6 +8,9 @@ from ..services.change_sla import ChangeSlaQueryError, read_change_sla
 def register_routes(api):
     @api.get("/v1/analysis/change-sla")
     def change_sla():
+        user = getattr(g, "current_user", {})
+        if not any(role.get("name") == "客服经理" for role in (user.get("business_roles") or [])):
+            return jsonify(success=False, message="仅客服经理可查看改签 SLA", code="PERMISSION_FORBIDDEN", data=None), 403
         try:
             response = ok(read_change_sla(current_app.config, request.args.get("from"), request.args.get("to")))
             response.headers["Cache-Control"] = "no-store"
