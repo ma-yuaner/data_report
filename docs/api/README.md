@@ -424,4 +424,10 @@
 
 ### 改签 SLA 看板
 
-`GET /api/v1/analysis/change-sla` 仅向已分配启用的「客服经理」业务角色开放全量汇总与异常明细。单独勾选菜单不能授权。可传 `from`、`to`（YYYY-MM-DD，含首末日，默认北京时间当天）。返回 ERP 只读快照时间、日期范围、审核与操作节点记录和已配置阈值。单次最多 31 天且单节点最多 5,000 条，超限返回 400，请缩短日期。响应 `Cache-Control: no-store`。阈值由 `CHANGE_SLA_AUDIT_MINUTES`、`CHANGE_SLA_OPERATION_MINUTES` 配置，默认分别为 45、90 分钟，改期、改名、改证件共用。已有环境变量覆盖默认值，部署时应核对。
+`GET /api/v1/analysis/change-sla` 向系统管理员和已分配启用的「客服经理」业务角色开放全量汇总与异常明细。单独勾选菜单不能授权。可传 `from`、`to`（YYYY-MM-DD，含首末日，默认北京时间当天）。返回 ERP 只读快照时间、日期范围、审核与操作节点记录和已配置阈值。单次最多 31 天且单节点最多 5,000 条，超限返回 400，请缩短日期。响应 `Cache-Control: no-store`。阈值由 `CHANGE_SLA_AUDIT_MINUTES`、`CHANGE_SLA_OPERATION_MINUTES` 配置，默认分别为 45、90 分钟，改期、改名、改证件共用。已有环境变量覆盖默认值，部署时应核对。
+
+报表页签使用同一路径并传 `node=audit|operation`。使用 ETL 已发布快照，缺日期覆盖会返回覆盖信息，完全未同步返回 `CHANGE_SLA_NOT_SYNCED`。每条记录携带业务日期、报表耗时、节点计时证据与平台规则匹配结果。规则按订单首次判定固定，未命中用审核 60 分钟、操作 90 分钟，待确认分段和改名、改证件保留待确认。
+
+`GET/POST /api/v1/analysis/change-sla/limits` 供系统管理员和客服经理查看、录入及导入配置，修改要求当前版本并沿用应用 CSRF 校验。配置及版本留痕保存在现有数据卷下的 change-sla-limits.sqlite3。报表由独立 ETL 发布，生产调度由发布阶段配置。
+
+专用 ETL 服务器与中台分开部署。生产查询默认走现有 BI MySQL 连接，读取已发布的 bi_change_sla_fact 和 bi_change_sla_coverage。CHANGE_SLA_SNAPSHOT_PATH 仅用于明确配置的隔离验收快照。时限管理数据仍在 T43 本机持久卷，使用 scripts/deploy/t43/export-change-sla-rules.py 导出去除通讯信息的规则文件，再经现有受控内网流程交给 216。
