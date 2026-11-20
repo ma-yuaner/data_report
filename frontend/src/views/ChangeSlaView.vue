@@ -35,6 +35,7 @@ const newTab = () => ({
   error: '',
   unit: 'minute' as 'minute' | 'hour' | 'day',
   period: 'day' as 'day' | 'month',
+  trendRange: 0,
   summaryDimension: 'platform' as Dimension,
   drill: null as Drill | null,
   nextDimension: 'air' as Dimension,
@@ -136,6 +137,18 @@ const trend = computed(() => {
   }
   return [...buckets].sort(([a], [b]) => a.localeCompare(b)).map(([date, values]) => ({ date, count: values.length, ...stats(values) }))
 })
+const trendRanges = computed(() => {
+  const items = trend.value
+  const ranges = []
+  for (let end = items.length; end > 0; end -= 7) {
+    const rows = items.slice(Math.max(0, end - 7), end)
+    const first = rows[0].date
+    const last = rows[rows.length - 1].date
+    ranges.push({ value: ranges.length, label: first === last ? first : first + ' 至 ' + last, rows })
+  }
+  return ranges
+})
+const visibleTrend = computed(() => (trendRanges.value[view.value.trendRange] ?? trendRanges.value[0])?.rows ?? [])
 function group(data: ReportRow[], key: Dimension) {
   const map = new Map<string, { step: Step; records: ReportRow[] }>()
   for (const row of data) {
@@ -230,6 +243,7 @@ async function query(node: Node = active.value) {
     state.data = response.data.data
     if (!dates?.length) state.draft.dates = state.data.dates
     state.applied = { ...requested, dates: state.data.dates }
+    state.trendRange = 0
     state.drill = null
   } catch (error) {
     state.error = error instanceof Error ? error.message : '查询失败，请稍后重试'
@@ -316,11 +330,17 @@ onMounted(() => void query())
         <a-alert v-if="!rows.length" class="sla-section" type="info" show-icon message="当前查询无记录，请调整日期或筛选条件。" />
 
         <a-card class="sla-section" title="处理趋势" size="small">
-          <template #extra><a-segmented v-model:value="view.period" :options="periods" /></template>
-          <div v-for="item in trend" :key="item.date" class="sla-trend">
+          <template #extra><a-segmented v-model:value="view.period" :options="periods" @change="view.trendRange=0" /></template>
+          <div v-if="trendRanges.length>1" class="trend-toolbar">
+            <a-select v-model:value="view.trendRange" :options="trendRanges" class="trend-range"
+              aria-label="选择趋势区间" />
+          </div>
+          <div v-for="item in visibleTrend" :key="item.date" class="sla-trend">
             <span>{{item.date}}</span>
-            <a-progress :percent="parseFloat(item.rate)||0" :show-info="false" size="small" />
-            <span>{{item.rate}}达标 · {{item.late}} 超时 / {{item.count}} 条</span>
+            <a-progress :percent="item.judged ? 100 * (item.judged-item.late) / item.judged : 0"
+              status="normal" :show-info="false" size="small" />
+            <span v-if="item.judged">{{item.rate}} 达标 · {{item.late}} 超时 / {{item.judged}} 条已考核</span>
+            <span v-else>无可考核记录 · {{item.count}} 条记录</span>
           </div>
         </a-card>
 
@@ -394,4 +414,10 @@ onMounted(() => void query())
 .metric-value,.metric-button{font-size:23px;line-height:1.3;font-variant-numeric:tabular-nums}
 .metric-button{padding:0;height:auto}
 .sla-trend{display:grid;grid-template-columns:110px minmax(40px,1fr) auto;align-items:center;gap:10px}
+.trend-toolbar{display:flex;justify-content:flex-end;margin-bottom:8px}
+.trend-range{width:245px;max-width:100%}
+@media(max-width:600px){
+  .sla-trend{grid-template-columns:minmax(0,1fr) auto;gap:4px 8px;margin-bottom:8px}
+  .sla-trend :deep(.ant-progress){grid-row:2;grid-column:1/-1}
+}
 </style>
