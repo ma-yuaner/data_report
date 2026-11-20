@@ -21,7 +21,7 @@ type ReportRow = SlaRow & Partial<Record<'platformName' | 'supplier' | 'intake' 
 }>
 type Filters = Partial<Record<Dimension, string>> & { dates?: [string, string]; id: string }
 type Step = { key: Dimension; value: string; label: string }
-type Drill = { steps: Step[]; mode: DrillMode; analysis: boolean; previous?: Drill }
+type Drill = { steps: Step[]; mode: DrillMode; analysis: boolean; previous?: { drill: Drill; dimension: Dimension } }
 type Snapshot = ErpSnapshot & { coverage?: { missingDates: string[]; latestCoveredDate: string | null } }
 const dimensions: Dimension[] = ['platform', 'air', 'owner', 'supplier', 'shift', 'intake', 'exchange', 'kind']
 const limitsOpen = ref(false)
@@ -174,7 +174,7 @@ const drillTitle = computed(() => ({
 }[drill.value?.mode || 'all']))
 function openDrill(mode: DrillMode, steps: Step[] = [], analysis = false, previous?: Drill) {
   record.value = null
-  view.value.drill = { mode, steps, analysis, previous }
+  view.value.drill = { mode, steps, analysis, previous: previous && { drill: previous, dimension: view.value.nextDimension } }
   view.value.nextDimension = dimensions.find(key => !steps.some(step => step.key === key)) || 'platform'
 }
 function continueDrill(step: Step, analysis = true, mode?: DrillMode) {
@@ -182,12 +182,16 @@ function continueDrill(step: Step, analysis = true, mode?: DrillMode) {
   if (!current) return
   openDrill(mode ?? current.mode, [...current.steps, step], analysis, current)
 }
-function backDrill() {
+function openCurrentDetails() {
   const current = drill.value
-  const previous = current?.previous
+  if (current) openDrill(current.mode, current.steps, false, current)
+}
+function backDrill() {
+  const previous = drill.value?.previous
   if (previous) {
-    view.value.drill = previous
-    view.value.nextDimension = current.steps.at(-1)?.key ?? 'platform'
+    record.value = null
+    view.value.drill = previous.drill
+    view.value.nextDimension = previous.dimension
   }
 }
 function closeDrill() {
@@ -201,7 +205,7 @@ const groupColumns = computed(() => [
   { title: '超时率', dataIndex: 'rate', width: 90, align: 'right' as const },
   { title: '超时数', key: 'late', width: 90, align: 'right' as const },
   ...(!isAudit.value ? [{ title: '出票时间回填', key: 'backfill', width: 120, align: 'right' as const }] : []),
-  { title: '继续分析', key: 'analyze', width: 105 },
+  { title: '操作', key: 'analyze', width: 180 },
 ])
 const detailColumns = computed<TableColumnsType<ReportRow>>(() => [
   { title: 'ERP 单据 ID', key: 'id', dataIndex: 'id', width: 115 },
@@ -275,7 +279,7 @@ onMounted(() => void query())
       :description="snapshot ? '数据时间 '+clock(snapshot.snapshot)+'（北京时间）' : '按审核和操作节点查看改签时效'">
       <a-space wrap>
         <a-button @click="limitsOpen=true">时限配置</a-button>
-        <a-button :disabled="!rows.length" @click="exportRows(rows, '明细')">导出当前明细</a-button>
+        <a-button :disabled="!rows.length" @click="openDrill('all')">查看明细</a-button>
       </a-space>
     </PageHeader>
     <a-drawer v-model:open="limitsOpen" title="时限配置" width="min(1200px,100vw)" destroy-on-close>
@@ -325,13 +329,17 @@ onMounted(() => void query())
 
         <a-card v-for="section in flat" :key="section.key" class="sla-section" :title="'按'+labels[section.key]+'统计'" size="small">
           <a-table :columns="groupColumns" :data-source="section.items" row-key="id" size="small"
-            :scroll="{x:744}" :pagination="section.items.length>8 ? {pageSize:8,showSizeChanger:false} : false">
+            :scroll="{x:815}" :pagination="section.items.length>8 ? {pageSize:8,showSizeChanger:false} : false">
             <template #bodyCell="{column,record:item}">
-              <template v-if="column.key==='total' || column.key==='late' || column.key==='backfill'">
-                <a-button v-if="item[column.key]" type="link" size="small" @click="openDrill(column.key==='total'?'all':column.key,[item.step])">{{item[column.key]}}</a-button>
+              <span v-if="column.key==='total'">{{item.total}}</span>
+              <template v-else-if="column.key==='late' || column.key==='backfill'">
+                <a-button v-if="item[column.key]" type="link" size="small" @click="openDrill(column.key,[item.step])">{{item[column.key]}}</a-button>
                 <span v-else>0</span>
               </template>
-              <a-button v-else-if="column.key==='analyze'" type="link" size="small" @click="openDrill('all',[item.step],true)">分析此项</a-button>
+              <a-space v-else-if="column.key==='analyze'" :size="4">
+                <a-button type="link" size="small" @click="openDrill('all',[item.step],true)">分析此项</a-button>
+                <a-button type="link" size="small" @click="openDrill('all',[item.step])">查看明细</a-button>
+              </a-space>
             </template>
           </a-table>
         </a-card>
@@ -339,26 +347,36 @@ onMounted(() => void query())
     </a-spin>
 
     <a-drawer :open="!!drill" width="min(1120px, 100vw)" :title="drill?.analysis?'维度分析':drillTitle" @close="closeDrill">
-      <template #extra><a-button :disabled="!drillRows.length" @click="exportRows(drillRows,'下钻明细')">导出当前明细</a-button></template>
+      <template #extra>
+        <a-button v-if="drill && !drill.analysis" :disabled="!drillRows.length" @click="exportRows(drillRows,'下钻明细')">导出当前明细</a-button>
+      </template>
       <a-space wrap>
         <a-tag v-for="step in drill?.steps" :key="step.key">{{labels[step.key]}} {{step.label}}</a-tag>
-        <span>{{drillTitle}} · {{drillRows.length}} 条</span>
+        <span>{{drill?.analysis ? '当前范围' : drillTitle}} · {{drillRows.length}} 条</span>
         <a-button v-if="drill?.previous" type="link" size="small" @click="backDrill">返回上一级</a-button>
       </a-space>
-      <a-card v-if="drill?.analysis && nextOptions.length" class="sla-section" size="small" title="按下一维度分析">
-        <template #extra><a-select v-model:value="view.nextDimension" :options="nextOptions" style="width:130px" /></template>
-        <a-table :columns="groupColumns" :data-source="drillGroups" row-key="id" size="small"
-          :scroll="{x:744}" :pagination="drillGroups.length>8 ? {pageSize:8,showSizeChanger:false} : false">
+      <a-card v-if="drill?.analysis" class="sla-section" size="small" title="继续定位问题维度">
+        <template #extra><a-button :disabled="!drillRows.length" @click="openCurrentDetails">查看当前明细</a-button></template>
+        <div v-if="nextOptions.length" class="dimension-picker">
+          <a-segmented v-model:value="view.nextDimension" :options="nextOptions" aria-label="选择下一维度" />
+        </div>
+        <a-alert v-else type="info" show-icon message="可用维度已全部限定，请查看当前明细。" />
+        <a-table v-if="nextOptions.length" :columns="groupColumns" :data-source="drillGroups" row-key="id" size="small"
+          :scroll="{x:815}" :pagination="drillGroups.length>8 ? {pageSize:8,showSizeChanger:false} : false">
           <template #bodyCell="{column,record:item}">
-            <template v-if="column.key==='total' || column.key==='late' || column.key==='backfill'">
-              <a-button v-if="item[column.key]" size="small" type="link" @click="continueDrill(item.step,false,column.key==='total'?undefined:column.key)">{{item[column.key]}}</a-button>
+            <span v-if="column.key==='total'">{{item.total}}</span>
+            <template v-else-if="column.key==='late' || column.key==='backfill'">
+              <a-button v-if="item[column.key]" size="small" type="link" @click="continueDrill(item.step,false,column.key)">{{item[column.key]}}</a-button>
               <span v-else>0</span>
             </template>
-            <a-button v-else-if="column.key==='analyze'" type="link" size="small" @click="continueDrill(item.step)">分析此项</a-button>
+            <a-space v-else-if="column.key==='analyze'" :size="4">
+              <a-button v-if="nextOptions.length>1" type="link" size="small" @click="continueDrill(item.step)">继续分析</a-button>
+              <a-button type="link" size="small" @click="continueDrill(item.step,false)">查看明细</a-button>
+            </a-space>
           </template>
         </a-table>
       </a-card>
-      <a-table class="sla-section" :columns="detailColumns" :data-source="drillRows" row-key="index"
+      <a-table v-else-if="drill" class="sla-section" :columns="detailColumns" :data-source="drillRows" row-key="index"
         :scroll="{x:1540}" size="small" :pagination="drillRows.length>10 ? {pageSize:10,showSizeChanger:false} : false">
         <template #bodyCell="{column,record:item}">
           <a-button v-if="column.key==='id'" type="link" size="small" @click="record=item">{{item.id}}</a-button>
@@ -396,6 +414,7 @@ onMounted(() => void query())
 <style scoped>
 .picker-label,.section-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
 .sla-section{margin-top:16px}
+.dimension-picker{max-width:100%;overflow-x:auto;margin-bottom:12px}
 .toolbar-end{margin-left:auto}
 .sla-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:10px}
 .metric-label{color:var(--platform-text-muted,#69768a);margin-bottom:6px}
