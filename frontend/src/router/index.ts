@@ -107,6 +107,7 @@ router.beforeEach(async (to) => {
   }
   if (to.meta.requiresAdmin && !authStore.user.isAdmin) return '/home'
   if (to.name === 'admin-users' && !authStore.canDeleteAccounts) return '/home'
+  if (to.name === 'change-sla') return authStore.user.businessRoles?.some(role => role.name === '客服经理') || '/home'
   if (to.meta.menuCode && !authStore.user.isAdmin && !authStore.user.menuCodes?.includes(String(to.meta.menuCode))) return '/home'
   if (to.meta.permission && !authStore.user.isAdmin && !authStore.user.permissions?.includes(String(to.meta.permission))) return '/monitoring/overview'
   return true
