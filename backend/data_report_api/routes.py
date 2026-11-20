@@ -6,6 +6,7 @@ from .api import adm_parsing
 from .api import data_workbench, asset_inventory
 from .api import hr_mail
 from .api import risk_verification
+from .api import change_sla
 
 from .api import targets, core, resource_governance, telemetry, dashboard, analysis, smart_analysis, smart_placement, monitoring, risk_upload
 
@@ -26,6 +27,7 @@ resource_governance.register_routes(api)
 telemetry.register_routes(api)
 dashboard.register_routes(api)
 analysis.register_routes(api)
+change_sla.register_routes(api)
 smart_analysis.register_routes(api)
 smart_placement.register_routes(api)
 monitoring.register_routes(api)

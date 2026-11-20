@@ -17,6 +17,8 @@ def explicit_erp_settings() -> bool:
 
 
 class Config:
+    CHANGE_SLA_AUDIT_MINUTES = os.getenv("CHANGE_SLA_AUDIT_MINUTES", "45")
+    CHANGE_SLA_OPERATION_MINUTES = os.getenv("CHANGE_SLA_OPERATION_MINUTES", "90")
     ADM_PARSING_ROOT = os.getenv("ADM_PARSING_ROOT", "").strip() or str(Path(__file__).resolve().parents[1] / "var/adm/parsing")
     ADM_PARSING_STORAGE_MODE = os.getenv("ADM_PARSING_STORAGE_MODE", "mysql")
     ADM_PARSING_AI_ENABLED = env_bool("ADM_PARSING_AI_ENABLED", False)
