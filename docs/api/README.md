@@ -448,4 +448,6 @@ ADM解析来件登记：`GET /api/v1/adm/parsing/pending`、`POST /api/v1/adm/pa
 
 报表页签使用同一路径并传 `node=audit|operation`。使用 ETL 已发布快照，缺日期覆盖会返回覆盖信息，完全未同步返回 `CHANGE_SLA_NOT_SYNCED`。每条记录携带业务日期、报表耗时、节点计时证据与平台规则匹配结果。规则按订单首次判定固定，未命中用审核 60 分钟、操作 90 分钟，待确认分段和改名、改证件保留待确认。
 
-`GET/POST /api/v1/analysis/change-sla/limits` 供系统管理员和客服经理查看、录入及导入配置，修改要求当前版本并沿用应用 CSRF 校验。配置及版本留痕保存在现有数据卷下的 change-sla-limits.sqlite3。报表快照默认读取同一卷下的 change-sla-facts.sqlite3，主机同步方式与调度由发布阶段配置。
+`GET/POST /api/v1/analysis/change-sla/limits` 供系统管理员和客服经理查看、录入及导入配置，修改要求当前版本并沿用应用 CSRF 校验。配置及版本留痕保存在现有数据卷下的 change-sla-limits.sqlite3。报表由独立 ETL 发布，生产调度由发布阶段配置。
+
+专用 ETL 服务器与中台分开部署。生产查询默认走现有 BI MySQL 连接，读取已发布的 bi_change_sla_fact 和 bi_change_sla_coverage。CHANGE_SLA_SNAPSHOT_PATH 仅用于明确配置的隔离验收快照。时限管理数据仍在 T43 本机持久卷，使用 scripts/deploy/t43/export-change-sla-rules.py 导出去除通讯信息的规则文件，再经现有受控内网流程交给 216。
