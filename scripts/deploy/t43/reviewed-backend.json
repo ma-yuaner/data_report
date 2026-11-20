@@ -1,5 +1,5 @@
 {
-  "commit": "5b2f9fad39f470dd906ba416838e1c0680e1347d",
+  "commit": "380f960c133b1fedc3a98021c02abc752b9dccdb",
   "files": {
     "backend/.dockerignore": "347d5a129fd71a0cc9942ce1c9b1479856421019704bc493cda6ed63afdf2692",
     "backend/Dockerfile": "64b8645a312b0e2b09bdde35aac7dd0ef5305b6a023038a6c7a06cf706e7d557",
@@ -13,7 +13,7 @@
     "backend/data_report_api/api/admwf.py": "86d6e3d88191e0e1332d12523485e924a033e63c82c0d11e7f8dad0b13214049",
     "backend/data_report_api/api/analysis.py": "4ad1496b0344aa12a81ea3a37f16d1098a66e718db892eea279d5d505bd1d30a",
     "backend/data_report_api/api/asset_inventory.py": "d4eec34d3e6932a95785d8a51cb34cad8a14e4e70a0608f7c975ef7f47f45717",
-    "backend/data_report_api/api/change_sla.py": "4eb2f88c533132f1cd8a000f599e1396e932a128d41be5ce455ded661c894f74",
+    "backend/data_report_api/api/change_sla.py": "efa9f366c9db81fb0ba9d36a1a7ab1d8d3aa20a05a7f835de50e49bad0ff1b0b",
     "backend/data_report_api/api/common.py": "044a342a2660738cb71dc70902497a668a0a4f283d0b5d999bbfe40474410ba6",
     "backend/data_report_api/api/core.py": "9a885c7d9d3ac60fdde896bcd5c428d87410a74920f407b7fc181a8b2fc75bf0",
     "backend/data_report_api/api/dashboard.py": "14b47dae13b6f7c67766d24ded874c5eef40b015bf2216f12b137492796c99b6",
@@ -211,6 +211,7 @@
     "Related Document Number source-owned extraction and missing summary ticket completion; preserve virtual type, do not overwrite or guess multi-line relationships; no startup/DDL/SQL changes",
     "Combined source revalidation: source-bound XLSX headers/cells, raw attachment fee metadata and no dollar-sign ISO guess; reordered quote fragments verified in same paragraph; no startup/DDL/SQL/model retry changes",
     "Saved parsing intake registration: scoped pending search; reviewed master prefill; shared transaction for case, original attachment copies and versioned source linkage; row lock and content idempotency, no startup, DDL or model calls",
-    "Change SLA: manager-only GET, independent audit and operation nodes, 45/90 minute defaults, parameterized ERP reads in a read-only snapshot, no new startup work or DDL"
+    "Change SLA: manager-only GET, independent audit and operation nodes, 45/90 minute defaults, parameterized ERP reads in a read-only snapshot, no new startup work or DDL",
+    "Change SLA: honor existing authenticated system administrators in addition to active customer service managers; reject menu-only and unauthenticated access"
   ]
 }
