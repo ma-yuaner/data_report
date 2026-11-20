@@ -96,7 +96,7 @@ def register_routes(api):
                         raise InvalidLimit("请提交配置或上传原始 Excel")
                 result = store.save(body, user["id"])
             else:
-                result = store.get()
+                result = store.export_rule_history() if request.args.get("export") == "216" else store.get()
             response = ok(result)
             response.headers["Cache-Control"] = "no-store"
             return response

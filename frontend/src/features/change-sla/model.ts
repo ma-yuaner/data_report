@@ -23,7 +23,14 @@ export interface ErpRecord {
   shift?: string
   applicationShift?: string
   completionShift?: string
-  ruleDecision?: { source: 'platform' | 'fallback' | 'pending'; minutes: number | null; version: string; detail: string }
+  ruleDecision?: {
+    source: 'platform' | 'fallback' | 'pending'
+    minutes: number | null
+    version: string | null
+    detail: string
+    revision?: number
+    effectiveFromMs?: number
+  }
 }
 export interface SlaRule {
   id: string
@@ -58,7 +65,9 @@ export function evaluateErpNodes({ audit, operation }: ErpSnapshot['records'], r
     return records.map(record => {
       const decision = record.ruleDecision
       const rule = decision
-        ? decision.minutes === null ? undefined : { id: decision.version, node, minutes: decision.minutes }
+        ? decision.minutes === null || decision.version === null
+          ? undefined
+          : { id: decision.version, node, minutes: decision.minutes }
         : defaultRule
       const elapsed = record.start === null ? null : ((record.end ?? asOf) - record.start) / 60000
       let state: SlaState
