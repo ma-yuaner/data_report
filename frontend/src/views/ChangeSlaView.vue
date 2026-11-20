@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import type { TableColumnsType } from 'ant-design-vue'
+import type { Dayjs } from 'dayjs'
 import { http, type ApiEnvelope } from '@/api/http'
 import FilterPanel from '@/components/FilterPanel.vue'
 import PageHeader from '@/components/PageHeader.vue'
@@ -46,6 +47,7 @@ const view = computed(() => tabs[active.value])
 const isAudit = computed(() => active.value === 'audit')
 const currentNode = computed(() => isAudit.value ? nodes[0] : nodes[1])
 const dateLabel = computed(() => isAudit.value ? '改签审核日期' : '改签日期')
+const beforeReportStart = (day: Dayjs) => day.format('YYYY-MM-DD') < '2026-11-20'
 const snapshot = computed(() => view.value.data)
 const missingDates = computed(() => snapshot.value?.coverage?.missingDates ?? [])
 const rules = computed(() => snapshot.value?.rules ?? [])
@@ -301,7 +303,7 @@ onMounted(() => void query())
       <a-tab-pane key="operation" tab="改期操作" />
     </a-tabs>
     <FilterPanel stacked :instant="false" :loading="view.loading" @reset="reset">
-      <template #period><label class="picker-label">{{dateLabel}} <a-range-picker v-model:value="view.draft.dates" value-format="YYYY-MM-DD" /></label></template>
+      <template #period><label class="picker-label">{{dateLabel}} <a-range-picker v-model:value="view.draft.dates" value-format="YYYY-MM-DD" :disabled-date="beforeReportStart" /></label></template>
       <label v-for="field in filterFields" :key="field.key">
         <span>{{labels[field.key]}}</span>
         <a-select v-model:value="view.draft[field.key]" :options="field.options" placeholder="全部" allow-clear show-search option-filter-prop="label" />
