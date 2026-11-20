@@ -46,13 +46,26 @@ const summary = computed(() => visibleNodes.value.map(node => {
   const data=rows.value.filter(row=>row.node===node)
   const result=stats(data)
   const completed=data.filter(row => row.end !== null && row.elapsed !== null && row.elapsed>=0 && !excluded(row))
-  return {node,metrics:[
-    ['节点达标率',result.rate], ['已判定节点',result.judged], ['超时节点',result.late],
-    ['进行中超时',data.filter(row=>row.state==='进行中超时').length], ['规则或数据缺口',data.filter(gap).length],
-    [node===nodes[0]?'撤回':'操作驳回',data.filter(excluded).length],
-    ['平均处理耗时',completed.length ? Math.round(completed.reduce((sum,row)=>sum+(row.elapsed ?? 0),0)/completed.length)+' 分钟' : '—'],
-    ['节点记录数',new Set(data.map(row=>row.id)).size],
-  ]}
+  const average = completed.length
+    ? Math.round(completed.reduce((sum,row)=>sum+(row.elapsed ?? 0),0)/completed.length)+' 分钟'
+    : '—'
+  return {
+    node,
+    total: data.length,
+    threshold: rules.value.find(rule=>rule.node===node)?.minutes,
+    primaryMetrics: [
+      {label:'SLA 达标率',value:result.rate},
+      {label:'平均处理耗时',value:average},
+      {label:'超时节点',value:result.late},
+    ],
+    counts: [
+      {label:'节点总量',value:data.length},
+      {label:'已判定',value:result.judged},
+      {label:'进行中超时',value:data.filter(row=>row.state==='进行中超时').length},
+      {label:'规则或数据缺口',value:data.filter(gap).length},
+      {label:node===nodes[0]?'撤回':'操作驳回',value:data.filter(excluded).length},
+    ],
+  }
 }))
 const trend = computed(() => visibleNodes.value.flatMap(node => {
   const data=rows.value.filter(row=>row.node===node)
@@ -146,11 +159,25 @@ const clock = (value: number | null) => value==null ? '—' : formatter.format(v
       <div v-if="erp">
       <a-alert v-if="rules.length<2" type="info" show-icon message="部分节点未配置正式 SLA 阈值，相关记录显示为待配置。" />
 
-      <a-card v-for="section in summary" :key="section.node" :title="section.node" size="small" class="sla-section">
-        <div class="sla-metrics">
-          <a-statistic v-for="[label,value] in section.metrics" :key="label" :title="label" :value="value" />
+      <section v-for="section in summary" :key="section.node" class="sla-section" :aria-label="section.node">
+        <div class="sla-node-heading">
+          <h2>{{section.node}}</h2>
+          <a-tag>{{section.threshold===undefined?'阈值待配置':'目标 '+section.threshold+' 分钟'}}</a-tag>
+          <span>{{section.node===nodes[0]?'提交申请到同意或驳回':'进入待操作到履约完成'}}</span>
         </div>
-      </a-card>
+        <div class="sla-metrics">
+          <a-card v-for="metric in section.primaryMetrics" :key="metric.label" size="small">
+            <div class="sla-metric-label">{{metric.label}}</div>
+            <strong class="sla-metric-value">{{metric.value}}</strong>
+          </a-card>
+        </div>
+        <p v-if="section.total===0" class="sla-node-empty">当前筛选范围内暂无{{section.node}}记录</p>
+        <dl v-else class="sla-node-counts">
+          <div v-for="metric in section.counts" :key="metric.label">
+            <dt>{{metric.label}}</dt><dd>{{metric.value}}</dd>
+          </div>
+        </dl>
+      </section>
 
       <a-card title="异常研判" class="sla-section">
         <template #extra>
@@ -225,6 +252,15 @@ const clock = (value: number | null) => value==null ? '—' : formatter.format(v
 <style scoped>
 .picker-label { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
 .sla-metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(145px,1fr)); gap:12px; }
+.sla-node-heading { display:flex; align-items:center; flex-wrap:wrap; gap:6px 10px; margin-bottom:8px; color:var(--platform-text-muted, #69768a); }
+.sla-node-heading h2 { margin:0; color:var(--platform-text, #172033); font-size:16px; }
+.sla-metric-label { color:var(--platform-text-muted, #69768a); margin-bottom:6px; }
+.sla-metric-value { font-size:24px; line-height:1.25; font-variant-numeric:tabular-nums; }
+.sla-node-counts { display:flex; flex-wrap:wrap; gap:6px 20px; margin:8px 0 0; }
+.sla-node-counts div { display:flex; gap:6px; }
+.sla-node-counts dt,.sla-node-empty { color:var(--platform-text-muted, #69768a); }
+.sla-node-counts dd { margin:0; font-variant-numeric:tabular-nums; }
+.sla-node-empty { margin:8px 0 0; }
 .sla-section { margin-top:16px; }
 .sla-section :deep(.ant-card-head-wrapper) { flex-wrap:wrap; gap:8px 12px; }
 .sla-hint { color:#69768a; margin-bottom:12px; }
