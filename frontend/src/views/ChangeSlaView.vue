@@ -42,7 +42,6 @@ const newTab = () => ({
 const tabs = reactive({ audit: newTab(), operation: newTab() })
 const active = ref<Node>('audit')
 const view = computed(() => tabs[active.value])
-const record = ref<ReportRow | null>(null)
 const isAudit = computed(() => active.value === 'audit')
 const currentNode = computed(() => isAudit.value ? nodes[0] : nodes[1])
 const dateLabel = computed(() => isAudit.value ? '改签审核日期' : '改签日期')
@@ -174,7 +173,6 @@ const drillTitle = computed(() => ({
   all: '全部单据', late: '超时单据', backfill: '出票时间回填单据',
 }[drill.value?.mode || 'all']))
 function openDrill(mode: DrillMode, steps: Step[] = [], analysis = false, previous?: Drill) {
-  record.value = null
   view.value.drill = { mode, steps, analysis, previous: previous && { drill: previous, dimension: view.value.nextDimension } }
   view.value.nextDimension = dimensions.find(key => !steps.some(step => step.key === key)) || 'platform'
 }
@@ -190,13 +188,11 @@ function openCurrentDetails() {
 function backDrill() {
   const previous = drill.value?.previous
   if (previous) {
-    record.value = null
     view.value.drill = previous.drill
     view.value.nextDimension = previous.dimension
   }
 }
 function closeDrill() {
-  record.value = null
   view.value.drill = null
 }
 const groupColumns = computed(() => [
@@ -235,7 +231,6 @@ async function query(node: Node = active.value) {
     if (!dates?.length) state.draft.dates = state.data.dates
     state.applied = { ...requested, dates: state.data.dates }
     state.drill = null
-    if (active.value === node) record.value = null
   } catch (error) {
     state.error = error instanceof Error ? error.message : '查询失败，请稍后重试'
   } finally {
@@ -250,7 +245,6 @@ function reset() {
 function activate(key: string | number) {
   if (key !== 'audit' && key !== 'operation') return
   active.value = key
-  record.value = null
   if (!tabs[key].data) void query(key)
 }
 function csvCell(value: string | number | null | undefined) {
@@ -262,10 +256,12 @@ function csvCell(value: string | number | null | undefined) {
 function exportRows(data: ReportRow[], suffix: string) {
   if (!data.length) return
   const header = ['ERP 单据 ID', dateLabel.value, ...dimensions.map(key => labels[key]), '状态', '报表耗时（分钟）',
-    'SLA 耗时（分钟）', '目标（分钟）', '结束时间来源', '时限来源', '规则说明', '规则版本']
+    'SLA 耗时（分钟）', '目标（分钟）', '结束时间来源', '时限来源', '规则说明', '规则版本',
+    '配置修订号', '配置生效时间', 'SLA 开始时间', 'SLA 完成时间', 'SLA 到期时间']
   const content = data.map(row => [row.id, clock(row.businessAt), ...dimensions.map(key => displayFor(row, key)),
     row.state, reportDuration(row), row.elapsed, row.rule?.minutes, sourceLabel(row.endSource), ruleSource(row),
-    row.ruleDecision?.detail, row.ruleDecision?.version || row.rule?.id])
+    row.ruleDecision?.detail, row.ruleDecision?.version || row.rule?.id,
+    row.ruleDecision?.revision, clock(row.ruleDecision?.effectiveFromMs), clock(row.start), clock(row.end), clock(row.due)])
   const csv = [header, ...content].map(values => values.map(csvCell).join(',')).join('\r\n')
   const url = URL.createObjectURL(new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' }))
   const link = document.createElement('a')
@@ -376,8 +372,7 @@ onMounted(() => void query())
       <a-table v-else-if="drill" class="sla-section" :columns="detailColumns" :data-source="drillRows" row-key="index"
         :scroll="{x:1540}" size="small" :pagination="drillRows.length>10 ? {pageSize:10,showSizeChanger:false} : false">
         <template #bodyCell="{column,record:item}">
-          <a-button v-if="column.key==='id'" type="link" size="small" @click="record=item">{{item.id}}</a-button>
-          <span v-else-if="column.key==='date'">{{clock(item.businessAt)}}</span>
+          <span v-if="column.key==='date'">{{clock(item.businessAt)}}</span>
           <span v-else-if="column.key==='report'">{{reportDuration(item) ?? '—'}}</span>
           <span v-else-if="column.key==='elapsed'">{{item.elapsed===null?'—':number.format(item.elapsed)}} / {{item.rule?.minutes??'—'}}</span>
           <span v-else-if="column.key==='ruleSource'">{{ruleSource(item)}}</span>
@@ -385,25 +380,6 @@ onMounted(() => void query())
           <span v-else-if="typeof column.key==='string' && column.key in labels">{{displayFor(item,column.key as Dimension)}}</span>
         </template>
       </a-table>
-      <a-drawer :open="!!record" width="min(720px, 100vw)" title="节点判定证据" @close="record=null">
-        <a-descriptions v-if="record" bordered size="small" :column="1">
-          <a-descriptions-item label="ERP 单据 ID">{{record.id}}</a-descriptions-item>
-          <a-descriptions-item :label="dateLabel">{{clock(record.businessAt)}}</a-descriptions-item>
-          <a-descriptions-item label="节点与状态">{{record.node}} / {{record.state}}（{{record.sourceStatus}}）</a-descriptions-item>
-          <a-descriptions-item v-for="key in dimensions" :key="key" :label="labels[key]">{{displayFor(record,key)}}</a-descriptions-item>
-          <a-descriptions-item label="报表耗时（分钟）">{{reportDuration(record) ?? '—'}}</a-descriptions-item>
-          <a-descriptions-item label="SLA 开始">{{clock(record.start)}}</a-descriptions-item>
-          <a-descriptions-item label="SLA 完成">{{clock(record.end)}}</a-descriptions-item>
-          <a-descriptions-item label="结束时间来源">{{sourceLabel(record.endSource)}}</a-descriptions-item>
-          <a-descriptions-item label="SLA 到期">{{clock(record.due)}}</a-descriptions-item>
-          <a-descriptions-item label="判定规则">{{record.rule ? [record.rule.id,record.rule.minutes+' 分钟'].join(' / ') : '—'}}</a-descriptions-item>
-          <a-descriptions-item label="时限来源">{{ruleSource(record)}}</a-descriptions-item>
-          <a-descriptions-item v-if="record.ruleDecision?.revision" label="时限配置版本">{{record.ruleDecision.revision}}</a-descriptions-item>
-          <a-descriptions-item v-if="record.ruleDecision?.effectiveFromMs" label="配置生效时间">{{clock(record.ruleDecision.effectiveFromMs)}}</a-descriptions-item>
-          <a-descriptions-item v-if="record.ruleDecision?.detail" label="规则说明">{{record.ruleDecision.detail}}</a-descriptions-item>
-          <a-descriptions-item label="关联单据数">{{record.linked}}</a-descriptions-item>
-        </a-descriptions>
-      </a-drawer>
     </a-drawer>
   </main>
 </template>
