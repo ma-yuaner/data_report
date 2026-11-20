@@ -1,12 +1,15 @@
 """Serve the ETL completion-date facts without opening an ERP connection."""
 from contextlib import closing, contextmanager
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import json
 from pathlib import Path
 import sqlite3
 
 from .change_sla import BUSINESS_ZONE, ROW_LIMIT, ChangeSlaQueryError, _date_range
 from .data_source import DataSource
+
+
+REPORT_START = date(2026, 11, 20)
 
 
 class ChangeSlaSnapshotUnavailable(RuntimeError):
@@ -51,10 +54,12 @@ def read_reporting_snapshot(config, start, end, node):
     today = datetime.now(BUSINESS_ZONE).date()
     if start is not None or end is not None:
         first, last = _date_range(start, end, today)
+        if first < REPORT_START:
+            raise ChangeSlaQueryError("改签 SLA 数据从 2026-11-20 开始，请调整查询日期")
     with _snapshot_reader(config) as execute:
         latest = execute(
-            "SELECT MAX(business_date) FROM change_sla_coverage WHERE node=? AND business_date<=?",
-            (node, today.isoformat()),
+            "SELECT MAX(business_date) FROM change_sla_coverage WHERE node=? AND business_date BETWEEN ? AND ?",
+            (node, REPORT_START.isoformat(), today.isoformat()),
         ).fetchone()[0]
         if not latest:
             raise ChangeSlaSnapshotUnavailable("当前节点尚未完成首次同步")
