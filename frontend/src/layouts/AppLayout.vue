@@ -61,7 +61,10 @@
             >
             <a-menu-item v-if="canSeeMenu('analysis.issue')" key="/analysis/issue">出票分析</a-menu-item>
             <a-menu-item v-if="canSeeMenu('analysis.refund')" key="/analysis/refund">退票分析</a-menu-item>
-            <a-menu-item v-if="canViewChangeSla" key="/analysis/change">改签分析</a-menu-item>
+            <a-sub-menu v-if="canViewChangeSla" key="analysis-change">
+              <template #title>改签分析</template>
+              <a-menu-item key="/analysis/change">改签SLA客服看板</a-menu-item>
+            </a-sub-menu>
             <a-menu-item v-if="canSeeMenu('analysis.ancillary')" key="/analysis/ancillary">增值分析</a-menu-item>
           </a-sub-menu>
           <a-sub-menu v-if="canSeeGroup('risk')" key="risk">
@@ -375,7 +378,7 @@ watch(
       path.startsWith('/data-workbench') || path.startsWith('/risk-analysis')
         ? ['archived-features']
         : path.startsWith('/analysis')
-          ? ['analysis']
+          ? path === '/analysis/change' ? ['analysis', 'analysis-change'] : ['analysis']
           : path.startsWith('/resource-governance')
             ? ['governance']
             : path.startsWith('/risk-followup') || path.startsWith('/risk-verification')

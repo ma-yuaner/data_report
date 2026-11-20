@@ -42,7 +42,7 @@ const router = createRouter({
         { path: 'analysis/change-sla', redirect: { name: 'change-sla' } },
         { path: 'analysis/issue', alias: '/analysis/profit', name: 'issue-profit', component: () => import('@/views/ProfitView.vue'), meta: { title: '出票分析', section: '业务分析', menuCode: 'analysis.issue' } },
         { path: 'analysis/refund', name: 'refund-profit', component: () => import('@/views/BusinessProfitView.vue'), props: { businessType: 'refund' }, meta: { title: '退票分析', section: '业务分析', menuCode: 'analysis.refund' } },
-        { path: 'analysis/change', name: 'change-sla', component: () => import('@/views/ChangeSlaView.vue'), meta: { title: '改签分析', section: '业务分析', menuCode: 'analysis.change_sla' } },
+        { path: 'analysis/change', name: 'change-sla', component: () => import('@/views/ChangeSlaView.vue'), meta: { title: '改签SLA客服看板', section: '业务分析', menuCode: 'analysis.change_sla' } },
         { path: 'analysis/ancillary', name: 'ancillary-profit', component: () => import('@/views/BusinessProfitView.vue'), props: { businessType: 'ancillary' }, meta: { title: '增值分析', section: '业务分析', menuCode: 'analysis.ancillary' } },
         { path: 'risk-analysis', name: 'risk-analysis', component: () => import('@/views/RiskMonthlyAnalysisView.vue'), meta: { title: '风控总览', section: '归档功能', menuCode: 'risk.overview' } },
         { path: 'risk-analysis/issue', name: 'risk-issue-profit', component: () => import('@/views/RiskBusinessAnalysisView.vue'), props: { businessType: 'issue' }, meta: { title: '出票利润分析', section: '归档功能', menuCode: 'risk.issue' } },
