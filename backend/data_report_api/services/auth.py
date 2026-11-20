@@ -144,6 +144,7 @@ MENU_CATALOG = (
     {"code": "analysis.issue", "name": "出票分析", "description": "出票利润分析", "groupCode": "analysis", "groupName": "业务分析"},
     {"code": "analysis.refund", "name": "退票分析", "description": "退票利润分析", "groupCode": "analysis", "groupName": "业务分析"},
     {"code": "analysis.change", "name": "改签分析", "description": "改签利润分析", "groupCode": "analysis", "groupName": "业务分析"},
+    {"code": "analysis.change_sla", "name": "改签 SLA 看板", "description": "查看 ERP 改签时效汇总与单据", "groupCode": "analysis", "groupName": "业务分析"},
     {"code": "analysis.ancillary", "name": "增值分析", "description": "增值利润分析", "groupCode": "analysis", "groupName": "业务分析"},
     {"code": "risk.overview", "name": "风控总览", "description": "风控月度与趋势分析", "groupCode": "risk", "groupName": "风控分析"},
     {"code": "risk.issue", "name": "出票利润分析", "description": "风控出票利润分析", "groupCode": "risk", "groupName": "风控分析"},

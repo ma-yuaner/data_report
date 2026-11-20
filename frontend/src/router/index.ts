@@ -37,6 +37,7 @@ const router = createRouter({
         { path: 'gds-route-governance/review', redirect: '/resource-governance/review' },
         { path: 'overview', name: 'overview', component: () => import('@/views/OverviewView.vue'), meta: { title: '经营总览', section: '经营总览', menuCode: 'overview' } },
         { path: 'analysis/comprehensive', name: 'comprehensive-analysis', component: () => import('@/views/ComprehensiveAnalysisLiveView.vue'), meta: { title: '综合分析', section: '业务分析', menuCode: 'analysis.comprehensive' } },
+        { path: 'analysis/change-sla', name: 'change-sla', component: () => import('@/views/ChangeSlaView.vue'), meta: { title: '改签 SLA 看板', section: '业务分析', menuCode: 'analysis.change_sla' } },
         { path: 'analysis/issue', alias: '/analysis/profit', name: 'issue-profit', component: () => import('@/views/ProfitView.vue'), meta: { title: '出票分析', section: '业务分析', menuCode: 'analysis.issue' } },
         { path: 'analysis/refund', name: 'refund-profit', component: () => import('@/views/BusinessProfitView.vue'), props: { businessType: 'refund' }, meta: { title: '退票分析', section: '业务分析', menuCode: 'analysis.refund' } },
         { path: 'analysis/change', name: 'change-profit', component: () => import('@/views/BusinessProfitView.vue'), props: { businessType: 'change' }, meta: { title: '改签分析', section: '业务分析', menuCode: 'analysis.change' } },
@@ -106,6 +107,7 @@ router.beforeEach(async (to) => {
   }
   if (to.meta.requiresAdmin && !authStore.user.isAdmin) return '/home'
   if (to.name === 'admin-users' && !authStore.canDeleteAccounts) return '/home'
+  if (to.name === 'change-sla') return authStore.user.businessRoles?.some(role => role.name === '客服经理') || '/home'
   if (to.meta.menuCode && !authStore.user.isAdmin && !authStore.user.menuCodes?.includes(String(to.meta.menuCode))) return '/home'
   if (to.meta.permission && !authStore.user.isAdmin && !authStore.user.permissions?.includes(String(to.meta.permission))) return '/monitoring/overview'
   return true

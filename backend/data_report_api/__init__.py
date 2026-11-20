@@ -94,6 +94,8 @@ def required_menu_code(path: str) -> str | None:
         return "overview"
     if path.startswith("/api/v1/analysis/comprehensive"):
         return "analysis.comprehensive"
+    if path == "/api/v1/analysis/change-sla":
+        return "analysis.change_sla"
     if path.startswith("/api/v1/analysis/issue-profit"):
         return "analysis.issue"
     if path.startswith("/api/v1/analysis/business-profit/refund"):
@@ -266,7 +268,8 @@ def create_app(config: type[Config] = Config, auth_store=None) -> Flask:
                 "data": None, "code": "PASSWORD_CHANGE_REQUIRED",
             }), 403
         menu_code = required_menu_code(request.path)
-        if menu_code and not bool(user.get("is_admin")) and menu_code not in set(user.get("menu_codes") or []):
+        # The SLA endpoint checks the active business role instead of assignable menu grants.
+        if menu_code and menu_code != "analysis.change_sla" and not bool(user.get("is_admin")) and menu_code not in set(user.get("menu_codes") or []):
             return jsonify({
                 "success": False, "message": "当前账号没有该模块的菜单权限",
                 "data": None, "code": "MENU_FORBIDDEN",
