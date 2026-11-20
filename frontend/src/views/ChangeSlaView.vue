@@ -25,7 +25,7 @@ type Drill = { steps: Step[]; mode: DrillMode; analysis: boolean; previous?: { d
 type Snapshot = ErpSnapshot & { coverage?: { missingDates: string[]; latestCoveredDate: string | null } }
 const dimensions: Dimension[] = ['platform', 'air', 'owner', 'supplier', 'shift', 'intake', 'exchange', 'kind']
 const limitsOpen = ref(false)
-const primaryDimensions = dimensions.slice(0, 5)
+const primaryDimensions = dimensions.slice(0, 5).map(key => ({ label: '按' + labels[key], value: key }))
 const emptyFilters = (): Filters => ({ id: '' })
 const newTab = () => ({
   draft: emptyFilters(),
@@ -35,6 +35,7 @@ const newTab = () => ({
   error: '',
   unit: 'minute' as 'minute' | 'hour' | 'day',
   period: 'day' as 'day' | 'month',
+  summaryDimension: 'platform' as Dimension,
   drill: null as Drill | null,
   nextDimension: 'air' as Dimension,
 })
@@ -159,7 +160,7 @@ function group(data: ReportRow[], key: Dimension) {
     }
   }).sort((a,b) => b.late-a.late || b.total-a.total || a.label.localeCompare(b.label, 'zh-CN'))
 }
-const flat = computed(() => primaryDimensions.map(key => ({ key, items: group(rows.value, key) })))
+const dimensionSummary = computed(() => group(rows.value, view.value.summaryDimension))
 const drill = computed(() => view.value.drill)
 const drillRows = computed(() => {
   const current = drill.value
@@ -207,6 +208,9 @@ const groupColumns = computed(() => [
   ...(!isAudit.value ? [{ title: '出票时间回填', key: 'backfill', width: 120, align: 'right' as const }] : []),
   { title: '操作', key: 'analyze', width: 180 },
 ])
+const summaryColumns = computed(() => groupColumns.value.map(column => column.key === 'analyze'
+  ? { ...column, width: 105 }
+  : column))
 const detailColumns = computed<TableColumnsType<ReportRow>>(() => [
   { title: 'ERP 单据 ID', key: 'id', dataIndex: 'id', width: 115 },
   { title: dateLabel.value, key: 'date', width: 156 },
@@ -277,10 +281,7 @@ onMounted(() => void query())
   <main class="page-wrap sla-review">
     <PageHeader eyebrow="业务分析 / 改签分析" title="客服改签 SLA 管理看板"
       :description="snapshot ? '数据时间 '+clock(snapshot.snapshot)+'（北京时间）' : '按审核和操作节点查看改签时效'">
-      <a-space wrap>
-        <a-button @click="limitsOpen=true">时限配置</a-button>
-        <a-button :disabled="!rows.length" @click="openDrill('all')">查看明细</a-button>
-      </a-space>
+      <a-button @click="limitsOpen=true">时限配置</a-button>
     </PageHeader>
     <a-drawer v-model:open="limitsOpen" title="时限配置" width="min(1200px,100vw)" destroy-on-close>
       <ChangeSlaLimitsView />
@@ -327,19 +328,15 @@ onMounted(() => void query())
           </div>
         </a-card>
 
-        <a-card v-for="section in flat" :key="section.key" class="sla-section" :title="'按'+labels[section.key]+'统计'" size="small">
-          <a-table :columns="groupColumns" :data-source="section.items" row-key="id" size="small"
-            :scroll="{x:815}" :pagination="section.items.length>8 ? {pageSize:8,showSizeChanger:false} : false">
+        <a-card class="sla-section" title="维度统计" size="small">
+          <div class="dimension-picker">
+            <a-segmented v-model:value="view.summaryDimension" :options="primaryDimensions" aria-label="切换统计维度" />
+          </div>
+          <a-table :key="active + ':' + view.summaryDimension" :columns="summaryColumns" :data-source="dimensionSummary" row-key="id" size="small"
+            :scroll="{x:744}" :pagination="dimensionSummary.length>8 ? {pageSize:8,showSizeChanger:false} : false">
             <template #bodyCell="{column,record:item}">
-              <span v-if="column.key==='total'">{{item.total}}</span>
-              <template v-else-if="column.key==='late' || column.key==='backfill'">
-                <a-button v-if="item[column.key]" type="link" size="small" @click="openDrill(column.key,[item.step])">{{item[column.key]}}</a-button>
-                <span v-else>0</span>
-              </template>
-              <a-space v-else-if="column.key==='analyze'" :size="4">
-                <a-button type="link" size="small" @click="openDrill('all',[item.step],true)">分析此项</a-button>
-                <a-button type="link" size="small" @click="openDrill('all',[item.step])">查看明细</a-button>
-              </a-space>
+              <span v-if="column.key==='total' || column.key==='late' || column.key==='backfill'">{{item[column.key]}}</span>
+              <a-button v-else-if="column.key==='analyze'" type="link" size="small" @click="openDrill('all',[item.step],true)">分析此项</a-button>
             </template>
           </a-table>
         </a-card>
