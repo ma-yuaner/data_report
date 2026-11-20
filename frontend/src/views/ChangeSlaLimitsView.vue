@@ -46,7 +46,7 @@ const columns: TableColumnsType<Limit> = [
 ]
 const ruleKeys = new Set<string>(ruleFields.map(([key])=>key))
 async function exportRuleHistory(){
-  if (!state.value?.rows.length || exporting.value) return
+  if (saving.value || exporting.value) return
   exporting.value=true
   error.value=''
   try {
@@ -112,7 +112,7 @@ onMounted(reload)
   <div>
       <a-space wrap class="limits-note">
         <a-tag v-if="state?.revision">配置版本 {{state.revision}}</a-tag>
-        <a-button :disabled="!state?.rows.length || saving" :loading="exporting" @click="exportRuleHistory">下载 216 历史规则</a-button>
+        <a-button :disabled="saving" :loading="exporting" @click="exportRuleHistory">下载 216 规则包</a-button>
         <a-button :disabled="loading || saving || !state" @click="file?.click()">导入原始 Excel</a-button>
         <a-button type="primary" :disabled="loading || saving || !state" @click="edit()">新增配置</a-button>
         <input ref="file" type="file" hidden accept=".xlsx" @change="importFile" />
