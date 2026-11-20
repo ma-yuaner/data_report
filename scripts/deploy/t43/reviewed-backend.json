@@ -1,5 +1,5 @@
 {
-  "commit": "602a915f4f52bb97d8e3440242a01db996529bd9",
+  "commit": "5bd2874a2f51e158d2a6a6aa7a28b97983ce85b0",
   "files": {
     "backend/.dockerignore": "347d5a129fd71a0cc9942ce1c9b1479856421019704bc493cda6ed63afdf2692",
     "backend/Dockerfile": "64b8645a312b0e2b09bdde35aac7dd0ef5305b6a023038a6c7a06cf706e7d557",
@@ -66,7 +66,7 @@
     "backend/data_report_api/services/business_profit_analysis.py": "f9d7fc2678b6a704bcf695f39fd85fe96b263c133065698df60363c3c4d14430",
     "backend/data_report_api/services/change_sla.py": "3d33ef84ce9bf171487c06df732e2cb3f806a7944db48ae3a3a64282b5cf92c7",
     "backend/data_report_api/services/change_sla_limits.py": "78952905f4aadec1921d9ee5fff0e36683c2b8af71394a9d593c61b6cd456452",
-    "backend/data_report_api/services/change_sla_snapshot.py": "502dbdcea9132eef663fa37adf5efbddffe5f14370a8aeed99c769d7ed57257b",
+    "backend/data_report_api/services/change_sla_snapshot.py": "57ed149e310803630b0417fe509b429b6e87714b45d43cebfc9f0962e637adfe",
     "backend/data_report_api/services/comprehensive_analysis.py": "237a92074de04954d2637eb18e154c3c4226312998aa751aebb58ba17a293c03",
     "backend/data_report_api/services/comprehensive_detail.py": "2755ed0016fdedce590e48f72f77e0c9d9d0da36a0ba8c466a673c0db7cc61a9",
     "backend/data_report_api/services/comprehensive_export.py": "2402f820a6cfc8fe51a11cd9456d3b202007ab257cf79b9c0fca2620df8c5fab",
@@ -215,6 +215,7 @@
     "Saved parsing intake registration: scoped pending search; reviewed master prefill; shared transaction for case, original attachment copies and versioned source linkage; row lock and content idempotency, no startup, DDL or model calls",
     "Change SLA: manager-only GET, independent audit and operation nodes, 45/90 minute defaults, parameterized ERP reads in a read-only snapshot, no new startup work or DDL",
     "Change SLA: honor existing authenticated system administrators in addition to active customer service managers; reject menu-only and unauthenticated access",
-    "Change SLA: authenticated read-only batch snapshots and revision-checked platform configuration, isolated SQLite storage, no ERP writes or startup jobs"
+    "Change SLA: authenticated read-only batch snapshots and revision-checked platform configuration, isolated SQLite storage, no ERP writes or startup jobs",
+    "Change SLA: read published facts and coverage in one read-only BI transaction; keep SQLite only for explicitly configured isolated checks"
   ]
 }
