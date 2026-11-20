@@ -20,7 +20,6 @@ const endpoint = '/v1/analysis/change-sla/limits'
 const state = ref<Settings>()
 const loading = ref(false)
 const saving = ref(false)
-const exporting = ref(false)
 const error = ref('')
 const message = ref('')
 const platform = ref<string>()
@@ -45,21 +44,6 @@ const columns: TableColumnsType<Limit> = [
   {title:'操作',key:'actions',width:85,fixed:'right'},
 ]
 const ruleKeys = new Set<string>(ruleFields.map(([key])=>key))
-async function exportRuleHistory(){
-  if (saving.value || exporting.value) return
-  exporting.value=true
-  error.value=''
-  try {
-    const {data:{data}}=await http.get<ApiEnvelope<object>>(endpoint,{params:{export:'216'}})
-    const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json;charset=utf-8'}))
-    const link=document.createElement('a')
-    link.href=url
-    link.download='change-sla-rules-216.json'
-    link.click()
-    setTimeout(()=>URL.revokeObjectURL(url),1000)
-  } catch (failure) {error.value=describe(failure)}
-  finally {exporting.value=false}
-}
 const canSave = computed(()=>Boolean(draft.value.platform?.trim() && ruleFields.some(([key])=>draft.value[key]?.trim())))
 function reset(){ platform.value=undefined; conditional.value=false }
 function edit(row?: Limit){
@@ -112,7 +96,6 @@ onMounted(reload)
   <div>
       <a-space wrap class="limits-note">
         <a-tag v-if="state?.revision">配置版本 {{state.revision}}</a-tag>
-        <a-button :disabled="saving" :loading="exporting" @click="exportRuleHistory">下载 216 规则包</a-button>
         <a-button :disabled="loading || saving || !state" @click="file?.click()">导入原始 Excel</a-button>
         <a-button type="primary" :disabled="loading || saving || !state" @click="edit()">新增配置</a-button>
         <input ref="file" type="file" hidden accept=".xlsx" @change="importFile" />
