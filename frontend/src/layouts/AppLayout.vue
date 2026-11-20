@@ -325,7 +325,7 @@ const headerTag = computed(() =>
               ? '统一监控治理'
               : '业务估算利润',
 )
-const canViewChangeSla = computed(() => authStore.user?.businessRoles?.some(role => role.name === '客服经理') === true)
+const canViewChangeSla = computed(() => authStore.user?.isAdmin || authStore.user?.businessRoles?.some(role => role.name === '客服经理') === true)
 const canSeeMenu = (code: string) =>
   Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.menuCodes?.includes(code))
 const canSeeGroup = (code: string) =>

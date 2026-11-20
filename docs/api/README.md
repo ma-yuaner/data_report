@@ -444,4 +444,4 @@ ADM解析来件登记：`GET /api/v1/adm/parsing/pending`、`POST /api/v1/adm/pa
 
 ### 改签 SLA 看板
 
-`GET /api/v1/analysis/change-sla` 仅向已分配启用的「客服经理」业务角色开放全量汇总与异常明细。单独勾选菜单不能授权。可传 `from`、`to`（YYYY-MM-DD，含首末日，默认北京时间当天）。返回 ERP 只读快照时间、日期范围、审核与操作节点记录和已配置阈值。单次最多 31 天且单节点最多 5,000 条，超限返回 400，请缩短日期。响应 `Cache-Control: no-store`。阈值由 `CHANGE_SLA_AUDIT_MINUTES`、`CHANGE_SLA_OPERATION_MINUTES` 配置，默认分别为 45、90 分钟，改期、改名、改证件共用。已有环境变量覆盖默认值，部署时应核对。
+`GET /api/v1/analysis/change-sla` 向系统管理员和已分配启用的「客服经理」业务角色开放全量汇总与异常明细。单独勾选菜单不能授权。可传 `from`、`to`（YYYY-MM-DD，含首末日，默认北京时间当天）。返回 ERP 只读快照时间、日期范围、审核与操作节点记录和已配置阈值。单次最多 31 天且单节点最多 5,000 条，超限返回 400，请缩短日期。响应 `Cache-Control: no-store`。阈值由 `CHANGE_SLA_AUDIT_MINUTES`、`CHANGE_SLA_OPERATION_MINUTES` 配置，默认分别为 45、90 分钟，改期、改名、改证件共用。已有环境变量覆盖默认值，部署时应核对。
