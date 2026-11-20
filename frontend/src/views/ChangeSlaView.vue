@@ -4,6 +4,7 @@ import type { TableColumnsType } from 'ant-design-vue'
 import { http, type ApiEnvelope } from '@/api/http'
 import FilterPanel from '@/components/FilterPanel.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import ChangeSlaLimitsView from '@/views/ChangeSlaLimitsView.vue'
 import { evaluateErpNodes, excluded, nodes, stats, timeout } from '@/features/change-sla/model'
 import type { ErpRecord, ErpSnapshot, SlaRow } from '@/features/change-sla/model'
 
@@ -23,6 +24,7 @@ type Step = { key: Dimension; value: string; label: string }
 type Drill = { steps: Step[]; mode: DrillMode; analysis: boolean; previous?: Drill }
 type Snapshot = ErpSnapshot & { coverage?: { missingDates: string[]; latestCoveredDate: string | null } }
 const dimensions: Dimension[] = ['platform', 'air', 'owner', 'supplier', 'shift', 'intake', 'exchange', 'kind']
+const limitsOpen = ref(false)
 const primaryDimensions = dimensions.slice(0, 5)
 const emptyFilters = (): Filters => ({ id: '' })
 const newTab = () => ({
@@ -271,8 +273,14 @@ onMounted(() => void query())
   <main class="page-wrap sla-review">
     <PageHeader eyebrow="业务分析 / 改签分析" title="客服改签 SLA 管理看板"
       :description="snapshot ? '数据时间 '+clock(snapshot.snapshot)+'（北京时间）' : '按审核和操作节点查看改签时效'">
-      <a-button :disabled="!rows.length" @click="exportRows(rows, '明细')">导出当前明细</a-button>
+      <a-space wrap>
+        <a-button @click="limitsOpen=true">时限配置</a-button>
+        <a-button :disabled="!rows.length" @click="exportRows(rows, '明细')">导出当前明细</a-button>
+      </a-space>
     </PageHeader>
+    <a-drawer v-model:open="limitsOpen" title="时限配置" width="min(1200px,100vw)" destroy-on-close>
+      <ChangeSlaLimitsView />
+    </a-drawer>
     <a-tabs :active-key="active" @change="activate">
       <a-tab-pane key="audit" tab="改期审核" />
       <a-tab-pane key="operation" tab="改期操作" />
@@ -375,6 +383,8 @@ onMounted(() => void query())
           <a-descriptions-item label="SLA 到期">{{clock(record.due)}}</a-descriptions-item>
           <a-descriptions-item label="判定规则">{{record.rule ? [record.rule.id,record.rule.minutes+' 分钟'].join(' / ') : '—'}}</a-descriptions-item>
           <a-descriptions-item label="时限来源">{{ruleSource(record)}}</a-descriptions-item>
+          <a-descriptions-item v-if="record.ruleDecision?.revision" label="时限配置版本">{{record.ruleDecision.revision}}</a-descriptions-item>
+          <a-descriptions-item v-if="record.ruleDecision?.effectiveFromMs" label="配置生效时间">{{clock(record.ruleDecision.effectiveFromMs)}}</a-descriptions-item>
           <a-descriptions-item v-if="record.ruleDecision?.detail" label="规则说明">{{record.ruleDecision.detail}}</a-descriptions-item>
           <a-descriptions-item label="关联单据数">{{record.linked}}</a-descriptions-item>
         </a-descriptions>

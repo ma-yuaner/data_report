@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import type { TableColumnsType } from 'ant-design-vue'
-import PageHeader from '@/components/PageHeader.vue'
 import FilterPanel from '@/components/FilterPanel.vue'
 import { http, type ApiEnvelope } from '@/api/http'
 
@@ -21,6 +20,7 @@ const endpoint = '/v1/analysis/change-sla/limits'
 const state = ref<Settings>()
 const loading = ref(false)
 const saving = ref(false)
+const exporting = ref(false)
 const error = ref('')
 const message = ref('')
 const platform = ref<string>()
@@ -75,18 +75,20 @@ const candidateRows = computed(() => (state.value?.rows ?? []).flatMap(row => ru
   (!candidateIntake.value || row.intake===candidateIntake.value) &&
   (!candidateStatus.value || row.status===candidateStatus.value)
 ))
-function exportCandidateRules(){
-  if (!state.value?.rows.length) return
-  const data=state.value.rows.map(row=>({
-    platform:row.platform,auditVoluntary:row.auditVoluntary,auditInvoluntary:row.auditInvoluntary,
-    operationVoluntary:row.operationVoluntary,operationInvoluntary:row.operationInvoluntary,
-  }))
-  const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json;charset=utf-8'}))
-  const link=document.createElement('a')
-  link.href=url
-  link.download='change-sla-rules-216.json'
-  link.click()
-  setTimeout(()=>URL.revokeObjectURL(url),1000)
+async function exportCandidateRules(){
+  if (!state.value?.rows.length || exporting.value) return
+  exporting.value=true
+  error.value=''
+  try {
+    const {data:{data}}=await http.get<ApiEnvelope<object>>(endpoint,{params:{export:'216'}})
+    const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json;charset=utf-8'}))
+    const link=document.createElement('a')
+    link.href=url
+    link.download='change-sla-rules-216.json'
+    link.click()
+    setTimeout(()=>URL.revokeObjectURL(url),1000)
+  } catch (failure) {error.value=describe(failure)}
+  finally {exporting.value=false}
 }
 const canSave = computed(()=>Boolean(draft.value.platform?.trim() && ruleFields.some(([key])=>draft.value[key]?.trim())))
 function reset(){ platform.value=undefined; conditional.value=false }
@@ -137,15 +139,14 @@ onMounted(reload)
 </script>
 
 <template>
-  <main class="page-wrap">
-    <PageHeader eyebrow="业务分析 / 改签分析" title="改签 SLA 时限管理" description="维护合作平台的审核与操作时限。">
-      <a-space wrap>
+  <div>
+      <a-space wrap class="limits-note">
         <a-button :disabled="loading || !state" @click="candidatesOpen=true">读取时限配置候选</a-button>
+        <a-button :disabled="!state?.rows.length || saving" :loading="exporting" @click="exportCandidateRules">下载 216 历史规则</a-button>
         <a-button :disabled="loading || saving || !state" @click="file?.click()">导入原始 Excel</a-button>
         <a-button type="primary" :disabled="loading || saving || !state" @click="edit()">新增配置</a-button>
         <input ref="file" type="file" hidden accept=".xlsx" @change="importFile" />
       </a-space>
-    </PageHeader>
     <a-alert class="limits-note" type="info" show-icon message="新批次优先匹配平台时限。未命中时审核 60 分钟、操作 90 分钟，已判定记录保留原规则。" />
     <a-alert v-if="message" class="limits-note" type="success" show-icon :message="message" />
     <a-alert v-if="error && !open" class="limits-note" type="error" show-icon :message="error">
@@ -177,7 +178,6 @@ onMounted(reload)
         <a-select v-model:value="candidateNode" :options="['审核','操作'].map(value=>({value,label:value}))" allow-clear placeholder="全部节点" style="width:115px" />
         <a-select v-model:value="candidateIntake" :options="['自愿','非自愿'].map(value=>({value,label:value}))" allow-clear placeholder="全部进单类型" style="width:135px" />
         <a-select v-model:value="candidateStatus" :options="['固定时限','待核对','未配置'].map(value=>({value,label:value}))" allow-clear placeholder="全部状态" style="width:120px" />
-        <a-button :disabled="!state?.rows.length" @click="exportCandidateRules">下载整版 216 规则</a-button>
       </a-space>
       <a-table :columns="candidateColumns" :data-source="candidateRows" row-key="id" size="small"
         :scroll="{x:940}" :pagination="{pageSize:10,showSizeChanger:false}" :locale="{emptyText:'暂无匹配的候选规则'}">
@@ -203,7 +203,7 @@ onMounted(reload)
           <a-button :disabled="saving" @click="open=false; error=''">取消</a-button></a-space>
       </a-form>
     </a-drawer>
-  </main>
+  </div>
 </template>
 
 <style scoped>

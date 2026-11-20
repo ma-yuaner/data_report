@@ -1,5 +1,6 @@
 """Shared SLA rule catalog. It is independent of the ERP SLA evaluator."""
 from contextlib import closing
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 import json
@@ -61,6 +62,39 @@ class ChangeSlaLimits:
                     raise
                 revision, rows = 0, []
         return {"revision": revision, "rows": rows}
+
+    def export_rule_history(self):
+        if not self.path.is_file():
+            raise InvalidLimit("请先保存时限配置")
+        with closing(self._connect()) as db:
+            db.execute("BEGIN")
+            try:
+                entries = db.execute("""
+                    SELECT revision, records, updated_at FROM change_sla_limits_history
+                    WHERE revision < (SELECT revision FROM change_sla_limits WHERE id=1)
+                    UNION ALL
+                    SELECT revision, records, updated_at FROM change_sla_limits WHERE id=1
+                    ORDER BY revision
+                """).fetchall()
+            except sqlite3.OperationalError as error:
+                if str(error) != "no such table: change_sla_limits_history":
+                    raise
+                entries = db.execute("""
+                    SELECT revision, records, updated_at FROM change_sla_limits WHERE id=1
+                """).fetchall()
+        if not entries:
+            raise InvalidLimit("请先保存时限配置")
+        return {
+            "schemaVersion": 1,
+            "versions": [
+                {
+                    "revision": revision,
+                    "effectiveFromMs": int(datetime.fromisoformat(updated_at).replace(tzinfo=timezone.utc).timestamp() * 1000),
+                    "rows": [{field: row.get(field, "") for field in ("platform", *RULES)} for row in json.loads(records)],
+                }
+                for revision, records, updated_at in entries
+            ],
+        }
 
     def save(self, body, actor):
         if not isinstance(body, dict) or type(body.get("revision")) is not int:
@@ -130,12 +164,13 @@ class ChangeSlaLimits:
             revision += 1
             payload = json.dumps(records, ensure_ascii=False)
             db.execute("""
-                INSERT INTO change_sla_limits (id, revision, records, updated_by)
-                VALUES (1, ?, ?, ?)
+                INSERT INTO change_sla_limits (id, revision, records, updated_by, updated_at)
+                VALUES (1, ?, ?, ?, STRFTIME('%Y-%m-%d %H:%M:%f', 'now'))
                 ON CONFLICT(id) DO UPDATE SET revision=excluded.revision, records=excluded.records,
-                    updated_by=excluded.updated_by, updated_at=CURRENT_TIMESTAMP
+                    updated_by=excluded.updated_by, updated_at=excluded.updated_at
             """, (revision, payload, str(actor)))
             db.execute("""
-                INSERT INTO change_sla_limits_history (revision, records, updated_by) VALUES (?, ?, ?)
-            """, (revision, payload, str(actor)))
+                INSERT INTO change_sla_limits_history (revision, records, updated_by, updated_at)
+                SELECT revision, records, updated_by, updated_at FROM change_sla_limits WHERE id=1
+            """)
         return {"revision": revision, "rows": records}
