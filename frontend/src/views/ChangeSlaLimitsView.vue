@@ -26,11 +26,6 @@ const message = ref('')
 const platform = ref<string>()
 const conditional = ref(false)
 const open = ref(false)
-const candidatesOpen = ref(false)
-const candidatePlatform = ref<string>()
-const candidateNode = ref<string>()
-const candidateIntake = ref<string>()
-const candidateStatus = ref<string>()
 const draft = ref<Partial<Limit>>({})
 const editRevision = ref<number>()
 const file = ref<HTMLInputElement>()
@@ -50,32 +45,7 @@ const columns: TableColumnsType<Limit> = [
   {title:'操作',key:'actions',width:85,fixed:'right'},
 ]
 const ruleKeys = new Set<string>(ruleFields.map(([key])=>key))
-const candidateColumns = [
-  {title:'平台',dataIndex:'platform',width:135},
-  {title:'节点',dataIndex:'node',width:105},
-  {title:'进单类型',dataIndex:'intake',width:105},
-  {title:'配置原文',dataIndex:'raw',key:'raw',width:245},
-  {title:'换算（分钟）',dataIndex:'minutes',width:120},
-  {title:'候选状态',dataIndex:'status',key:'status',width:120},
-  {title:'来源',dataIndex:'source',width:115},
-]
-const candidateRows = computed(() => (state.value?.rows ?? []).flatMap(row => ruleFields.map(([key],index) => {
-  const raw = row[key]?.trim() ?? ''
-  const match = /^([0-9]{1,5})\s*([HM])$/i.exec(raw)
-  const minutes = match ? Number(match[1]) * (match[2]?.toUpperCase()==='H' ? 60 : 1) : null
-  const valid = minutes!==null && minutes>=1 && minutes<=14400
-  return {
-    id:row.id+':'+key,platform:row.platform,node:index<2?'审核':'操作',intake:index%2===0?'自愿':'非自愿',
-    raw,minutes:valid?minutes:null,status:!raw?'未配置':valid?'固定时限':'待核对',
-    source:row.sourceRow ? 'Excel 第 '+row.sourceRow+' 行' : '手工录入',
-  }
-})).filter(row =>
-  (!candidatePlatform.value || row.platform===candidatePlatform.value) &&
-  (!candidateNode.value || row.node===candidateNode.value) &&
-  (!candidateIntake.value || row.intake===candidateIntake.value) &&
-  (!candidateStatus.value || row.status===candidateStatus.value)
-))
-async function exportCandidateRules(){
+async function exportRuleHistory(){
   if (!state.value?.rows.length || exporting.value) return
   exporting.value=true
   error.value=''
@@ -141,8 +111,8 @@ onMounted(reload)
 <template>
   <div>
       <a-space wrap class="limits-note">
-        <a-button :disabled="loading || !state" @click="candidatesOpen=true">读取时限配置候选</a-button>
-        <a-button :disabled="!state?.rows.length || saving" :loading="exporting" @click="exportCandidateRules">下载 216 历史规则</a-button>
+        <a-tag v-if="state?.revision">配置版本 {{state.revision}}</a-tag>
+        <a-button :disabled="!state?.rows.length || saving" :loading="exporting" @click="exportRuleHistory">下载 216 历史规则</a-button>
         <a-button :disabled="loading || saving || !state" @click="file?.click()">导入原始 Excel</a-button>
         <a-button type="primary" :disabled="loading || saving || !state" @click="edit()">新增配置</a-button>
         <input ref="file" type="file" hidden accept=".xlsx" @change="importFile" />
@@ -169,24 +139,6 @@ onMounted(reload)
         </template>
       </a-table>
     </a-card>
-    <a-drawer v-model:open="candidatesOpen" width="min(1080px,100vw)" title="时限配置候选">
-      <a-alert class="limits-note" type="info" show-icon
-        message="按平台、节点与进单类型查候选。固定时限可核对换算结果，分段文字保留待确认。该列表来自当前保存版本，订单实际采用的时限请看 SLA 明细。" />
-      <a-space wrap class="limits-note">
-        <a-tag>配置版本 {{state?.revision ?? 0}}</a-tag>
-        <a-select v-model:value="candidatePlatform" :options="platforms" allow-clear show-search placeholder="全部平台" style="width:150px" />
-        <a-select v-model:value="candidateNode" :options="['审核','操作'].map(value=>({value,label:value}))" allow-clear placeholder="全部节点" style="width:115px" />
-        <a-select v-model:value="candidateIntake" :options="['自愿','非自愿'].map(value=>({value,label:value}))" allow-clear placeholder="全部进单类型" style="width:135px" />
-        <a-select v-model:value="candidateStatus" :options="['固定时限','待核对','未配置'].map(value=>({value,label:value}))" allow-clear placeholder="全部状态" style="width:120px" />
-      </a-space>
-      <a-table :columns="candidateColumns" :data-source="candidateRows" row-key="id" size="small"
-        :scroll="{x:940}" :pagination="{pageSize:10,showSizeChanger:false}" :locale="{emptyText:'暂无匹配的候选规则'}">
-        <template #bodyCell="{column,record}">
-          <span v-if="column.key==='raw'" class="rule-text">{{record.raw||'—'}}</span>
-          <a-tag v-else-if="column.key==='status'" :color="record.status==='待核对'?'orange':record.status==='固定时限'?'blue':undefined">{{record.status}}</a-tag>
-        </template>
-      </a-table>
-    </a-drawer>
     <a-drawer v-model:open="open" width="min(760px,100vw)" :title="draft.id?'查看 / 编辑时限配置':'新增时限配置'" :mask-closable="false">
       <a-alert v-if="error" class="limits-note" type="error" show-icon :message="error" />
       <a-form layout="vertical" @finish="save">
