@@ -20,6 +20,7 @@ class Config:
     CHANGE_SLA_AUDIT_MINUTES = os.getenv("CHANGE_SLA_AUDIT_MINUTES", "45")
     CHANGE_SLA_OPERATION_MINUTES = os.getenv("CHANGE_SLA_OPERATION_MINUTES", "90")
     CHANGE_SLA_SNAPSHOT_PATH = os.getenv("CHANGE_SLA_SNAPSHOT_PATH", "")
+    CHANGE_SLA_SHARED_RULES = os.getenv("CHANGE_SLA_SHARED_RULES", "0") == "1"
     ASSET_INVENTORY_ROOT = os.getenv("ASSET_INVENTORY_ROOT", "").strip() or str(Path(__file__).resolve().parents[2] / "var/assets")
     APP_ENV = os.getenv("APP_ENV", "development")
     APP_TIMEZONE = os.getenv("APP_TIMEZONE", "Asia/Shanghai")

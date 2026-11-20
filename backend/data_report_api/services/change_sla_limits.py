@@ -1,5 +1,5 @@
 """Shared SLA rule catalog. It is independent of the ERP SLA evaluator."""
-from contextlib import closing
+from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -38,6 +38,10 @@ def _record(data):
     return result
 
 
+def _rules_only(payload):
+    return [{field: row.get(field, "") for field in ("platform", *RULES)} for row in json.loads(payload)]
+
+
 class ChangeSlaLimits:
     def __init__(self, root):
         self.path = Path(root) / "change-sla-limits.sqlite3"
@@ -63,36 +67,39 @@ class ChangeSlaLimits:
                 revision, rows = 0, []
         return {"revision": revision, "rows": rows}
 
-    def export_rule_history(self):
+    def _history(self):
         if not self.path.is_file():
-            raise InvalidLimit("请先保存时限配置")
+            return []
         with closing(self._connect()) as db:
             db.execute("BEGIN")
             try:
                 entries = db.execute("""
-                    SELECT revision, records, updated_at FROM change_sla_limits_history
+                    SELECT revision, records, updated_at, updated_by FROM change_sla_limits_history
                     WHERE revision < (SELECT revision FROM change_sla_limits WHERE id=1)
                     UNION ALL
-                    SELECT revision, records, updated_at FROM change_sla_limits WHERE id=1
+                    SELECT revision, records, updated_at, updated_by FROM change_sla_limits WHERE id=1
                     ORDER BY revision
                 """).fetchall()
             except sqlite3.OperationalError as error:
+                if str(error) == "no such table: change_sla_limits":
+                    return []
                 if str(error) != "no such table: change_sla_limits_history":
                     raise
                 entries = db.execute("""
-                    SELECT revision, records, updated_at FROM change_sla_limits WHERE id=1
+                    SELECT revision, records, updated_at, updated_by FROM change_sla_limits WHERE id=1
                 """).fetchall()
+        return [(revision, records, int(datetime.fromisoformat(updated_at).replace(tzinfo=timezone.utc).timestamp() * 1000), actor)
+                for revision, records, updated_at, actor in entries]
+
+    def export_rule_history(self):
+        entries = self._history()
         if not entries:
             raise InvalidLimit("请先保存时限配置")
         return {
             "schemaVersion": 1,
             "versions": [
-                {
-                    "revision": revision,
-                    "effectiveFromMs": int(datetime.fromisoformat(updated_at).replace(tzinfo=timezone.utc).timestamp() * 1000),
-                    "rows": [{field: row.get(field, "") for field in ("platform", *RULES)} for row in json.loads(records)],
-                }
-                for revision, records, updated_at in entries
+                {"revision": revision, "effectiveFromMs": effective_ms, "rows": _rules_only(records)}
+                for revision, records, effective_ms, _ in entries
             ],
         }
 
@@ -122,28 +129,9 @@ class ChangeSlaLimits:
         else:
             raise InvalidLimit("不支持的配置操作")
 
-        with closing(self._connect()) as db, db:
-            db.execute("BEGIN IMMEDIATE")
-            db.execute("""
-                CREATE TABLE IF NOT EXISTS change_sla_limits (
-                    id INTEGER PRIMARY KEY CHECK (id=1), revision INTEGER NOT NULL,
-                    records TEXT NOT NULL, updated_by TEXT NOT NULL,
-                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            db.execute("""
-                CREATE TABLE IF NOT EXISTS change_sla_limits_history (
-                    revision INTEGER PRIMARY KEY, records TEXT NOT NULL,
-                    updated_by TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            revision, records = self._read(db)
+        with self._edit() as (revision, records, persist):
             if body["revision"] != revision:
                 raise LimitsChanged("配置已被他人更新，请刷新列表后再保存")
-            db.execute("""
-                INSERT OR IGNORE INTO change_sla_limits_history (revision, records, updated_by, updated_at)
-                SELECT revision, records, updated_by, updated_at FROM change_sla_limits WHERE id=1
-            """)
             if operation == "import":
                 current_ids = {row["id"] for row in records}
                 additions = [row for row in incoming if row["id"] not in current_ids]
@@ -162,15 +150,112 @@ class ChangeSlaLimits:
             if len(records) > MAX_RECORDS:
                 raise InvalidLimit("配置数量不能超过 1000 条")
             revision += 1
-            payload = json.dumps(records, ensure_ascii=False)
+            persist(revision, records, str(actor))
+        return {"revision": revision, "rows": records}
+
+    @contextmanager
+    def _edit(self):
+        with closing(self._connect()) as db, db:
+            db.execute("BEGIN IMMEDIATE")
             db.execute("""
-                INSERT INTO change_sla_limits (id, revision, records, updated_by, updated_at)
-                VALUES (1, ?, ?, ?, STRFTIME('%Y-%m-%d %H:%M:%f', 'now'))
-                ON CONFLICT(id) DO UPDATE SET revision=excluded.revision, records=excluded.records,
-                    updated_by=excluded.updated_by, updated_at=excluded.updated_at
-            """, (revision, payload, str(actor)))
+                CREATE TABLE IF NOT EXISTS change_sla_limits (
+                    id INTEGER PRIMARY KEY CHECK (id=1), revision INTEGER NOT NULL,
+                    records TEXT NOT NULL, updated_by TEXT NOT NULL,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
             db.execute("""
-                INSERT INTO change_sla_limits_history (revision, records, updated_by, updated_at)
+                CREATE TABLE IF NOT EXISTS change_sla_limits_history (
+                    revision INTEGER PRIMARY KEY, records TEXT NOT NULL,
+                    updated_by TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            revision, records = self._read(db)
+            db.execute("""
+                INSERT OR IGNORE INTO change_sla_limits_history (revision, records, updated_by, updated_at)
                 SELECT revision, records, updated_by, updated_at FROM change_sla_limits WHERE id=1
             """)
-        return {"revision": revision, "rows": records}
+
+            def persist(revision, records, actor):
+                payload = json.dumps(records, ensure_ascii=False)
+                db.execute("""
+                    INSERT INTO change_sla_limits (id, revision, records, updated_by, updated_at)
+                    VALUES (1, ?, ?, ?, STRFTIME('%Y-%m-%d %H:%M:%f', 'now'))
+                    ON CONFLICT(id) DO UPDATE SET revision=excluded.revision, records=excluded.records,
+                        updated_by=excluded.updated_by, updated_at=excluded.updated_at
+                """, (revision, payload, str(actor)))
+                db.execute("""
+                    INSERT INTO change_sla_limits_history (revision, records, updated_by, updated_at)
+                    SELECT revision, records, updated_by, updated_at FROM change_sla_limits WHERE id=1
+                """)
+
+            yield revision, records, persist
+
+
+class SharedChangeSlaLimits(ChangeSlaLimits):
+    """BI is authoritative after copying the existing local catalog once."""
+
+    _LATEST = """
+        SELECT revision, records, effective_from_ms FROM bi_change_sla_rule_revision
+        WHERE revision > 0 ORDER BY revision DESC LIMIT 1
+    """
+    _INSERT = """
+        INSERT INTO bi_change_sla_rule_revision (revision, records, rules, effective_from_ms, updated_by)
+        VALUES (%s, %s, %s, %s, %s)
+    """
+
+    def __init__(self, root, connect):
+        super().__init__(root)
+        self.connect_shared = connect
+
+    def get(self):
+        with closing(self.connect_shared()) as db, closing(db.cursor()) as cursor:
+            cursor.execute(self._LATEST)
+            row = cursor.fetchone()
+        if row:
+            return {"revision": row[0], "rows": json.loads(row[1])}
+        with self._edit() as (revision, records, _):
+            return {"revision": revision, "rows": records}
+
+    def _history(self):
+        self.get()  # Initialize the shared catalog if an existing local catalog needs copying.
+        with closing(self.connect_shared()) as db, closing(db.cursor()) as cursor:
+            cursor.execute("""
+                SELECT revision, records, effective_from_ms, updated_by
+                FROM bi_change_sla_rule_revision WHERE revision > 0 ORDER BY revision
+            """)
+            return cursor.fetchall()
+
+    @contextmanager
+    def _edit(self):
+        with closing(self.connect_shared()) as db, closing(db.cursor()) as cursor:
+            db.begin()
+            try:
+                cursor.execute("SELECT revision FROM bi_change_sla_rule_revision WHERE revision=0 FOR UPDATE")
+                if cursor.fetchone() is None:
+                    raise RuntimeError("改签规则台账缺少初始化锁行")
+                cursor.execute(self._LATEST + " FOR UPDATE")
+                latest = cursor.fetchone()
+                if latest is None:
+                    previous = super()._history()
+                    for revision, payload, effective_ms, actor in previous:
+                        cursor.execute(self._INSERT, (
+                            revision, payload, json.dumps(_rules_only(payload), ensure_ascii=False), effective_ms, actor,
+                        ))
+                    if previous:
+                        latest = previous[-1][:3]
+                current_revision, payload, last_effective = latest or (0, "[]", 0)
+
+                def persist(revision, records, actor):
+                    cursor.execute("SELECT TIMESTAMPDIFF(MICROSECOND, '1970-01-01', UTC_TIMESTAMP(3)) DIV 1000")
+                    effective_ms = max(cursor.fetchone()[0], last_effective)
+                    payload = json.dumps(records, ensure_ascii=False)
+                    cursor.execute(self._INSERT, (
+                        revision, payload, json.dumps(_rules_only(payload), ensure_ascii=False), effective_ms, actor,
+                    ))
+
+                yield current_revision, json.loads(payload), persist
+                db.commit()
+            except BaseException:
+                db.rollback()
+                raise
