@@ -15,6 +15,7 @@ export interface ErpRecord {
   linked: number
   businessAt?: number | null
   applicationAt?: number | null
+  firstDepartureAt?: number | null
   reportMinutes?: number | null
   platformName?: string
   supplier?: string
@@ -30,6 +31,7 @@ export interface ErpRecord {
     detail: string
     revision?: number
     effectiveFromMs?: number
+    flightLeadMs?: number
   }
 }
 export interface SlaRule {
