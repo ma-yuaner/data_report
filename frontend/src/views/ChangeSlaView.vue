@@ -273,11 +273,14 @@ function exportRows(data: ReportRow[], suffix: string) {
   if (!data.length) return
   const header = ['ERP 单据 ID', dateLabel.value, ...dimensions.map(key => labels[key]), '状态', '报表耗时（分钟）',
     'SLA 耗时（分钟）', '目标（分钟）', '结束时间来源', '时限来源', '规则说明', '规则版本',
-    '配置修订号', '配置生效时间', 'SLA 开始时间', 'SLA 完成时间', 'SLA 到期时间']
+    '配置修订号', '配置生效时间', 'SLA 开始时间', 'SLA 完成时间', 'SLA 到期时间',
+    '申请时间', '最早原航段计划起飞时间', '距起飞（分钟）']
   const content = data.map(row => [row.id, clock(row.businessAt), ...dimensions.map(key => displayFor(row, key)),
     row.state, reportDuration(row), row.elapsed, row.rule?.minutes, sourceLabel(row.endSource), ruleSource(row),
     row.ruleDecision?.detail, row.ruleDecision?.version || row.rule?.id,
-    row.ruleDecision?.revision, clock(row.ruleDecision?.effectiveFromMs), clock(row.start), clock(row.end), clock(row.due)])
+    row.ruleDecision?.revision, clock(row.ruleDecision?.effectiveFromMs), clock(row.start), clock(row.end), clock(row.due),
+    clock(row.applicationAt), clock(row.firstDepartureAt),
+    row.ruleDecision?.flightLeadMs == null ? null : row.ruleDecision.flightLeadMs / 60000])
   const csv = [header, ...content].map(values => values.map(csvCell).join(',')).join('\r\n')
   const url = URL.createObjectURL(new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' }))
   const link = document.createElement('a')
@@ -397,7 +400,9 @@ onMounted(() => void query())
           <span v-if="column.key==='date'">{{clock(item.businessAt)}}</span>
           <span v-else-if="column.key==='report'">{{reportDuration(item) ?? '—'}}</span>
           <span v-else-if="column.key==='elapsed'">{{item.elapsed===null?'—':number.format(item.elapsed)}} / {{item.rule?.minutes??'—'}}</span>
-          <span v-else-if="column.key==='ruleSource'">{{ruleSource(item)}}</span>
+          <a-tooltip v-else-if="column.key==='ruleSource'" :title="item.ruleDecision?.detail">
+            <span>{{ruleSource(item)}}</span>
+          </a-tooltip>
           <span v-else-if="column.key==='endSource'">{{sourceLabel(item.endSource)}}</span>
           <span v-else-if="typeof column.key==='string' && column.key in labels">{{displayFor(item,column.key as Dimension)}}</span>
         </template>

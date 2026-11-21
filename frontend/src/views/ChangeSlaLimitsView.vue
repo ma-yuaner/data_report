@@ -13,7 +13,8 @@ const accountFields = [
 ] as const
 type RuleKey = typeof ruleFields[number][0]
 type FieldKey = RuleKey | typeof accountFields[number][0] | 'platform' | 'auditMode'
-type Limit = Record<FieldKey, string> & { id: string; sourceRow?: number }
+type Band = { fromMinutes: number | null; untilMinutes: number | null; limitMinutes: number | null; includeFrom: boolean; includeUntil: boolean }
+type Limit = Record<FieldKey, string> & { id: string; sourceRow?: number; segments?: Partial<Record<RuleKey, Band[]>> }
 type Settings = { revision: number; rows: Limit[] }
 const endpoint = '/v1/analysis/change-sla/limits'
 const state = ref<Settings>()
@@ -24,6 +25,9 @@ const message = ref('')
 const platform = ref<string>()
 const open = ref(false)
 const draft = ref<Partial<Limit>>({})
+const activeRule = ref<RuleKey>('auditVoluntary')
+const ruleOptions = ruleFields.map(([value,label]) => ({ value, label }))
+const activeBands = computed(() => draft.value.segments?.[activeRule.value] ?? [])
 const editRevision = ref<number>()
 const file = ref<HTMLInputElement>()
 const platforms = computed(() => [...new Set(state.value?.rows.map(row => row.platform))].sort((a,b)=>a.localeCompare(b,'zh-CN'))
@@ -39,9 +43,29 @@ const columns: TableColumnsType<Limit> = [
   {title:'操作',key:'actions',width:85,fixed:'right'},
 ]
 const ruleKeys = new Set<string>(ruleFields.map(([key])=>key))
-const canSave = computed(()=>Boolean(draft.value.platform?.trim() && ruleFields.some(([key])=>draft.value[key]?.trim())))
+const canSave = computed(()=>Boolean(draft.value.platform?.trim() && ruleFields.some(([key])=>
+  draft.value[key]?.trim() || draft.value.segments?.[key]?.length)))
+function fixedMinutes(raw?: string) {
+  const match = raw?.match(/^(\d+)\s*([HM])$/i)
+  return match ? Number(match[1]) * (match[2].toUpperCase() === 'H' ? 60 : 1) : null
+}
+function setFixed(value: number | string | null) {
+  draft.value[activeRule.value] = value == null ? '' : value + 'M'
+}
+function addBand() {
+  const segments = draft.value.segments ??= {}
+  const bands = segments[activeRule.value] ??= []
+  const prior = bands.at(-1)
+  bands.push({ fromMinutes: prior ? prior.untilMinutes : 0, untilMinutes: null, limitMinutes: null,
+    includeFrom: !prior?.includeUntil, includeUntil: false })
+}
+function removeBand(index: number) {
+  activeBands.value.splice(index, 1)
+}
 function edit(row?: Limit){
-  error.value=''; message.value=''; draft.value=row?{...row}:{auditMode:'是'}
+  error.value=''; message.value=''
+  draft.value=row?{...row, segments: JSON.parse(JSON.stringify(row.segments ?? {}))}:{auditMode:'是', segments:{}}
+  activeRule.value='auditVoluntary'
   editRevision.value=state.value?.revision
   open.value=true
 }
@@ -111,7 +135,9 @@ onMounted(reload)
         <template #bodyCell="{column,record}">
           <a-button v-if="column.key==='actions'" type="link" size="small" @click="edit(record)">查看 / 编辑</a-button>
           <span v-else-if="column.key==='source'">{{record.sourceRow ? 'Excel 第 '+record.sourceRow+' 行' : '手工录入'}}</span>
-          <span v-else-if="ruleKeys.has(String(column.key))" class="rule-text">{{record[String(column.key)] || '待补充'}}</span>
+          <span v-else-if="ruleKeys.has(String(column.key))" class="rule-text">
+            {{record.segments?.[column.key]?.length ? record.segments[column.key].length + ' 个航班分段' : record[String(column.key)] || '待补充'}}
+          </span>
         </template>
     </a-table>
     <a-drawer v-model:open="open" width="min(760px,100vw)" :title="draft.id?'查看 / 编辑时限配置':'新增时限配置'" :mask-closable="false">
@@ -120,9 +146,29 @@ onMounted(reload)
         <div class="form-grid">
           <a-form-item label="OTA 平台" required><a-input v-model:value="draft.platform" :maxlength="2000" /></a-form-item>
           <a-form-item label="审单"><a-select v-model:value="draft.auditMode" allow-clear :options="['是','手工','否'].map(value=>({value,label:value}))" /></a-form-item>
-          <a-form-item v-for="[key,label] in ruleFields" :key="key" :label="label">
-            <a-textarea v-model:value="draft[key]" :rows="3" :maxlength="2000" placeholder="例如 1H，或逐行填写分段条件和时限" />
+        </div>
+        <a-card size="small" class="limits-note" title="考核时限">
+          <a-select v-model:value="activeRule" :options="ruleOptions" aria-label="选择节点与进单类型" class="limits-note" />
+          <a-form-item v-if="!activeBands.length" label="固定完成时限（分钟）">
+            <a-input-number :value="fixedMinutes(draft[activeRule])" :min="1" :max="14400" :precision="0" @change="setFixed" />
           </a-form-item>
+          <p v-if="draft[activeRule] && fixedMinutes(draft[activeRule])===null" class="rule-text">规则原文：{{draft[activeRule]}}</p>
+          <p v-if="activeBands.length">距起飞时间按申请时点计算。勾选「含边界」决定恰好等于上下限时是否命中。</p>
+          <div v-for="(band,index) in activeBands" :key="index" class="band-fields">
+            <a-form-item label="距起飞下限（分钟）">
+              <a-input-number v-model:value="band.fromMinutes" :min="0" :max="525600" :precision="0" />
+              <a-checkbox v-model:checked="band.includeFrom">含下限</a-checkbox>
+            </a-form-item>
+            <a-form-item label="距起飞上限（分钟）">
+              <a-input-number v-model:value="band.untilMinutes" :min="1" :max="525600" :precision="0" placeholder="不限" />
+              <a-checkbox v-model:checked="band.includeUntil" :disabled="band.untilMinutes==null">含上限</a-checkbox>
+            </a-form-item>
+            <a-form-item label="完成时限（分钟）"><a-input-number v-model:value="band.limitMinutes" :min="1" :max="14400" :precision="0" /></a-form-item>
+            <a-button type="link" danger @click="removeBand(index)">移除此档</a-button>
+          </div>
+          <a-button :disabled="activeBands.length>=12" @click="addBand">添加航班分段</a-button>
+        </a-card>
+        <div class="form-grid">
           <a-form-item v-for="[key,label] in accountFields" :key="key" :label="label">
             <a-input v-model:value="draft[key]" :maxlength="2000" />
           </a-form-item>
@@ -140,6 +186,8 @@ onMounted(reload)
 .platform-filter { width:200px; max-width:100%; }
 .limits-note { margin-bottom:16px; }
 .form-grid { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 16px; }
+.band-fields { display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) auto;gap:8px;align-items:center; }
+.band-fields :deep(.ant-input-number) { width:100%; }
 .rule-text { white-space:pre-wrap;overflow-wrap:anywhere; }
-@media(max-width:550px) { .form-grid { grid-template-columns:1fr; } }
+@media(max-width:550px) { .form-grid,.band-fields { grid-template-columns:1fr; } }
 </style>

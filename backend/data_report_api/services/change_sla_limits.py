@@ -31,7 +31,35 @@ def _record(data):
         if not isinstance(raw, str) or len(raw) > 2000:
             raise InvalidLimit(f"配置字段无效或过长：{field}")
         result[field] = raw.strip()
-    if not result["platform"] or not any(result[field] for field in RULES):
+    segments = data.get("segments", {})
+    if not isinstance(segments, dict) or set(segments) - set(RULES):
+        raise InvalidLimit("航班分段字段无效")
+    result["segments"] = {}
+    for field, bands in segments.items():
+        if not isinstance(bands, list) or len(bands) > 12:
+            raise InvalidLimit("每类时限最多配置 12 个航班分段")
+        if not bands:
+            continue
+        cleaned = []
+        for band in bands:
+            if not isinstance(band, dict):
+                raise InvalidLimit("航班分段格式无效")
+            low, high, limit = (band.get(key) for key in ("fromMinutes", "untilMinutes", "limitMinutes"))
+            include_low, include_high = band.get("includeFrom", True), band.get("includeUntil", False)
+            if (type(low) is not int or not 0 <= low <= 525600
+                    or (high is not None and (type(high) is not int or not low < high <= 525600))
+                    or type(limit) is not int or not 1 <= limit <= 14400
+                    or type(include_low) is not bool or type(include_high) is not bool):
+                raise InvalidLimit("请填写有效的距起飞上下限及完成时限（分钟）")
+            cleaned.append({"fromMinutes": low, "untilMinutes": high, "limitMinutes": limit,
+                            "includeFrom": include_low, "includeUntil": high is not None and include_high})
+        cleaned.sort(key=lambda band: band["fromMinutes"])
+        if any(left["untilMinutes"] is None or left["untilMinutes"] > right["fromMinutes"]
+               or (left["untilMinutes"] == right["fromMinutes"] and left["includeUntil"] and right["includeFrom"])
+               for left, right in zip(cleaned, cleaned[1:])):
+            raise InvalidLimit("同一类时限的航班分段不能重叠")
+        result["segments"][field] = cleaned
+    if not result["platform"] or not (any(result[field] for field in RULES) or result["segments"]):
         raise InvalidLimit("请填写 OTA 平台及至少一项时限")
     if result["auditMode"] not in {"", "是", "手工", "否"}:
         raise InvalidLimit("审单方式必须为是、手工或否")
@@ -39,7 +67,11 @@ def _record(data):
 
 
 def _rules_only(payload):
-    return [{field: row.get(field, "") for field in ("platform", *RULES)} for row in json.loads(payload)]
+    return [
+        {**{field: row.get(field, "") for field in ("platform", *RULES)},
+         **({"segments": row["segments"]} if row.get("segments") else {})}
+        for row in json.loads(payload)
+    ]
 
 
 class ChangeSlaLimits:
@@ -123,6 +155,8 @@ class ChangeSlaLimits:
         elif operation == "upsert":
             raw = body.get("record")
             record = _record(raw)
+            if "segments" not in raw:
+                record.pop("segments")
             identifier = raw.get("id")
             if identifier is not None and (not isinstance(identifier, str) or not identifier):
                 raise InvalidLimit("配置编号无效")
