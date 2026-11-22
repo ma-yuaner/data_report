@@ -1,5 +1,7 @@
 ## 通用数据标注 V1（2026-11-22）
 
+部署后复测发现数据标注 PDF 原版打不开。实测线上 PDF.js Worker 存在且返回 200，MIME 为 application/octet-stream。Web Nginx 现将 /assets/ 下的 .mjs 用 application/javascript 提供，并对缺失模块返回 404。隔离 Chrome 用旧 MIME 复现同一错误，用正确 MIME 验证真实 PDF 渲染及选字打标。修复随 Web 镜像生效，更新后须复查线上 Worker 响应头和 PDF 选区。
+
 用户授权按独立模块开发并在验证后通知上线，部署由用户安排。基线 e0c8b64。主会话完成后端、权限、存储与联调，一个前端执行者实现中台界面，后续独立审查确认并补上 PDF 重复定位、项目切换竞态和旧标签口径校验。已搭建项目/成员、文件与 ADM 引用、原文选区、双层标签、核对数量、保存和跳下一份、退回重提、复核、发布固定样本及已保存候选对照。隔离 SQLite/API 和 Chrome 三账号全流程已经验证，包含用户提供的真实 PDF 和合成材料。标准 Windows 构建受已知 esbuild 临时文件删除权限限制；非压缩联调构建通过。目标 MySQL 迁移/回读及目标环境验证待完成。参考[交付与步骤](../development/data-annotation-v1.md)。
 
 ## ADM 解析输出约束与抽取质量（2026-11-22）
