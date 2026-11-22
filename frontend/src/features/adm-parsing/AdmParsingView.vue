@@ -24,7 +24,7 @@
     />
     <a-alert v-if="error" type="error" show-icon :message="error" closable @close="error = ''" />
     <p v-if="notice && !selected?.candidate" class="parsing-feedback" role="status">{{ notice }}</p>
-    <div class="parsing-workspace">
+    <div class="parsing-workspace" :class="{ 'has-summary': selected }">
       <aside class="parsing-pane">
         <h2>解析来件 · {{ total }} 件</h2>
         <div class="parsing-filter">
@@ -152,7 +152,6 @@
               此任务由旧版启动，未记录具体阶段；可等待结果，暂勿重新解析。
             </p>
           </div>
-          <p v-if="sourceNotice" class="parsing-feedback" role="status">{{ sourceNotice }}</p>
           <a-tabs v-model:active-key="tab">
             <a-tab-pane key="issues" :tab="issueTabLabel">
               <a-alert
@@ -344,6 +343,7 @@
             >附件<a-select
               v-model:value="fileId"
               :options="selected.files.map((f) => ({ value: f.id, label: f.name }))"
+              @change="clearSource"
               style="width: 100%"
           /></label>
           <p>
@@ -352,9 +352,18 @@
             >
           </p>
           <p class="parsing-muted">此处展示实际文件读取的文字；扫描件需先OCR，XLS需先另存为XLSX。</p>
+          <div class="parsing-source-status" role="status">
+            {{
+              sourceNotice ||
+              (activeSource
+                ? `${activeSource.locator} · ${sourceExcerpt ? '已高亮引用' : '已定位原文段落'}`
+                : '点击“查看原文”定位引用')
+            }}
+          </div>
           <div class="parsing-document">
             <section v-for="s in segments" :key="s.id" :id="`segment-${s.id}`" :class="{ located: located === s.id }">
               <b>{{ s.locator }}</b>
+              <span v-if="located === s.id" class="parsing-source-badge">当前引用</span>
               <p v-if="located === s.id && sourceExcerpt">
                 {{ sourceExcerpt.before }}<mark>{{ sourceExcerpt.quote }}</mark
                 >{{ sourceExcerpt.after }}
@@ -497,6 +506,7 @@ const eventType = computed(() => {
 })
 const eventDepartments = computed(() => [...new Set(eventMatches.value.map((match) => match.department))].join(' / '))
 const sourceExcerpt = ref<{ before: string; quote: string; after: string }>()
+const activeSource = computed(() => segments.value.find((segment) => segment.id === located.value))
 const issueTarget = (issue: { path: string }) => {
   const index = /^\/evidence\/(\d+)$/.exec(issue.path)
   return index ? selected.value?.candidate?.evidence?.[Number(index[1])]?.path || issue.path : issue.path
@@ -602,9 +612,7 @@ async function select(id: string, reset = true) {
     lastChecked.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
     if (reset || !task.files.some((f) => f.id === fileId.value)) {
       fileId.value = task.files[0]?.id || ''
-      located.value = ''
-      sourceExcerpt.value = undefined
-      sourceNotice.value = ''
+      clearSource()
       tab.value = task.issues?.length ? 'issues' : 'fields'
     }
     items.value = items.value.map((item) => (item.id === id ? task : item))
@@ -722,26 +730,40 @@ async function retrySave() {
 }
 async function locate(path: string) {
   const evidence = selected.value?.candidate?.evidence
-  if (!Array.isArray(evidence)) return
-  const e = evidence.find((e) => e.path === path) || evidence.find((e) => e.path.startsWith(`${path}/`))
+  const e = evidence?.find((e) => e.path === path) || evidence?.find((e) => e.path.startsWith(`${path}/`))
   await locateSegment(e?.segmentId, e?.quote)
+}
+function clearSource() {
+  located.value = ''
+  sourceExcerpt.value = undefined
+  sourceNotice.value = ''
 }
 async function locateSegment(segmentId?: string, quote?: string) {
   const segment = selected.value?.segments?.find((s) => s.id === segmentId)
   if (!segment) {
-    sourceNotice.value = '该字段暂无有效来源，请先重新校验或查看校验问题。'
+    clearSource()
+    sourceNotice.value = '该字段暂无可定位的原文引用。'
+    await nextTick()
+    document.querySelector('.parsing-source-status')?.scrollIntoView({ block: 'nearest' })
     return
   }
-  sourceNotice.value = ''
-  const start = quote ? segment.text.indexOf(quote) : -1
-  sourceExcerpt.value =
-    quote && start >= 0
-      ? { before: segment.text.slice(0, start), quote, after: segment.text.slice(start + quote.length) }
-      : undefined
+  const words = quote?.trim().split(/\s+/).filter(Boolean) || []
+  const pattern = words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+')
+  const match = pattern ? new RegExp(pattern).exec(segment.text) : null
+  sourceExcerpt.value = match
+    ? {
+        before: segment.text.slice(0, match.index),
+        quote: match[0],
+        after: segment.text.slice(match.index + match[0].length),
+      }
+    : undefined
+  sourceNotice.value = pattern && !match ? '已定位原文段落，引用文字未能逐字匹配。' : ''
   fileId.value = segment.fileId
   located.value = segment.id
   await nextTick()
-  document.getElementById(`segment-${segment.id}`)?.scrollIntoView({ block: 'nearest', behavior: 'auto' })
+  const source = document.getElementById(`segment-${segment.id}`)
+  const highlight = source?.querySelector('mark') || source
+  highlight?.scrollIntoView({ block: 'nearest', behavior: 'auto' })
 }
 
 onMounted(refresh)
@@ -765,10 +787,10 @@ onBeforeUnmount(() => {
   width: 100%;
 }
 .parsing-workspace > aside {
-  grid-row: span 2;
+  grid-area: inbox;
 }
 .parsing-summary {
-  grid-column: 2 / -1;
+  grid-area: summary;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -789,13 +811,26 @@ onBeforeUnmount(() => {
   margin: 6px 0;
 }
 .parsing-workspace {
+  --panel-height: clamp(450px, calc(100dvh - 340px), 820px);
   display: grid;
   grid-template-columns: 190px minmax(0, 1.55fr) minmax(0, 1fr);
+  grid-template-areas: 'inbox result original';
+  grid-template-rows: var(--panel-height);
   gap: 16px;
-  align-items: start;
+}
+.parsing-workspace.has-summary {
+  grid-template-areas: 'summary summary summary' 'inbox result original';
+  grid-template-rows: auto var(--panel-height);
+}
+.parsing-result {
+  grid-area: result;
+}
+.parsing-original {
+  grid-area: original;
 }
 .parsing-pane {
   min-width: 0;
+  min-height: 0;
   background: white;
   border: 1px solid #dce3ec;
   border-radius: 6px;
@@ -809,9 +844,23 @@ onBeforeUnmount(() => {
 .parsing-content {
   padding: 16px;
 }
-.parsing-workspace > aside :deep(.ant-spin-container) {
-  max-height: calc(100dvh - 410px);
-  min-height: 160px;
+.parsing-workspace > aside,
+.parsing-result,
+.parsing-original {
+  display: flex;
+  flex-direction: column;
+}
+.parsing-workspace > aside :deep(.ant-spin-nested-loading),
+.parsing-result > .parsing-content {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+}
+.parsing-original > .parsing-content {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 0;
   overflow: auto;
 }
 .parsing-item {
@@ -864,8 +913,8 @@ onBeforeUnmount(() => {
   color: #1667ce;
 }
 .parsing-document {
-  max-height: calc(100dvh - 470px);
-  min-height: 240px;
+  flex: 1 1 auto;
+  min-height: 120px;
   overflow: auto;
   background: var(--platform-hover, #f0f6fc);
   border: 1px solid #e1e6ed;
@@ -958,8 +1007,23 @@ onBeforeUnmount(() => {
   overflow-wrap: anywhere;
 }
 .parsing-document mark {
-  background: #fee8a9;
-  color: inherit;
+  background: #ffdc74;
+  color: #523000;
+  font-weight: 700;
+  border-bottom: 2px solid #a86300;
+}
+.parsing-source-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #523000;
+  background: #ffdc74;
+  font-size: 12px;
+}
+.parsing-source-status {
+  margin-bottom: 8px;
+  color: #58677b;
 }
 .parsing-progress {
   padding: 12px;
@@ -979,11 +1043,6 @@ onBeforeUnmount(() => {
   gap: 8px;
   padding: 12px 0;
   border-bottom: 1px solid #e8edf3;
-}
-.parsing-result > .parsing-content {
-  max-height: calc(100dvh - 350px);
-  min-height: 360px;
-  overflow: auto;
 }
 .parsing-feedback {
   padding: 12px;
@@ -1012,30 +1071,24 @@ h3 {
 .parsing-pane > .ant-pagination {
   padding: 12px;
 }
-@media (max-width: 1250px) {
-  .parsing-workspace {
-    grid-template-columns: 190px minmax(0, 1fr);
-  }
-  .parsing-workspace > aside {
-    grid-row: span 3;
-  }
-  .parsing-original {
-    grid-column: 2;
-  }
-}
-@media (max-width: 760px) {
-  .parsing-workspace {
+@media (max-width: 1050px) {
+  .parsing-workspace,
+  .parsing-workspace.has-summary {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto;
+    grid-template-areas: 'inbox' 'result' 'original';
   }
-  .parsing-workspace > aside {
-    grid-row: auto;
+  .parsing-workspace.has-summary {
+    grid-template-areas: 'summary' 'inbox' 'result' 'original';
   }
-  .parsing-summary,
-  .parsing-original {
-    grid-column: auto;
+  .parsing-workspace > aside :deep(.ant-spin-nested-loading),
+  .parsing-result > .parsing-content,
+  .parsing-original > .parsing-content {
+    flex: 0 1 auto;
   }
-  .parsing-result > .parsing-content {
-    max-height: none;
+  .parsing-workspace > aside :deep(.ant-spin-nested-loading),
+  .parsing-document {
+    max-height: 360px;
   }
 }
 </style>
