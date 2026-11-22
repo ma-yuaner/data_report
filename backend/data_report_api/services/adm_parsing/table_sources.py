@@ -55,6 +55,43 @@ def bindings(candidate, segments):
     return result
 
 
+def missing_transaction_rows(lines, segments, bound):
+    """Check known transaction tables independently of the model's evidence list."""
+    headers = {}
+    represented = {}
+    for index, binding in bound.items():
+        if index < len(lines) and isinstance(lines[index], dict):
+            represented.setdefault(binding["row"]["source"]["id"], []).append(lines[index])
+
+    rows = sorted(table_rows(segments).values(), key=lambda row: (
+        row["source"]["fileId"], row["sheet"], row["row"],
+    ))
+    for row in rows:
+        source = row["source"]
+        group = source["fileId"], row["sheet"]
+        if row["header"]:
+            labels = [cell["value"].strip().upper() for cell in row["cells"].values()]
+            headers[group] = {
+                label: col for col, label in zip(row["cells"], labels)
+                if label in ("RLOC", "GDS_RLOC") and labels.count(label) == 1
+            }
+            if len(headers[group]) != 2:
+                headers[group] = {}
+            continue
+        expected = {}
+        for label, field in (("RLOC", "airlinePnrs"), ("GDS_RLOC", "gdsPnrs")):
+            column = headers.get(group, {}).get(label)
+            if column in row["cells"]:
+                codes = re.split(r"[,;/\s]+", row["cells"][column]["value"].strip())
+                if all(re.fullmatch(r"[A-Z0-9]{6}", code) for code in codes):
+                    expected[field] = codes
+        if expected and not any(
+            all(line.get(key) == codes for key, codes in expected.items())
+            for line in represented.get(source["id"], [])
+        ):
+            yield source["id"]
+
+
 def fee_from_binding(binding):
     header, row = binding["header"], binding["row"]
     fees = [(col, c) for col, c in header["cells"].items() if re.fullmatch(r"ADM\s+(?:FEE|CHARGE)(?:\s+.*)?", c["value"].strip(), re.I)]

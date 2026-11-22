@@ -4,7 +4,7 @@ import re
 from .contract import VERSION, virtual_ticket_text
 from .table_sources import bind_sources
 
-VALIDATION_VERSION = "adm-validation/1.4"
+VALIDATION_VERSION = "adm-validation/1.5"
 REMOVED = {"/adm/issuer", "/adm/supplierName", "/adm/airline"}
 
 
@@ -39,7 +39,7 @@ def prepare(candidate, segments):
     result, changes = copy.deepcopy(candidate), []
     if not isinstance(result, dict):
         return result, changes
-    if result.get("schemaVersion") not in {"adm-extraction/1.1", VERSION}:
+    if result.get("schemaVersion") not in ("adm-extraction/1.1", VERSION):
         return result, changes
     adm = result.get("adm")
     if not isinstance(adm, dict):

@@ -34,6 +34,48 @@ def template():
     return {"schemaVersion": VERSION, "adm": dict.fromkeys(ADM_FIELDS), "lines": [], "evidence": [], "conflicts": []}
 
 
+def output_schema():
+    def record(properties):
+        return {"type": "object", "properties": properties, "required": list(properties),
+                "additionalProperties": False}
+
+    def array(items):
+        return {"type": "array", "items": items}
+
+    string = {"type": "string"}
+    nullable = {"type": ["string", "null"]}
+    line = dict.fromkeys(LINE_FIELDS, nullable)
+    for key in ("pnrs", "airlinePnrs", "gdsPnrs"):
+        line[key] = array(string)
+    line["lineId"] = string
+    line["ticketType"] = {"type": "string", "enum": ["real", "virtual", "unknown"]}
+    line["amountPurpose"] = {"type": ["string", "null"],
+                             "enum": [None, "admCharge", "unitPenalty", "ticketTotal", "other", "unknown"]}
+    adm = dict.fromkeys(ADM_FIELDS, nullable)
+    return record({
+        "schemaVersion": {"type": "string", "enum": [VERSION]},
+        "adm": record(adm),
+        "lines": array(record(line)),
+        "evidence": array(record(dict.fromkeys(("path", "segmentId", "quote"), string))),
+        "conflicts": array(record({"path": string, "description": string, "segmentIds": array(string)})),
+    })
+
+
+def matches_output_shape(value, schema):
+    """Check the subset emitted by output_schema against the raw candidate."""
+    kind = schema["type"]
+    if kind == "object":
+        fields = schema["properties"]
+        return isinstance(value, dict) and value.keys() == fields.keys() and all(
+            matches_output_shape(value[key], child) for key, child in fields.items()
+        )
+    if kind == "array":
+        return isinstance(value, list) and all(matches_output_shape(item, schema["items"]) for item in value)
+    return (isinstance(value, str) or (value is None and isinstance(kind, list))) and (
+        "enum" not in schema or value in schema["enum"]
+    )
+
+
 def validate(value, segments):
     issues = []
 
@@ -115,8 +157,13 @@ def validate(value, segments):
             mixed.append(path)
     if mixed:
         issue("MIXED_CURRENCY", "/lines", f"{len(mixed)}条正式罚单明细与主单币种不同，不合计或换汇", "warning")
-    from .table_sources import bindings, fee_from_binding, fee_text_proven
-    bound_fees = {i: fee_from_binding(b) for i, b in bindings(value, segments).items()}
+    from .table_sources import bindings, fee_from_binding, fee_text_proven, missing_transaction_rows
+    bound = bindings(value, segments)
+    bound_fees = {i: fee_from_binding(b) for i, b in bound.items()}
+    missing_rows = list(missing_transaction_rows(lines, segments, bound))
+    if missing_rows:
+        issue("TABLE_TRANSACTION_MISSING", "/lines",
+              f"{len(missing_rows)}条已识别附件交易未完整提取或缺同源引用，原文段落：{', '.join(missing_rows[:10])}")
     evidence = value.get("evidence") if isinstance(value.get("evidence"), list) else []
     sources = {s["id"]: s for s in segments}
     proven = set()
@@ -199,7 +246,11 @@ def validate(value, segments):
     if isinstance(adm, dict):
         for key, labels in (("issuedDate", r"Issue Date|Issued Date|开具日期"), ("reportingDate", r"Reporting Date|报表日期"), ("dueDate", r"Due Date|Deadline|截止日期|到期日")):
             val = adm.get(key)
-            if isinstance(val, str) and val:
+            if val is None:
+                labeled_date = re.compile(r"(?:" + labels + r")[ \t:：]+(?:20[0-9]{2}-[0-9]{2}-[0-9]{2}|[0-9]{1,2}[/\-][0-9]{1,2}[/\-]20[0-9]{2})(?![0-9])", re.I)
+                if any(labeled_date.search(source["text"]) for source in segments):
+                    issue("SOURCE_DATE_OMITTED", "/adm/" + key, "原文有对应日期标签及数字日期，但结果为空，请核对原件", "warning")
+            elif isinstance(val, str) and val:
                 qs = proven_quotes.get("/adm/" + key, [])
                 if not qs or not any(re.search(labels, q, re.I) for q in qs):
                     issue("DATE_ROLE_EVIDENCE", "/adm/" + key, "日期必须引用对应日期标签原文，不能用报表日或航班日替代")
@@ -232,9 +283,9 @@ def validate(value, segments):
         if not isinstance(line, dict):
             continue
         path = f"/lines/{i}"
-        if line.get("amountPurpose") not in {None, "admCharge", "unitPenalty", "ticketTotal", "other", "unknown"}:
+        if line.get("amountPurpose") not in (None, "admCharge", "unitPenalty", "ticketTotal", "other", "unknown"):
             issue("AMOUNT_PURPOSE", path + "/amountPurpose", "金额用途无效")
-        if line.get("amount") is not None and line.get("amountPurpose") in {None, "unknown"}:
+        if line.get("amount") is not None and line.get("amountPurpose") in (None, "unknown"):
             issue("AMOUNT_PURPOSE_UNKNOWN", path, "明细金额用途待核对，不参与罚单合计", "warning")
         if (line.get("commissionAmount") is None) != (line.get("commissionCurrency") is None):
             issue("COMMISSION_PAIR", path, "佣金金额和币种须同时提供")

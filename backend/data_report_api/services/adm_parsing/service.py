@@ -190,7 +190,11 @@ class ParsingService:
             raise AdmError("单件已达10次解析上限，请检查材料与配置", 429, "PARSE_ATTEMPT_LIMIT")
         if task["attempts"]:
             task["history"].append({"at": stamp(), "attempt": task["attempts"], "state": task["state"], "candidate": task["candidate"], "issues": task["issues"], "error": task.get("error"), "usage": task.get("usage"), "originalCandidate": task.get("originalCandidate"), "adjustments": task.get("adjustments"), "airlineMatch": task.get("airlineMatch")})
+            task["history"][-1].update({key: task.get(key) for key in (
+                "model", "responseModel", "promptVersion", "validationVersion", "outputFormat", "schemaMatched",
+            )})
         task.update(stage="QUEUED", startedAt=None, finishedAt=None, originalCandidate=None, adjustments=[], airlineMatch=None, relatedDocuments=[], attachmentFees=[], state="QUEUED", version=version+1, updatedAt=stamp(), candidate=None, issues=[], error=None, usage=None, saveStatus="SAVED")
+        task.update(outputFormat=None, schemaMatched=None, responseModel=None)
         self.store.save(task, version)
         self.wake()
         return self._public(task, True)
@@ -209,13 +213,14 @@ class ParsingService:
             self.store.save(task, expected)
             expected = task["version"]
 
+        model = ParsingModel(self.config)
         try:
             for file in task["files"]:
                 if hashlib.sha256(self._path(file["storageKey"]).read_bytes()).hexdigest() != file["sha256"]:
                     raise AdmError("原件内容与上传时不一致，已阻止调用模型，请重新上传", 422, "PARSE_FILE_CHANGED")
             task["segments"] = extract(task["files"], self.root, int(self.config.get("ADM_PARSING_MAX_INPUT_CHARS", 60000)))
             advance("MODEL")
-            task["candidate"], task["usage"] = ParsingModel(self.config).call(task["files"], task["segments"])
+            task["candidate"], task["usage"] = model.call(task["files"], task["segments"])
             advance("VALIDATING")
             self._evaluate(task)
             task["state"] = "FAILED" if any(i["level"] == "error" for i in task["issues"]) else "SUCCEEDED"
@@ -225,7 +230,10 @@ class ParsingService:
         except Exception:
             task.update(state="FAILED", error={"code": "PARSE_INTERNAL", "message": "解析处理失败，请检查材料或联系管理员"})
             logging.error("ADM parsing task failed; no document content logged")
-        task.update(stage="FINISHED", finishedAt=stamp(), version=expected+1, updatedAt=stamp(), model=ParsingModel(self.config).status()["model"], promptVersion=PROMPT_VERSION)
+        task.update(stage="FINISHED", finishedAt=stamp(), version=expected+1, updatedAt=stamp(),
+                    model=model.status()["model"], responseModel=model.response_model,
+                    promptVersion=PROMPT_VERSION, validationVersion=VALIDATION_VERSION,
+                    outputFormat=model.output_format, schemaMatched=model.schema_matched)
         self._checkpoint(task)
         try:
             self.store.save(task, expected)
