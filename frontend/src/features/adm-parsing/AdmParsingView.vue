@@ -24,13 +24,12 @@
     />
     <a-alert v-if="error" type="error" show-icon :message="error" closable @close="error = ''" />
     <p v-if="notice && !selected?.candidate" class="parsing-feedback" role="status">{{ notice }}</p>
-    <div class="parsing-filter">
-      <label>解析状态<a-select v-model:value="filter" :options="stateOptions" @change="changeFilter" /></label
-      ><span>共 {{ total }} 件材料 · 刷新后保留已选来件</span>
-    </div>
     <div class="parsing-workspace">
       <aside class="parsing-pane">
-        <h2>解析来件</h2>
+        <h2>解析来件 · {{ total }} 件</h2>
+        <div class="parsing-filter">
+          <a-select v-model:value="filter" aria-label="解析状态" :options="stateOptions" @change="changeFilter" />
+        </div>
         <a-spin :spinning="loading"
           ><button
             v-for="item in items"
@@ -41,8 +40,7 @@
           >
             <b>{{ item.title }}</b
             ><span>{{ item.files.length }} 份附件 · {{ formatTime(item.updatedAt) }}</span
-            ><a-tag :color="stateColor(item.state)">{{ stateLabel(item.state) }}</a-tag
-            ><span v-if="item.error">{{ item.error.message }}</span></button
+            ><a-tag :color="stateColor(item.state)">{{ stateLabel(item.state) }}</a-tag></button
           ><a-empty v-if="!items.length && !loading" description="暂无来件，请上传文件或调整状态筛选" /></a-spin
         ><a-pagination
           v-if="total"
@@ -54,9 +52,12 @@
           @change="loadList"
         />
       </aside>
-      <section class="parsing-pane parsing-result">
-        <h2>解析结果</h2>
-        <div v-if="selected" class="parsing-content">
+      <header v-if="selected" class="parsing-pane parsing-summary">
+        <div>
+          <h2>{{ selected.candidate?.adm?.number ? 'ADM ' + selected.candidate.adm.number : selected.title }}</h2>
+          <p v-if="selected.candidate?.adm?.amount != null" class="parsing-amount">
+            {{ selected.candidate.adm.amount }} {{ selected.candidate.adm.currency || '币种待核对' }}
+          </p>
           <div class="parsing-tags">
             <a-tag :color="stateColor(selected.state)">{{ stateLabel(selected.state) }}</a-tag
             ><a-tag :color="selected.saveStatus === 'FAILED' ? 'error' : 'success'">{{
@@ -68,6 +69,50 @@
             }}</a-tag
             ><a-tag>第 {{ selected.attempts }} 次解析</a-tag>
           </div>
+        </div>
+        <div class="parsing-actions">
+          <a-button
+            v-if="selected.saveStatus === 'FAILED'"
+            type="primary"
+            :loading="acting"
+            :disabled="!status?.canUpload"
+            @click="retrySave"
+            >重试保存</a-button
+          >
+          <a-button
+            v-else-if="selected.candidate && !selected.registration"
+            type="primary"
+            :loading="acting"
+            :disabled="!status?.canUpload || busy"
+            @click="revalidate"
+            >重新校验并保存（不调用模型）</a-button
+          >
+          <a-button
+            v-else-if="!selected.registration"
+            type="primary"
+            :loading="acting"
+            :disabled="!status?.canUpload || busy"
+            @click="startParse"
+            >{{ selected.attempts ? '重试模型解析' : '开始解析' }}</a-button
+          >
+          <span v-if="selected.elapsedSeconds !== undefined" class="parsing-muted"
+            >解析耗时 {{ selected.elapsedSeconds }} 秒</span
+          >
+          <details
+            v-if="selected.candidate && !selected.registration && !busy && selected.saveStatus !== 'FAILED'"
+            class="parsing-extra-actions"
+          >
+            <summary>其他操作</summary>
+            <p>重新调用模型会产生用量；来源校验问题请优先重新校验。</p>
+            <a-popconfirm title="确认重新调用模型？将产生额外用量，已有结果保留在历史中。" @confirm="startParse"
+              ><a-button :disabled="!status?.canUpload || acting">重新调用模型</a-button></a-popconfirm
+            >
+          </details>
+        </div>
+      </header>
+      <section class="parsing-pane parsing-result">
+        <h2>核对结果</h2>
+        <div v-if="selected" class="parsing-content">
           <a-alert
             v-if="selected.error && !selected.candidate"
             type="error"
@@ -81,47 +126,13 @@
             show-icon
             message="解析结果已保留在服务器恢复文件中，尚未完成数据库保存。只重试保存，不重复调用模型。"
           />
-          <div class="parsing-actions">
-            <a-button
-              v-if="selected.saveStatus === 'FAILED'"
-              type="primary"
-              :loading="acting"
-              :disabled="!status?.canUpload"
-              @click="retrySave"
-              >重试保存</a-button
+          <a-alert v-if="selected.registration" type="success" show-icon style="margin: 12px 0">
+            <template #message
+              >已登记台账：<router-link :to="`/adm/cases/${selected.registration.caseId}`">{{
+                selected.registration.internalNo
+              }}</router-link>
+              · 登记人 {{ selected.registration.by }} · {{ selected.registration.at }}</template
             >
-            <a-button
-              v-else-if="selected.candidate && !selected.registration"
-              type="primary"
-              :loading="acting"
-              :disabled="!status?.canUpload || busy"
-              @click="revalidate"
-              >重新校验并保存（不调用模型）</a-button
-            >
-            <a-button
-              v-else-if="!selected.registration"
-              type="primary"
-              :loading="acting"
-              :disabled="!status?.canUpload || busy"
-              @click="startParse"
-              >{{ selected.attempts ? '重试模型解析' : '开始解析' }}</a-button
-            >
-            <span v-if="selected.elapsedSeconds !== undefined" class="parsing-muted"
-              >解析耗时 {{ selected.elapsedSeconds }} 秒</span
-            >
-            <details
-              v-if="selected.candidate && !selected.registration && !busy && selected.saveStatus !== 'FAILED'"
-              class="parsing-extra-actions"
-            >
-              <summary>其他操作</summary>
-              <p>重新调用模型会产生用量；来源校验问题请优先重新校验。</p>
-              <a-popconfirm title="确认重新调用模型？将产生额外用量，已有结果保留在历史中。" @confirm="startParse"
-                ><a-button :disabled="!status?.canUpload || acting">重新调用模型</a-button></a-popconfirm
-              >
-            </details>
-          </div>
-          <a-alert v-if="selected.registration" type="success" show-icon style="margin:12px 0">
-            <template #message>已登记台账：<router-link :to="`/adm/cases/${selected.registration.caseId}`">{{ selected.registration.internalNo }}</router-link> · 登记人 {{ selected.registration.by }} · {{ selected.registration.at }}</template>
           </a-alert>
           <div
             v-if="busy || selected.saveStatus === 'FAILED'"
@@ -141,27 +152,35 @@
               此任务由旧版启动，未记录具体阶段；可等待结果，暂勿重新解析。
             </p>
           </div>
-          <div v-if="selected.candidate && !busy" class="parsing-review" aria-live="polite">
-            <strong>{{
-              errorIssues.length ? `校验未通过：${errorIssues.length}项需处理` : '字段和来源校验通过'
-            }}</strong
-            ><span> · {{ warningIssues.length }}项待核对</span>
-            <p v-if="errorIssues.length">候选字段已保存。查看具体问题后重新校验，无需再次调用模型。</p>
-            <p v-for="(issue, i) in errorIssues.slice(0, 3)" :key="i">
-              <button class="parsing-source" @click="locate(issueTarget(issue))">{{ issueLabel(issue) }}</button>：{{
-                issue.message
-              }}
-            </p>
-            <button v-if="selected.issues?.length" class="parsing-source" @click="tab = 'issues'">
-              查看全部校验问题
-            </button>
-            <p v-if="selected.adjustments?.length">
-              已按原文完成 {{ selected.adjustments.length }}项兼容处理，原始模型结果保留在解析记录中。
-            </p>
-          </div>
           <p v-if="sourceNotice" class="parsing-feedback" role="status">{{ sourceNotice }}</p>
-          <a-tabs v-model:active-key="tab"
-            ><a-tab-pane key="fields" tab="提取字段">
+          <a-tabs v-model:active-key="tab">
+            <a-tab-pane key="issues" :tab="issueTabLabel">
+              <a-alert
+                v-if="selected.candidate && !busy"
+                :type="errorIssues.length ? 'warning' : 'success'"
+                show-icon
+                :message="errorIssues.length ? '校验未通过' : '字段和来源校验通过'"
+                :description="errorIssues.length + ' 项需处理，' + warningIssues.length + ' 项待核对'"
+              />
+              <article v-for="(issue, i) in reviewIssues" :key="i" class="parsing-issue">
+                <div class="parsing-issue-header">
+                  <strong>{{ issueLabel(issue) }}</strong>
+                  <span v-if="issueValue(issue) != null" class="parsing-issue-value">{{ issueValue(issue) }}</span>
+                  <a-tag :color="issue.level === 'error' ? 'error' : 'warning'">
+                    {{ issue.level === 'error' ? '需处理' : '待核对' }}
+                  </a-tag>
+                  <button class="parsing-source" @click="locate(issueTarget(issue))">查看原文 →</button>
+                </div>
+                <p>{{ issue.message }}</p>
+                <small>{{ issue.path }} · {{ issue.code }}</small>
+              </article>
+              <p v-if="!reviewIssues.length && !selected.candidate">暂无校验问题。</p>
+              <details v-if="selected.adjustments?.length">
+                <summary>来源兼容处理记录</summary>
+                <p v-for="(item, i) in selected.adjustments" :key="i">{{ item.path }}：{{ item.message }}</p>
+              </details>
+            </a-tab-pane>
+            <a-tab-pane key="fields" tab="提取字段">
               <p v-if="!selected.candidate" class="parsing-muted">
                 尚无模型字段结果。原件、读取内容和失败原因仍会保留。
               </p>
@@ -196,100 +215,83 @@
                     {{ document.number }} · {{ ticketLabel(document.ticketType) }} · {{ document.locator }}
                   </button>
                 </div>
-                <h3>交易明细 {{ displayLines.length }} 条</h3>
-                <p v-if="selected.attachmentFees?.length" class="parsing-muted">
-                  附件费用保留原始列名和数值；币种未明确时不猜测、不换汇，不与主单正式金额合计。
-                </p>
-                <div class="parsing-table">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>交易 / 编码（按来源区分）</th>
-                        <th>票号 / 系统 / PCC</th>
-                        <th>金额用途 / 币种 / 佣金</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="(entry, i) in displayLines" :key="i">
-                        <td>
-                          {{ entry.line.transactionNumber ?? entry.line.lineId }} · {{ entry.line.action ?? '—' }}<br />
-                          <button
-                            v-for="code in pnrFields"
-                            :key="code.key"
-                            class="parsing-source"
-                            @click="locate(`/lines/${entry.index}/${code.key}`)"
-                          >
-                            {{ code.label }}：{{ showCodes(entry.line[code.key]) }}<br />
-                          </button>
-                          <div>
-                            操作 {{ entry.line.transactionDate ?? '—' }} / 航班 {{ entry.line.flightDate ?? '—' }}
-                          </div>
-                          <div>
-                            <button class="parsing-source" @click="locate(`/lines/${entry.index}/flight`)">
-                              航班 {{ entry.line.flight ?? '—' }}
-                            </button>
-                            · {{ entry.line.origin ?? '—' }} → {{ entry.line.destination ?? '—' }}
-                          </div>
-                        </td>
-                        <td>
-                          {{ entry.line.ticketNumber ?? '未提取到' }}（{{
-                            ticketLabel(entry.line.ticketType)
-                          }}）<br />{{ entry.line.gds ?? '—' }} /
-                          {{ entry.line.pcc ?? '—' }}
-                        </td>
-                        <td>
-                          <template v-if="feeFor(entry.index)">
-                            <b
-                              >附件费用：{{ feeFor(entry.index)?.amount }}
-                              {{ feeFor(entry.index)?.currency || '（币种未明确）' }}</b
-                            ><br />
-                            <button class="parsing-source" @click="locateSegment(feeFor(entry.index)?.headerSegmentId)">
-                              列名：{{ feeFor(entry.index)?.label }}</button
-                            ><br />
-                            <button class="parsing-source" @click="locateSegment(feeFor(entry.index)?.rowSegmentId)">
-                              单元格来源：{{ feeFor(entry.index)?.rowLocator }}</button
-                            ><br />
-                          </template>
-                          <template v-else
-                            >{{ amountLabel(entry.line.amountPurpose) }}<br />原始费用 {{ entry.line.amountText ?? '—'
-                            }}<br />{{ entry.line.amount ?? '未提取到' }} {{ entry.line.currency }}</template
-                          >
-                          <template v-if="entry.line.commissionRate != null || entry.line.commissionAmount != null"
-                            ><br />佣金比例 {{ entry.line.commissionRate ?? '—' }}%<br />佣金
-                            {{ entry.line.commissionAmount ?? '—' }} {{ entry.line.commissionCurrency }}</template
-                          >
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
               </template>
-              <p v-if="selected.classification">
-                原因归类建议（待核对）：{{
-                  selected.classification.matches.map((m) => `${m.reason} / ${m.department}`).join('；') ||
-                  '未匹配，人工核对'
-                }}。不自动分配负责人。
-              </p>
               <p v-if="selected.candidate && selected.candidate.schemaVersion !== 'adm-extraction/1.2'">
                 此为旧版结果，点击“重新校验并保存”应用新口径，不调用模型。
               </p>
               <p class="parsing-muted">解析结果用于人工核对，不自动新建ADM或恢复PNR。</p>
             </a-tab-pane>
-            <a-tab-pane key="issues" tab="校验问题">
-              <p v-if="!selected.issues?.length">暂无校验问题。</p>
-              <p v-for="(issue, i) in selected.issues" :key="i" class="parsing-issue">
-                <a-tag :color="issue.level === 'error' ? 'error' : 'warning'">{{
-                  issue.level === 'error' ? '需处理' : '待核对'
-                }}</a-tag
-                ><button class="parsing-source" @click="locate(issueTarget(issue))">{{ issueLabel(issue) }}</button>：{{
-                  issue.message
-                }}<small>{{ issue.path }} · {{ issue.code }}</small>
+            <a-tab-pane key="lines" :tab="'交易明细 ' + displayLines.length">
+              <a-empty v-if="!displayLines.length" description="暂无交易明细" />
+              <p v-if="selected.attachmentFees?.length" class="parsing-muted">
+                附件费用保留原始列名和数值；币种未明确时不猜测、不换汇，不与主单正式金额合计。
               </p>
-              <details v-if="selected.adjustments?.length">
-                <summary>来源兼容处理记录</summary>
-                <p v-for="(item, i) in selected.adjustments" :key="i">{{ item.path }}：{{ item.message }}</p>
-              </details> </a-tab-pane
-            ><a-tab-pane key="json" tab="结果 JSON">
+              <div v-if="displayLines.length" class="parsing-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>交易 / 编码（按来源区分）</th>
+                      <th>票号 / 系统 / PCC</th>
+                      <th>金额用途 / 币种 / 佣金</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(entry, i) in displayLines" :key="i">
+                      <td>
+                        {{ entry.line.transactionNumber ?? entry.line.lineId }} · {{ entry.line.action ?? '—' }}<br />
+                        <button
+                          v-for="code in pnrFields"
+                          :key="code.key"
+                          class="parsing-source"
+                          @click="locate(`/lines/${entry.index}/${code.key}`)"
+                        >
+                          {{ code.label }}：{{ showCodes(entry.line[code.key]) }}<br />
+                        </button>
+                        <div>
+                          操作 {{ entry.line.transactionDate ?? '—' }} / 航班 {{ entry.line.flightDate ?? '—' }}
+                        </div>
+                        <div>
+                          <button class="parsing-source" @click="locate(`/lines/${entry.index}/flight`)">
+                            航班 {{ entry.line.flight ?? '—' }}
+                          </button>
+                          · {{ entry.line.origin ?? '—' }} → {{ entry.line.destination ?? '—' }}
+                        </div>
+                      </td>
+                      <td>
+                        {{ entry.line.ticketNumber ?? '未提取到' }}（{{ ticketLabel(entry.line.ticketType) }}）<br />{{
+                          entry.line.gds ?? '—'
+                        }}
+                        /
+                        {{ entry.line.pcc ?? '—' }}
+                      </td>
+                      <td>
+                        <template v-if="feeFor(entry.index)">
+                          <b
+                            >附件费用：{{ feeFor(entry.index)?.amount }}
+                            {{ feeFor(entry.index)?.currency || '（币种未明确）' }}</b
+                          ><br />
+                          <button class="parsing-source" @click="locateSegment(feeFor(entry.index)?.headerSegmentId)">
+                            列名：{{ feeFor(entry.index)?.label }}</button
+                          ><br />
+                          <button class="parsing-source" @click="locateSegment(feeFor(entry.index)?.rowSegmentId)">
+                            单元格来源：{{ feeFor(entry.index)?.rowLocator }}</button
+                          ><br />
+                        </template>
+                        <template v-else
+                          >{{ amountLabel(entry.line.amountPurpose) }}<br />原始费用 {{ entry.line.amountText ?? '—'
+                          }}<br />{{ entry.line.amount ?? '未提取到' }} {{ entry.line.currency }}</template
+                        >
+                        <template v-if="entry.line.commissionRate != null || entry.line.commissionAmount != null"
+                          ><br />佣金比例 {{ entry.line.commissionRate ?? '—' }}%<br />佣金
+                          {{ entry.line.commissionAmount ?? '—' }} {{ entry.line.commissionCurrency }}</template
+                        >
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </a-tab-pane>
+            <a-tab-pane key="json" tab="结果 JSON">
               <pre>{{ JSON.stringify(selected.candidate, null, 2) }}</pre></a-tab-pane
             ><a-tab-pane key="history" tab="解析记录"
               ><p>模型 {{ selected.model || '未调用' }} · 规则 {{ selected.promptVersion || status?.schemaVersion }}</p>
@@ -316,11 +318,27 @@
               </div></a-tab-pane
             ></a-tabs
           >
+          <section v-if="selected.candidate && !busy" class="parsing-event">
+            <h3>风控事件</h3>
+            <dl>
+              <dt>事件类型</dt>
+              <dd>{{ eventType }}</dd>
+              <dt v-if="eventDepartments">建议核对部门</dt>
+              <dd v-if="eventDepartments">{{ eventDepartments }}</dd>
+              <dt>下发原因</dt>
+              <dd>{{ selected.candidate.adm?.reason || '未提取到' }}</dd>
+              <dt>事件角色</dt>
+              <dd>待按原件核对</dd>
+            </dl>
+            <button v-if="selected.candidate.adm?.reason" class="parsing-source" @click="locate('/adm/reason')">
+              查看下发原因原文 →
+            </button>
+          </section>
         </div>
         <a-empty v-else description="选择来件后查看解析结果" />
       </section>
       <section class="parsing-pane parsing-original">
-        <h2>原件与读取内容</h2>
+        <h2>原文证据</h2>
         <div class="parsing-content" v-if="selected">
           <label
             >附件<a-select
@@ -337,11 +355,15 @@
           <div class="parsing-document">
             <section v-for="s in segments" :key="s.id" :id="`segment-${s.id}`" :class="{ located: located === s.id }">
               <b>{{ s.locator }}</b>
-              <p>{{ s.text }}</p>
+              <p v-if="located === s.id && sourceExcerpt">
+                {{ sourceExcerpt.before }}<mark>{{ sourceExcerpt.quote }}</mark
+                >{{ sourceExcerpt.after }}
+              </p>
+              <p v-else>{{ s.text }}</p>
             </section>
             <a-empty
               v-if="!segments.length"
-              :description="busy ? '正在读取或等待处理结果；请查看右侧进度' : '暂无读取正文；原件仍可下载'"
+              :description="busy ? '正在读取或等待处理结果；请查看解析进度' : '暂无读取正文；原件仍可下载'"
             />
           </div>
         </div>
@@ -460,9 +482,28 @@ const amountLabel = (value: unknown) =>
   })[String(value)] || '用途待核对'
 const errorIssues = computed(() => selected.value?.issues?.filter((item) => item.level === 'error') || [])
 const warningIssues = computed(() => selected.value?.issues?.filter((item) => item.level === 'warning') || [])
+const reviewIssues = computed(() => [...errorIssues.value, ...warningIssues.value])
+const issueTabLabel = computed(() =>
+  errorIssues.value.length
+    ? '待处理 ' + errorIssues.value.length
+    : warningIssues.value.length
+      ? '待核对 ' + warningIssues.value.length
+      : '校验结果',
+)
+const eventMatches = computed(() => selected.value?.classification?.matches || [])
+const eventType = computed(() => {
+  const reasons = [...new Set(eventMatches.value.map((match) => match.reason))]
+  return reasons.length ? reasons.join(' / ') + ' · 建议，待业务确认' : '待归类'
+})
+const eventDepartments = computed(() => [...new Set(eventMatches.value.map((match) => match.department))].join(' / '))
+const sourceExcerpt = ref<{ before: string; quote: string; after: string }>()
 const issueTarget = (issue: { path: string }) => {
   const index = /^\/evidence\/(\d+)$/.exec(issue.path)
   return index ? selected.value?.candidate?.evidence?.[Number(index[1])]?.path || issue.path : issue.path
+}
+const issueValue = (issue: { path: string }) => {
+  const key = /^\/adm\/([^/]+)$/.exec(issueTarget(issue))?.[1]
+  return key ? selected.value?.candidate?.adm?.[key] : undefined
 }
 const issueLabel = (issue: { path: string }) => {
   const path = issueTarget(issue)
@@ -562,8 +603,9 @@ async function select(id: string, reset = true) {
     if (reset || !task.files.some((f) => f.id === fileId.value)) {
       fileId.value = task.files[0]?.id || ''
       located.value = ''
+      sourceExcerpt.value = undefined
       sourceNotice.value = ''
-      tab.value = 'fields'
+      tab.value = task.issues?.length ? 'issues' : 'fields'
     }
     items.value = items.value.map((item) => (item.id === id ? task : item))
     schedule()
@@ -653,7 +695,7 @@ async function revalidate() {
     const result = await parsingApi.revalidate(task)
     if (stopped || token !== generation) return
     selected.value = result
-    tab.value = result.issues?.some((item) => item.level === 'error') ? 'issues' : 'fields'
+    tab.value = result.issues?.length ? 'issues' : 'fields'
     await loadList()
   } catch (e) {
     if (token === generation) error.value = message(e)
@@ -682,15 +724,20 @@ async function locate(path: string) {
   const evidence = selected.value?.candidate?.evidence
   if (!Array.isArray(evidence)) return
   const e = evidence.find((e) => e.path === path) || evidence.find((e) => e.path.startsWith(`${path}/`))
-  await locateSegment(e?.segmentId)
+  await locateSegment(e?.segmentId, e?.quote)
 }
-async function locateSegment(segmentId?: string) {
+async function locateSegment(segmentId?: string, quote?: string) {
   const segment = selected.value?.segments?.find((s) => s.id === segmentId)
   if (!segment) {
     sourceNotice.value = '该字段暂无有效来源，请先重新校验或查看校验问题。'
     return
   }
   sourceNotice.value = ''
+  const start = quote ? segment.text.indexOf(quote) : -1
+  sourceExcerpt.value =
+    quote && start >= 0
+      ? { before: segment.text.slice(0, start), quote, after: segment.text.slice(start + quote.length) }
+      : undefined
   fileId.value = segment.fileId
   located.value = segment.id
   await nextTick()
@@ -712,20 +759,38 @@ onBeforeUnmount(() => {
   margin-bottom: 16px;
 }
 .parsing-filter {
-  display: flex;
-  align-items: end;
-  gap: 16px;
-  margin: 16px 0;
-  color: #58677b;
+  padding: 12px;
 }
-.parsing-filter label {
-  display: grid;
-  gap: 6px;
-  width: 180px;
+.parsing-filter :deep(.ant-select) {
+  width: 100%;
+}
+.parsing-workspace > aside {
+  grid-row: span 2;
+}
+.parsing-summary {
+  grid-column: 2 / -1;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  padding: 16px;
+}
+.parsing-summary h2 {
+  padding: 0;
+  border: 0;
+  overflow-wrap: anywhere;
+}
+.parsing-summary .parsing-tags,
+.parsing-summary .parsing-actions {
+  margin-bottom: 0;
+}
+.parsing-amount {
+  margin: 6px 0;
 }
 .parsing-workspace {
   display: grid;
-  grid-template-columns: 190px minmax(420px, 1.6fr) minmax(280px, 1fr);
+  grid-template-columns: 190px minmax(0, 1.55fr) minmax(0, 1fr);
   gap: 16px;
   align-items: start;
 }
@@ -850,13 +915,51 @@ onBeforeUnmount(() => {
   text-align: left;
 }
 .parsing-issue {
-  border-bottom: 1px solid #eee;
-  padding-bottom: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid #e1e6ed;
+  border-radius: 6px;
+  background: var(--platform-hover, #f0f6fc);
+}
+.parsing-issue-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.parsing-issue-header .parsing-source {
+  margin-left: auto;
+}
+.parsing-issue-value {
+  overflow-wrap: anywhere;
+}
+.parsing-issue p {
+  margin: 8px 0 4px;
+  overflow-wrap: anywhere;
 }
 .parsing-issue small {
-  display: block;
   overflow-wrap: anywhere;
   color: #58677b;
+}
+.parsing-event {
+  margin-top: 20px;
+  border-top: 1px solid #e1e6ed;
+}
+.parsing-event dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px 16px;
+}
+.parsing-event dt {
+  color: #58677b;
+}
+.parsing-event dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.parsing-document mark {
+  background: #fee8a9;
+  color: inherit;
 }
 .parsing-progress {
   padding: 12px;
@@ -865,16 +968,6 @@ onBeforeUnmount(() => {
 }
 .parsing-progress p {
   margin: 8px 0 0;
-  overflow-wrap: anywhere;
-}
-.parsing-review {
-  padding: 12px;
-  margin-bottom: 16px;
-  border-left: 3px solid var(--platform-primary, #2673ad);
-  background: var(--platform-hover, #f0f6fc);
-}
-.parsing-review p {
-  margin: 8px 0;
   overflow-wrap: anywhere;
 }
 .parsing-extra-actions {
@@ -923,22 +1016,26 @@ h3 {
   .parsing-workspace {
     grid-template-columns: 190px minmax(0, 1fr);
   }
-  .parsing-pane:last-child {
-    grid-column: 1/-1;
+  .parsing-workspace > aside {
+    grid-row: span 3;
+  }
+  .parsing-original {
+    grid-column: 2;
   }
 }
 @media (max-width: 760px) {
   .parsing-workspace {
     grid-template-columns: minmax(0, 1fr);
   }
-  .parsing-pane:last-child {
+  .parsing-workspace > aside {
+    grid-row: auto;
+  }
+  .parsing-summary,
+  .parsing-original {
     grid-column: auto;
   }
   .parsing-result > .parsing-content {
     max-height: none;
-  }
-  .parsing-filter {
-    flex-wrap: wrap;
   }
 }
 </style>
