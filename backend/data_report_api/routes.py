@@ -3,6 +3,7 @@ from flask import Blueprint
 
 from .api import admwf
 from .api import adm_parsing
+from .api import annotations
 from .api import data_workbench, asset_inventory
 from .api import hr_mail
 from .api import risk_verification
@@ -19,6 +20,7 @@ placement_diagnosis.register_routes(api)
 
 admwf.register_routes(api)
 adm_parsing.register_routes(api)
+annotations.register_routes(api)
 
 targets.register_routes(api)
 core.register_routes(api)

@@ -50,7 +50,7 @@ ADM责任流转V2：已增加协调人、接收确认式转交、责任分段、
 
 <!-- BEGIN:CURRENT_MENU -->
 <details>
-<summary>完整菜单：51个页面入口、3个禁用预留项</summary>
+<summary>完整菜单：52个页面入口、3个禁用预留项</summary>
 
 ```text
 工作台  [/home]
@@ -66,7 +66,8 @@ ADM责任流转V2：已增加协调人、接收确认式转交、责任分段、
   综合分析  [/analysis/comprehensive]
   出票分析  [/analysis/issue]
   退票分析  [/analysis/refund]
-  改签分析  [/analysis/change]
+  改签分析
+    改签SLA客服看板  [/analysis/change]
   增值分析  [/analysis/ancillary]
 风控分析
   风控分析看板  [/risk-followup/workbench]
@@ -106,6 +107,7 @@ ADM 控制台
   业务分析与跟进  [/adm/analysis]
 问题中心  [/problems]
 数据资产  [/data-assets]
+数据标注  [/data-annotations]
 归档功能
   数据加工工作台  [/data-workbench]
   风控总览  [/risk-analysis]
@@ -210,11 +212,12 @@ docker compose up -d --build
 API统一前缀为`/api`。认证与账号管理使用`/api/auth/*`、`/api/admin/*`；业务接口主要使用`/api/v1/*`。登录后使用会话Cookie，非安全方法需携带CSRF头；JSON通常返回`success/message/data`，导出接口返回文件。具体权限、参数与错误见[完整接口目录](docs/api/README.md)及对应源码。
 
 <!-- BEGIN:API_SUMMARY -->
-当前静态登记 **275个HTTP方法/路径条目**（含认证与管理接口，不重复列自动HEAD/OPTIONS）。
+当前静态登记 **295个HTTP方法/路径条目**（含认证与管理接口，不重复列自动HEAD/OPTIONS）。
 
 | 接口领域 | 条目数 | 完整清单 |
 |---|---:|---|
-| ADM材料解析与独立结果存储 | 8 | [adm_parsing](docs/api/README.md#adm_parsing) |
+| 通用数据标注与样本发布 | 15 | [annotations](docs/api/README.md#annotations) |
+| ADM材料解析与独立结果存储 | 10 | [adm_parsing](docs/api/README.md#adm_parsing) |
 | 数据资产快照、字典与依赖证据 | 7 | [asset_inventory](docs/api/README.md#asset_inventory) |
 | 账号认证与权限管理 | 27 | [auth](docs/api/README.md#auth) |
 | 基础信息、资产与兼容入口 | 5 | [core](docs/api/README.md#core) |
@@ -230,6 +233,7 @@ API统一前缀为`/api`。认证与账号管理使用`/api/auth/*`、`/api/admi
 | HR报表邮件 | 8 | [hr_mail](docs/api/README.md#hr_mail) |
 | 行为采集与管理看板 | 4 | [telemetry](docs/api/README.md#telemetry) |
 | admwf | 56 | [admwf](docs/api/README.md#admwf) |
+| change_sla | 3 | [change_sla](docs/api/README.md#change_sla) |
 | missed_orders | 3 | [missed_orders](docs/api/README.md#missed_orders) |
 | placement_diagnosis | 2 | [placement_diagnosis](docs/api/README.md#placement_diagnosis) |
 | placement_import | 3 | [placement_import](docs/api/README.md#placement_import) |
@@ -250,3 +254,5 @@ python scripts/check_readme.py --check
 脚本只解析源文件并更新指定的文档目录块，不启动应用、读取真实`.env`或连接数据库。可复用的[明策README提示词](docs/agent/prompts.md#6-明策维护项目readme)和[能力卡](docs/agent/roles/product.md)用于后续维护。
 
 ADM解析来件登记台账：支持待登记搜索、人工核对后带入主单及原附件、关联回写与防重。实现和本地隔离验证完成，T43待更新复测，见[交付与步骤](docs/development/adm-parsing-ledger-intake-20261119.md)。
+
+数据标注 V1：独立项目授权、PDF及附件标注、退回与复核、固定样本集发布及 ADM 候选对照。正式启用前需完成目标 MySQL 建表回读及目标环境验证，见[交付与步骤](docs/development/data-annotation-v1.md)。

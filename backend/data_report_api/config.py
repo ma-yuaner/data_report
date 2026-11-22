@@ -17,6 +17,7 @@ def explicit_erp_settings() -> bool:
 
 
 class Config:
+    ANNOTATION_ROOT = os.getenv("ANNOTATION_ROOT", "").strip() or str(Path(__file__).resolve().parents[1] / "var/adm/annotations")
     CHANGE_SLA_AUDIT_MINUTES = os.getenv("CHANGE_SLA_AUDIT_MINUTES", "45")
     CHANGE_SLA_OPERATION_MINUTES = os.getenv("CHANGE_SLA_OPERATION_MINUTES", "90")
     CHANGE_SLA_SNAPSHOT_PATH = os.getenv("CHANGE_SLA_SNAPSHOT_PATH", "")

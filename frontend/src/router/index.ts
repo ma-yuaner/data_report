@@ -14,6 +14,7 @@ const router = createRouter({
       redirect: '/home',
       children: [
         { path: 'home', name: 'home', component: () => import('@/views/HomeView.vue'), meta: { title: '工作台', section: '企业数据中心' } },
+        { path: 'data-annotations', name: 'annotations', component: () => import('@/features/annotations/AnnotationWorkbench.vue'), meta: { title: '数据标注', section: '数据标注', menuCode: 'annotation.center' } },
         { path: 'adm', redirect: { name: 'adm-cases', query: { scope: 'mine' } } },
         { path: 'adm/workbench', redirect: (to) => ({ name: 'adm-cases', query: { ...to.query, scope: 'mine' } }) },
         { path: 'adm/analysis', name: 'adm-analysis', component: () => import('@/features/adm/AdmAnalysisView.vue'), meta: { title: 'ADM 业务分析', section: 'ADM 控制台', menuCode: 'adm.center' } },

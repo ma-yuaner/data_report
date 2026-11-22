@@ -5,9 +5,15 @@
       title="ADM 解析"
       description="上传材料、提取并核对字段；在ADM任务台账选择待登记来件，补充信息后登记。"
     >
-      <a-button @click="rulesOpen = true">字段与校验规则</a-button
-      ><a-button :loading="loading" @click="refresh">刷新</a-button
-      ><a-button type="primary" :disabled="!status?.canUpload" @click="openUpload">上传文件</a-button>
+      <a-button @click="rulesOpen = true">字段与校验规则</a-button>
+      <a-button :loading="loading" @click="refresh">刷新</a-button>
+      <a-button
+        v-if="selected && (auth.user?.isAdmin || auth.user?.menuCodes?.includes('annotation.center'))"
+        @click="router.push({ name: 'annotations', query: { admTask: selected.id } })"
+      >
+        用于样本标注
+      </a-button>
+      <a-button type="primary" :disabled="!status?.canUpload" @click="openUpload">上传文件</a-button>
     </PageHeader>
     <a-alert
       v-if="status?.localTesting"
@@ -416,11 +422,14 @@
 </template>
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '@/components/PageHeader.vue'
 import FormDialog from '@/components/FormDialog.vue'
 import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
+import { useAuthStore } from '@/stores/auth'
 import { parsingApi, type ParseTask, type ParseStatus } from './api'
+const router = useRouter()
+const auth = useAuthStore()
 const status = ref<ParseStatus>(),
   items = ref<ParseTask[]>([]),
   selected = ref<ParseTask>(),

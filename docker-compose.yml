@@ -26,6 +26,7 @@ services:
       COMPREHENSIVE_EXPORT_ROOT: /app/var/comprehensive-exports
       ADM_STORAGE_MODE: mysql
       ADM_PARSING_ROOT: /app/var/adm/parsing
+      ANNOTATION_ROOT: /app/var/adm/annotations
       ADM_PARSING_AI_ENABLED: ${ADM_PARSING_AI_ENABLED:-false}
       ADM_PARSING_AI_URL: ${ADM_PARSING_AI_URL:-}
       ADM_PARSING_AI_KEY: ${ADM_PARSING_AI_KEY:-}

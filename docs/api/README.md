@@ -22,7 +22,29 @@
 | [上传说明](../business/air_ticketing/risk-data-upload.md) / [行为监控](../product/user-behavior-monitoring-v1.md) | 上传队列和行为采集 |
 
 <!-- BEGIN:API_ROUTES -->
-共 **275个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
+共 **295个HTTP方法/路径条目**。方法和动态路径参数保留源码写法。
+
+<a id="annotations"></a>
+
+## 通用数据标注与样本发布（annotations）
+
+| 方法 | 完整路径 | 处理函数 / 源码 |
+|---|---|---|
+| `GET` | `/api/v1/annotations/accounts` | [annotation_accounts](../../backend/data_report_api/api/annotations.py) |
+| `GET` | `/api/v1/annotations/projects` | [annotation_projects](../../backend/data_report_api/api/annotations.py) |
+| `POST` | `/api/v1/annotations/projects` | [annotation_create_project](../../backend/data_report_api/api/annotations.py) |
+| `PATCH` | `/api/v1/annotations/projects/<project_id>` | [annotation_configure](../../backend/data_report_api/api/annotations.py) |
+| `GET` | `/api/v1/annotations/projects/<project_id>/datasets` | [annotation_datasets](../../backend/data_report_api/api/annotations.py) |
+| `POST` | `/api/v1/annotations/projects/<project_id>/datasets` | [annotation_publish](../../backend/data_report_api/api/annotations.py) |
+| `GET` | `/api/v1/annotations/projects/<project_id>/datasets/<dataset_id>` | [annotation_dataset](../../backend/data_report_api/api/annotations.py) |
+| `GET` | `/api/v1/annotations/projects/<project_id>/datasets/<dataset_id>/compare-adm` | [annotation_compare_adm](../../backend/data_report_api/api/annotations.py) |
+| `POST` | `/api/v1/annotations/projects/<project_id>/import-adm` | [annotation_import_adm](../../backend/data_report_api/api/annotations.py) |
+| `GET` | `/api/v1/annotations/projects/<project_id>/samples` | [annotation_samples](../../backend/data_report_api/api/annotations.py) |
+| `POST` | `/api/v1/annotations/projects/<project_id>/samples` | [annotation_upload](../../backend/data_report_api/api/annotations.py) |
+| `GET` | `/api/v1/annotations/samples/<sample_id>` | [annotation_detail](../../backend/data_report_api/api/annotations.py) |
+| `PATCH` | `/api/v1/annotations/samples/<sample_id>` | [annotation_edit](../../backend/data_report_api/api/annotations.py) |
+| `POST` | `/api/v1/annotations/samples/<sample_id>/actions` | [annotation_actions](../../backend/data_report_api/api/annotations.py) |
+| `GET` | `/api/v1/annotations/samples/<sample_id>/files/<file_id>` | [annotation_file](../../backend/data_report_api/api/annotations.py) |
 
 <a id="adm_parsing"></a>
 
@@ -30,12 +52,14 @@
 
 | 方法 | 完整路径 | 处理函数 / 源码 |
 |---|---|---|
+| `GET` | `/api/v1/adm/parsing/pending` | [adm_parsing_pending](../../backend/data_report_api/api/adm_parsing.py) |
 | `GET` | `/api/v1/adm/parsing/status` | [adm_parsing_status](../../backend/data_report_api/api/adm_parsing.py) |
 | `GET` | `/api/v1/adm/parsing/tasks` | [adm_parsing_list](../../backend/data_report_api/api/adm_parsing.py) |
 | `POST` | `/api/v1/adm/parsing/tasks` | [adm_parsing_upload](../../backend/data_report_api/api/adm_parsing.py) |
 | `GET` | `/api/v1/adm/parsing/tasks/<task_id>` | [adm_parsing_detail](../../backend/data_report_api/api/adm_parsing.py) |
 | `GET` | `/api/v1/adm/parsing/tasks/<task_id>/files/<file_id>` | [adm_parsing_file](../../backend/data_report_api/api/adm_parsing.py) |
 | `POST` | `/api/v1/adm/parsing/tasks/<task_id>/parse` | [adm_parsing_start](../../backend/data_report_api/api/adm_parsing.py) |
+| `POST` | `/api/v1/adm/parsing/tasks/<task_id>/register` | [adm_parsing_register](../../backend/data_report_api/api/adm_parsing.py) |
 | `POST` | `/api/v1/adm/parsing/tasks/<task_id>/retry-save` | [adm_parsing_retry_save](../../backend/data_report_api/api/adm_parsing.py) |
 | `POST` | `/api/v1/adm/parsing/tasks/<task_id>/revalidate` | [adm_parsing_revalidate](../../backend/data_report_api/api/adm_parsing.py) |
 
@@ -361,6 +385,16 @@
 | `GET` | `/api/v1/adm/reference-options/<kind>` | [admwf_reference_options](../../backend/data_report_api/api/admwf.py) |
 | `GET` | `/api/v1/adm/workbench` | [admwf_workbench](../../backend/data_report_api/api/admwf.py) |
 | `GET` | `/api/v1/adm/workbench/queue` | [admwf_workbench_queue](../../backend/data_report_api/api/admwf.py) |
+
+<a id="change_sla"></a>
+
+## change_sla（change_sla）
+
+| 方法 | 完整路径 | 处理函数 / 源码 |
+|---|---|---|
+| `GET` | `/api/v1/analysis/change-sla` | [change_sla](../../backend/data_report_api/api/change_sla.py) |
+| `GET` | `/api/v1/analysis/change-sla/limits` | [change_sla_limits](../../backend/data_report_api/api/change_sla.py) |
+| `POST` | `/api/v1/analysis/change-sla/limits` | [change_sla_limits](../../backend/data_report_api/api/change_sla.py) |
 
 <a id="missed_orders"></a>
 

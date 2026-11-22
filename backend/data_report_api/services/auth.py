@@ -93,6 +93,7 @@ PERMISSION_CATALOG = (
     {"code": "risk.verification.knowledge.publish", "name": "发布风控知识", "description": "人工确认并发布核查知识", "menuCode": "risk.verification"},
     {"code": "hr.mail.upload", "name": "上传解析HR报表", "description": "上传考勤与部门映射并生成邮件预览", "menuCode": "hr.mail"},
     {"code": "hr.mail.send", "name": "确认发送HR邮件", "description": "逐部门预览并最终确认后发送", "menuCode": "hr.mail"},
+    {"code": "annotation.manage", "name": "创建标注项目", "description": "新建标注项目并成为该项目负责人", "menuCode": "annotation.center"},
     {"code": "adm.view", "name": "查看ADM", "description": "查看授权范围ADM及订单明细", "menuCode": "adm.center"},
     {"code": "adm.analysis", "name": "ADM业务分析", "description": "查看全部ADM运营指标、阶段时效及下钻明细，不继承我的待办数据范围", "menuCode": "adm.center"},
     {"code": "adm.notify.manage", "name": "配置ADM跟进提醒", "description": "设置阶段时限、企业微信群和每天提醒时间，预览及查看发送记录", "menuCode": "adm.center"},
@@ -135,6 +136,7 @@ PERMISSION_CATALOG = (
 MENU_CATALOG = (
     {"code": "system.accounts", "name": "账号管理", "description": "系统管理员管理账号；受托人员仅可删除普通账号", "groupCode": "system", "groupName": "系统管理"},
     {"code": "risk.verification", "name": "风控核对", "description": "出票盈亏原因核实、人工复核与问题标签", "groupCode": "risk", "groupName": "风控分析"},
+    {"code": "annotation.center", "name": "数据标注", "description": "在已授权项目内标注、复核及发布原文样本", "groupCode": "annotation", "groupName": "数据标注"},
     {"code": "adm.center", "name": "ADM管理", "description": "ADM主单、多订单、材料及审核闭环", "groupCode": "adm", "groupName": "ADM管理"},
     {"code": "governance.gds", "name": "GDS资源治理", "description": "GDS、PCC查询量、航段数与查定比分析", "groupCode": "governance", "groupName": "资源治理"},
     {"code": "governance.ota", "name": "OTA渠道质量", "description": "平台查询、验价与生单接口成功率分析", "groupCode": "governance", "groupName": "资源治理"},

@@ -82,6 +82,8 @@ def required_menu_code(path: str) -> str | None:
         return "hr.mail"
     if path.startswith("/api/v1/adm"):
         return "adm.center"
+    if path.startswith("/api/v1/annotations/"):
+        return "annotation.center"
     if path.startswith("/api/v1/data-workbench"):
         return "data_workbench"
     if path.startswith("/api/v1/resource-governance/gds/routes"):

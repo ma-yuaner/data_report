@@ -176,6 +176,9 @@
           <a-menu-item v-if="canSeeMenu('data_assets')" key="/data-assets"
             ><template #icon><DatabaseOutlined /></template>数据资产</a-menu-item
           >
+          <a-menu-item v-if="canSeeMenu('annotation.center')" key="/data-annotations">
+            <template #icon><DatabaseOutlined /></template>数据标注
+          </a-menu-item>
           <a-sub-menu v-if="canSeeMenu('data_workbench') || canSeeGroup('risk')" key="archived-features">
             <template #icon><ControlOutlined /></template>
             <template #title>归档功能</template>
