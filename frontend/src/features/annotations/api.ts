@@ -88,12 +88,12 @@ export interface SampleSummary {
   canEdit?: boolean
   canReview?: boolean
   canAssign?: boolean
+  canDelete?: boolean
 }
 
 export interface SampleDraft {
   title: string
   platform: string
-  expected: number | null
   fileLabels: string[]
   marks: Mark[]
   titleEvidence: Evidence | null
@@ -172,6 +172,8 @@ export const annotationApi = {
   sample: async (id: string) => (await http.get<ApiEnvelope<Sample>>(samplePath(id))).data.data,
   updateSample: async (id: string, version: number, projectVersion: number, payload: SampleDraft) =>
     (await http.patch<ApiEnvelope<Sample>>(samplePath(id), { version, projectVersion, ...payload })).data.data,
+  deleteSample: async (id: string, version: number) =>
+    (await http.delete<ApiEnvelope<{ id: string }>>(samplePath(id), { data: { version } })).data.data,
   action: async (
     id: string,
     payload: {

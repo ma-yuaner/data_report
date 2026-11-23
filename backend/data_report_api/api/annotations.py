@@ -15,7 +15,7 @@ def handled(function):
             authority = current_app.extensions.get("auth_manager")
             accounts = authority.store.list_users if authority else None
             service = AnnotationService(current_app.config, g.current_user, accounts)
-            if request.method in ("POST", "PATCH"):
+            if request.method in ("POST", "PATCH", "DELETE"):
                 request.max_content_length = 52 * 1024 * 1024 if function.__name__ == "annotation_upload" else 2 * 1024 * 1024
                 if request.content_length and request.content_length > request.max_content_length:
                     raise RequestEntityTooLarge()
@@ -79,6 +79,11 @@ def register_routes(api):
     @handled
     def annotation_detail(service, sample_id):
         return ok(service.detail(sample_id))
+
+    @api.delete("/v1/annotations/samples/<sample_id>")
+    @handled
+    def annotation_delete(service, sample_id):
+        return ok(service.delete_sample(sample_id, json_body()), "样本已从队列删除")
 
     @api.patch("/v1/annotations/samples/<sample_id>")
     @handled

@@ -64,20 +64,29 @@
             <div class="queue-list">
               <a-spin :spinning="queueLoading">
                 <a-empty v-if="!items.length" description="当前条件没有样本" />
-                <button
-                  v-for="item in items"
-                  :key="item.id"
-                  type="button"
-                  class="queue-item"
-                  :disabled="busy"
-                  :aria-pressed="String(current?.id) === String(item.id)"
-                  @click="selectSample(item.id)"
-                >
-                  <strong>{{ item.title || item.name }}</strong>
-                  <small
-                    >{{ statusNames[item.status] }} · {{ item.positionCount }}/{{ item.expected ?? '未设置' }} 处</small
+                <div v-for="item in items" :key="item.id" class="queue-row">
+                  <button
+                    type="button"
+                    class="queue-item"
+                    :disabled="busy"
+                    :aria-pressed="current?.id === item.id"
+                    @click="selectSample(item.id)"
                   >
-                </button>
+                    <strong>{{ item.title || item.name }}</strong>
+                    <small>{{ statusNames[item.status] }} · 已标 {{ item.positionCount }} 处</small>
+                  </button>
+                  <a-button
+                    v-if="item.canDelete"
+                    size="small"
+                    type="text"
+                    danger
+                    :disabled="busy || detailLoading || queueLoading"
+                    :aria-label="'删除样本 ' + (item.title || item.name)"
+                    @click="confirmDelete(item)"
+                  >
+                    删除
+                  </a-button>
+                </div>
               </a-spin>
             </div>
             <a-pagination
@@ -139,16 +148,6 @@
                 <a-button v-if="draft.titleEvidence" size="small" type="link" @click="focus(draft.titleEvidence)">
                   查看标题证据
                 </a-button>
-                <label>
-                  预期识别位置
-                  <a-input-number
-                    v-model:value="draft.expected"
-                    :min="1"
-                    :max="300"
-                    :precision="0"
-                    :disabled="!editable || busy"
-                  />
-                </label>
               </div>
               <section class="detail-section">
                 <h3>整份文件标签</h3>
@@ -169,7 +168,7 @@
               </section>
               <section class="detail-section">
                 <h3>
-                  字段证据 <small>{{ positionCount }}/{{ draft.expected ?? '未设置' }} 处</small>
+                  字段证据 <small>已标 {{ positionCount }} 处</small>
                 </h3>
                 <div class="tag-list">
                   <a-tag v-for="row in labelCounts" :key="row.id">{{ row.name }} {{ row.count }}</a-tag>
@@ -644,11 +643,10 @@ const displayDate = formatDateTimeDisplay
 
 function positionKey(mark: Evidence) {
   const identity = [mark.fileId, mark.page ?? mark.segmentId ?? null]
-  if (mark.canonicalRange) return JSON.stringify([...identity, 'text', ...mark.canonicalRange])
   if (mark.page) {
     const pageText = current.value?.segments.find((segment) => segment.fileId === mark.fileId && segment.page === mark.page)
-      ?.text.trim().replace(/\s+/gu, ' ')
-    const quote = mark.quote.trim().replace(/\s+/gu, ' ')
+      ?.text.normalize('NFKC').replace(/[\p{White_Space}]/gu, '')
+    const quote = mark.quote.normalize('NFKC').replace(/[\p{White_Space}]/gu, '')
     if (pageText && quote) {
       const first = pageText.indexOf(quote)
       if (first >= 0 && pageText.indexOf(quote, first + 1) < 0) {
@@ -687,7 +685,6 @@ function acceptSample(sample: Sample) {
   const clean = {
     title: sample.title,
     platform: sample.platform,
-    expected: sample.expected,
     marks: sample.marks,
     fileLabels: sample.fileLabels,
     titleEvidence: sample.titleEvidence,
@@ -708,6 +705,7 @@ function acceptSample(sample: Sample) {
       canEdit: sample.canEdit,
       canReview: sample.canReview,
       canAssign: sample.canAssign,
+      canDelete: sample.canDelete,
     }
 }
 
@@ -828,6 +826,40 @@ function changePage(value: number) {
   return loadQueue()
 }
 
+function confirmDelete(item: SampleSummary) {
+  const unsaved = current.value?.id === item.id && dirty.value
+  Modal.confirm({
+    title: '删除样本？',
+    content: '确认从队列删除「' + (item.title || item.name) + '」？' + (unsaved ? '当前未保存的标注也会丢弃。' : ''),
+    okText: '删除',
+    okType: 'danger',
+    cancelText: '取消',
+    onOk: async () => {
+      if (busy.value || detailLoading.value || item.projectId !== projectId.value) return
+      busy.value = true
+      error.value = ''
+      notice.value = ''
+      try {
+        await annotationApi.deleteSample(item.id, item.version)
+        if (current.value?.id === item.id) {
+          current.value = null
+          draft.value = null
+          clearSelection()
+          highlight.value = null
+        }
+        if (items.value.length === 1 && items.value[0]?.id === item.id && page.value > 1) page.value--
+        await loadQueue()
+        notice.value = '样本已从队列删除。'
+      } catch (reason) {
+        error.value = describe(reason)
+        await loadQueue()
+      } finally {
+        busy.value = false
+      }
+    },
+  })
+}
+
 async function selectSample(id: string, force = false) {
   if (!force && (busy.value || current.value?.id === id || !(await confirmLeave()) || busy.value)) return
   const generation = ++detailGeneration
@@ -937,12 +969,8 @@ async function saveDraft() {
 
 async function submitDraft() {
   if (!draft.value || !current.value || !project.value || !editable.value || busy.value || detailLoading.value) return
-  if (!draft.value.title.trim() || !draft.value.platform.trim() || draft.value.expected == null) {
-    error.value = '请填写来源平台、文件标题和预期识别位置。'
-    return
-  }
-  if (positionCount.value !== draft.value.expected || positionCount.value < 1) {
-    error.value = '已标 ' + positionCount.value + ' 处，预期 ' + draft.value.expected + ' 处。请核对后再提交。'
+  if (!draft.value.title.trim() || !draft.value.platform.trim() || !draft.value.marks.length) {
+    error.value = '请填写来源平台和文件标题，并至少标记一处字段证据。'
     return
   }
   const id = current.value.id
@@ -960,10 +988,6 @@ async function submitDraft() {
       return
     }
     if (dirty.value) acceptSample(await annotationApi.updateSample(id, current.value.version, projectVersion, draft.value))
-    if (positionCount.value !== draft.value.expected) {
-      error.value = '保存后发现重复或变化的证据位置，请重新核对预期数量。'
-      return
-    }
     const submitted = await annotationApi.action(id, { version: current.value.version, projectVersion, action: 'submit' })
     acceptSample(submitted)
     await loadQueue()
@@ -1345,8 +1369,19 @@ h3 {
   flex: 1 1 auto;
   min-height: 0;
 }
+.queue-row {
+  display: flex;
+  align-items: center;
+  border-top: 1px solid #e8eef5;
+}
+.queue-row > :deep(.ant-btn) {
+  flex: none;
+  margin-right: 6px;
+}
 .queue-item {
   display: grid;
+  flex: 1;
+  min-width: 0;
   gap: 3px;
   padding: 9px 12px;
   width: 100%;
@@ -1354,7 +1389,6 @@ h3 {
   overflow-wrap: anywhere;
   background: #fff;
   border: none;
-  border-top: 1px solid #e8eef5;
   cursor: pointer;
   color: #25364b;
 }

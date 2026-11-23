@@ -5,6 +5,7 @@ import os
 import re
 import tempfile
 from pathlib import Path
+from unicodedata import normalize as unicode_normalize
 from uuid import uuid4
 
 from .adm_parsing.documents import EXTENSIONS, extract
@@ -85,11 +86,12 @@ class AnnotationFiles:
         return [{key: value for key, value in f.items() if key != "storageKey"} for f in files], segments
 
 
-def normalize(value):
-    return " ".join(value.split())
+def pdf_text(value):
+    # PDF.js and pypdf can disagree about spaces between glyph runs and ligatures.
+    return re.sub(r"[^\S\x1c-\x1f]+", "", unicode_normalize("NFKC", value))
 
 
-def validate_mark(mark, fields, segments, *, title=False):
+def validate_mark(mark, fields, segments, *, title=False, pdf_pages=None):
     if not isinstance(mark, dict):
         problem("原文标注格式无效")
     file_id = mark.get("fileId")
@@ -116,8 +118,9 @@ def validate_mark(mark, fields, segments, *, title=False):
     result = {"fileId": file_id, "segmentId": segment["id"], "quote": quote, "start": start, "end": end}
     if segment.get("page") is not None:
         result["page"] = segment["page"]
-        page_text, needle = normalize(segment["text"]), normalize(quote)
-        occurrence = page_text.find(needle)
+        page_text = pdf_pages[segment["id"]] if pdf_pages is not None else pdf_text(segment["text"])
+        needle = pdf_text(quote)
+        occurrence = page_text.find(needle) if needle else -1
         if occurrence >= 0 and page_text.find(needle, occurrence+1) < 0:
             # The same unique text can be selected in either PDF or extracted-text view.
             result["canonicalRange"] = [occurrence, occurrence+len(needle)]
@@ -137,7 +140,7 @@ def validate_mark(mark, fields, segments, *, title=False):
                 problem("PDF 高亮范围无效")
             verified.append(dict(zip(("x", "y", "w", "h"), values)))
         if occurrence < 0:
-            problem("选中文字与服务端读取的原文不一致，请缩小到单行或改用文字视图")
+            problem(f"第 {page} 页的选区无法在提取原文中定位，请切到「提取正文」重新标记")
         result["rects"] = verified
     else:
         # Browser range offsets count UTF-16 code units, including surrogate pairs.

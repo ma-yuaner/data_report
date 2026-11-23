@@ -8,7 +8,7 @@ from .admwf.policy import AdmError, business_now, has
 from .annotation_adm_compare import compare_candidate
 from .annotation_evidence import (
     AnnotationFiles, MAX_FILE, MAX_FILES, MAX_MARKS, MAX_TOTAL,
-    digest, filename, geometry, normalize, position, problem, short_text, validate_mark,
+    digest, filename, geometry, pdf_text, position, problem, short_text, validate_mark,
 )
 from .annotation_store import AnnotationStore, SAMPLE_COLUMNS, duplicate, encode
 
@@ -191,10 +191,12 @@ class AnnotationService:
 
     def permissions(self, row, role, payload):
         assigned = row["assignee_id"] == self.actor
-        return {"canEdit": assigned and role in ("annotator", "manager") and row["status"] in ("draft", "returned"),
+        pending = row["status"] in ("draft", "returned")
+        return {"canEdit": assigned and role in ("annotator", "manager") and pending,
+                "canDelete": role == "manager" and pending,
                 "canReview": role in ("reviewer", "manager") and row["status"] == "submitted" and
                              payload.get("submittedBy") != self.actor,
-                "canAssign": role == "manager" and row["status"] in ("draft", "returned")}
+                "canAssign": role == "manager" and pending}
 
     def public_sample(self, row, role):
         payload = json.loads(row["payload"])
@@ -218,6 +220,8 @@ class AnnotationService:
             row = self.store.one(conn, "SELECT " + SAMPLE_COLUMNS + ",segments FROM annotation_sample WHERE id=? FOR UPDATE", (ident,))
         else:
             row = self.store.sample(conn, ident)
+        if not row or row["status"] == "deleted":
+            problem("样本不存在或无权访问", 404, "ANNOTATION_NOT_FOUND")
         if role == "annotator" and row["assignee_id"] != self.actor:
             problem("只可查看分配给自己的样本", 403, "ANNOTATION_FORBIDDEN")
         return row, project, role
@@ -228,7 +232,7 @@ class AnnotationService:
         search = short_text(search, 100).lower()
         with self.store.transaction() as conn:
             _, role = self.project_access(conn, project_id)
-            conditions, params = ["project_id=?"], [project_id]
+            conditions, params = ["project_id=?", "status<>'deleted'"], [project_id]
             if role == "annotator":
                 conditions.append("assignee_id=?")
                 params.append(self.actor)
@@ -392,26 +396,26 @@ class AnnotationService:
                 problem("标注数量超过限制，或标签不属于当前项目")
             segments = json.loads(row["segments"])
             result, unique_marks, pdf_selections = [], set(), {}
-            by_segment = {part["id"]: normalize(part["text"]) for part in segments if part.get("page")}
+            by_segment = {part["id"]: pdf_text(part["text"]) for part in segments if part.get("page")}
             quote_positions = {}
             old_ids = {mark["id"] for mark in payload["marks"]}
             used_ids = set()
             for mark in marks:
-                clean = validate_mark(mark, field_ids, segments)
+                clean = validate_mark(mark, field_ids, segments, pdf_pages=by_segment)
                 if clean.get("rects"):
                     selection = (clean["fileId"], clean["page"], geometry(clean))
-                    text = normalize(clean["quote"])
+                    text = pdf_text(clean["quote"])
                     if pdf_selections.setdefault(selection, text) != text:
                         problem("同一 PDF 选区不能对应不同原文")
                 key = (clean["labelId"], position(clean))
                 if key in unique_marks:
                     continue
                 if clean.get("page"):
-                    text = normalize(clean["quote"])
+                    text = pdf_text(clean["quote"])
                     group = (clean["segmentId"], text)
                     positions = quote_positions.setdefault(group, set())
                     positions.add(key[1])
-                    if len(positions) > by_segment[clean["segmentId"]].count(text):
+                    if text and len(positions) > by_segment[clean["segmentId"]].count(text):
                         problem("该引文标记的位置多于它在同一页的出现次数，请核对重复标注")
                 unique_marks.add(key)
                 candidate_id = mark.get("id")
@@ -421,11 +425,8 @@ class AnnotationService:
                 result.append(clean)
             title = short_text(data.get("title"), 200)
             platform = short_text(data.get("platform"), 100)
-            expected = data.get("expected")
-            if expected is not None and (type(expected) is not int or not 1 <= expected <= MAX_MARKS):
-                problem(f"预期识别数量需要为 1 至 {MAX_MARKS} 的整数")
             evidence = data.get("titleEvidence")
-            title_evidence = validate_mark(evidence, field_ids, segments, title=True) if evidence is not None else None
+            title_evidence = validate_mark(evidence, field_ids, segments, title=True, pdf_pages=by_segment) if evidence is not None else None
             if title_evidence and title_evidence["quote"] != title:
                 problem("标题和所选原文不一致，请重新标标题或取消原文关联")
             payload.update(marks=result, fileLabels=list(dict.fromkeys(file_labels)), titleEvidence=title_evidence,
@@ -433,7 +434,7 @@ class AnnotationService:
             count = len({position(mark) for mark in result})
             self.store.write(conn, "UPDATE annotation_sample SET title=?,platform=?,expected=?,position_count=?,"
                              "payload=?,version_no=version_no+1,updated_at=? WHERE id=?",
-                             (title, platform, expected, count, encode(payload), stamp(), ident))
+                             (title, platform, count or None, count, encode(payload), stamp(), ident))
             return self.detail_record(conn, self.store.sample(conn, ident), role)
 
     def snapshot(self, row, payload, labels):
@@ -442,6 +443,22 @@ class AnnotationService:
                 "expectedPositions": row["expected"], "annotatedPositions": row["position_count"], "labels": labels,
                 "marks": payload["marks"], "fileLabels": payload["fileLabels"], "submittedBy": payload.get("submittedBy"),
                 "reviewedBy": payload.get("reviewedBy"), "reviewedAt": payload.get("reviewedAt")}
+
+    def delete_sample(self, ident, data):
+        with self.store.transaction(write=True) as conn:
+            row, _, role = self.sample_access(conn, ident, lock=True)
+            if role != "manager":
+                problem("仅项目管理员可删除样本", 403, "ANNOTATION_FORBIDDEN")
+            self.expect_version(row, data.get("version"))
+            if row["status"] not in ("draft", "returned"):
+                problem("只能删除待标注或已退回的样本", 409, "ANNOTATION_CONFLICT")
+            # Reserve the old row for audit and release its material fingerprint for reimport.
+            deleted_key = digest(("deleted:" + ident).encode("ascii"))
+            self.store.write(conn, "UPDATE annotation_sample SET status='deleted',fingerprint=?,"
+                             "version_no=version_no+1,updated_at=? WHERE id=?",
+                             (deleted_key, stamp(), ident))
+            self.record(conn, ident, row["version_no"] + 1, "delete", "", {"previousStatus": row["status"]})
+            return {"id": ident}
 
     def actions(self, ident, data):
         action = data.get("action")
@@ -454,16 +471,18 @@ class AnnotationService:
             permitted = self.permissions(row, role, payload)
             note = short_text(data.get("note", ""), 500, required=action == "return")
             assignee, status = row["assignee_id"], row["status"]
+            expected = row["expected"]
             if action == "submit":
                 if not permitted["canEdit"]:
                     problem("当前账号无权提交此样本", 403)
-                if not row["title"] or not row["platform"] or not row["expected"] or row["expected"] != row["position_count"]:
-                    problem("请补齐标题、来源平台，并使已标位置数与预期相同")
+                if not row["title"] or not row["platform"] or not row["position_count"]:
+                    problem("请补齐标题、来源平台，并至少标记一处字段证据")
                 labels = json.loads(project["labels"])
                 self.expect_project_version(project, data.get("projectVersion"))
                 if self.label_review_needed(payload, labels):
                     problem("已有标注的标签定义已变更，请核对后重新保存草稿", 409, "ANNOTATION_PROJECT_CONFLICT")
                 status = "submitted"
+                expected = row["position_count"]
                 payload.update(submittedBy=self.actor, reviewNote="", labelSnapshot=labels)
             elif action in ("approve", "return"):
                 if not permitted["canReview"]:
@@ -478,8 +497,8 @@ class AnnotationService:
                 if not isinstance(assignee, str) or assignee not in owners or assignee not in self.accounts():
                     problem("请选择当前项目中有权限的标注员")
             self.store.write(conn, "UPDATE annotation_sample SET status=?,assignee_id=?,payload=?,"
-                             "version_no=version_no+1,updated_at=? WHERE id=?",
-                             (status, assignee, encode(payload), stamp(), ident))
+                             "expected=?,version_no=version_no+1,updated_at=? WHERE id=?",
+                             (status, assignee, encode(payload), expected, stamp(), ident))
             row = self.store.sample(conn, ident)
             snapshot = self.snapshot(row, payload, payload.get("labelSnapshot", [])) if action != "assign" else {"assigneeId": assignee}
             self.record(conn, ident, row["version_no"], action, note, snapshot)
