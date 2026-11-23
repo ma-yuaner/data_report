@@ -756,17 +756,14 @@ class SmartPlacementService:
             params.append(MANAGER_RELATION_RESOURCE)
         return "(" + " OR ".join(clauses) + ")", params
 
-    def list_tasks(
+    def task_list_condition(
         self, *, user: dict[str, Any], status: str = "", keyword: str = "", platform: str = "",
         airline: str = "", owner: str = "", scope: str = "",
-        page: int = 1, page_size: int = 30,
-    ) -> dict[str, Any]:
+    ) -> tuple[str, list[Any]]:
         if status and status not in TASK_STATUSES:
             raise ValueError("任务状态不支持")
         if scope not in {"", "review", "claim", "mine"}:
             raise ValueError("任务分组不支持")
-        page = max(1, int(page))
-        page_size = max(1, min(int(page_size), 100))
         visibility, visibility_params = self._visibility_condition(user)
         where = ["t.is_deleted=0", visibility]
         params: list[Any] = list(visibility_params)
@@ -797,7 +794,20 @@ class SmartPlacementService:
                 raise ValueError("登录用户信息不完整")
             where.append("(t.current_assignee_id=%s OR t.created_by_id=%s)")
             params.extend([actor_id, actor_id])
-        condition = " AND ".join(where)
+        return " AND ".join(where), params
+
+    def list_tasks(
+        self, *, user: dict[str, Any], status: str = "", keyword: str = "", platform: str = "",
+        airline: str = "", owner: str = "", scope: str = "",
+        page: int = 1, page_size: int = 30, include_filter_options: bool = False,
+    ) -> dict[str, Any]:
+        condition, params = self.task_list_condition(
+            user=user, status=status, keyword=keyword, platform=platform,
+            airline=airline, owner=owner, scope=scope,
+        )
+        page = max(1, int(page))
+        page_size = max(1, min(int(page_size), 100))
+        visibility, visibility_params = self._visibility_condition(user)
         connection = cursor = None
         try:
             connection = self.source.connect()
@@ -833,7 +843,19 @@ class SmartPlacementService:
             summary = {key: 0 for key in TASK_STATUSES}
             for row in status_rows:
                 summary[str(row["status"])] = int(row["amount"])
-            return {"available": True, "error": "", "summary": summary, "rows": rows, "total": total, "page": page, "pageSize": page_size}
+            result = {"available": True, "error": "", "summary": summary, "rows": rows, "total": total, "page": page, "pageSize": page_size}
+            if include_filter_options:
+                option_condition, option_params = self.task_list_condition(user=user, scope=scope)
+                options = {}
+                for key, column in (("platforms", "platform_name"), ("airlines", "airline_code")):
+                    cursor.execute(
+                        f"SELECT DISTINCT t.{column} FROM {self._table(TASK_TABLE)} t "
+                        f"WHERE {option_condition} AND t.{column} <> '' ORDER BY t.{column}",
+                        tuple(option_params),
+                    )
+                    options[key] = [row[0] for row in cursor.fetchall()]
+                result["filterOptions"] = options
+            return result
         except Exception as error:
             LOGGER.exception("Smart placement task list failed")
             if _is_missing_table(error):
@@ -842,6 +864,32 @@ class SmartPlacementService:
         finally:
             if cursor is not None: cursor.close()
             if connection is not None: connection.close()
+
+    def export_task_rows(self, user, filters, *, limit, on_total):
+        from pymysql.cursors import SSDictCursor
+
+        condition, params = self.task_list_condition(user=user, **filters)
+        connection = self.source.connect()
+        try:
+            with connection.cursor(SSDictCursor) as cursor:
+                cursor.execute(
+                    f"SELECT COUNT(*) AS total FROM {self._table(TASK_TABLE)} t WHERE {condition}",
+                    tuple(params),
+                )
+                total = int(cursor.fetchone()["total"])
+                if total > limit:
+                    raise ValueError(f"投放任务超过 {limit:,} 条，请缩小筛选范围")
+                on_total(total)
+                cursor.execute(
+                    f"""SELECT t.* FROM {self._table(TASK_TABLE)} t WHERE {condition}
+                    ORDER BY FIELD(priority,'HIGH','MEDIUM','LOW'),
+                             CASE WHEN expected_complete_at IS NULL THEN 1 ELSE 0 END,
+                             expected_complete_at, id DESC LIMIT %s""",
+                    (*params, limit + 1),
+                )
+                yield from cursor
+        finally:
+            connection.close()
 
     def analysis_coverage(
         self, *, user: dict[str, Any], start_value: Any, end_value: Any,

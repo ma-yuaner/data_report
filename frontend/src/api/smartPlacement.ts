@@ -66,6 +66,7 @@ export interface PlacementTaskList {
   total: number
   page: number
   pageSize: number
+  filterOptions?: { platforms: string[]; airlines: string[] }
 }
 
 export interface PlacementTaskDetail {
