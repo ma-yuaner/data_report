@@ -42,7 +42,7 @@
         <a-select :value="filters.airline || undefined" aria-label="航司" :options="policyAirlineOptions" :disabled="loading" show-search option-filter-prop="label" allow-clear placeholder="航司" @change="filters.airline = String($event ?? '')" />
         <a-button type="primary" :loading="loading" @click="queryPolicies"><SearchOutlined />查询</a-button>
         <a-button :disabled="loading" @click="resetFilters"><ReloadOutlined />重置</a-button>
-        <a-button :loading="exporting" :disabled="loading || !data?.total" @click="exportPolicies"><DownloadOutlined />导出</a-button>
+        <a-button v-if="authStore.canExportPlacementPolicies" :loading="exporting" :disabled="loading || !data?.total" @click="exportPolicies"><DownloadOutlined />导出</a-button>
         </div>
       </div>
       <div v-if="selectedReviewRows.length" class="batch-action-bar">
