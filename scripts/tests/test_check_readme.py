@@ -61,7 +61,7 @@ def status(): pass
 """,
         )
         self.write(
-            "frontend/src/layouts/AppLayout.vue", '<a-menu><a-menu-item key="/home">工作台</a-menu-item></a-menu>'
+            "frontend/src/layouts/sidebar-menu.json", '[{"key":"/home","label":"工作台"}]'
         )
         self.write(
             "README.md",
@@ -132,22 +132,19 @@ def error(): pass
         with self.assertRaisesRegex(ValueError, "注册未完整识别"):
             checker.read_endpoints(self.root)
 
-    def test_sidebar_includes_nested_disabled_items_but_not_account_dropdown(self):
+    def test_sidebar_reads_nested_menu_destinations(self):
         self.write(
-            "frontend/src/layouts/AppLayout.vue",
-            """
-<a-menu><a-sub-menu key="smart"><template #title>智能分析</template>
-<a-sub-menu key="overall"><template #title>智能整体分析</template>
-<a-menu-item key="/smart-analysis/overview">智能总览</a-menu-item></a-sub-menu>
-<a-menu-item key="reserved" disabled>预留功能</a-menu-item></a-sub-menu></a-menu>
-<a-menu><a-menu-item key="logout">退出登录</a-menu-item></a-menu>
-""",
+            "frontend/src/layouts/sidebar-menu.json",
+            """[{"key":"smart","label":"智能分析","children":[
+              {"key":"overall","label":"智能整体分析","children":[
+                {"key":"/smart-analysis/overview","label":"智能总览"}
+              ]}
+            ]}]""",
         )
         menu = checker.read_menu(self.root)
-        self.assertEqual(len(menu), 2)
+        self.assertEqual(len(menu), 1)
         self.assertEqual(menu[0].groups, ("智能分析", "智能整体分析"))
-        self.assertTrue(menu[1].disabled)
-        self.assertIn("预留/禁用", checker.render_menu(menu))
+        self.assertEqual(menu[0].key, "/smart-analysis/overview")
 
     def test_generated_blocks_preserve_human_content_and_reject_bad_markers(self):
         text = "before\n<!-- BEGIN:X -->\nold\n<!-- END:X -->\nafter\n"

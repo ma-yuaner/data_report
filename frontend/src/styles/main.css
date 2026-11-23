@@ -24,7 +24,11 @@ small { font-size: 12px; }
 .brand-copy { display: grid; white-space: nowrap; }
 .brand-copy strong { font-size: 18px; font-weight: 650; line-height: 1.5; letter-spacing: .03em; }
 .brand-copy span { color: var(--platform-nav-secondary); font-size: 11px; line-height: 1.6; }
-.sidebar-menu-label { margin: 0; padding: 3px 25px 10px; font-size: 11px; line-height: 1.6; color: var(--platform-nav-secondary); }
+.sidebar-search { flex: none; padding: 0 14px 10px; }
+.sidebar-search .ant-select { width: 100%; }
+.sidebar-search .ant-btn { width: 100%; color: var(--platform-nav-text); }
+.sidebar-search .ant-btn:hover, .sidebar-search .ant-btn:focus-visible { color: var(--platform-nav-text); background: var(--platform-nav-hover); }
+.sidebar-search-breadcrumb { color: var(--ant-color-text-secondary, #526071); font-size: 12px; white-space: normal; }
 .app-sidebar .ant-menu { background: transparent; border-inline-end: 0 !important; }
 .app-sidebar .ant-menu-sub.ant-menu-inline { background: transparent !important; }
 .app-sidebar .ant-menu-item, .app-sidebar .ant-menu-submenu-title { font-size: 13px; }

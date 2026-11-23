@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import argparse
 import ast
+import json
 from collections import Counter
 from dataclasses import dataclass
-from html.parser import HTMLParser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,7 +36,6 @@ class MenuItem:
     groups: tuple[str, ...]
     label: str
     key: str
-    disabled: bool
 
 
 @dataclass(frozen=True)
@@ -48,78 +47,29 @@ class Endpoint:
     source: str
 
 
-class MenuParser(HTMLParser):
-    """Read the first sidebar a-menu, excluding the separate account dropdown."""
-
-    def __init__(self):
-        super().__init__()
-        self.started = False
-        self.active = False
-        self.groups: list[dict[str, str]] = []
-        self.title_group: dict[str, str] | None = None
-        self.item: dict | None = None
-        self.items: list[MenuItem] = []
-
-    def handle_starttag(self, tag, attrs):
-        values = dict(attrs)
-        if tag == "a-menu" and not self.started:
-            self.started = self.active = True
-        if not self.active:
-            return
-        if tag == "a-sub-menu":
-            self.groups.append({"title": ""})
-        elif tag == "template" and "#title" in values and self.groups:
-            self.title_group = self.groups[-1]
-        elif tag == "a-menu-item":
-            if not values.get("key"):
-                raise ValueError("菜单包含非静态key，需要补充脚本解析规则")
-            if any(not group["title"].strip() for group in self.groups):
-                raise ValueError("菜单组标题不是可读取的静态标题")
-            if ":disabled" in values:
-                raise ValueError("菜单使用动态disabled，需要人工确认并扩展脚本")
-            self.item = {"key": values["key"], "disabled": "disabled" in values, "text": []}
-
-    def handle_data(self, data):
-        if not self.active:
-            return
-        if self.item is not None:
-            self.item["text"].append(data)
-        elif self.title_group is not None:
-            self.title_group["title"] += data
-
-    def handle_endtag(self, tag):
-        if not self.active:
-            return
-        if tag == "a-menu-item" and self.item is not None:
-            label = " ".join("".join(self.item["text"]).split())
-            if not label or "{{" in label:
-                raise ValueError("菜单标题不是可读取的静态文本")
-            self.items.append(
-                MenuItem(
-                    tuple(group["title"].strip() for group in self.groups),
-                    label,
-                    self.item["key"],
-                    self.item["disabled"],
-                )
-            )
-            self.item = None
-        elif tag == "template":
-            self.title_group = None
-        elif tag == "a-sub-menu":
-            self.groups.pop()
-        elif tag == "a-menu":
-            self.active = False
-
-
 def read_menu(root: Path) -> list[MenuItem]:
-    parser = MenuParser()
-    parser.feed((root / "frontend/src/layouts/AppLayout.vue").read_text(encoding="utf-8-sig"))
-    if not parser.items:
+    path = root / "frontend/src/layouts/sidebar-menu.json"
+    nodes = json.loads(path.read_text(encoding="utf-8"))
+    keys = set()
+    items = []
+
+    def visit(entries, groups=()):
+        for node in entries:
+            key, label = node["key"], node["label"]
+            if not label.strip() or not key.strip() or key in keys:
+                raise ValueError("侧栏菜单标题或 key 为空，或 key 重复")
+            keys.add(key)
+            if "children" in node:
+                visit(node["children"], (*groups, label))
+            elif key.startswith("/"):
+                items.append(MenuItem(groups, label, key))
+            else:
+                raise ValueError("侧栏页面入口必须使用绝对路径")
+
+    visit(nodes)
+    if not items:
         raise ValueError("未读取到实际侧栏菜单，拒绝生成空目录")
-    keys = [item.key for item in parser.items]
-    if len(keys) != len(set(keys)):
-        raise ValueError("侧栏存在重复菜单key")
-    return parser.items
+    return items
 
 
 def parse_endpoints(source: str, *, owner: str, prefix: str, group: str, filename: str) -> list[Endpoint]:
@@ -210,10 +160,9 @@ def read_endpoints(root: Path) -> list[Endpoint]:
 
 
 def render_menu(items: list[MenuItem]) -> str:
-    disabled = sum(item.disabled for item in items)
     lines = [
         "<details>",
-        f"<summary>完整菜单：{len(items) - disabled}个页面入口、{disabled}个禁用预留项</summary>",
+        f"<summary>完整菜单：{len(items)}个页面入口</summary>",
         "",
         "```text",
     ]
@@ -224,7 +173,7 @@ def render_menu(items: list[MenuItem]) -> str:
             common += 1
         for depth in range(common, len(item.groups)):
             lines.append("  " * depth + item.groups[depth])
-        target = "预留/禁用，无页面路由" if item.disabled else item.key
+        target = item.key
         lines.append("  " * len(item.groups) + f"{item.label}  [{target}]")
         previous = item.groups
     return "\n".join(lines + ["```", "", "</details>"])
