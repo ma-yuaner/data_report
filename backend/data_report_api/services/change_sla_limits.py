@@ -74,6 +74,41 @@ def _rules_only(payload):
     ]
 
 
+def platform_bands(row):
+    """Recognize the source wording per field without overriding managed values."""
+    platform = row.get("platform")
+    if platform == "TVLK":
+        intervals = ((0, 72, 2, True, True), (72, None, 24, False, False))
+    elif platform == "飞猪":
+        intervals = ((12, 26, 8, True, False), (26, 50, 20, True, True),
+                     (50, None, 40, False, False))
+    else:
+        return {}
+
+    result = {}
+    for field, verb in (("auditInvoluntary", "审核"), ("operationInvoluntary", "换开")):
+        if platform == "TVLK":
+            expected = f"航班3天内:{verb}2小时内完成航班3天外:{verb}24小时内完成"
+        else:
+            expected = "航班日期12-26h内订单:8h履约;26-50h内订单:20h履约;50h外订单:40h履约"
+        source = "".join(row.get(field, "").split()).lower().replace("：", ":").replace("；", ";")
+        if source == expected and not (row.get("segments") or {}).get(field):
+            result[field] = [
+                {"fromMinutes": low * 60, "untilMinutes": high * 60 if high is not None else None,
+                 "limitMinutes": limit * 60, "includeFrom": include_low, "includeUntil": include_high}
+                for low, high, limit, include_low, include_high in intervals
+            ]
+    return result
+
+
+def _apply_platform_bands(row):
+    additions = platform_bands(row)
+    if not additions:
+        return False
+    row["segments"] = {**(row.get("segments") or {}), **additions}
+    return True
+
+
 class ChangeSlaLimits:
     def __init__(self, root):
         self.path = Path(root) / "change-sla-limits.sqlite3"
@@ -146,6 +181,7 @@ class ChangeSlaLimits:
             incoming = []
             for raw in raw_rows:
                 row = _record(raw)
+                _apply_platform_bands(row)
                 source_row = raw.get("sourceRow")
                 if type(source_row) is not int or not 1 <= source_row <= 1048576:
                     raise InvalidLimit("导入记录缺少有效的源表行号")
@@ -160,7 +196,7 @@ class ChangeSlaLimits:
             identifier = raw.get("id")
             if identifier is not None and (not isinstance(identifier, str) or not identifier):
                 raise InvalidLimit("配置编号无效")
-        else:
+        elif operation != "apply-platform-bands":
             raise InvalidLimit("不支持的配置操作")
 
         with self._edit() as (revision, records, persist):
@@ -172,6 +208,12 @@ class ChangeSlaLimits:
                 if not additions:
                     return {"revision": revision, "rows": records}
                 records.extend(additions)
+            elif operation == "apply-platform-bands":
+                changed = False
+                for row in records:
+                    changed = _apply_platform_bands(row) or changed
+                if not changed:
+                    return {"revision": revision, "rows": records}
             elif identifier is None:
                 records.append({"id": uuid4().hex, **record})
             else:
