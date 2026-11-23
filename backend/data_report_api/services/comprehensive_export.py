@@ -18,7 +18,7 @@ from openpyxl.cell import WriteOnlyCell
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
-from ..shared.permissions import permission_codes
+from ..shared.permissions import PLACEMENT_POLICY_EXPORT_PERMISSION, permission_codes
 from ..time_utils import business_now
 from .comprehensive_analysis import BUSINESSES, DIMENSIONS
 from .comprehensive_detail import (
@@ -110,6 +110,13 @@ def _require_export(user: dict[str, Any]) -> None:
 
 def _require_kind(user: dict[str, Any], kind: str) -> None:
     menu_codes = set(user.get("menu_codes") or user.get("menuCodes") or [])
+    if kind == PLACEMENT_POLICY_KIND:
+        if not (_is_admin(user) or (
+            "smart.placement.policies" in menu_codes
+            and PLACEMENT_POLICY_EXPORT_PERMISSION in permission_codes(user)
+        )):
+            raise PermissionError("当前账号没有导出投放政策权限")
+        return
     if kind == MISSED_ORDERS_KIND:
         from .missed_orders import require_menu, EXPORT_PERMISSION as MISSED_EXPORT_PERMISSION
         require_menu(user)
@@ -142,7 +149,6 @@ def _require_kind(user: dict[str, Any], kind: str) -> None:
         SMART_TREND_MONTHLY_KIND: "smart.overview",
         SMART_DIMENSIONS_KIND: "smart.dimensions",
         SMART_DETAILS_KIND: "smart.details",
-        PLACEMENT_POLICY_KIND: "smart.placement.policies",
     }.get(kind)
     if required_menu is None:
         raise ValueError("不支持的导出任务类型")

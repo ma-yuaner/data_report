@@ -339,11 +339,10 @@ const exportMenuCodes = new Set([
   'smart.dimensions',
   'smart.details',
   'smart.placement.missed',
-  'smart.placement.policies',
 ])
 const canExport = computed(
   () =>
-    Boolean(authStore.user?.isAdmin) ||
+    authStore.canExportPlacementPolicies ||
     Boolean(authStore.user?.permissions?.includes('analysis.comprehensive.export')) ||
     Boolean(authStore.user?.menuCodes?.some((code) => exportMenuCodes.has(code))),
 )

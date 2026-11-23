@@ -14,6 +14,7 @@ import bcrypt
 from werkzeug.security import check_password_hash
 
 from .data_source import DataSource
+from ..shared.permissions import PLACEMENT_POLICY_EXPORT_PERMISSION
 from ..time_utils import business_now_naive
 
 
@@ -105,6 +106,7 @@ PERMISSION_CATALOG = (
     {"code": "adm.manage", "name": "ADM异常管理", "description": "作废主单或明细、调整有效明细金额及撤回审核", "menuCode": "adm.center"},
     {"code": "analysis.comprehensive.export", "name": "导出综合分析宽表", "description": "创建、取消并下载综合分析宽表明细导出任务", "menuCode": "analysis.comprehensive"},
     {"code": "smart_placement.create", "name": "新建投放机会", "description": "创建投放机会并保存或提交", "menuCode": "smart.placement.policies"},
+    {"code": PLACEMENT_POLICY_EXPORT_PERMISSION, "name": "导出投放政策", "description": "通过统一导出任务下载可见范围内的投放政策", "menuCode": "smart.placement.policies"},
     {"code": "smart_placement.edit_approved", "name": "编辑已审核投放机会", "description": "按数据范围调整全部审核通过的机会，直接生效并保留修改记录，不重新审核", "menuCode": "smart.placement.policies"},
     {"code": "smart_placement.edit", "name": "编辑投放机会", "description": "编辑并重新提交本人创建的草稿或退回任务", "menuCode": "smart.placement.policies"},
     {"code": "smart_placement.delete", "name": "删除草稿或驳回任务", "description": "逻辑删除本人创建的草稿或已驳回任务并保留操作日志", "menuCode": "smart.placement.policies"},

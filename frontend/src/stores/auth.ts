@@ -10,6 +10,10 @@ export const useAuthStore = defineStore('auth', {
   }),
   getters: {
     canDeleteAccounts: state => Boolean(state.user?.isAdmin || state.user?.permissions?.includes('system.accounts.delete')),
+    canExportPlacementPolicies: state => Boolean(state.user?.isAdmin || (
+      state.user?.menuCodes?.includes('smart.placement.policies') &&
+      state.user?.permissions?.includes('smart_placement.policies.export')
+    )),
   },
   actions: {
     apply(user: AuthUser | null, csrfToken = '') {
