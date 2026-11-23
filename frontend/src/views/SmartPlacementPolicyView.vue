@@ -36,12 +36,13 @@
           <button v-for="item in workScopeOptions" :key="item.value" type="button" class="work-tab" :class="{ active: workScope === item.value }" @click="selectWorkScope(item.value)">{{ item.label }}</button>
         </div>
         <div class="filter-bar">
-        <a-input v-model:value="filters.keyword" allow-clear placeholder="任务编号、机会名称、航司或航线" @press-enter="load(1)" />
+        <a-input v-model:value="filters.keyword" allow-clear placeholder="任务编号、机会名称、航司或航线" @press-enter="queryPolicies" />
         <a-select v-model:value="filters.status" :options="statusFilterOptions" />
-        <a-select v-model:value="filters.platform" :options="platformSelectOptions" :loading="dimensionsLoading" show-search option-filter-prop="label" allow-clear placeholder="全部平台" />
-        <a-select v-model:value="filters.airline" :options="airlineSelectOptions" :loading="dimensionsLoading" show-search option-filter-prop="label" allow-clear placeholder="全部航司" />
-        <a-button type="primary" :loading="loading" @click="load(1)"><SearchOutlined />查询</a-button>
+        <a-select :value="filters.platform || undefined" aria-label="平台" :options="policyPlatformOptions" :disabled="loading" show-search option-filter-prop="label" allow-clear placeholder="平台" @change="filters.platform = String($event ?? '')" />
+        <a-select :value="filters.airline || undefined" aria-label="航司" :options="policyAirlineOptions" :disabled="loading" show-search option-filter-prop="label" allow-clear placeholder="航司" @change="filters.airline = String($event ?? '')" />
+        <a-button type="primary" :loading="loading" @click="queryPolicies"><SearchOutlined />查询</a-button>
         <a-button :disabled="loading" @click="resetFilters"><ReloadOutlined />重置</a-button>
+        <a-button :loading="exporting" :disabled="loading || !data?.total" @click="exportPolicies"><DownloadOutlined />导出</a-button>
         </div>
       </div>
       <div v-if="selectedReviewRows.length" class="batch-action-bar">
@@ -425,7 +426,8 @@ import {
   message,
 } from 'ant-design-vue'
 import dateLocale from 'ant-design-vue/es/date-picker/locale/zh_CN'
-import { ReloadOutlined, SearchOutlined } from '@ant-design/icons-vue'
+import { DownloadOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons-vue'
+import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
 import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '@/components/PageHeader.vue'
 import PlacementField from '@/components/PlacementField.vue'
@@ -674,11 +676,42 @@ function taskToForm(task: Record<string, string | number | boolean | null>): Pla
   }
 }
 
-async function load(targetPage = page.value) {
+const appliedFilters = ref({ ...filters.value })
+const exporting = ref(false)
+const policyPlatformOptions = computed(() => (data.value?.filterOptions?.platforms || []).map(value => ({ label: value, value })))
+const policyAirlineOptions = computed(() => (data.value?.filterOptions?.airlines || []).map(value => ({ label: value, value })))
+let latestPolicyQuery = 0
+
+async function load(targetPage = page.value, query = appliedFilters.value) {
+  const requestId = ++latestPolicyQuery
   loading.value = true; error.value = ''; page.value = targetPage
-  try { data.value = await fetchPlacementTasks({ ...filters.value, page: page.value, pageSize: pageSize.value }) }
-  catch (failure) { data.value = undefined; error.value = failure instanceof Error ? failure.message : '投放任务查询失败' }
-  finally { selectedReviewTaskIds.value = []; loading.value = false }
+  try {
+    const result = await fetchPlacementTasks({ ...query, page: targetPage, pageSize: pageSize.value, includeFilterOptions: '1' })
+    if (requestId !== latestPolicyQuery) return
+    appliedFilters.value = { ...query }
+    data.value = result
+  } catch (failure) {
+    if (requestId !== latestPolicyQuery) return
+    data.value = undefined
+    error.value = failure instanceof Error ? failure.message : '投放任务查询失败'
+  } finally {
+    if (requestId === latestPolicyQuery) {
+      selectedReviewTaskIds.value = []
+      loading.value = false
+    }
+  }
+}
+function queryPolicies() { void load(1, { ...filters.value }) }
+async function exportPolicies() {
+  exporting.value = true
+  try {
+    const task = await useComprehensiveExportStore().createBackground('smart_placement_policies', { ...appliedFilters.value })
+    message.success(task.reused ? '相同条件的任务正在进行，已打开导出任务' : '已加入导出任务，可在页头查看进度并下载')
+  } catch (failure) {
+    message.error(failure instanceof Error ? failure.message : '创建投放政策导出任务失败')
+  } finally {
+    exporting.value = false
+  }
 }
 function preferredScope() {
   if (!authStore.user?.isAdmin && (canReviewData.value || canReviewPolicy.value)) return 'review'
@@ -686,12 +719,15 @@ function preferredScope() {
   if (!authStore.user?.isAdmin && canCreate.value) return 'mine'
   return 'all'
 }
-function resetFilters() { workScope.value = preferredScope(); filters.value = { keyword: '', status: '', platform: '', airline: '', owner: '', scope: workScope.value === 'all' ? '' : workScope.value }; void load(1) }
+function resetFilters() { workScope.value = preferredScope(); filters.value = { keyword: '', status: '', platform: '', airline: '', owner: '', scope: workScope.value === 'all' ? '' : workScope.value }; queryPolicies() }
 function selectWorkScope(value: string) {
+  if (workScope.value === value) return
   workScope.value = value
   filters.value.scope = value === 'all' ? '' : value
   filters.value.owner = ''
-  void load(1)
+  filters.value.platform = ''
+  filters.value.airline = ''
+  queryPolicies()
 }
 function changePage(value: { current?: number; pageSize?: number }) { const size = value.pageSize || pageSize.value; page.value = size === pageSize.value ? value.current || 1 : 1; pageSize.value = size; void load(page.value) }
 function openCreate() { approvedEditing.value = false; approvedChangeReason.value = ''; approvedExecutionId.value = undefined; approvedExecutionForm.value = {}; editingVersion.value = undefined; editingTaskId.value = undefined; taskForm.value = blankTask(); createOpen.value = true; void loadDimensions() }
@@ -1015,7 +1051,7 @@ async function openDetail(row: PlacementTaskRow) {
 onMounted(() => {
   workScope.value = preferredScope()
   filters.value.scope = workScope.value === 'all' ? '' : workScope.value
-  void load(1)
+  queryPolicies()
   if (canCreate.value || canExecuteTasks.value) void loadDimensions()
   if (route.query.create === '1' && canCreate.value) openCreateFromAnalysis()
   const taskId = Number(queryText('taskId'))
@@ -1054,6 +1090,7 @@ onMounted(() => {
 .action-context { margin-bottom: 16px; padding: 13px 15px; border: 1px solid #d7e3f4; border-radius: 10px; background: #f5f8fd; }.action-context > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; }.action-context strong { color: #263a58; font-size: 14px; }.action-context span,.action-context p { color: #7c899c; font-size: 12px; }.action-context p { margin: 5px 0 0; }.review-section { margin-bottom: 14px; padding: 13px; border: 1px solid #e3e8ef; border-radius: 10px; }.review-section header { display: flex; justify-content: space-between; margin-bottom: 10px; }.review-section header strong { color: #34465f; }.review-section header span { color: #69768a; font-size: 12px; }.review-checks :deep(.ant-checkbox-wrapper) { margin: 0; padding: 9px 10px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; }.review-form-grid { margin-bottom: 4px; }.dialog-actions { position: sticky; bottom: -24px; z-index: 3; display: flex; justify-content: flex-end; gap: 8px; margin: 18px -24px -24px; padding: 14px 24px; border-top: 1px solid #e5eaf1; background: rgba(255,255,255,.97); }
 .detail-hero { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin: -8px 0 18px; padding: 18px 20px; border: 1px solid #d7e3f4; border-radius: 13px; background: linear-gradient(135deg,#f3f7fe,#fff); }.detail-hero span,.detail-hero p { color: #76859a; font-size: 12px; }.detail-hero h2 { margin: 4px 0; color: #253a58; font-size: 19px; }.detail-hero p { margin: 0; }.detail-hero-meta { display: grid; flex: none; justify-items: end; gap: 5px; }.detail-hero-meta strong { color: #3a4c66; font-size: 12px; }.detail-hero-meta small { color: #69768a; }.detail-steps { margin: 0 8px 18px; }.detail-tabs :deep(.ant-tabs-nav) { position: sticky; top: 0; z-index: 4; background: #fff; }.detail-section-card { margin-bottom: 14px; padding: 16px; border: 1px solid #e4e9f0; border-radius: 11px; background: #fff; }.detail-section-card h3 { margin: 0 0 12px; color: #31445f; font-size: 14px; }.record-list { display: grid; gap: 12px; }.record-card { padding: 15px 16px; border: 1px solid #e2e8f0; border-radius: 11px; background: #fff; }.record-card header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 11px; padding-bottom: 10px; border-bottom: 1px solid #edf1f5; }.record-card header strong,.record-card header span { display: block; }.record-card header strong { color: #2f435f; }.record-card header span { margin-top: 3px; color: #69768a; font-size: 12px; }.record-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 7px 12px; color: #5f6e82; font-size: 12px; }.record-card p { margin: 9px 0 0; color: #5f6e82; font-size: 12px; line-height: 1.7; }.record-card b { color: #3e516c; }
 .monitoring-card { border-color: #cde6df; background: linear-gradient(145deg,#f5fcf9,#fff); }.monitoring-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 15px; }.monitoring-heading span,.monitoring-heading code { display: block; color: #718198; font-size: 12px; }.monitoring-heading h3 { margin: 3px 0; font-size: 17px; }.monitoring-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; }.monitoring-grid > div { min-height: 68px; padding: 11px 13px; border: 1px solid #e1eee9; border-radius: 9px; background: rgba(255,255,255,.78); }.monitoring-grid label,.monitoring-grid strong { display: block; }.monitoring-grid label { color: #69768a; font-size: 12px; }.monitoring-grid strong { margin-top: 5px; color: #2f435f; font-size: 12px; }.monitoring-conditions { margin-top: 14px; padding-top: 14px; border-top: 1px solid #dceae5; }.monitoring-conditions > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }.monitoring-conditions h4,.monitoring-conditions p { margin: 0; }.monitoring-conditions h4 { color: #31445f; font-size: 13px; }.monitoring-conditions p { margin-top: 3px; color: #8290a4; font-size: 12px; }.monitoring-condition-list { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }.monitoring-condition-list article { display: grid; grid-template-columns: 90px 72px minmax(0,1fr) auto; align-items: center; gap: 8px; padding: 9px 10px; border: 1px solid #e4ece9; border-radius: 8px; background: rgba(255,255,255,.82); font-size: 12px; }.monitoring-condition-list article > span { color: #6f7f92; }.monitoring-condition-list article > strong { color: #39546c; }.monitoring-condition-list code { overflow: hidden; color: #2e6a5a; text-overflow: ellipsis; white-space: nowrap; }.monitoring-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }.effect-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #dceae5; }.effect-grid > div { padding: 10px 12px; border-radius: 9px; background: rgba(255,255,255,.86); }.effect-grid label,.effect-grid strong { display: block; }.effect-grid label { color: #69768a; font-size: 12px; }.effect-grid strong { margin-top: 4px; color: #29445c; }.monitoring-warning { margin-top: 12px; }
+.filter-bar { grid-template-columns: minmax(180px, 1fr) 130px 135px 115px repeat(3, auto); align-items: end; }
 @media (max-width: 1180px) { .summary-grid { grid-template-columns: repeat(3,1fr); }.filter-bar { grid-template-columns: repeat(3,1fr); }.workflow-chain { grid-template-columns: repeat(4,1fr); gap: 24px 0; }.workflow-node::after { display: none; } }
 @media (max-width: 820px) { .form-grid,.form-grid.three { grid-template-columns: repeat(2,minmax(0,1fr)); }.span-3 { grid-column: span 2; }.grid-placeholder { display: none; } }
 @media (max-width: 600px) { .summary-grid,.form-grid,.form-grid.three,.review-checks,.record-grid,.monitoring-grid,.effect-grid,.monitoring-condition-list { grid-template-columns: 1fr; }.span-2,.span-3 { grid-column: auto; }.filter-bar { grid-template-columns: 1fr 1fr; }.placement-hero { align-items: flex-start; flex-direction: column; }.flow-card { overflow-x: auto; }.workflow-chain { min-width: 760px; grid-template-columns: repeat(7,1fr); }.form-section { padding: 15px 14px; }.form-intro { align-items: flex-start; }.field-legend { display: none; }.modal-actions { align-items: stretch; flex-direction: column; margin-right: -14px; margin-left: -14px; padding-right: 14px; padding-left: 14px; }.modal-actions > div { display: grid; grid-template-columns: repeat(3,1fr); }.detail-hero { flex-direction: column; }.detail-hero-meta { justify-items: start; }.monitoring-condition-list article { grid-template-columns: 76px 64px minmax(0,1fr) auto; } }

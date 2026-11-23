@@ -339,6 +339,7 @@ const exportMenuCodes = new Set([
   'smart.dimensions',
   'smart.details',
   'smart.placement.missed',
+  'smart.placement.policies',
 ])
 const canExport = computed(
   () =>
