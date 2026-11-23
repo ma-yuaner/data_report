@@ -10,6 +10,7 @@ import socket
 import sqlite3
 import threading
 import uuid
+from contextlib import closing
 from datetime import date, timedelta
 from pathlib import Path
 from time import monotonic
@@ -51,11 +52,14 @@ SMART_TREND_MONTHLY_KIND = "smart_trend_monthly"
 SMART_DIMENSIONS_KIND = "smart_dimensions"
 SMART_DETAILS_KIND = "smart_details"
 MISSED_ORDERS_KIND = "smart_missed_orders"
+PLACEMENT_POLICY_KIND = "smart_placement_policies"
+PLACEMENT_SCOPE_LABELS = {"": "全部任务", "review": "待我审核", "claim": "可认领", "mine": "我的任务"}
 HR_MAIL_FILE_KIND = "hr_mail_file"
 ADM_OPERATOR_KIND = "adm_operator_excel"
 ADM_ATTACHMENT_KIND = "adm_attachment"
 ADM_IMPORT_TEMPLATE_KIND = "adm_import_template"
 BACKGROUND_EXPORT_KINDS = {
+    PLACEMENT_POLICY_KIND,
     MISSED_ORDERS_KIND,
     HR_MAIL_FILE_KIND,
     ADM_OPERATOR_KIND,
@@ -70,6 +74,7 @@ BACKGROUND_EXPORT_KINDS = {
     SMART_DETAILS_KIND,
 }
 TASK_LABELS = {
+    PLACEMENT_POLICY_KIND: "智能投放政策",
     MISSED_ORDERS_KIND: "漏处理订单",
     HR_MAIL_FILE_KIND: "HR邮件附件",
     ADM_OPERATOR_KIND: "ADM接单处理表",
@@ -145,6 +150,7 @@ def _require_kind(user: dict[str, Any], kind: str) -> None:
         SMART_TREND_MONTHLY_KIND: "smart.overview",
         SMART_DIMENSIONS_KIND: "smart.dimensions",
         SMART_DETAILS_KIND: "smart.details",
+        PLACEMENT_POLICY_KIND: "smart.placement.policies",
     }.get(kind)
     if required_menu is None:
         raise ValueError("不支持的导出任务类型")
@@ -240,7 +246,13 @@ class ComprehensiveExportStore:
     def public(row: sqlite3.Row | dict[str, Any], *, reused: bool = False) -> dict[str, Any]:
         item = dict(row)
         task_label = TASK_LABELS.get(item["business_type"])
-        if item["business_type"] == HR_MAIL_FILE_KIND:
+        if item["business_type"] == PLACEMENT_POLICY_KIND:
+            try:
+                scope = json.loads(item["filters_json"])["filters"]["scope"]
+                task_label = f"{task_label} · {PLACEMENT_SCOPE_LABELS[scope]}"
+            except (KeyError, TypeError, ValueError):
+                pass
+        elif item["business_type"] == HR_MAIL_FILE_KIND:
             try:
                 file_name = str(json.loads(item["filters_json"]).get("fileName") or "").strip()
             except (TypeError, ValueError):
@@ -801,6 +813,8 @@ class ComprehensiveExportService:
         _require_kind(user, row["business_type"])
         if row["business_type"] == MISSED_ORDERS_KIND:
             self._missed_export_actor(int(user['id']), json.loads(row['filters_json']))
+        elif row["business_type"] == PLACEMENT_POLICY_KIND:
+            self._placement_export_actor(_user_id(user), json.loads(row["filters_json"]))
         elif row["business_type"] == HR_MAIL_FILE_KIND:
             values = json.loads(row["filters_json"])
             self._hr_mail_file(user, values)
@@ -860,7 +874,7 @@ class ComprehensiveExportService:
         except ComprehensiveExportCancelled:
             output_path.unlink(missing_ok=True)
             self.store.complete_cancellation(task_id)
-        except ValueError as error:
+        except (PermissionError, ValueError) as error:
             output_path.unlink(missing_ok=True)
             self.store.fail(task_id, str(error))
         except Exception as error:
@@ -894,6 +908,15 @@ class ComprehensiveExportService:
                 payload['_missedScope'] = MissedOrdersService(self.config).scope_signature(actor)
             except MissedOrdersUnavailable as error:
                 raise ComprehensiveExportUnavailable(str(error)) from error
+        elif kind == PLACEMENT_POLICY_KIND:
+            from .smart_placement import SmartPlacementService
+
+            filters = {key: str(payload.get(key) or "").strip() for key in (
+                "keyword", "status", "platform", "airline", "owner", "scope",
+            )}
+            actor = self._placement_export_actor(_user_id(user))
+            condition = SmartPlacementService(self.config).task_list_condition(user=actor, **filters)
+            payload = {"filters": filters, "scopeSignature": self._placement_scope_signature(condition)}
         elif kind == HR_MAIL_FILE_KIND:
             batch_id = str(payload.get("batchId") or "").strip()
             file_id = str(payload.get("fileId") or "").strip()
@@ -1012,6 +1035,49 @@ class ComprehensiveExportService:
                 raise PermissionError('人员可见范围已变化，请重新创建导出任务')
         return actor
 
+    @staticmethod
+    def _placement_scope_signature(condition) -> str:
+        return hashlib.sha256(json.dumps(condition, ensure_ascii=False).encode()).hexdigest()
+
+    def _placement_export_actor(self, user_id: int, values=None):
+        from .smart_placement import SmartPlacementService
+
+        resolver = self.config.get("PLACEMENT_POLICY_USER_RESOLVER")
+        if not callable(resolver):
+            raise PermissionError("投放政策导出缺少可信账号解析器")
+        actor = resolver(user_id)
+        if not actor or not actor.get("is_enabled", True):
+            raise PermissionError("账号已停用或不存在")
+        _require_kind(actor, PLACEMENT_POLICY_KIND)
+        if values is not None:
+            condition = SmartPlacementService(self.config).task_list_condition(user=actor, **values["filters"])
+            if values["scopeSignature"] != self._placement_scope_signature(condition):
+                raise PermissionError("投放任务可见范围已变化，请重新创建导出任务")
+        return actor
+
+    def _write_placement_policy(self, task_id, user_id, values, output_path):
+        from .placement_policy_export import write_policy_workbook
+        from .smart_placement import SmartPlacementService
+
+        def check_cancel():
+            if self.store.cancellation_requested(task_id):
+                raise ComprehensiveExportCancelled()
+
+        actor = self._placement_export_actor(user_id, values)
+        rows = SmartPlacementService(self.config).export_task_rows(
+            actor, values["filters"], limit=MAX_EXPORT_ROWS,
+            on_total=lambda total: self.store.set_total(task_id, total),
+        )
+        with closing(rows):
+            processed = write_policy_workbook(
+                rows, output_path, check_cancel,
+                lambda count: self.store.progress(task_id, count), MAX_EXPORT_ROWS,
+            )
+        check_cancel()
+        self.store.set_total(task_id, processed)
+        scope_label = PLACEMENT_SCOPE_LABELS[values["filters"]["scope"]]
+        self.store.finish(task_id, output_path, f"智能投放政策_{scope_label}.xlsx", processed)
+
     def _hr_mail_file(self, user: dict[str, Any], values: dict[str, Any]):
         from .hr_mail.service import Service as HrMailService
         from .hr_mail.store import MailError
@@ -1084,6 +1150,9 @@ class ComprehensiveExportService:
         exported_rows = 1
         if self.store.cancellation_requested(task_id):
             raise ComprehensiveExportCancelled()
+        if kind == PLACEMENT_POLICY_KIND:
+            self._write_placement_policy(task_id, int(task["user_id"]), values, output_path)
+            return
         if kind == MISSED_ORDERS_KIND:
             from .missed_orders import MissedOrdersService, MissedOrdersCancelled
             actor = self._missed_export_actor(int(task['user_id']),values)

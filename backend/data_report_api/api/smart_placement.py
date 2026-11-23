@@ -61,6 +61,7 @@ def register_routes(api: Blueprint) -> None:
                     scope=request.args.get("scope", ""),
                     page=int(request.args.get("page", "1")),
                     page_size=int(request.args.get("pageSize", "30")),
+                    include_filter_options=request.args.get("includeFilterOptions") == "1",
                 )
             )
         except PermissionError as error:

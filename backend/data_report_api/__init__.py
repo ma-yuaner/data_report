@@ -173,6 +173,7 @@ def create_app(config: type[Config] = Config, auth_store=None) -> Flask:
 
         app.config["HR_MAIL_USER_RESOLVER"] = resolve_hr_mail_user
         app.config["MISSED_ORDER_USER_RESOLVER"] = resolve_hr_mail_user
+        app.config["PLACEMENT_POLICY_USER_RESOLVER"] = resolve_hr_mail_user
         def resolve_adm_user(user_id):
             return manager.store.get_user_by_id(int(user_id))
 
