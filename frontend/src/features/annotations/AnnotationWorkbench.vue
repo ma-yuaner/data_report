@@ -149,10 +149,9 @@
                   查看标题证据
                 </a-button>
               </div>
-              <section class="detail-section">
+              <section v-if="documentLabels.length" class="detail-section">
                 <h3>整份文件标签</h3>
-                <p v-if="!documentLabels.length" class="muted">项目尚未配置文件标签</p>
-                <div v-else class="tag-list">
+                <div class="tag-list">
                   <a-button
                     v-for="label in documentLabels"
                     :key="label.id"
@@ -590,7 +589,19 @@ const hasAdm = computed(() => Boolean(auth.user?.isAdmin || auth.user?.menuCodes
 const mayUpload = computed(() => project.value?.role === 'manager' || project.value?.role === 'annotator')
 const editable = computed(() => current.value?.canEdit === true)
 const fieldLabels = computed(() => project.value?.labels.filter((item) => item.scope === 'field') ?? [])
-const documentLabels = computed(() => project.value?.labels.filter((item) => item.scope === 'document') ?? [])
+// Keep the retired defaults in saved dictionaries so historical label IDs still resolve.
+const retiredLabels = computed(() =>
+  project.value?.kind === 'adm'
+    ? project.value.labels.filter(
+        (label) =>
+          label.scope === 'document' &&
+          (label.name === 'ARC 模板' || label.name === 'BSP 模板') &&
+          label.description === '整份原件来自 ' + label.name + '。',
+      )
+    : [],
+)
+const activeLabels = computed(() => project.value?.labels.filter((label) => !retiredLabels.value.includes(label)) ?? [])
+const documentLabels = computed(() => activeLabels.value.filter((label) => label.scope === 'document'))
 const dirty = computed(() => draft.value !== null && JSON.stringify(draft.value) !== originalDraft.value)
 const evidenceMarks = computed(() => [
   ...(draft.value?.marks ?? []).map((mark) => ({ ...mark, color: labelColor(mark.labelId) })),
@@ -1036,7 +1047,7 @@ async function openDialog(next: Dialog) {
     pendingFiles.value = []
     groupUpload.value = false
   } else if (next === 'manage' && project.value) {
-    pendingLabels.value = project.value.labels.map((label) => ({ ...label }))
+    pendingLabels.value = activeLabels.value.map((label) => ({ ...label }))
     pendingMembers.value = project.value.members.map((member) => ({ ...member }))
     accountList.value = []
     try {
@@ -1106,7 +1117,7 @@ async function submitDialog() {
         throw new Error('请填写标签名称和定义。')
       const updated = await annotationApi.updateProject(id, {
         version: project.value.version,
-        labels: pendingLabels.value,
+        labels: [...pendingLabels.value, ...retiredLabels.value],
         members: pendingMembers.value,
       })
       projects.value = projects.value.map((item) => (item.id === id ? updated : item))

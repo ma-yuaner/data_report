@@ -114,8 +114,6 @@ class AnnotationService:
             for label, field in zip(labels, ADM_FIELD_KEYS):
                 if field:
                     label["admField"] = field
-            labels.extend([new_label("ARC 模板", "整份原件来自 ARC 模板。", "document"),
-                           new_label("BSP 模板", "整份原件来自 BSP 模板。", "document")])
         project_id = uuid4().hex
         try:
             with self.store.transaction(write=True) as conn:
