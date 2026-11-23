@@ -100,6 +100,7 @@ export interface SampleDraft {
 }
 
 export interface Sample extends SampleSummary, SampleDraft {
+  canReopen?: boolean
   labelReviewNeeded?: boolean
   nextEditableId?: string | null
   segments: Segment[]
@@ -179,7 +180,7 @@ export const annotationApi = {
     payload: {
       version: number
       projectVersion?: number
-      action: 'submit' | 'approve' | 'return' | 'assign'
+      action: 'submit' | 'approve' | 'return' | 'assign' | 'reopen'
       note?: string
       assigneeId?: string
     },

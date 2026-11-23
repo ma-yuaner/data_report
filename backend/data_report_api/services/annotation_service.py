@@ -356,6 +356,7 @@ class AnnotationService:
     def detail_record(self, conn, row, role):
         sample = self.public_sample(row, role)
         project = self.store.project(conn, row["project_id"])
+        sample["canReopen"] = self.can_reopen(row, project, role)
         sample["labelReviewNeeded"] = self.label_review_needed(json.loads(row["payload"]), json.loads(project["labels"]))
         events = self.store.all(conn, "SELECT action,actor_id,occurred_at,note FROM annotation_revision WHERE sample_id=? "
                                "ORDER BY version_no DESC LIMIT 100", (row["id"],))
@@ -458,9 +459,13 @@ class AnnotationService:
             self.record(conn, ident, row["version_no"] + 1, "delete", "", {"previousStatus": row["status"]})
             return {"id": ident}
 
+    def can_reopen(self, row, project, role):
+        return (project["kind"] == "adm" and row["status"] == "approved"
+                and row["assignee_id"] == self.actor and role in ("annotator", "manager"))
+
     def actions(self, ident, data):
         action = data.get("action")
-        if action not in ("submit", "approve", "return", "assign"):
+        if action not in ("submit", "approve", "return", "assign", "reopen"):
             problem("不支持该样本操作")
         with self.store.transaction(write=True) as conn:
             row, project, role = self.sample_access(conn, ident, lock=True)
@@ -487,6 +492,12 @@ class AnnotationService:
                     problem("只能复核其他标注员已提交的样本", 403)
                 status = "approved" if action == "approve" else "returned"
                 payload.update(reviewNote=note, reviewedBy=self.actor, reviewedAt=stamp())
+            elif action == "reopen":
+                if not self.can_reopen(row, project, role):
+                    problem("仅当前标注人可重新编辑已确认的 ADM 样本", 403, "ANNOTATION_FORBIDDEN")
+                status = "draft"
+                for key in ("submittedBy", "reviewedBy", "reviewedAt", "reviewNote", "labelSnapshot"):
+                    payload.pop(key, None)
             else:
                 if not permitted["canAssign"]:
                     problem("当前账号或状态不可分配样本", 403)

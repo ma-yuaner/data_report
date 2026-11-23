@@ -209,6 +209,13 @@
             <a-empty v-else-if="!detailLoading" description="选择样本以查看标注" />
             <footer v-if="current" class="detail-actions">
               <a-button v-if="current.canAssign" :disabled="busy" @click="openDialog('assign')">分配</a-button>
+              <a-button
+                v-if="current.canReopen"
+                :disabled="busy || detailLoading"
+                @click="confirmReopen"
+              >
+                重新编辑
+              </a-button>
               <template v-if="editable">
                 <a-button :disabled="(!dirty && !current.labelReviewNeeded) || busy" @click="saveDraft">保存草稿</a-button>
                 <a-button type="primary" :loading="busy" @click="submitDraft">提交并处理下一份</a-button>
@@ -502,6 +509,7 @@ const roleNames = { manager: '项目管理员', annotator: '标注员', reviewer
 const statusNames = { draft: '待标注', submitted: '待复核', returned: '待补充', approved: '已确认' }
 const statusColors = { draft: 'default', submitted: 'processing', returned: 'warning', approved: 'success' }
 const actionNames: Record<string, string> = {
+  reopen: '重新编辑',
   upload: '导入',
   import: '引用 ADM',
   assign: '分配',
@@ -1013,7 +1021,21 @@ async function submitDraft() {
   }
 }
 
-async function runAction(action: 'approve' | 'return' | 'assign', value = '') {
+function confirmReopen() {
+  const sample = current.value
+  if (!sample?.canReopen || busy.value || detailLoading.value) return
+  Modal.confirm({
+    title: '重新编辑这个样本？',
+    content: '样本将回到待标注。修改完成后，请重新提交复核。',
+    okText: '重新编辑',
+    cancelText: '取消',
+    onOk: async () => {
+      if (current.value?.id === sample.id && current.value.version === sample.version) await runAction('reopen')
+    },
+  })
+}
+
+async function runAction(action: 'approve' | 'return' | 'assign' | 'reopen', value = '') {
   if (!current.value || busy.value || detailLoading.value) return false
   busy.value = true
   error.value = ''
@@ -1025,7 +1047,12 @@ async function runAction(action: 'approve' | 'return' | 'assign', value = '') {
     }
     acceptSample(await annotationApi.action(current.value.id, data))
     await loadQueue()
-    notice.value = { approve: '复核通过。', return: '已退回补充。', assign: '已分配标注人员。' }[action]
+    notice.value = {
+      approve: '复核通过。',
+      return: '已退回补充。',
+      assign: '已分配标注人员。',
+      reopen: '样本已回到待标注，可以继续编辑。',
+    }[action]
     return true
   } catch (reason) {
     const message = describe(reason)

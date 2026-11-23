@@ -44,7 +44,7 @@
 | `GET` | `/api/v1/annotations/samples/<sample_id>` | [annotation_detail](../../backend/data_report_api/api/annotations.py) |
 | `PATCH` | `/api/v1/annotations/samples/<sample_id>` | [annotation_edit](../../backend/data_report_api/api/annotations.py) |
 | `DELETE` | `/api/v1/annotations/samples/<sample_id>` | [annotation_delete](../../backend/data_report_api/api/annotations.py)，请求体含样本 `version`，仅项目管理员可删除待标注或已退回样本 |
-| `POST` | `/api/v1/annotations/samples/<sample_id>/actions` | [annotation_actions](../../backend/data_report_api/api/annotations.py) |
+| `POST` | `/api/v1/annotations/samples/<sample_id>/actions` | [annotation_actions](../../backend/data_report_api/api/annotations.py)，`reopen` 由当前标注人按样本版本重开已确认的 ADM 样本 |
 | `GET` | `/api/v1/annotations/samples/<sample_id>/files/<file_id>` | [annotation_file](../../backend/data_report_api/api/annotations.py) |
 
 <a id="adm_parsing"></a>
