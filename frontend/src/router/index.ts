@@ -14,6 +14,8 @@ const router = createRouter({
       redirect: '/home',
       children: [
         { path: 'home', name: 'home', component: () => import('@/views/HomeView.vue'), meta: { title: '工作台', section: '企业数据中心' } },
+        { path: 'airline-rebates/policies', name: 'airline-rebate-policies', component: () => import('@/features/airline-rebates/AirlineRebateView.vue'), meta: { title: '政策解析', section: '后返管理', menuCode: 'airline_rebates.center' } },
+        { path: 'airline-rebates/tasks', name: 'airline-rebate-tasks', component: () => import('@/features/airline-rebates/AirlineRebateView.vue'), meta: { title: '任务管理', section: '后返管理', menuCode: 'airline_rebates.center' } },
         { path: 'data-annotations', name: 'annotations', component: () => import('@/features/annotations/AnnotationWorkbench.vue'), meta: { title: '数据标注', section: '数据标注', menuCode: 'annotation.center' } },
         { path: 'adm', redirect: { name: 'adm-cases', query: { scope: 'mine' } } },
         { path: 'adm/workbench', redirect: (to) => ({ name: 'adm-cases', query: { ...to.query, scope: 'mine' } }) },

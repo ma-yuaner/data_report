@@ -50,7 +50,7 @@ ADM责任流转V2：已增加协调人、接收确认式转交、责任分段、
 
 <!-- BEGIN:CURRENT_MENU -->
 <details>
-<summary>完整菜单：52个页面入口</summary>
+<summary>完整菜单：54个页面入口</summary>
 
 ```text
 工作台  [/home]
@@ -61,6 +61,9 @@ ADM责任流转V2：已增加协调人、接收确认式转交、责任分段、
     出票分析  [/analysis/issue]
     退票分析  [/analysis/refund]
     增值分析  [/analysis/ancillary]
+  后返管理
+    政策解析  [/airline-rebates/policies]
+    任务管理  [/airline-rebates/tasks]
   业务配置
     目标进度  [/business-configuration/target-progress]
     目标配置  [/business-configuration/targets]
