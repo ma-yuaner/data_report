@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import type { TableColumnsType } from 'ant-design-vue'
+import { Modal, type TableColumnsType } from 'ant-design-vue'
 import { http, type ApiEnvelope } from '@/api/http'
 
 const ruleFields = [
@@ -15,7 +15,7 @@ type RuleKey = typeof ruleFields[number][0]
 type FieldKey = RuleKey | typeof accountFields[number][0] | 'platform' | 'auditMode'
 type Band = { fromMinutes: number | null; untilMinutes: number | null; limitMinutes: number | null; includeFrom: boolean; includeUntil: boolean }
 type Limit = Record<FieldKey, string> & { id: string; sourceRow?: number; segments?: Partial<Record<RuleKey, Band[]>> }
-type Settings = { revision: number; rows: Limit[] }
+type Settings = { revision: number; rows: Limit[]; canApplyPlatformBands?: boolean }
 const endpoint = '/v1/analysis/change-sla/limits'
 const state = ref<Settings>()
 const loading = ref(false)
@@ -78,13 +78,14 @@ async function reload(){
   catch (failure) {error.value=describe(failure)}
   finally {loading.value=false}
 }
-async function submit(body: FormData | { revision: number; action: 'upsert'; record: Partial<Limit> }, success: string){
+async function submit(body: FormData | { revision: number; action: 'upsert'; record: Partial<Limit> } |
+  { revision: number; action: 'apply-platform-bands' }, success: string, unchanged = '源表中的配置已存在，保留已录入的版本。'){
   if(saving.value || loading.value)return
   error.value=''; message.value=''; saving.value=true
   try {
     const prior=state.value?.revision
     state.value=(await http.post<ApiEnvelope<Settings>>(endpoint,body)).data.data
-    message.value=state.value.revision===prior ? '源表中的配置已存在，保留已录入的版本。' : success
+    message.value=state.value.revision===prior ? unchanged : success
     open.value=false
   } catch (failure) {error.value=describe(failure)}
   finally {saving.value=false}
@@ -92,6 +93,26 @@ async function submit(body: FormData | { revision: number; action: 'upsert'; rec
 function save(){
   if(editRevision.value===undefined || !canSave.value)return
   return submit({revision:editRevision.value,action:'upsert',record:draft.value},'时限配置已保存')
+}
+function applyPlatformBands() {
+  const revision = state.value?.revision
+  if (revision === undefined) return
+  Modal.confirm({
+    title: '应用 TVLK / 飞猪航班分段',
+    content: '非自愿审核和操作共用各平台分段。TVLK 距起飞 0 至 72 小时（含）为 2 小时，超过 72 小时为 24 小时。飞猪 12 至不足 26 小时为 8 小时，26 至 50 小时（含）为 20 小时，超过 50 小时为 40 小时，少于 12 小时待确认。',
+    okText: '应用分段',
+    cancelText: '取消',
+    onOk: () => submit({revision, action: 'apply-platform-bands'}, 'TVLK / 飞猪航班分段已保存', '没有待转换的航班分段。'),
+  })
+}
+function duration(minutes: number | null) {
+  if (minutes === null) return '待补充'
+  return minutes % 60 === 0 ? `${minutes / 60}h` : `${minutes}min`
+}
+function bandLabel(band: Band) {
+  const lower = `${band.includeFrom ? '≥' : '>'}${duration(band.fromMinutes)}`
+  const range = band.untilMinutes === null ? lower : `${lower} 且 ${band.includeUntil ? '≤' : '<'}${duration(band.untilMinutes)}`
+  return `${range} → ${duration(band.limitMinutes)}`
 }
 function importFile(event: Event){
   const input=event.target as HTMLInputElement
@@ -120,6 +141,7 @@ onMounted(reload)
         <span v-if="state">{{rows.length}} 条配置</span>
       </a-space>
       <a-space wrap>
+        <a-button v-if="state?.canApplyPlatformBands" :disabled="loading || saving" @click="applyPlatformBands">应用 TVLK / 飞猪分段</a-button>
         <a-button :disabled="loading || saving || !state" @click="file?.click()">导入原始 Excel</a-button>
         <a-button type="primary" :disabled="loading || saving || !state" @click="edit()">新增配置</a-button>
         <input ref="file" type="file" hidden accept=".xlsx" @change="importFile" />
@@ -136,7 +158,10 @@ onMounted(reload)
           <a-button v-if="column.key==='actions'" type="link" size="small" @click="edit(record)">查看 / 编辑</a-button>
           <span v-else-if="column.key==='source'">{{record.sourceRow ? 'Excel 第 '+record.sourceRow+' 行' : '手工录入'}}</span>
           <span v-else-if="ruleKeys.has(String(column.key))" class="rule-text">
-            {{record.segments?.[column.key]?.length ? record.segments[column.key].length + ' 个航班分段' : record[String(column.key)] || '待补充'}}
+            <template v-if="record.segments?.[column.key]?.length">
+              <span v-for="(band, index) in record.segments[column.key]" :key="index" class="band-summary">{{bandLabel(band)}}</span>
+            </template>
+            <template v-else>{{record[String(column.key)] || '待补充'}}</template>
           </span>
         </template>
     </a-table>
@@ -188,6 +213,7 @@ onMounted(reload)
 .form-grid { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 16px; }
 .band-fields { display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) auto;gap:8px;align-items:center; }
 .band-fields :deep(.ant-input-number) { width:100%; }
+.band-summary { display:block; }
 .rule-text { white-space:pre-wrap;overflow-wrap:anywhere; }
 @media(max-width:550px) { .form-grid,.band-fields { grid-template-columns:1fr; } }
 </style>

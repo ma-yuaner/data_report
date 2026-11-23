@@ -7,7 +7,7 @@ from openpyxl import load_workbook
 
 from .common import ok
 from ..services.change_sla import ChangeSlaQueryError, read_change_sla
-from ..services.change_sla_limits import ChangeSlaLimits, FIELDS, InvalidLimit, LimitsChanged, SharedChangeSlaLimits
+from ..services.change_sla_limits import ChangeSlaLimits, FIELDS, InvalidLimit, LimitsChanged, SharedChangeSlaLimits, platform_bands
 from ..services.data_source import DataSource
 from ..services.change_sla_snapshot import ChangeSlaSnapshotUnavailable, read_reporting_snapshot
 
@@ -98,11 +98,13 @@ def register_routes(api):
                     body = {"revision": int(revision), "action": "import", "rows": _read_import(file)}
                 else:
                     body = request.get_json(silent=True)
-                    if not isinstance(body, dict) or body.get("action") != "upsert":
+                    if not isinstance(body, dict) or body.get("action") not in ("upsert", "apply-platform-bands"):
                         raise InvalidLimit("请提交配置或上传原始 Excel")
                 result = store.save(body, user["id"])
             else:
                 result = store.export_rule_history() if request.args.get("export") == "216" else store.get()
+            if "rows" in result:
+                result["canApplyPlatformBands"] = any(platform_bands(row) for row in result["rows"])
             response = ok(result)
             response.headers["Cache-Control"] = "no-store"
             return response
