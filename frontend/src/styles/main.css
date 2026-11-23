@@ -25,6 +25,11 @@ small { font-size: 12px; }
 .brand-copy span { margin-top: 2px; color: #7f93af; font-size: 12px; letter-spacing: .04em; }
 .app-sidebar .ant-menu-dark { background: #101d32; }
 .app-sidebar .ant-menu-dark .ant-menu-item-selected { background: #2c68d7; }
+.sidebar-search { flex: none; padding: 0 14px 10px; }
+.sidebar-search .ant-select { width: 100%; }
+.sidebar-search .ant-btn { width: 100%; color: var(--platform-nav-text, #dce7f8); }
+.sidebar-search .ant-btn:hover, .sidebar-search .ant-btn:focus-visible { color: var(--platform-nav-text, #dce7f8); background: var(--platform-nav-hover, rgba(255,255,255,.10)); }
+.sidebar-search-breadcrumb { color: var(--ant-color-text-secondary, #526071); font-size: 12px; white-space: normal; }
 .sidebar-menu-scroll { min-height: 0; flex: 1; overflow-x: hidden; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
 .sidebar-menu-scroll::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .sidebar-menu-scroll:focus-visible { outline: 2px solid #76a5ff; outline-offset: -2px; }

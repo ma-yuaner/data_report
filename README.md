@@ -44,39 +44,32 @@ ADM责任流转V2：已增加协调人、接收确认式转交、责任分段、
 
 ## 当前菜单与实现边界
 
-菜单名称及层级来自[侧栏布局](frontend/src/layouts/AppLayout.vue)，页面路径以[前端路由](frontend/src/router/index.ts)为准。下列为全量菜单配置；实际显示受账号菜单权限控制，系统管理仅管理员可见。
+侧栏与菜单搜索共用[导航配置](frontend/src/layouts/sidebar-menu.json)，页面路径以[前端路由](frontend/src/router/index.ts)为准。下列为全量配置，实际入口和搜索结果取决于账号权限。
 
 <!-- BEGIN:CURRENT_MENU -->
 <details>
-<summary>完整菜单：50个页面入口、3个禁用预留项</summary>
+<summary>完整菜单：49个页面入口</summary>
 
 ```text
 工作台  [/home]
-资源治理
-  GDS资源治理  [/resource-governance/gds]
-  OTA渠道质量  [/resource-governance/ota]
-  航线配置诊断  [/resource-governance/route-diagnosis]
-  白名单管理  [/resource-governance/whitelist]
-  治理执行  [/resource-governance/execution]
-  治理复盘  [/resource-governance/review]
-经营总览  [/overview]
-业务分析
-  综合分析  [/analysis/comprehensive]
-  出票分析  [/analysis/issue]
-  退票分析  [/analysis/refund]
-  改签分析  [/analysis/change]
-  增值分析  [/analysis/ancillary]
-风控分析
-  风控分析看板  [/risk-followup/workbench]
-  风控核对  [/risk-verification]
-  案例跟进  [/risk-followup/cases]
-  专项案例库  [/risk-followup/library]
-  规章制度  [/risk-followup/policies]
-客服分析
-  退票分析  [预留/禁用，无页面路由]
-  改签分析  [预留/禁用，无页面路由]
-  清Q/航变分析  [预留/禁用，无页面路由]
-智能分析
+经营与考核
+  经营总览  [/overview]
+  业务分析
+    综合分析  [/analysis/comprehensive]
+    出票分析  [/analysis/issue]
+    退票分析  [/analysis/refund]
+    增值分析  [/analysis/ancillary]
+  业务配置
+    目标进度  [/business-configuration/target-progress]
+    目标配置  [/business-configuration/targets]
+资源与投放
+  资源治理
+    GDS资源治理  [/resource-governance/gds]
+    OTA渠道质量  [/resource-governance/ota]
+    航线配置诊断  [/resource-governance/route-diagnosis]
+    白名单管理  [/resource-governance/whitelist]
+    治理执行  [/resource-governance/execution]
+    治理复盘  [/resource-governance/review]
   智能整体分析
     综合分析  [/smart-analysis/comprehensive]
     智能总览  [/smart-analysis/overview]
@@ -86,36 +79,44 @@ ADM责任流转V2：已增加协调人、接收确认式转交、责任分段、
     投放政策  [/smart-analysis/placement/policies]
     收单情况  [/smart-analysis/placement/orders]
     漏处理订单  [/smart-analysis/placement/missed-orders]
-业务配置
-  目标配置  [/business-configuration/targets]
-  目标进度  [/business-configuration/target-progress]
-监控中心
-  监控总览  [/monitoring/overview]
-  监控任务  [/monitoring/tasks]
-  预警中心  [/monitoring/alerts]
-  技术工单  [/monitoring/actions]
-  规则模板  [/monitoring/templates]
-  监控运行  [/monitoring/runs]
-  通知管理  [/monitoring/notifications]
-  问题诊断  [/monitoring/diagnostics]
-ADM 控制台
-  ADM 任务台账  [/adm]
-  业务分析与跟进  [/adm/analysis]
-问题中心  [/problems]
-数据资产  [/data-assets]
-归档功能
-  数据加工工作台  [/data-workbench]
-  风控总览  [/risk-analysis]
-  出票利润分析  [/risk-analysis/issue]
-  退票利润分析  [/risk-analysis/refund]
-  改签利润分析  [/risk-analysis/change]
-  差错分析  [/risk-analysis/errors]
-  订单明细  [/risk-analysis/orders]
-  数据上传  [/risk-analysis/upload]
-HR报表邮件  [/hr-mail]
-系统管理
-  用户行为监控  [/admin/behavior]
-  账号管理  [/admin/users]
+客服与售后
+  改签SLA客服看板  [/analysis/change]
+风控与 ADM
+  风控分析
+    风控分析看板  [/risk-followup/workbench]
+    风控核对  [/risk-verification]
+    案例跟进  [/risk-followup/cases]
+    专项案例库  [/risk-followup/library]
+    规章制度  [/risk-followup/policies]
+  ADM 控制台
+    ADM 任务台账  [/adm]
+数据管理
+  数据资产  [/data-assets]
+  归档功能
+    数据加工工作台  [/data-workbench]
+    风控总览  [/risk-analysis]
+    出票利润分析  [/risk-analysis/issue]
+    退票利润分析  [/risk-analysis/refund]
+    改签利润分析  [/risk-analysis/change]
+    差错分析  [/risk-analysis/errors]
+    订单明细  [/risk-analysis/orders]
+    数据上传  [/risk-analysis/upload]
+监控与问题
+  监控中心
+    监控总览  [/monitoring/overview]
+    监控任务  [/monitoring/tasks]
+    预警中心  [/monitoring/alerts]
+    技术工单  [/monitoring/actions]
+    规则模板  [/monitoring/templates]
+    监控运行  [/monitoring/runs]
+    通知管理  [/monitoring/notifications]
+    问题诊断  [/monitoring/diagnostics]
+  问题中心  [/problems]
+平台管理
+  HR报表邮件  [/hr-mail]
+  系统管理
+    用户行为监控  [/admin/behavior]
+    账号管理  [/admin/users]
 ```
 
 </details>

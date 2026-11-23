@@ -1,0 +1,85 @@
+[
+  {"key": "/home","label": "工作台","aliases": ["首页","主页"]},
+  {"key": "business", "label": "经营与考核", "aliases": ["经营分析", "业务考核"], "children": [
+    {"key": "/overview","label": "经营总览","menuCode": "overview","aliases": ["经营大盘","经营看板"]},
+    {"key": "analysis", "label": "业务分析", "children": [
+      {"key": "/analysis/comprehensive","label": "综合分析","menuCode": "analysis.comprehensive","aliases": ["业务综合分析","综合报表"]},
+      {"key": "/analysis/issue","label": "出票分析","menuCode": "analysis.issue","aliases": ["出票报表"]},
+      {"key": "/analysis/refund","label": "退票分析","menuCode": "analysis.refund","aliases": ["退票报表"]},
+      {"key": "/analysis/ancillary","label": "增值分析","menuCode": "analysis.ancillary","aliases": ["辅营"]}
+    ]},
+    {"key": "business-configuration", "label": "业务配置", "children": [
+      {"key": "/business-configuration/target-progress","label": "目标进度","menuCode": "business_config.target_progress"},
+      {"key": "/business-configuration/targets","label": "目标配置","menuCode": "business_config.targets"}
+    ]}
+  ]},
+  {"key": "resources", "label": "资源与投放", "children": [
+    {"key": "governance", "label": "资源治理", "children": [
+      {"key": "/resource-governance/gds","label": "GDS资源治理","menuCode": "governance.gds","aliases": ["1A","查询资源","查定比"]},
+      {"key": "/resource-governance/ota","label": "OTA渠道质量","menuCode": "governance.ota","aliases": ["渠道质量"]},
+      {"key": "/resource-governance/route-diagnosis","label": "航线配置诊断","menuCode": "gds_route.diagnosis","aliases": ["航线诊断"]},
+      {"key": "/resource-governance/whitelist","label": "白名单管理","menuCode": "gds_route.whitelist","aliases": ["白名单","MPIS"]},
+      {"key": "/resource-governance/execution","label": "治理执行","menuCode": "gds_route.execution"},
+      {"key": "/resource-governance/review","label": "治理复盘","menuCode": "gds_route.review"}
+    ]},
+    {"key": "smart-overall", "label": "智能整体分析", "aliases": ["智能分析"], "children": [
+      {"key": "/smart-analysis/comprehensive","label": "综合分析","menuCode": "smart.comprehensive"},
+      {"key": "/smart-analysis/overview","label": "智能总览","menuCode": "smart.overview"},
+      {"key": "/smart-analysis/dimensions","label": "维度分析","menuCode": "smart.dimensions"},
+      {"key": "/smart-analysis/details","label": "出票明细","menuCode": "smart.details"}
+    ]},
+    {"key": "smart-placement", "label": "智能投放", "children": [
+      {"key": "/smart-analysis/placement/policies","label": "投放政策","menuCode": "smart.placement.policies","aliases": ["智能政策"]},
+      {"key": "/smart-analysis/placement/orders","label": "收单情况","menuCode": "smart.placement.orders"},
+      {"key": "/smart-analysis/placement/missed-orders","label": "漏处理订单","menuCode": "smart.placement.missed","aliases": ["投放漏单","漏单"]}
+    ]}
+  ]},
+  {"key": "aftersales", "label": "客服与售后", "aliases": ["客服分析"], "children": [
+    {"key": "/analysis/change","label": "改签SLA客服看板","aliases": ["改签分析","改签时效","售后时效","客服经理看板"],"businessRole": "客服经理"}
+  ]},
+  {"key": "risk-adm", "label": "风控与 ADM", "children": [
+    {"key": "risk", "label": "风控分析", "children": [
+      {"key": "/risk-followup/workbench","label": "风控分析看板","menuCode": "risk.verification","aliases": ["风控工作台"],"anyPermission": ["risk.verification.view"]},
+      {"key": "/risk-verification","label": "风控核对","menuCode": "risk.verification","aliases": ["风控校验","利润核对"],"anyPermission": ["risk.verification.view"]},
+      {"key": "/risk-followup/cases","label": "案例跟进","menuCode": "risk.verification","anyPermission": ["risk.verification.view"]},
+      {"key": "/risk-followup/library","label": "专项案例库","menuCode": "risk.verification","anyPermission": ["risk.verification.view"]},
+      {"key": "/risk-followup/policies","label": "规章制度","menuCode": "risk.verification","anyPermission": ["risk.verification.view"]}
+    ]},
+    {"key": "adm", "label": "ADM 控制台", "children": [
+      {"key": "/adm","label": "ADM 任务台账","menuCode": "adm.center","aliases": ["ADM台账","ADM工作台","借项通知单"]}
+    ]}
+  ]},
+  {"key": "data", "label": "数据管理", "children": [
+    {"key": "/data-assets","label": "数据资产","menuCode": "data_assets","aliases": ["资产盘点","数据字典"]},
+    {"key": "archived-features", "label": "归档功能", "children": [
+      {"key": "/data-workbench","label": "数据加工工作台","menuCode": "data_workbench"},
+      {"key": "/risk-analysis","label": "风控总览","menuCode": "risk.overview"},
+      {"key": "/risk-analysis/issue","label": "出票利润分析","menuCode": "risk.issue"},
+      {"key": "/risk-analysis/refund","label": "退票利润分析","menuCode": "risk.refund"},
+      {"key": "/risk-analysis/change","label": "改签利润分析","menuCode": "risk.change"},
+      {"key": "/risk-analysis/errors","label": "差错分析","menuCode": "risk.errors"},
+      {"key": "/risk-analysis/orders","label": "订单明细","menuCode": "risk.orders"},
+      {"key": "/risk-analysis/upload","label": "数据上传","menuCode": "risk.upload"}
+    ]}
+  ]},
+  {"key": "operations", "label": "监控与问题", "children": [
+    {"key": "monitoring", "label": "监控中心", "children": [
+      {"key": "/monitoring/overview","label": "监控总览","menuCode": "monitor.center"},
+      {"key": "/monitoring/tasks","label": "监控任务","menuCode": "monitor.center"},
+      {"key": "/monitoring/alerts","label": "预警中心","menuCode": "monitor.center","aliases": ["告警中心","异常预警"]},
+      {"key": "/monitoring/actions","label": "技术工单","menuCode": "monitor.center","aliases": ["技术单","处理工单"],"anyPermission": ["monitor.action.view"]},
+      {"key": "/monitoring/templates","label": "规则模板","menuCode": "monitor.center"},
+      {"key": "/monitoring/runs","label": "监控运行","menuCode": "monitor.center"},
+      {"key": "/monitoring/notifications","label": "通知管理","menuCode": "monitor.center"},
+      {"key": "/monitoring/diagnostics","label": "问题诊断","menuCode": "monitor.center"}
+    ]},
+    {"key": "/problems","label": "问题中心","menuCode": "problems"}
+  ]},
+  {"key": "platform", "label": "平台管理", "children": [
+    {"key": "/hr-mail","label": "HR报表邮件","menuCode": "hr.mail","aliases": ["人事报表","人力邮件"]},
+    {"key": "system", "label": "系统管理", "children": [
+      {"key": "/admin/behavior","label": "用户行为监控","requiresAdmin": true,"requiresAccountManagement": true},
+      {"key": "/admin/users","label": "账号管理","aliases": ["用户管理","权限管理"],"requiresAccountManagement": true}
+    ]}
+  ]}
+]
