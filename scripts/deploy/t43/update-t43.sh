@@ -102,6 +102,11 @@ candidate=(-f "$release/source/docker-compose.yml" -f "$release/source/docker-co
   -f "$app/docker-compose.t43.yml" -f "$release/source/scripts/deploy/t43/build-args.t43.yml")
 dc "${candidate[@]}" config --format json > "$release/candidate.json"
 helper validate-source < "$release/candidate.json"
+pilot=$(helper pilot-volume < "$release/candidate.json")
+if [[ $pilot == enabled ]]; then
+  docker volume inspect data_report_airline_rebate_pilot_data >/dev/null ||
+    die 'Pilot enabled but dedicated volume missing: data_report_airline_rebate_pilot_data'
+fi
 mirror=$(helper build-mirror < "$release/candidate.json")
 pip_text=$(helper build-pip-settings < "$release/candidate.json")
 mapfile -t pip_settings <<< "$pip_text"
@@ -122,6 +127,12 @@ api_id=$(docker image inspect "$api_tag" --format '{{.Id}}')
 web_id=$(docker image inspect "$web_tag" --format '{{.Id}}')
 helper render "$api_id" "$web_id" < "$release/candidate.json" > "$release/runtime.json"
 helper validate-runtime < "$release/runtime.json"
+if [[ $pilot == enabled ]]; then
+  docker run --rm --network none --entrypoint sh \
+    --mount type=volume,source=data_report_airline_rebate_pilot_data,target=/app/var/airline-rebates \
+    "$api_id" -ec 'test -w /app/var/airline-rebates' ||
+    die 'Pilot volume is not writable by the API service user'
+fi
 
 # Snapshot live images, not mutable tags. Save configuration privately, never dump credentials.
 old_api=$(docker inspect data_report-api-1 --format '{{.Image}}')

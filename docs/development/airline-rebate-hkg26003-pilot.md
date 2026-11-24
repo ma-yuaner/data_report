@@ -25,6 +25,10 @@ docker compose exec -T api test -w /app/var/airline-rebates
 
 如目录不可写，由环境负责人执行 `docker compose run --rm --no-deps --user 0 api chown appuser:appgroup /app/var/airline-rebates`。关闭时清空开关并重建 API 容器，保留命名卷。不要执行删除卷的命令。
 
+### T43
+
+T43 使用专用更新器。以服务器的 /data/data_report/.env 为运行配置，配置指定目录后先创建独立的 data_report_airline_rebate_pilot_data 卷，再从更新器部署。更新器检查卷名、挂载路径和应用账号写权限。默认关闭时不挂试点卷，旧版回退配置仍可用。当前在 T43 的步骤按现场确认推进。
+
 ## 口径与验证
 
 按销售期 2025-07-01 至 2026-09-30、首段起飞 2026 Q3 取香港供应商、MU/FM 销售航司。逐条匹配 PDF 解析出的票证、航线、舱位及档位。原工作簿的历史导出差异不用于额外排除。状态未决、换开、混合舱位等保留待核，混合舱位未推算票联计奖金额。非港澳始发 1% 单列，在预计后返试算总额中只计一次。本次更保守地将换开和退票中金额挂待核，结果与先前探索性试算会不同。结果使用计划日期和 HKD 票面价，不能替代航司结算。

@@ -15,6 +15,8 @@ MOUNTS = {
     "/app/var/hr-mail": "hr_mail_data",
     "/app/var/risk-verification": "risk_verification_data",
 }
+PILOT_TARGET = "/app/var/airline-rebates"
+PILOT_VOLUME = "airline_rebate_pilot_data"
 
 
 def require(ok, message):
@@ -80,10 +82,15 @@ def validate(c, runtime=False):
     require(str(env.get("AUTH_ENABLED", "true")).lower() == "true", "Authentication must remain enabled")
     require(env.get("HIVE_HOST") == "172.16.2.217", "Hive must use reviewed private endpoint")
     mounts = services["api"].get("volumes", [])
-    require(len(mounts) == len(MOUNTS), "Unexpected API mount count")
-    require({m.get("target") for m in mounts} == set(MOUNTS), "Unexpected API mount targets")
+    expected = MOUNTS.copy()
+    pilot = env.get("AIRLINE_REBATE_PILOT_ROOT") or ""
+    require(pilot in ("", PILOT_TARGET), "Unexpected airline rebate pilot root")
+    if pilot or (not runtime and any(m.get("target") == PILOT_TARGET for m in mounts)):
+        expected[PILOT_TARGET] = PILOT_VOLUME
+    require(len(mounts) == len(expected), "Unexpected API mount count")
+    require({m.get("target") for m in mounts} == set(expected), "Unexpected API mount targets")
     for mount in mounts:
-        key = MOUNTS[mount["target"]]
+        key = expected[mount["target"]]
         require(mount.get("type") == "volume" and mount.get("source") == key, "Unexpected mount source")
         require(c.get("volumes", {}).get(key, {}).get("name") == "data_report_" + key, "Unexpected volume name")
         if runtime:
@@ -104,9 +111,14 @@ def render(c, api_id, web_id):
     for name, image in (("api", api_id), ("web", web_id)):
         services[name] = {k: v for k, v in c["services"][name].items() if k in allowed}
         services[name]["image"] = image
+    api = services["api"]
+    if not (api.get("environment", {}).get("AIRLINE_REBATE_PILOT_ROOT") or ""):
+        api["volumes"] = [m for m in api.get("volumes", []) if m.get("target") != PILOT_TARGET]
+    volumes = {m["source"]: {"name": "data_report_" + m["source"], "external": True}
+               for m in api.get("volumes", [])}
     result = {
         "name": "data_report", "services": services,
-        "volumes": {key: {"name": "data_report_" + key, "external": True} for key in MOUNTS.values()},
+        "volumes": volumes,
         "networks": {"default": {"name": "data_report_default", "external": True}},
     }
     validate(result, runtime=True)
@@ -159,6 +171,9 @@ def main():
     elif action == "render":
         json.dump(render(c, sys.argv[2], sys.argv[3]), sys.stdout, ensure_ascii=False, indent=2)
         print()
+    elif action == "pilot-volume":
+        validate(c)
+        print("enabled" if c["services"]["api"]["environment"].get("AIRLINE_REBATE_PILOT_ROOT") else "disabled")
     elif action == "build-mirror":
         value = c["services"]["api"].get("build", {}).get("args", {}).get("DOCKERHUB_MIRROR", "docker.io")
         require(isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9._:/-]+", value), "Invalid mirror name")
