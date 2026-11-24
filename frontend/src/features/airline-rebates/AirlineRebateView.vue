@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Statistic } from 'ant-design-vue'
+import { Modal, Statistic } from 'ant-design-vue'
 import PageHeader from '@/components/PageHeader.vue'
+import FilterPanel from '@/components/FilterPanel.vue'
+import FormDialog from '@/components/FormDialog.vue'
+import FormGrid from '@/components/FormGrid.vue'
 import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
 import { ApiError } from '@/api/http'
 import {
@@ -20,6 +23,24 @@ const runningTrial = ref(false)
 const canManage = computed(() => Boolean(auth.user?.isAdmin || auth.user?.permissions?.includes('airline_rebates.manage')))
 const policies = ref<RebatePolicy[]>([])
 const tasks = ref<RebateTask[]>([])
+const taskQuery = ref('')
+const airlineFilter = ref<string>()
+const refreshFilter = ref<RebateTask['refreshStatus']>()
+const airlineOptions = computed(() => [...new Set(tasks.value.map(item => item.airline).filter(Boolean))]
+  .sort().map(value => ({ value, label: value })))
+const filteredTasks = computed(() => {
+  const query = taskQuery.value.trim().toLowerCase()
+  return tasks.value.filter(item =>
+    (!airlineFilter.value || item.airline === airlineFilter.value)
+    && (!refreshFilter.value || item.refreshStatus === refreshFilter.value)
+    && (!query || [item.name, item.policyName, item.owner].some(value => value?.toLowerCase().includes(query))),
+  )
+})
+function resetTaskFilters() {
+  taskQuery.value = ''
+  airlineFilter.value = undefined
+  refreshFilter.value = undefined
+}
 const loading = ref(false)
 const listError = ref('')
 const notice = ref('')
@@ -39,7 +60,12 @@ const draft = ref<RebateRule[]>([])
 const reason = ref('')
 const taskName = ref('')
 const owner = ref('')
+const initialCreateValues = ref('')
+const createDirty = computed(() => createValues() !== initialCreateValues.value)
+const createReady = computed(() => !!activePolicy.value && !!taskName.value.trim() && !!owner.value.trim() && !drawerBusy.value)
+const createValues = () => JSON.stringify([activePolicy.value?.id, taskName.value, owner.value])
 const progress = ref<RebateProgress>()
+const dailyPage = ref(1)
 const day = ref<RebateDailyPoint>()
 const detailRows = ref<RebateDetailRow[]>([])
 const detailPage = ref(1)
@@ -65,15 +91,23 @@ const policyColumns = [
   { title: '操作', key: 'action', width: 140 },
 ]
 const taskColumns = [
-  { title: '任务 / 航司', key: 'name', width: 220 }, { title: '政策期', dataIndex: 'period', width: 170 },
-  { title: '负责人', dataIndex: 'owner', width: 100 }, { title: '目标 / 累计完成', key: 'progress', width: 210 },
-  { title: '刷新与数据截至', key: 'asOf', width: 230 }, { title: '操作', key: 'action', width: 240 },
+  { title: '任务名称', key: 'name', width: 205 },
+  { title: '航司 / 负责人', key: 'owner', width: 116 },
+  { title: '政策期', dataIndex: 'period', width: 165 },
+  { title: '计量进度（试算）', key: 'progress', width: 196, align: 'right' as const },
+  { title: '预计后返（试算）', key: 'reward', width: 160, align: 'right' as const },
+  { title: '数据更新', key: 'asOf', width: 226 },
+  { title: '操作', key: 'action', width: 176 },
 ]
+const taskPagination = { defaultPageSize: 10, showSizeChanger: false, showTotal: (total: number) => `共 ${total} 条` }
 const detailColumns = [
   { title: '订单号', dataIndex: 'orderNo', width: 180 }, { title: '航程', dataIndex: 'route', width: 170 },
   { title: '计量票面价（试算）', key: 'amount', width: 150, align: 'right' as const }, { title: '匹配结果', dataIndex: 'result', width: 230 },
 ]
-const statusText = { pending: '待产出', ready: '成功', failed: '失败' }
+const statusText = { pending: '尚未产出', ready: '刷新成功', failed: '刷新失败' }
+const statusColors = { pending: 'default', ready: 'green', failed: 'red' }
+const refreshOptions = (['pending', 'ready', 'failed'] as const).map(value => ({ value, label: statusText[value] }))
+const refreshModes = { scheduled: '定时刷新', manual: '手动刷新' }
 const operators = [['eq', '等于'], ['in', '属于'], ['not_in', '排除'], ['gte', '大于等于'], ['gt', '大于'], ['lte', '小于等于'], ['review', '待确认']]
   .map(([value, label]) => ({ value, label }))
 const number = (value: number | string) => Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 2 })
@@ -134,6 +168,13 @@ function closeDrawer() {
   drawer.value = undefined
   day.value = undefined
   drawerBusy.value = false
+}
+function requestClose() {
+  if (saving.value) return
+  const dirty = drawer.value === 'edit' && (hasRuleChanges.value || !!reason.value.trim())
+  if (dirty) {
+    Modal.confirm({ title: '放弃未保存的修改？', okText: '放弃修改', cancelText: '继续编辑', onOk: closeDrawer })
+  } else closeDrawer()
 }
 watch(() => route.name, () => {
   closeDrawer()
@@ -208,16 +249,27 @@ async function runTrial() {
   try {
     const data = await airlineRebates.run(item.id)
     if (drawer.value === 'analysis' && task.value?.id === item.id) progress.value = data
-    void load()
   } catch (error) {
-    if (drawer.value === 'analysis' && task.value?.id === item.id) drawerError.value = explain(error)
-  } finally { runningTrial.value = false }
+    if (drawer.value === 'analysis' && task.value?.id === item.id && !day.value) {
+      await loadDrawer(async signal => {
+        const latest = await airlineRebates.progress(item.id, signal)
+        if (!signal.aborted) {
+          progress.value = latest
+          drawerError.value = latest.status === 'failed' ? '' : explain(error)
+        }
+      })
+    }
+  } finally {
+    runningTrial.value = false
+    if (!isPolicies.value) void load()
+  }
 }
 function openCreate() {
   if (!canManage.value) return
   activePolicy.value = undefined
   taskName.value = ''
   owner.value = auth.user?.displayName || auth.user?.username || ''
+  initialCreateValues.value = createValues()
   drawer.value = 'create'
   void loadDrawer(async signal => {
     const rows = await airlineRebates.listPolicies(signal)
@@ -225,7 +277,10 @@ function openCreate() {
     policies.value = rows
     const policyId = route.query.policy
     const policy = readyPolicies.value.find(item => item.id === policyId)
-    if (policy) selectPolicy(policy.id)
+    if (policy && createValues() === initialCreateValues.value) {
+      selectPolicy(policy.id)
+      initialCreateValues.value = createValues()
+    }
   })
 }
 watch(() => route.query.policy, policy => {
@@ -236,11 +291,12 @@ function selectPolicy(id: string) {
   taskName.value = activePolicy.value?.name ?? ''
 }
 async function create() {
-  if (!activePolicy.value || !canManage.value || saving.value || !taskName.value.trim() || !owner.value.trim()) return
+  if (!activePolicy.value || !canManage.value || saving.value || !createReady.value) return
   saving.value = true
   drawerError.value = ''
   try {
     const created = await airlineRebates.createTask({ policyId: activePolicy.value.id, name: taskName.value.trim(), owner: owner.value.trim() })
+    notice.value = '任务已建档'
     openTask(created, 'details')
     void load()
   } catch (error) { drawerError.value = explain(error) }
@@ -251,6 +307,7 @@ function openTask(item: RebateTask, mode: 'details' | 'edit' | 'analysis') {
   task.value = item
   drawer.value = mode
   day.value = undefined
+  dailyPage.value = 1
   progress.value = undefined
   versions.value = []
   draft.value = []
@@ -328,7 +385,7 @@ function backToProgress() {
       :description="isPolicies ? '上传政策 PDF，查看解析初版及字段来源。' : '查看航司后返任务、规则版本与每日进度。'">
       <a-space>
         <a-button :loading="loading" @click="load">刷新</a-button>
-        <a-button v-if="!isPolicies && canManage" type="primary" :disabled="loading || !!listError" @click="openCreate">新建任务</a-button>
+        <a-button v-if="!isPolicies && canManage" type="primary" @click="openCreate">新建任务</a-button>
       </a-space>
     </PageHeader>
     <a-alert v-if="listError" type="warning" :message="listError" show-icon class="section" />
@@ -355,46 +412,85 @@ function backToProgress() {
         </a-table>
       </a-card>
     </template>
-    <a-card v-else title="航司后返任务" class="section">
-      <a-table :data-source="tasks" :columns="taskColumns" :loading="loading" row-key="id" :scroll="{ x: 1190 }">
-        <template #emptyText><a-empty :description="listError ? '任务暂不可用' : '暂无后返任务'" /></template>
+    <template v-else>
+      <FilterPanel :loading="loading" @reset="resetTaskFilters">
+        <label for="rebate-task-query"><span>关键词</span>
+          <a-input id="rebate-task-query" v-model:value="taskQuery" allow-clear placeholder="任务名称、政策文件或负责人" />
+        </label>
+        <label for="rebate-task-airline"><span>航司</span>
+          <a-select id="rebate-task-airline" v-model:value="airlineFilter" :options="airlineOptions" allow-clear placeholder="全部航司" />
+        </label>
+        <label for="rebate-task-status"><span>更新状态</span>
+          <a-select id="rebate-task-status" v-model:value="refreshFilter" :options="refreshOptions" allow-clear placeholder="全部状态" />
+        </label>
+      </FilterPanel>
+      <a-card class="section task-card">
+      <a-table :data-source="filteredTasks" :columns="taskColumns" :loading="loading" row-key="id"
+        size="small" :scroll="{ x: 1244 }" sticky :pagination="taskPagination">
+        <template #emptyText><a-empty :description="listError ? '任务暂不可用' : tasks.length ? '没有符合筛选条件的任务' : '暂无后返任务'" /></template>
         <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'name'"><strong>{{ record.name }}</strong><div class="muted">{{ record.airline }} · {{ record.policyName }}</div></template>
+          <template v-if="column.key === 'name'">
+            <a-button type="link" class="task-name two-lines" @click="openTask(record, 'details')">{{ record.name }}</a-button>
+            <div class="muted two-lines">{{ record.policyName || '—' }}</div>
+          </template>
+          <template v-else-if="column.key === 'owner'">
+            <div>{{ record.airline || '—' }}</div>
+            <div class="muted two-lines">{{ record.owner || '—' }}</div>
+          </template>
           <template v-else-if="column.key === 'progress'">
-            <div>{{ money(record.target, record.currency) }} / {{ money(record.actual, record.currency) }}</div>
-            <a-tag v-if="record.tier">{{ record.tier }}</a-tag>
-            <span class="muted">{{ record.completionRate == null ? '待产出' : '完成率 ' + percent(record.completionRate) }}</span>
+            <strong>{{ money(record.actual, record.currency) }}</strong>
+            <div class="muted">首档门槛 {{ money(record.target, record.currency) }}</div>
+            <div class="muted">门槛进度 {{ percent(record.completionRate) }}</div>
+          </template>
+          <template v-else-if="column.key === 'reward'">
+            <strong>{{ money(record.estimatedReward ?? null, record.currency) }}</strong>
+            <div class="muted">档位 {{ record.tier || '—' }}</div>
+            <div class="muted">待核 {{ record.pendingCount == null ? '—' : number(record.pendingCount) + ' 条' }}</div>
           </template>
           <template v-else-if="column.key === 'asOf'">
-            <div>{{ record.dataAsOf || '—' }}</div>
-            <div v-if="record.refreshedAt" class="muted">{{ formatDateTimeDisplay(record.refreshedAt) }}</div>
-            <a-tag v-if="record.refreshStatus === 'failed'" color="warning">刷新失败 · 保留最近结果</a-tag>
-            <span v-else-if="record.refreshMode" class="muted">{{ record.refreshMode === 'scheduled' ? '定时刷新' : '手动刷新' }}</span>
+            <a-tag :color="record.refreshStatus ? statusColors[record.refreshStatus as keyof typeof statusColors] : 'default'">
+              {{ record.refreshStatus ? statusText[record.refreshStatus as keyof typeof statusText] : '状态未知' }}
+            </a-tag>
+            <div class="muted">最晚计划起飞日 {{ record.dataAsOf || '—' }}</div>
+            <div class="muted">快照更新 {{ formatDateTimeDisplay(record.refreshedAt) }}</div>
+            <div v-if="record.refreshMode" class="muted">{{ refreshModes[record.refreshMode as keyof typeof refreshModes] }}</div>
+            <div v-if="record.refreshStatus === 'failed'" class="muted">{{ record.refreshedAt || record.actual != null ? '当前展示最近成功快照' : '暂无成功快照' }}</div>
           </template>
-          <a-space v-else-if="column.key === 'action'" :size="0" wrap>
-            <a-button type="link" @click="openTask(record, 'details')">详情</a-button>
-            <a-button type="link" @click="openTask(record, 'analysis')">分析此项</a-button>
-            <a-button v-if="canManage && record.editable !== false" type="link" @click="openTask(record, 'edit')">编辑规则</a-button>
+          <a-space v-else-if="column.key === 'action'" :size="4" wrap>
+            <a-button type="link" size="small" @click="openTask(record, 'analysis')">分析此项</a-button>
+            <a-button v-if="canManage && record.editable !== false" type="link" size="small" @click="openTask(record, 'edit')">编辑规则</a-button>
           </a-space>
         </template>
       </a-table>
-    </a-card>
+      </a-card>
+    </template>
 
-    <a-drawer :open="!!drawer" :title="drawerTitle" placement="right"
-      :width="drawer === 'create' ? 'min(560px, 100vw)' : 'min(1280px, 100vw)'"
-      :closable="!saving" :keyboard="!saving" :mask-closable="!saving && drawer !== 'edit'" @close="closeDrawer">
+    <FormDialog :open="drawer === 'create'" title="新建后返任务" :width="760"
+      :busy="saving" :dirty="createDirty" :error="drawerError" :submit-disabled="!createReady"
+      ok-text="确认建档" @submit="create" @cancel="closeDrawer">
+      <a-alert v-if="!drawerError && !drawerBusy && !readyPolicies.length" message="请先在政策解析中确认政策，再创建任务。" type="info" show-icon class="section" />
+      <a-form layout="vertical" :disabled="saving" @finish="create">
+        <FormGrid>
+          <a-form-item label="政策文件" html-for="rebate-create-policy" required class="form-span">
+            <a-select id="rebate-create-policy" :value="activePolicy?.id" :loading="drawerBusy"
+              :options="readyPolicies.map(item => ({ value: item.id, label: item.name }))"
+              placeholder="选择已确认的政策" @change="(value: string) => selectPolicy(value)" />
+          </a-form-item>
+          <a-form-item label="任务名称" html-for="rebate-create-name" required>
+            <a-input id="rebate-create-name" v-model:value="taskName" :maxlength="200" />
+          </a-form-item>
+          <a-form-item label="负责人" html-for="rebate-create-owner" required>
+            <a-input id="rebate-create-owner" v-model:value="owner" :maxlength="100" />
+          </a-form-item>
+        </FormGrid>
+      </a-form>
+    </FormDialog>
+
+    <a-drawer :open="!!drawer && drawer !== 'create'" :title="drawerTitle" placement="right" width="min(1280px, 100vw)"
+      :closable="!saving" :keyboard="!saving" :mask-closable="!saving && drawer !== 'edit'" @close="requestClose">
       <a-alert v-if="drawerError" :message="drawerError" type="warning" show-icon class="section" />
       <a-spin :spinning="drawerBusy || saving">
-        <a-form v-if="drawer === 'create'" layout="vertical">
-          <a-form-item label="解析文件" required>
-            <a-select :value="activePolicy?.id" :options="readyPolicies.map(item => ({ value: item.id, label: item.name }))" placeholder="选择已解析政策" @change="(value: string) => selectPolicy(value)" />
-          </a-form-item>
-          <a-form-item label="任务名称" required><a-input v-model:value="taskName" /></a-form-item>
-          <a-form-item label="负责人" required><a-input v-model:value="owner" /></a-form-item>
-          <a-button type="primary" :disabled="drawerBusy || saving || !activePolicy || !taskName.trim() || !owner.trim()" @click="create">确认建档</a-button>
-        </a-form>
-
-        <template v-else-if="drawer === 'policy' || drawer === 'details' || drawer === 'edit'">
+        <template v-if="drawer === 'policy' || drawer === 'details' || drawer === 'edit'">
           <a-space v-if="drawer === 'policy' && activePolicy" wrap class="section">
             <a-tag>{{ activePolicy.confirmed ? '已确认' : '解析初版' }}</a-tag>{{ activePolicy.airline || '—' }} · {{ activePolicy.period || '—' }}
             <a-button :href="'/api/v1/airline-rebates/policies/' + encodeURIComponent(activePolicy.id) + '/original'">下载原件</a-button>
@@ -402,12 +498,13 @@ function backToProgress() {
               @click="router.push({ name: 'airline-rebate-tasks', query: { policy: activePolicy.id } })">去任务管理建档</a-button>
           </a-space>
           <a-space v-if="task && drawer !== 'policy'" wrap class="section">
-            <span>{{ task.airline }} · {{ task.period }}</span><span>来源 {{ task.policyName }}</span>
+            <strong class="task-full-name">{{ task.name }}</strong>
+            <span>{{ task.airline }} · {{ task.period }}</span><span>负责人 {{ task.owner || '—' }}</span><span>政策文件 {{ task.policyName }}</span>
             <a-select v-if="drawer === 'details'" v-model:value="selectedVersion" aria-label="规则版本"
               :options="versions.map(item => ({ value: item.version, label: 'V' + item.version + (item === currentVersion ? ' · 当前' : ' · 历史') }))" />
             <a-tag v-else-if="currentVersion">基于 V{{ currentVersion.version }} 编辑</a-tag>
           </a-space>
-          <p v-if="drawer === 'details' && viewedVersion" class="muted section">{{ viewedVersion.savedAt }} {{ viewedVersion.reason }}</p>
+          <p v-if="drawer === 'details' && viewedVersion" class="muted section">{{ formatDateTimeDisplay(viewedVersion.savedAt) }} {{ viewedVersion.reason }}</p>
           <a-empty v-if="!drawerBusy && !drawerError && !ruleGroups.length" description="暂无规则" />
           <section v-if="drawer !== 'edit' && rateMatrix.length" class="section rule-group">
             <h3>航线奖励费率 <small class="muted">· 第 2 页 · 累计收入单位为万 HKD</small></h3>
@@ -486,36 +583,65 @@ function backToProgress() {
             <a-space wrap class="section">
               <a-button v-if="canManage" type="primary" :loading="runningTrial" @click="runTrial">运行 Hive 试算</a-button>
               <a-tag v-if="progress.tier">{{ progress.tier }} · 代理口径</a-tag>
-              <a-tag v-if="progress.pendingCount" color="orange">{{ progress.pendingCount }} 条待核</a-tag>
+              <a-tag v-if="progress.pendingCount != null" :color="progress.pendingCount ? 'orange' : 'default'">{{ number(progress.pendingCount) }} 条待核</a-tag>
             </a-space>
             <a-alert v-if="progress.dataNote" type="info" :message="progress.dataNote" show-icon class="section" />
             <a-alert v-if="progress.status === 'failed'" type="warning" :message="progress.errorMessage || '最近一次更新失败。'" show-icon class="section" />
             <div class="metrics section">
               <Statistic title="首档门槛（严格大于）" :value="money(progress.target, task?.currency)" />
               <Statistic title="累计计量（试算）" :value="money(progress.actual, task?.currency)" />
-              <Statistic title="完成率" :value="percent(progress.completionRate)" />
+              <Statistic title="首档门槛进度" :value="percent(progress.completionRate)" />
               <Statistic title="预计后返（试算）" :value="money(progress.estimatedReward, task?.currency)" />
               <Statistic v-if="progress.otherOriginReward != null" title="非港澳始发（单列）" :value="money(progress.otherOriginReward, task?.currency)" />
             </div>
             <a-table v-if="progress.categories?.length" class="section" :data-source="progress.categories" row-key="id"
               :pagination="false" size="small" :scroll="{ x: 640 }">
               <a-table-column title="航线类型" data-index="name" />
-              <a-table-column title="计量记录数" data-index="records" />
-              <a-table-column title="累计计量（试算）">
+              <a-table-column title="计量记录数" data-index="records" align="right" />
+              <a-table-column title="累计计量（试算）" align="right">
                 <template #default="{ record }">{{ money(record.measuredAmount, task?.currency) }}</template>
               </a-table-column>
-              <a-table-column title="预计后返">
+              <a-table-column title="预计后返（试算）" align="right">
                 <template #default="{ record }">{{ money(record.estimatedReward, task?.currency) }}</template>
               </a-table-column>
             </a-table>
-            <p class="muted section">最近更新 {{ statusText[progress.status] }}<template v-if="progress.refreshedAt"> · {{ progress.refreshMode === 'scheduled' ? '定时刷新' : '手动刷新' }} {{ formatDateTimeDisplay(progress.refreshedAt) }}</template> · 数据截至 {{ progress.dataAsOf || '—' }} · {{ progress.version == null ? '规则版本待产出' : '规则 V' + progress.version }}</p>
-            <a-list header="每日累计进度" :data-source="progress.daily">
-              <template #renderItem="{ item }"><a-list-item>
-                <a-space wrap>{{ item.date }} <strong>{{ money(item.actual, task?.currency) }}</strong><a-tag>{{ percent(item.completionRate) }}</a-tag><span class="muted">V{{ item.version }}</span></a-space>
-                <a-button type="link" @click="showDay(item)">查看当日明细</a-button>
-              </a-list-item></template>
-              <template #emptyText><a-empty description="暂无每日进度" /></template>
-            </a-list>
+            <a-descriptions size="small" bordered :column="{ xs: 1, sm: 2 }" class="section">
+              <a-descriptions-item label="更新状态">
+                <a-tag :color="statusColors[progress.status]">{{ statusText[progress.status] }}</a-tag>
+                <span v-if="progress.status === 'failed'">{{ progress.version != null ? '当前展示最近成功快照' : '暂无成功快照' }}</span>
+              </a-descriptions-item>
+              <a-descriptions-item label="最晚计划起飞日">{{ progress.dataAsOf || '—' }}</a-descriptions-item>
+              <a-descriptions-item label="快照更新时间">{{ formatDateTimeDisplay(progress.refreshedAt) }} {{ progress.refreshMode ? refreshModes[progress.refreshMode] : '' }}</a-descriptions-item>
+              <a-descriptions-item label="试算规则版本">{{ progress.version == null ? '—' : 'V' + progress.version }}</a-descriptions-item>
+              <a-descriptions-item label="试算源记录数">{{ progress.sourceRows == null ? '—' : number(progress.sourceRows) + ' 条' }}</a-descriptions-item>
+              <a-descriptions-item label="待核记录数">{{ progress.pendingCount == null ? '—' : number(progress.pendingCount) + ' 条' }}</a-descriptions-item>
+            </a-descriptions>
+            <details v-if="progress.pendingReasons && Object.keys(progress.pendingReasons).length" class="pending-reasons section">
+              <summary>待核原因</summary>
+              <a-descriptions size="small" :column="1">
+                <a-descriptions-item v-for="(count, label) in progress.pendingReasons" :key="label" :label="label">
+                  {{ number(count) }} 条
+                </a-descriptions-item>
+              </a-descriptions>
+            </details>
+            <h3>每日累计进度</h3>
+            <a-table :data-source="progress.daily" row-key="id" size="small" :scroll="{ x: 680 }"
+              :pagination="{ ...taskPagination, current: dailyPage, onChange: (page: number) => dailyPage = page }">
+              <a-table-column title="计划起飞日" data-index="date" :width="128" />
+              <a-table-column title="累计计量（试算）" align="right" :width="170">
+                <template #default="{ record }">{{ money(record.actual, task?.currency) }}</template>
+              </a-table-column>
+              <a-table-column title="首档门槛进度" align="right" :width="130">
+                <template #default="{ record }">{{ percent(record.completionRate) }}</template>
+              </a-table-column>
+              <a-table-column title="规则版本" :width="100">
+                <template #default="{ record }">V{{ record.version }}</template>
+              </a-table-column>
+              <a-table-column title="操作" :width="152">
+                <template #default="{ record }"><a-button type="link" size="small" @click="showDay(record)">查看当日明细</a-button></template>
+              </a-table-column>
+              <template #emptyText><a-empty :description="progress.status === 'pending' ? '尚未产出每日进度' : '暂无每日进度'" /></template>
+            </a-table>
           </template>
           <a-empty v-else-if="!drawerBusy && !drawerError" description="暂无任务进度" />
         </template>
@@ -527,6 +653,12 @@ function backToProgress() {
 <style scoped>
 .section { margin-bottom: 16px; }
 .muted { color: #566477; font-size: 13px; overflow-wrap: anywhere; }
+.task-card { min-width: 0; }
+.task-card :deep(.ant-card-body) { padding: 0 16px; }
+.two-lines { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.task-name { height: auto; max-width: 100%; padding: 0; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.task-full-name { overflow-wrap: anywhere; }
+.pending-reasons summary { cursor: pointer; font-weight: 500; margin-bottom: 8px; }
 .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 .metrics :deep(.ant-statistic) { padding: 12px; border: 1px solid #e4e9ef; border-radius: 8px; background: #f6f8fc; }
 .operator { width: 100%; }

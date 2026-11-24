@@ -73,6 +73,8 @@ export interface RebateProgress {
   dataNote?: string
   otherOriginReward?: RebateNumber
   pendingCount?: number
+  sourceRows?: number
+  pendingReasons?: Record<string, number>
   tier?: string | null
   categories?: { id: string; name: string; records: number; measuredAmount: RebateNumber; estimatedReward: RebateNumber }[]
 }
