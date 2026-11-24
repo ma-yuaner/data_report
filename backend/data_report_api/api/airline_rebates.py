@@ -75,7 +75,8 @@ def policy_for_review(row):
 
 
 def rule_cards(policy):
-    clauses = policy["sourceClauses"]
+    clauses = dict(policy["sourceClauses"])
+    clauses["carrier"] += "。" + clauses["exception"]
     def card(identifier, name, page, conditions):
         return {"id": identifier, "name": name, "sourcePage": f"第 {page} 页" if isinstance(page, int) else None, "conditions": [
             {"id": key, "fieldLabel": label, "operator": op, "value": value, "mapping": mapping,
@@ -105,8 +106,6 @@ def rule_cards(policy):
              "试算：segment_airport、dep_airport、arr_airport 与机场国家字典。待核：票联航程和航段顺序。"),
             ("carrier", "实际承运航司", "in", policy["carriers"],
              "试算：segment_marketing_airline 逐段作销售航司参考。待核：运营航司字段需与销售系统或结算样票对照。"),
-            ("exception", "KN 例外", "all", policy["carrierExceptionConditions"],
-             "试算未执行。待核：分公司归属字段及销售系统实际承运方字段，须分别取证。"),
             ("excluded", "不计量不计奖舱位", "not_in", policy["excludedCabins"], cabin),
             ("charter", "不计量不计奖航班", "not_in", ["包机", "包收入航班"],
              "试算：issue_price_type_desc 文本包含包机或包收入。待核：业务确认的航班分类。"),

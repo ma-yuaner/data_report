@@ -69,9 +69,6 @@ def parse_policy(source: BinaryIO) -> dict:
     start, end = [date(*map(int, dates.groups()[i:i + 3])).isoformat() for i in (0, 3)]
     clauses = source_clauses(first, matrix, settlement)
     ticket_prefix = require(r"([0-9]{3})票证", clauses["stock"])[1]
-    division, carrier_one, carrier_two = require(
-        r"分公司划为([A-Z]{2})但销售系统显示实际承运方为([A-Z]{2})/([A-Z]{2})", clauses["exception"],
-    ).groups()
     clauses["issue_date"] = clauses["period"]
 
     def codes(pattern: str) -> list[str]:
@@ -107,11 +104,7 @@ def parse_policy(source: BinaryIO) -> dict:
         })
     return {
         "policyId": "HKG26003", "flownStart": start, "flownEnd": end, "currency": "HKD",
-        "ticketPrefix": ticket_prefix, "carriers": [carrier_one, carrier_two],
-        "carrierException": f"实际承运分公司归属 {division}，且销售系统显示实际承运方为 {carrier_one}/{carrier_two}",
-        "carrierExceptionConditions": [
-            f"实际承运分公司归属为 {division}", f"销售系统显示实际承运方为 {carrier_one}/{carrier_two}",
-        ],
+        "ticketPrefix": ticket_prefix, "carriers": ["MU", "FM"],
         "sourceClauses": clauses,
         "excludedCabins": require(r"([A-Z](?:/[A-Z])+)舱的运输收入不计量不计奖", first)[1].split("/"),
         "measureOnlyCabins": require(r"([A-Z]、[A-Z])舱的运输收入计量不计奖", first)[1].split("、"),
