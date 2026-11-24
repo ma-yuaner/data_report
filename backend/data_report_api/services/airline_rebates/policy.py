@@ -12,6 +12,52 @@ def require(pattern: str, text: str) -> re.Match[str]:
     return match
 
 
+def source_clauses(first, matrix, settlement):
+    """Capture full clauses from the text layer, including qualifications and exceptions."""
+    patterns = (
+        (first, {
+            "period": r"适用日期[:：](.*?)[。]二、奖励办法",
+            "agency": r"(香港营业部所辖指定代理人)使用",
+            "stock": r"使用(东航（MU）\d{3}票证)销售",
+            "scope": r"票证销售的(.*?)，并由",
+            "carrier": r"(并由东上航实际承运的运输收入)。",
+            "exception": r"(收入含实际承运分公司划为[A-Z]{2}但销售系统显示实际承运方为[A-Z]{2}/[A-Z]{2}的航班)。",
+            "excluded": r"([A-Z](?:/[A-Z])+舱的运输收入不计量不计奖)",
+            "charter": r"(包机、包收入航班)婴儿票",
+            "infant": r"包收入航班(婴儿票)纯内地",
+            "domestic": r"婴儿票(纯内地客票)代码共享",
+            "non_operated": r"(代码共享航班及与外航联运航班中非东上航实际承运航段的运输收入)",
+            "measure_only": r"([A-Z]、[A-Z]舱的运输收入计量不计奖)",
+            "measure_clients": r"计量不计奖(集团客户的运输收入)注",
+            "origin": r"注[:：](.*?销量还原，航程始发追溯旧票。)",
+        }),
+        (matrix, {
+            "long": r"1\.(国际远程航线为.*?)(?=2\.国际非远程)",
+            "short": r"2\.(国际非远程航线为.*?)(?=3\.地区航线)",
+            "regional_scope": r"3\.(地区航线为.*?)(?=4\.地区航线)",
+            "hkg_non": r"(HKG-[A-Z/]+始发的联程、单程、来回程、缺口程（包括客票中的中国大陆段）)",
+            "mfm_non": r"(MFM-[A-Z/]+始发的联程、单程、来回程、缺口程（包括客票中的中国大陆段）)",
+            "hkg_designated": r"(HKG-[A-Z/]+始发的联程、单程、来回程、缺口程（包括客票中的中国大陆段）)",
+            "other_origin": r"6\.异地始发航线[:：](.*?。)",
+        }),
+        (settlement, {
+            "revenue": r"3\.奖励的计算(.*?)三、奖励的发放",
+            "payment": r"三、奖励的发放(.*?)四、财务结算",
+            "rounding": r"四、财务结算[:：]1、(.*?)2、",
+            "iata": r"2、(以代理人明细中的IATA号作为核算依据。)",
+            "evaluation": r"五、评估机制(.*?。)",
+        }),
+    )
+    clauses = {}
+    for source, entries in patterns:
+        for key, pattern in entries.items():
+            text = source
+            if key == "hkg_designated":
+                text = source.split("5.地区航线", 1)[-1]
+            clauses[key] = require(pattern, text)[1]
+    return clauses
+
+
 def parse_policy(source: BinaryIO) -> dict:
     reader = PdfReader(source)
     if len(reader.pages) != 3:
@@ -21,10 +67,12 @@ def parse_policy(source: BinaryIO) -> dict:
         require("HKG26003", page)
     dates = require(r"(\d{4})年(\d+)月(\d+)日[—–-](\d{4})年(\d+)月(\d+)日", first)
     start, end = [date(*map(int, dates.groups()[i:i + 3])).isoformat() for i in (0, 3)]
-    for marker in ("以承运日期为准", "781票证", "KN", "MU/FM", "包机、包收入航班", "婴儿票", "集团客户", "追溯旧票"):
-        require(re.escape(marker), first)
-    for marker in ("不含税费及基础代理费", "四舍五入进整", "IATA"):
-        require(re.escape(marker), settlement)
+    clauses = source_clauses(first, matrix, settlement)
+    ticket_prefix = require(r"([0-9]{3})票证", clauses["stock"])[1]
+    division, carrier_one, carrier_two = require(
+        r"分公司划为([A-Z]{2})但销售系统显示实际承运方为([A-Z]{2})/([A-Z]{2})", clauses["exception"],
+    ).groups()
+    clauses["issue_date"] = clauses["period"]
 
     def codes(pattern: str) -> list[str]:
         return require(pattern, matrix).group(1).rstrip("/").split("/")
@@ -51,6 +99,7 @@ def parse_policy(source: BinaryIO) -> dict:
         if groups not in (None, tier_groups):
             raise ValueError("费率档位的舱位分组不一致")
         groups = tier_groups
+        clauses[f"tier-{lower * 10000}"] = require(pattern, page_text)[0]
         tiers.append({
             "lowerExclusive": lower * 10000,
             "upperInclusive": None if upper is None else upper * 10000,
@@ -58,12 +107,17 @@ def parse_policy(source: BinaryIO) -> dict:
         })
     return {
         "policyId": "HKG26003", "flownStart": start, "flownEnd": end, "currency": "HKD",
-        "ticketPrefix": "781", "carriers": ["MU", "FM"], "carrierException": "KN 且销售系统实际承运方为 MU/FM",
+        "ticketPrefix": ticket_prefix, "carriers": [carrier_one, carrier_two],
+        "carrierException": f"实际承运分公司归属 {division}，且销售系统显示实际承运方为 {carrier_one}/{carrier_two}",
+        "carrierExceptionConditions": [
+            f"实际承运分公司归属为 {division}", f"销售系统显示实际承运方为 {carrier_one}/{carrier_two}",
+        ],
+        "sourceClauses": clauses,
         "excludedCabins": require(r"([A-Z](?:/[A-Z])+)舱的运输收入不计量不计奖", first)[1].split("/"),
         "measureOnlyCabins": require(r"([A-Z]、[A-Z])舱的运输收入计量不计奖", first)[1].split("、"),
         "exclude": ["包机或包收入航班", "婴儿票", "纯内地客票", "非东上航实际承运航段"],
         "measureOnly": ["集团客户"], "originBasis": "换开追溯旧票", "periodBasis": "航段实际承运日",
-        "agencyBasis": "IATA", "amountBasis": "净承运收入，扣税费及基础代理费，HKD 汇总后四舍五入进整",
+        "agencyBasis": "IATA", "amountBasis": "净承运收入，扣税费及基础代理费，HKD 四舍五入进整",
         "routeCategories": ["longHaul", "shortHaul", "regionalNonDesignated", "regionalDesignated", "otherOrigin"],
         "longHaul": codes(r"国家代码为:([A-Z/]+)2\.国际非远程"),
         "shortHaul": codes(r"国家代码为:([A-Z/]+)，且全航程不包含远程点"),

@@ -69,10 +69,20 @@ def policy_data(row):
     }
 
 
+def policy_for_review(row):
+    stored = json.loads(row["profile"])["policy"]
+    return stored if "sourceClauses" in stored else parse_policy(BytesIO(row["original"]))
+
+
 def rule_cards(policy):
+    clauses = policy["sourceClauses"]
     def card(identifier, name, page, conditions):
-        return {"id": identifier, "name": name, "sourcePage": f"第 {page} 页", "conditions": [
-            {"id": key, "fieldLabel": label, "operator": op, "value": value, "mapping": mapping}
+        return {"id": identifier, "name": name, "sourcePage": f"第 {page} 页" if isinstance(page, int) else None, "conditions": [
+            {"id": key, "fieldLabel": label, "operator": op, "value": value, "mapping": mapping,
+             "sourceText": clauses.get(key) or clauses.get(identifier) or (
+                 clauses[f"tier-{policy['tiers'][0]['lowerExclusive']}"]
+                 if identifier == "routes" and key in ("group_a", "group_b") else None
+             )}
             for key, label, op, value, mapping in conditions
         ]}
 
@@ -89,17 +99,13 @@ def rule_cards(policy):
              "试算按航段日期取数。issue_ticket_time 供回补与追溯。"),
             ("agency", "适用代理人", "in", "香港营业部所辖指定代理人",
              "试算：supplier_code = HK_NGCHOW。待核：指定代理 IATA 名单与东航结算的代理明细。"),
-            ("issue_complete", "出票完成", "all", ["订单已出票", "出票已更新"],
-             "试算明细入口：order_status = TICKETED、issue_status = I_UPDATED。"),
-            ("refund_void", "退票和废票", "not_in", ["已退票", "已作废"],
-             "试算明细入口：按 issue_ticket_no_status、flt_status、refund_flag_desc 排除。"),
             ("stock", "票证前三位", "eq", policy["ticketPrefix"],
              "试算及政策匹配：issue_ticket_no 前三位。"),
             ("scope", "适用客票航程", "applies", "含国际或地区航线的单程、来回程、缺口程，可包含票内中国大陆段",
              "试算：segment_airport、dep_airport、arr_airport 与机场国家字典。待核：票联航程和航段顺序。"),
             ("carrier", "实际承运航司", "in", policy["carriers"],
              "试算：segment_marketing_airline 逐段作销售航司参考。待核：运营航司字段需与销售系统或结算样票对照。"),
-            ("exception", "KN 例外", "all", ["实际承运分公司归属为 KN", "销售系统显示实际承运方为 MU/FM"],
+            ("exception", "KN 例外", "all", policy["carrierExceptionConditions"],
              "试算未执行。待核：分公司归属字段及销售系统实际承运方字段，须分别取证。"),
             ("excluded", "不计量不计奖舱位", "not_in", policy["excludedCabins"], cabin),
             ("charter", "不计量不计奖航班", "not_in", ["包机", "包收入航班"],
@@ -117,7 +123,14 @@ def rule_cards(policy):
              "代理人换开追溯旧票始发。东上航直属售票处或客服中心非自愿换开，销量还原并追溯旧票始发",
              "试算：refund_issue_flag 及票号状态识别换开并待核。改签可计入，须核实新旧票联、换开渠道及旧票航程，防止重复。"),
         ]),
+        card("trial_filters", "业务确认的试算过滤条件", "—", [
+            ("issue_complete", "出票完成", "all", ["订单已出票", "出票已更新"],
+             "试算明细入口：order_status = TICKETED、issue_status = I_UPDATED。"),
+            ("refund_void", "退票和废票", "not_in", ["已退票", "已作废"],
+             "试算明细入口：按 issue_ticket_no_status、flt_status、refund_flag_desc 排除。"),
+        ]),
         card("routes", "航线及舱位分组", 2, [
+            ("regional_scope", "地区航线前提", "all", ["港澳始发至中国大陆", "不经过国际航线"], regional),
             ("long", "港澳始发远程经停或目的国家", "in", policy["longHaul"], route_points),
             ("short", "港澳始发非远程经停或目的国家", "in", policy["shortHaul"],
              route_points + "先判远程。政策要求全航程无远程点。"),
@@ -195,8 +208,7 @@ def register_routes(api):
     @endpoint
     def rebate_policy(directory, identifier):
         with connect(directory) as db:
-            record = json.loads(find(db, "rebate_policies", identifier)["profile"])
-            return ok(rule_cards(record["policy"]))
+            return ok(rule_cards(policy_for_review(find(db, "rebate_policies", identifier))))
 
     @api.get(ROOT + "/policies/<identifier>/original")
     @endpoint
@@ -247,9 +259,8 @@ def register_routes(api):
         with connect(directory) as db:
             task = find(db, "rebate_tasks", identifier)
             policy = find(db, "rebate_policies", task["policy_id"])
-            record = json.loads(policy["profile"])
             return ok([{"version": 1, "reason": "由人工确认的 HKG26003 解析结果建档",
-                        "savedAt": policy["confirmed_at"], "rules": rule_cards(record["policy"])}])
+                        "savedAt": policy["confirmed_at"], "rules": rule_cards(policy_for_review(policy))}])
 
     @api.post(ROOT + "/tasks/<identifier>/versions")
     @endpoint

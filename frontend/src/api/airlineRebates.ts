@@ -8,6 +8,7 @@ export interface RebateCondition {
   operator: string
   value: RebateConditionValue
   mapping?: string
+  sourceText?: string | null
 }
 export interface RebateRule {
   id: string

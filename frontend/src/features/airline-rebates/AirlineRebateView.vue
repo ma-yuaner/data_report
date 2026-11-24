@@ -86,6 +86,7 @@ const rateMatrix = computed(() => ruleGroups.value.filter(group => group.id.star
   return ['group_a', 'group_b'].map((id, index) => ({
     id: group.id + '-' + id, threshold, cabin: index === 0 ? 'A 组' : 'B 组',
     rates: (value(id) as string[] | undefined) ?? [],
+    sourceText: group.conditions.find(condition => condition.id === id)?.sourceText,
   }))
 }))
 const rebateRouteLabels = ['国际远程', '国际非远程', '地区非指定', '地区指定', '异地始发']
@@ -398,6 +399,7 @@ function backToProgress() {
             <a-table :data-source="rateMatrix" row-key="id" :pagination="false" size="small" :scroll="{ x: 780 }">
               <a-table-column title="累计收入档位" data-index="threshold" />
               <a-table-column title="舱位组" data-index="cabin" />
+              <template #expandedRowRender="{ record }"><p v-if="record.sourceText" class="muted">{{ record.sourceText }}</p></template>
               <a-table-column v-for="(label, index) in rebateRouteLabels" :key="label" :title="label">
                 <template #default="{ record }">{{ record.rates[index] == null ? '—' : record.rates[index] + '%' }}</template>
               </a-table-column>
@@ -416,7 +418,7 @@ function backToProgress() {
               <a-table-column title="值" :width="235">
                 <template #default="{ record }">
                   <a-input v-if="drawer === 'edit'" :default-value="displayValue(record.value)" :aria-label="record.fieldLabel + '规则值'" @change="(event: Event) => changeValue(record, (event.target as HTMLInputElement).value)" />
-                  <template v-else>{{ displayValue(record.value) }}<div v-if="drawer === 'details' && preceding(group, record)" class="muted">上版 {{ preceding(group, record) }}</div></template>
+                  <template v-else>{{ displayValue(record.value) }}<details v-if="record.sourceText" class="muted"><summary>查看合同原文</summary>{{ record.sourceText }}</details><div v-if="drawer === 'details' && preceding(group, record)" class="muted">上版 {{ preceding(group, record) }}</div></template>
                 </template>
               </a-table-column>
               <a-table-column title="Hive 字段及口径" data-index="mapping" :width="310" />
