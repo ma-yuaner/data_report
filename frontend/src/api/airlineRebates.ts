@@ -65,12 +65,20 @@ export interface RebateProgress {
   otherOriginReward?: RebateNumber
   pendingCount?: number
   tier?: string | null
+  categories?: { id: string; name: string; records: number; measuredAmount: RebateNumber; estimatedReward: RebateNumber }[]
 }
 export interface RebateDetailRow {
   id: string
   orderNo: string
   route: string
   eligibleAmount: RebateNumber
+  ticketNo?: string
+  ticketFare?: RebateNumber
+  currency?: string | null
+  ratePercent?: RebateNumber
+  estimatedReward?: RebateNumber
+  orderEstimatedReward?: RebateNumber
+  segmentDecisions?: { route: string; date: string; cabin: string; marketingAirline: string; result: string }[]
   result: string
 }
 export interface RebateTaskDraft { policyId: string; name: string; owner: string }

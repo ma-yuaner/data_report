@@ -78,23 +78,27 @@ def rule_cards(policy):
 
     route_points = "试算：segment_airport 与机场字典 airport_code、country_code。"
     regional = "试算：dep_airport、arr_airport 与地区机场名单匹配。待核：联程、来回程、缺口程的逐段匹配。"
-    cabin = "试算：segment_real_cabin（整票聚合）。待核：票联实际舱位及票联金额。"
+    cabin = "试算：segment_real_cabin 按航段顺序对应。待核：票联实际舱位及分段票面价。"
     cumulative = "试算：累计符合计量条件的 issue_ticket_price（issue_currency = HKD）。待核：票联净承运收入。"
     rate = "政策常量。试算按航线类别及 segment_real_cabin 判定费率组，乘相应 HKD 票面价。"
     return [
         card("eligibility", "适用与计量", 1, [
             ("period", "航段实际承运日", "between", [policy["flownStart"], policy["flownEnd"]],
-             "试算：first_dep_time（首段计划起飞日，整票）。待核：东航结算票联实际承运日，跨期客票逐段归期。"),
+             "试算：segment_dep_time 按航段日期判断，首段日期用于候选取数。待核：票联实际承运日和跨期票分段金额。"),
             ("issue_date", "出票日期", "unrestricted", "原政策未设出票日期窗口",
-             "试算：issue_ticket_time 筛 2025-07-01 至 2026-09-30（含首尾）。用于试点取数和回补，政策资格无此条件。"),
+             "试算按航段日期取数。issue_ticket_time 供回补与追溯。"),
             ("agency", "适用代理人", "in", "香港营业部所辖指定代理人",
              "试算：supplier_code = HK_NGCHOW。待核：指定代理 IATA 名单与东航结算的代理明细。"),
+            ("issue_complete", "出票完成", "all", ["订单已出票", "出票已更新"],
+             "试算明细入口：order_status = TICKETED、issue_status = I_UPDATED。"),
+            ("refund_void", "退票和废票", "not_in", ["已退票", "已作废"],
+             "试算明细入口：按 issue_ticket_no_status、flt_status、refund_flag_desc 排除。"),
             ("stock", "票证前三位", "eq", policy["ticketPrefix"],
              "试算及政策匹配：issue_ticket_no 前三位。"),
             ("scope", "适用客票航程", "applies", "含国际或地区航线的单程、来回程、缺口程，可包含票内中国大陆段",
              "试算：segment_airport、dep_airport、arr_airport 与机场国家字典。待核：票联航程和航段顺序。"),
             ("carrier", "实际承运航司", "in", policy["carriers"],
-             "试算：marketing_airline 仅筛销售航司 MU/FM。待核：出票航段明细 operating_airline，与销售系统或结算样票对照。"),
+             "试算：segment_marketing_airline 逐段作销售航司参考。待核：运营航司字段需与销售系统或结算样票对照。"),
             ("exception", "KN 例外", "all", ["实际承运分公司归属为 KN", "销售系统显示实际承运方为 MU/FM"],
              "试算未执行。待核：分公司归属字段及销售系统实际承运方字段，须分别取证。"),
             ("excluded", "不计量不计奖舱位", "not_in", policy["excludedCabins"], cabin),
@@ -111,7 +115,7 @@ def rule_cards(policy):
              "试算：issue_price_type_desc 文本包含集团。待核：集团客户分类及票联收入。"),
             ("origin", "换开始发与销量", "applies",
              "代理人换开追溯旧票始发。东上航直属售票处或客服中心非自愿换开，销量还原并追溯旧票始发",
-             "试算：refund_issue_flag、issue_ticket_no_status、refund_flag_desc 识别退废及换开并分类。待核：新旧票关联、换开渠道、非自愿标识及旧票航程。"),
+             "试算：refund_issue_flag 及票号状态识别换开并待核。改签可计入，须核实新旧票联、换开渠道及旧票航程，防止重复。"),
         ]),
         card("routes", "航线及舱位分组", 2, [
             ("long", "港澳始发远程经停或目的国家", "in", policy["longHaul"], route_points),
@@ -121,7 +125,7 @@ def rule_cards(policy):
             ("mfm_non", "澳门非指定机场", "in", policy["regionalNonDesignated"]["MFM"], regional),
             ("hkg_designated", "香港指定机场", "in", policy["regionalDesignated"]["HKG"], regional),
             ("other_origin", "异地始发", "applies", "非港澳始发、东上航实际承运的适用航线",
-             "试算：dep_airport 区分是否港澳始发。待核：逐段实际承运方。"),
+             "试算：dep_airport 判断非港澳始发，符合计奖条件的票面价固定乘 1%。待核：逐段实际承运方。"),
             ("group_a", "费率 A 组舱位", "in", policy["cabinGroups"][0], cabin),
             ("group_b", "费率 B 组舱位", "in", policy["cabinGroups"][1], cabin),
         ]),

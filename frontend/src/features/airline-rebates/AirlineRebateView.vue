@@ -78,6 +78,17 @@ const number = (value: number | string) => Number(value).toLocaleString('zh-CN',
 const money = (value: RebateNumber, currency = '') => value == null ? '—' : [currency, number(value)].filter(Boolean).join(' ')
 const percent = (value: RebateNumber) => value == null ? '—' : number(value) + '%'
 const displayValue = (value: RebateCondition['value']) => Array.isArray(value) ? value.join(', ') : String(value)
+const rateMatrix = computed(() => ruleGroups.value.filter(group => group.id.startsWith('tier-')).flatMap(group => {
+  const value = (id: string) => group.conditions.find(condition => condition.id === id)?.value
+  const upper = value('maximum')
+  const lower = Number(value('minimum')) / 10_000
+  const threshold = upper ? `${lower} < T ≤ ${Number(upper) / 10_000}` : `T > ${lower}`
+  return ['group_a', 'group_b'].map((id, index) => ({
+    id: group.id + '-' + id, threshold, cabin: index === 0 ? 'A 组' : 'B 组',
+    rates: (value(id) as string[] | undefined) ?? [],
+  }))
+}))
+const rebateRouteLabels = ['国际远程', '国际非远程', '地区非指定', '地区指定', '异地始发']
 const policyOperatorLabels: Record<string, string> = {
   between: '介于（含首尾）',
   unrestricted: '不限',
@@ -382,7 +393,17 @@ function backToProgress() {
           </a-space>
           <p v-if="drawer === 'details' && viewedVersion" class="muted section">{{ viewedVersion.savedAt }} {{ viewedVersion.reason }}</p>
           <a-empty v-if="!drawerBusy && !drawerError && !ruleGroups.length" description="暂无规则" />
-          <section v-for="group in ruleGroups" :key="group.id" class="section rule-group">
+          <section v-if="drawer !== 'edit' && rateMatrix.length" class="section rule-group">
+            <h3>航线奖励费率 <small class="muted">· 第 2 页 · 累计收入单位为万 HKD</small></h3>
+            <a-table :data-source="rateMatrix" row-key="id" :pagination="false" size="small" :scroll="{ x: 780 }">
+              <a-table-column title="累计收入档位" data-index="threshold" />
+              <a-table-column title="舱位组" data-index="cabin" />
+              <a-table-column v-for="(label, index) in rebateRouteLabels" :key="label" :title="label">
+                <template #default="{ record }">{{ record.rates[index] == null ? '—' : record.rates[index] + '%' }}</template>
+              </a-table-column>
+            </a-table>
+          </section>
+          <section v-for="group in ruleGroups.filter(item => drawer === 'edit' || !item.id.startsWith('tier-'))" :key="group.id" class="section rule-group">
             <h3>{{ group.name }} <small v-if="group.sourcePage" class="muted">· {{ group.sourcePage }}</small></h3>
             <a-table :data-source="group.conditions" row-key="id" :pagination="false" size="small" :scroll="{ x: 845 }">
               <a-table-column title="字段" data-index="fieldLabel" :width="155" />
@@ -398,7 +419,7 @@ function backToProgress() {
                   <template v-else>{{ displayValue(record.value) }}<div v-if="drawer === 'details' && preceding(group, record)" class="muted">上版 {{ preceding(group, record) }}</div></template>
                 </template>
               </a-table-column>
-              <a-table-column title="宽表来源或用途" data-index="mapping" :width="310" />
+              <a-table-column title="Hive 字段及口径" data-index="mapping" :width="310" />
             </a-table>
           </section>
           <a-space v-if="drawer === 'policy' && activePolicy && !activePolicy.confirmed && ruleGroups.length && canManage" wrap>
@@ -418,7 +439,23 @@ function backToProgress() {
               <a-breadcrumb><a-breadcrumb-item>分析此项</a-breadcrumb-item><a-breadcrumb-item>{{ day.date }}</a-breadcrumb-item><a-breadcrumb-item>每日明细</a-breadcrumb-item></a-breadcrumb>
               <a-tag>规则 V{{ day.version }}</a-tag>
             </a-space>
-            <a-table :data-source="detailRows" :columns="detailColumns" :pagination="false" row-key="id" :scroll="{ x: 730 }">
+            <a-table :data-source="detailRows" :columns="detailColumns" :pagination="false" row-key="id" :scroll="{ x: 1320 }">
+              <template #expandedRowRender="{ record }">
+                <a-descriptions size="small" :column="3">
+                  <a-descriptions-item label="票号">{{ record.ticketNo || '—' }}</a-descriptions-item>
+                  <a-descriptions-item label="整票票面价">{{ money(record.ticketFare, record.currency) }}</a-descriptions-item>
+                  <a-descriptions-item label="批次费率">{{ record.ratePercent == null ? '—' : record.ratePercent + '%' }}</a-descriptions-item>
+                  <a-descriptions-item label="本票预计后返">{{ money(record.estimatedReward, record.currency) }}</a-descriptions-item>
+                  <a-descriptions-item label="订单已算后返小计">{{ money(record.orderEstimatedReward, record.currency) }}</a-descriptions-item>
+                </a-descriptions>
+                <a-list v-if="record.segmentDecisions?.length" :data-source="record.segmentDecisions" size="small">
+                  <template #renderItem="{ item }"><a-list-item>
+                    <a-space wrap>{{ item.route }} <span>{{ item.date }}</span><span>{{ item.cabin }} 舱</span>
+                      <span>销售航司 {{ item.marketingAirline }}</span><a-tag>{{ item.result }}</a-tag>
+                    </a-space>
+                  </a-list-item></template>
+                </a-list>
+              </template>
               <template #emptyText><a-empty :description="drawerError ? '明细暂不可用' : '暂无订单明细'" /></template>
               <template #bodyCell="{ column, record }"><span v-if="column.key === 'amount'">{{ money(record.eligibleAmount, task?.currency) }}</span></template>
             </a-table>
@@ -439,6 +476,17 @@ function backToProgress() {
               <Statistic title="预计后返（试算）" :value="money(progress.estimatedReward, task?.currency)" />
               <Statistic v-if="progress.otherOriginReward != null" title="非港澳始发（单列）" :value="money(progress.otherOriginReward, task?.currency)" />
             </div>
+            <a-table v-if="progress.categories?.length" class="section" :data-source="progress.categories" row-key="id"
+              :pagination="false" size="small" :scroll="{ x: 640 }">
+              <a-table-column title="航线类型" data-index="name" />
+              <a-table-column title="计量记录数" data-index="records" />
+              <a-table-column title="累计计量（试算）">
+                <template #default="{ record }">{{ money(record.measuredAmount, task?.currency) }}</template>
+              </a-table-column>
+              <a-table-column title="预计后返">
+                <template #default="{ record }">{{ money(record.estimatedReward, task?.currency) }}</template>
+              </a-table-column>
+            </a-table>
             <p class="muted section">最近更新 {{ statusText[progress.status] }} · 数据截至 {{ progress.dataAsOf || '—' }} · {{ progress.version == null ? '规则版本待产出' : '规则 V' + progress.version }}</p>
             <a-list header="每日累计进度" :data-source="progress.daily">
               <template #renderItem="{ item }"><a-list-item>
