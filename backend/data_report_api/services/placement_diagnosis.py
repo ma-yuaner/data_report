@@ -19,6 +19,8 @@ MAX_RECEIPTS = 100000
 LOGGER = logging.getLogger(__name__)
 SUCCESS_FRESH_MINUTES = 30
 RUNNING_GRACE_MINUTES = 15
+MONITORED_TASK_STATUSES = {'MONITORING', 'PENDING_RECALL_REVIEW', 'PENDING_RECALL'}
+PLACED_TASK_STATUSES = MONITORED_TASK_STATUSES | {'ENDED', 'CLOSED', 'RECALLED'}
 
 
 def require_menu(user):
@@ -94,7 +96,7 @@ def observation(row):
 
 
 def scope_values(row):
-    actual = row.get('execution_id') and row['task_status'] in {'MONITORING', 'ENDED', 'CLOSED'}
+    actual = row.get('execution_id') and row['task_status'] in PLACED_TASK_STATUSES
     result = {}
     for key in ('airline_code', 'departure_type', 'departure_code', 'arrival_type', 'arrival_code', 'segment_type', 'route_text'):
         result[key] = row.get(('actual_' if actual else '') + key)
@@ -108,7 +110,7 @@ def scope_values(row):
 
 
 def platform_name(row):
-    actual = row.get('execution_id') and row['task_status'] in {'MONITORING', 'ENDED', 'CLOSED'}
+    actual = row.get('execution_id') and row['task_status'] in PLACED_TASK_STATUSES
     return (row.get('actual_platform_name') if actual else None) or row['platform_name']
 
 
@@ -135,9 +137,9 @@ def build_matrix(policies, receipt_rows, *, now, days, healthy):
         if sales_end: sales_end += timedelta(days=1) - timedelta(microseconds=1)
         end = min([now, *[value for value in (stamp(row.get('effective_end_at')), stamp(row.get('rule_end_at')), sales_end) if value]])
         state = 'ACTIVE'
-        if not row.get('execution_id') or row['task_status'] not in {'MONITORING', 'ENDED', 'CLOSED'}:
+        if not row.get('execution_id') or row['task_status'] not in PLACED_TASK_STATUSES:
             state = 'NOT_PLACED'
-        elif row['task_status'] != 'MONITORING':
+        elif row['task_status'] not in MONITORED_TASK_STATUSES:
             state = 'EXPIRED' if end < now else 'PAUSED'
         elif start is None or not row.get('rule_id') or not row.get('version_created_at'):
             state = 'DATA_CHECK'
@@ -145,7 +147,7 @@ def build_matrix(policies, receipt_rows, *, now, days, healthy):
             state = 'SCHEDULED'
         elif end < now:
             state = 'EXPIRED'
-        elif row['task_status'] != 'MONITORING' or row.get('rule_status') != 'ACTIVE':
+        elif row.get('rule_status') != 'ACTIVE':
             state = 'PAUSED'
         elif not row.get('order_scope_complete'):
             state = 'RESTRICTED'
@@ -193,7 +195,7 @@ def build_matrix(policies, receipt_rows, *, now, days, healthy):
             'orderScopeComplete': bool(row.get('order_scope_complete'))}
         cell['policies'].append(policy)
         # Current comparisons count only current monitoring policies. Inactive policies remain in drilldown.
-        if row['task_status'] == 'MONITORING' and row.get('rule_status') == 'ACTIVE' and state not in {'SCHEDULED', 'EXPIRED'}:
+        if row['task_status'] in MONITORED_TASK_STATUSES and row.get('rule_status') == 'ACTIVE' and state not in {'SCHEDULED', 'EXPIRED'}:
             cell['_orders'].update(period_orders)
             cell['_eligible'].update(eligible)
     priorities = ['RECEIVING', 'RESTRICTED', 'DATA_CHECK', 'INTERRUPTED', 'NO_ORDERS', 'OBSERVING', 'SCHEDULED', 'PAUSED', 'EXPIRED', 'NOT_PLACED']
@@ -250,7 +252,9 @@ class PlacementDiagnosisService:
         complete = complete.replace('diagnostic_scope.attention_owner_id', 'NULL').replace('diagnostic_scope.task_id', 't.id')
         where = ['t.is_deleted=0', visible]
         if values.get('airline'):
-            where.append("(CASE WHEN e.id IS NOT NULL AND t.status IN ('MONITORING','ENDED','CLOSED') THEN COALESCE(e.airline_code,t.airline_code) ELSE t.airline_code END)=%s")
+            placeholders = ','.join(['%s'] * len(PLACED_TASK_STATUSES))
+            where.append(f"(CASE WHEN e.id IS NOT NULL AND t.status IN ({placeholders}) THEN COALESCE(e.airline_code,t.airline_code) ELSE t.airline_code END)=%s")
+            params.extend(sorted(PLACED_TASK_STATUSES))
             params.append(_text(values['airline'], '航司', 32).upper())
         if values.get('keyword'):
             token = '%' + _text(values['keyword'], '航线/机会关键字', 100) + '%'

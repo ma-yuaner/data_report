@@ -50,7 +50,7 @@
             <template v-else-if="column.key === 'useRate'">{{ percent(metricSet(record.metrics).useRate) }}</template>
             <template v-else-if="column.key === 'profit'"><span :class="{ negative: Number(metricSet(record.metrics).profit || 0) < 0 }">{{ money(metricSet(record.metrics).profit) }}</span></template>
             <template v-else-if="column.key === 'coverage'">
-              <div class="coverage-state"><a-tag :color="coverageMeta(record.relatedTasks).color">{{ coverageMeta(record.relatedTasks).label }}</a-tag><small>{{ record.relatedTasks.length }} 个关联任务</small></div>
+              <div class="coverage-state"><div><a-tag v-for="item in coverageBadges(record.relatedTasks)" :key="item.label" :color="item.color">{{ item.label }}</a-tag></div><small>{{ record.relatedTasks.length }} 个关联任务</small></div>
             </template>
             <template v-else-if="column.key === 'matched'">{{ count(matchedOrders(record.relatedTasks)) }}</template>
             <template v-else-if="column.key === 'action'"><div class="row-actions"><a-button v-if="canDrillFurther(record)" type="link" size="small" @click="drillInto(record)">继续下钻</a-button><a-button type="link" size="small" @click="openAnalysis(record)">分析此项</a-button></div></template>
@@ -63,7 +63,7 @@
 
     <a-drawer v-model:open="analysisOpen" title="分析此项" width="min(760px, 94vw)" placement="right">
       <template v-if="selectedRow">
-        <div class="drawer-heading"><div><span>{{ dimensionLabel }}</span><h2>{{ selectedRow.path[0]?.name }}</h2><p>{{ selectedRow.analysisPath.map(item => `${item.label}：${item.name}`).join(' · ') }}</p></div><a-tag :color="coverageMeta(selectedRow.relatedTasks).color">{{ coverageMeta(selectedRow.relatedTasks).label }}</a-tag></div>
+        <div class="drawer-heading"><div><span>{{ dimensionLabel }}</span><h2>{{ selectedRow.path[0]?.name }}</h2><p>{{ selectedRow.analysisPath.map(item => `${item.label}：${item.name}`).join(' · ') }}</p></div><div><a-tag v-for="item in coverageBadges(selectedRow.relatedTasks)" :key="item.label" :color="item.color">{{ item.label }}</a-tag></div></div>
         <section class="drawer-metrics">
           <div><span>出票量</span><strong>{{ count(selectedRow.metrics.ticketCount) }}</strong></div>
           <div><span>航段数</span><strong>{{ count(selectedRow.metrics.segmentCount) }}</strong></div>
@@ -185,6 +185,15 @@ function coverageMeta(tasks: SmartPlacementCoverageTask[]) {
   if (tasks.length) return { label: '已停止/结束', color: 'default' }
   return { label: '未投递', color: 'red' }
 }
+const recallStatuses = ['PENDING_RECALL_REVIEW', 'PENDING_RECALL', 'RECALLED']
+function coverageBadges(tasks: SmartPlacementCoverageTask[]) {
+  const otherTasks = tasks.filter(task => !recallStatuses.includes(task.status))
+  const badges = otherTasks.length || !tasks.length ? [coverageMeta(otherTasks)] : []
+  for (const status of recallStatuses) {
+    if (tasks.some(task => task.status === status)) badges.push(taskStatus(status))
+  }
+  return badges
+}
 function taskStatus(status: string) {
   const values: Record<string, { label: string; color: string }> = {
     DRAFT: { label: '草稿', color: 'default' }, PENDING_DATA_REVIEW: { label: '待数据审核', color: 'orange' },
@@ -192,6 +201,8 @@ function taskStatus(status: string) {
     IN_PROGRESS: { label: '投放中', color: 'cyan' }, MONITORING: { label: '监控中', color: 'green' },
     FAILED: { label: '投放失败', color: 'red' }, REJECTED: { label: '已驳回', color: 'red' },
     CLOSED: { label: '已作废', color: 'default' }, ENDED: { label: '已结束', color: 'default' },
+    PENDING_RECALL_REVIEW: { label: '收回待审核', color: 'gold' }, PENDING_RECALL: { label: '待收回', color: 'orange' },
+    RECALLED: { label: '已收回', color: 'default' },
   }
   return values[status] || { label: status, color: 'default' }
 }
