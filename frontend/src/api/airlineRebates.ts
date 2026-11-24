@@ -39,6 +39,12 @@ export interface RebateTask {
   owner: string
   currency: string
   policyName: string
+  tier?: string | null
+  refreshedAt?: string | null
+  refreshMode?: 'scheduled' | 'manual' | null
+  refreshStatus?: 'pending' | 'ready' | 'failed'
+  estimatedReward?: RebateNumber
+  pendingCount?: number | null
   editable?: boolean
   target: RebateNumber
   actual: RebateNumber
@@ -53,6 +59,8 @@ export interface RebateDailyPoint {
   completionRate: RebateNumber
 }
 export interface RebateProgress {
+  refreshedAt?: string | null
+  refreshMode?: 'scheduled' | 'manual' | null
   target: RebateNumber
   actual: RebateNumber
   completionRate: RebateNumber
@@ -117,9 +125,9 @@ export const airlineRebates = {
     unwrap(http.post<ApiEnvelope<RebateVersion>>(taskPath(id) + '/versions', { baseVersion, reason, rules })),
   progress: (id: string, signal: AbortSignal) =>
     unwrap(http.get<ApiEnvelope<RebateProgress>>(taskPath(id) + '/progress', { signal })),
-  details: (id: string, dailyId: string, page: number, signal: AbortSignal) =>
+  details: (id: string, dailyId: string, page: number, signal: AbortSignal, q?: string) =>
     unwrap(http.get<ApiEnvelope<{ items: RebateDetailRow[]; total: number }>>(
       taskPath(id) + '/progress/' + encodeURIComponent(dailyId) + '/details',
-      { params: { page, pageSize: 25 }, signal },
+      { params: { page, pageSize: 25, q }, signal },
     )),
 }

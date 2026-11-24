@@ -7,6 +7,7 @@ import json
 import time
 from uuid import uuid4
 
+import click
 from flask import current_app, g, jsonify, request, send_file
 from pypdf.errors import PdfReadError
 
@@ -169,10 +170,87 @@ def task_data(db, row):
     if row["current_run"]:
         summary = json.loads(find(db, "rebate_runs", row["current_run"])["summary"])
         result.update({key: summary[key] for key in ("target", "actual", "completionRate", "dataAsOf")})
+        result.update({key: summary.get(key) for key in ("tier", "refreshedAt", "refreshMode", "pendingCount", "estimatedReward")})
+    result["refreshStatus"] = "failed" if row["run_error"] else "ready" if row["current_run"] else "pending"
     return result
 
 
+def run_trial(directory, identifier, refresh_interval=0):
+    token = uuid4().hex
+    started = int(time.time())
+    with connect(directory) as db:
+        task = find(db, "rebate_tasks", identifier)
+        if refresh_interval and task["current_run"]:
+            previous = json.loads(find(db, "rebate_runs", task["current_run"])["summary"])
+            last = previous.get("refreshedAt")
+            if last and started - datetime.fromisoformat(last).timestamp() < refresh_interval:
+                return None
+        updated = db.execute(
+            "UPDATE rebate_tasks SET run_token=?, run_at=? WHERE id=? AND current_run IS ? AND (run_token IS NULL OR run_at<?)",
+            (token, started, identifier, task["current_run"], started - 900),
+        ).rowcount
+        if not updated:
+            raise PilotError("已有试算正在运行", 409)
+        policy = json.loads(find(db, "rebate_policies", task["policy_id"])["profile"])["policy"]
+    try:
+        summary, days = simulate(current_app.config, policy)
+        summary.update(refreshedAt=now(), refreshMode="scheduled" if refresh_interval else "manual")
+        for point in summary["daily"]:
+            point["id"] = token + "_" + point["date"]
+        with connect(directory) as db:
+            updated = db.execute(
+                "UPDATE rebate_tasks SET current_run=?, run_token=NULL, run_at=NULL, run_error=NULL WHERE id=? AND run_token=?",
+                (token, identifier, token),
+            ).rowcount
+            if not updated:
+                raise PilotError("本次试算已被更新的运行替代", 409)
+            db.execute("INSERT INTO rebate_runs(id, task_id, summary) VALUES (?, ?, ?)",
+                       (token, identifier, encode(summary)))
+            db.executemany("INSERT INTO rebate_days(run_id, day, details) VALUES (?, ?, ?)",
+                           ((token, day, encode(rows)) for day, rows in days.items()))
+        return summary
+    except PilotError:
+        raise
+    except Exception as error:
+        message = "Hive 试算失败，保留最近成功结果。请核对宽表覆盖或联系数据团队。"
+        with connect(directory) as db:
+            db.execute("UPDATE rebate_tasks SET run_token=NULL, run_at=NULL, run_error=? WHERE id=? AND run_token=?",
+                       (message, identifier, token))
+        current_app.logger.warning("HKG26003 trial failed: %s", type(error).__name__)
+        raise PilotError(message, 503) from error
+
+
 def register_routes(api):
+    @api.cli.command("airline-rebate-refresh")
+    @click.option("--interval-minutes", type=click.IntRange(min=1), required=True, help="Minimum time between successful runs per task.")
+    def refresh_due_tasks(interval_minutes):
+        """Refresh confirmed rebate tasks due since their last successful run."""
+        directory = current_app.config.get("AIRLINE_REBATE_PILOT_ROOT")
+        if not directory:
+            raise click.ClickException("航司后返试点未配置")
+        with connect(directory) as db:
+            identifiers = [row["id"] for row in db.execute(
+                "SELECT t.id FROM rebate_tasks t JOIN rebate_policies p ON p.id=t.policy_id "
+                "WHERE p.confirmed_at IS NOT NULL ORDER BY t.rowid"
+            )]
+        refreshed = skipped = failed = 0
+        for identifier in identifiers:
+            try:
+                result = run_trial(directory, identifier, refresh_interval=interval_minutes * 60)
+                if result is None:
+                    skipped += 1
+                else:
+                    refreshed += 1
+            except PilotError as error:
+                if error.status == 409:
+                    skipped += 1
+                else:
+                    failed += 1
+                    click.echo(f"{identifier}: {error}", err=True)
+        click.echo(f"refreshed={refreshed} skipped={skipped} failed={failed}")
+        if failed:
+            raise click.ClickException("部分任务刷新失败，保留最近成功结果")
+
     @api.get(ROOT + "/policies")
     @endpoint
     def rebate_policies(directory):
@@ -283,42 +361,7 @@ def register_routes(api):
     @api.post(ROOT + "/tasks/<identifier>/runs")
     @endpoint
     def rebate_run(directory, identifier):
-        token = uuid4().hex
-        started = int(time.time())
-        with connect(directory) as db:
-            task = find(db, "rebate_tasks", identifier)
-            updated = db.execute(
-                "UPDATE rebate_tasks SET run_token=?, run_at=? WHERE id=? AND (run_token IS NULL OR run_at<?)",
-                (token, started, identifier, started - 900),
-            ).rowcount
-            if not updated:
-                raise PilotError("已有试算正在运行", 409)
-            policy = json.loads(find(db, "rebate_policies", task["policy_id"])["profile"])["policy"]
-        try:
-            summary, days = simulate(current_app.config, policy)
-            for point in summary["daily"]:
-                point["id"] = token + "_" + point["date"]
-            with connect(directory) as db:
-                updated = db.execute(
-                    "UPDATE rebate_tasks SET current_run=?, run_token=NULL, run_at=NULL, run_error=NULL WHERE id=? AND run_token=?",
-                    (token, identifier, token),
-                ).rowcount
-                if not updated:
-                    raise PilotError("本次试算已被更新的运行替代", 409)
-                db.execute("INSERT INTO rebate_runs(id, task_id, summary) VALUES (?, ?, ?)",
-                           (token, identifier, encode(summary)))
-                db.executemany("INSERT INTO rebate_days(run_id, day, details) VALUES (?, ?, ?)",
-                               ((token, day, encode(rows)) for day, rows in days.items()))
-            return ok(summary)
-        except PilotError:
-            raise
-        except Exception as error:
-            message = "Hive 试算失败，保留最近成功结果。请核对宽表覆盖或联系数据团队。"
-            with connect(directory) as db:
-                db.execute("UPDATE rebate_tasks SET run_token=NULL, run_at=NULL, run_error=? WHERE id=? AND run_token=?",
-                           (message, identifier, token))
-            current_app.logger.warning("HKG26003 trial failed: %s", type(error).__name__)
-            raise PilotError(message, 503) from error
+        return ok(run_trial(directory, identifier))
 
     @api.get(ROOT + "/tasks/<identifier>/progress/<daily_id>/details")
     @endpoint
@@ -327,6 +370,9 @@ def register_routes(api):
         if not separator:
             raise PilotError("批次明细不存在", 404)
         page = int(request.args.get("page", 1))
+        query = request.args.get("q", "").strip()
+        if len(query) > 80:
+            raise PilotError("订单号或票号筛选值过长")
         if page < 1 or page > 2000:
             raise PilotError("分页超出试点范围")
         with connect(directory) as db:
@@ -337,5 +383,7 @@ def register_routes(api):
             if record is None:
                 raise PilotError("批次明细不存在", 404)
             rows = json.loads(record["details"])
+            if query:
+                rows = [row for row in rows if query in (row.get("orderNo"), row.get("ticketNo"))]
             start = (page - 1) * 25
             return ok({"items": rows[start:start + 25], "total": len(rows)})

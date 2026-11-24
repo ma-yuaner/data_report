@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Statistic } from 'ant-design-vue'
 import PageHeader from '@/components/PageHeader.vue'
+import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
 import { ApiError } from '@/api/http'
 import {
   airlineRebates, type RebateCondition, type RebateDailyPoint, type RebateDetailRow,
@@ -42,6 +43,7 @@ const progress = ref<RebateProgress>()
 const day = ref<RebateDailyPoint>()
 const detailRows = ref<RebateDetailRow[]>([])
 const detailPage = ref(1)
+const detailQuery = ref('')
 const detailTotal = ref(0)
 let listRequest: AbortController | undefined
 let drawerRequest: AbortController | undefined
@@ -65,7 +67,7 @@ const policyColumns = [
 const taskColumns = [
   { title: '任务 / 航司', key: 'name', width: 220 }, { title: '政策期', dataIndex: 'period', width: 170 },
   { title: '负责人', dataIndex: 'owner', width: 100 }, { title: '目标 / 累计完成', key: 'progress', width: 210 },
-  { title: '数据截至', key: 'asOf', width: 130 }, { title: '操作', key: 'action', width: 240 },
+  { title: '刷新与数据截至', key: 'asOf', width: 230 }, { title: '操作', key: 'action', width: 240 },
 ]
 const detailColumns = [
   { title: '订单号', dataIndex: 'orderNo', width: 180 }, { title: '航程', dataIndex: 'route', width: 170 },
@@ -80,11 +82,13 @@ const percent = (value: RebateNumber) => value == null ? '—' : number(value) +
 const displayValue = (value: RebateCondition['value']) => Array.isArray(value) ? value.join(', ') : String(value)
 const rateMatrix = computed(() => ruleGroups.value.filter(group => group.id.startsWith('tier-')).flatMap(group => {
   const value = (id: string) => group.conditions.find(condition => condition.id === id)?.value
+  const groups = ruleGroups.value.find(rule => rule.id === 'routes')?.conditions
   const upper = value('maximum')
   const lower = Number(value('minimum')) / 10_000
   const threshold = upper ? `${lower} < T ≤ ${Number(upper) / 10_000}` : `T > ${lower}`
   return ['group_a', 'group_b'].map((id, index) => ({
     id: group.id + '-' + id, threshold, cabin: index === 0 ? 'A 组' : 'B 组',
+    codes: groups?.find(condition => condition.id === id)?.value ?? '',
     rates: (value(id) as string[] | undefined) ?? [],
     sourceText: group.conditions.find(condition => condition.id === id)?.sourceText,
   }))
@@ -187,7 +191,11 @@ async function confirmPolicy() {
   drawerError.value = ''
   try {
     const confirmed = await airlineRebates.confirmPolicy(item.id)
-    if (activePolicy.value?.id === item.id) activePolicy.value = confirmed
+    if (activePolicy.value?.id === item.id) {
+      activePolicy.value = confirmed
+      saving.value = false
+      await router.push({ name: 'airline-rebate-tasks', query: { policy: confirmed.id } })
+    }
     void load()
   } catch (error) { drawerError.value = explain(error) }
   finally { saving.value = false }
@@ -296,12 +304,13 @@ async function save() {
 function showDay(point: RebateDailyPoint, page = 1) {
   const item = task.value
   if (!item) return
+  if (day.value?.id !== point.id) detailQuery.value = ''
   day.value = point
   detailPage.value = page
   detailRows.value = []
   detailTotal.value = 0
   void loadDrawer(async signal => {
-    const rows = await airlineRebates.details(item.id, point.id, page, signal)
+    const rows = await airlineRebates.details(item.id, point.id, page, signal, detailQuery.value.trim())
     if (!signal.aborted) { detailRows.value = rows.items; detailTotal.value = rows.total }
   })
 }
@@ -347,15 +356,21 @@ function backToProgress() {
       </a-card>
     </template>
     <a-card v-else title="航司后返任务" class="section">
-      <a-table :data-source="tasks" :columns="taskColumns" :loading="loading" row-key="id" :scroll="{ x: 1070 }">
+      <a-table :data-source="tasks" :columns="taskColumns" :loading="loading" row-key="id" :scroll="{ x: 1190 }">
         <template #emptyText><a-empty :description="listError ? '任务暂不可用' : '暂无后返任务'" /></template>
         <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'name'"><strong>{{ record.name }}</strong><div class="muted">{{ record.airline }} · {{ record.id }}</div></template>
+          <template v-if="column.key === 'name'"><strong>{{ record.name }}</strong><div class="muted">{{ record.airline }} · {{ record.policyName }}</div></template>
           <template v-else-if="column.key === 'progress'">
             <div>{{ money(record.target, record.currency) }} / {{ money(record.actual, record.currency) }}</div>
+            <a-tag v-if="record.tier">{{ record.tier }}</a-tag>
             <span class="muted">{{ record.completionRate == null ? '待产出' : '完成率 ' + percent(record.completionRate) }}</span>
           </template>
-          <span v-else-if="column.key === 'asOf'">{{ record.dataAsOf || '—' }}</span>
+          <template v-else-if="column.key === 'asOf'">
+            <div>{{ record.dataAsOf || '—' }}</div>
+            <div v-if="record.refreshedAt" class="muted">{{ formatDateTimeDisplay(record.refreshedAt) }}</div>
+            <a-tag v-if="record.refreshStatus === 'failed'" color="warning">刷新失败 · 保留最近结果</a-tag>
+            <span v-else-if="record.refreshMode" class="muted">{{ record.refreshMode === 'scheduled' ? '定时刷新' : '手动刷新' }}</span>
+          </template>
           <a-space v-else-if="column.key === 'action'" :size="0" wrap>
             <a-button type="link" @click="openTask(record, 'details')">详情</a-button>
             <a-button type="link" @click="openTask(record, 'analysis')">分析此项</a-button>
@@ -398,7 +413,9 @@ function backToProgress() {
             <h3>航线奖励费率 <small class="muted">· 第 2 页 · 累计收入单位为万 HKD</small></h3>
             <a-table :data-source="rateMatrix" row-key="id" :pagination="false" size="small" :scroll="{ x: 780 }">
               <a-table-column title="累计收入档位" data-index="threshold" />
-              <a-table-column title="舱位组" data-index="cabin" />
+              <a-table-column title="舱位组" :width="190">
+                <template #default="{ record }">{{ record.cabin }}<div class="muted">{{ displayValue(record.codes) }}</div></template>
+              </a-table-column>
               <template #expandedRowRender="{ record }"><p v-if="record.sourceText" class="muted">{{ record.sourceText }}</p></template>
               <a-table-column v-for="(label, index) in rebateRouteLabels" :key="label" :title="label">
                 <template #default="{ record }">{{ record.rates[index] == null ? '—' : record.rates[index] + '%' }}</template>
@@ -425,8 +442,8 @@ function backToProgress() {
             </a-table>
           </section>
           <a-space v-if="drawer === 'policy' && activePolicy && !activePolicy.confirmed && ruleGroups.length && canManage" wrap>
-            <a-checkbox v-model:checked="confirmedCheck">已核对 PDF 原文与规则</a-checkbox>
-            <a-button type="primary" :loading="saving" :disabled="!confirmedCheck" @click="confirmPolicy">确认解析结果</a-button>
+            <a-checkbox v-model:checked="confirmedCheck">已核对合同原文、费率及宽表字段映射</a-checkbox>
+            <a-button type="primary" :loading="saving" :disabled="!confirmedCheck" @click="confirmPolicy">确认并前往任务管理</a-button>
           </a-space>
           <a-form v-if="drawer === 'edit' && currentVersion" layout="vertical">
             <a-form-item label="修改说明" required><a-input v-model:value="reason" /></a-form-item>
@@ -440,6 +457,8 @@ function backToProgress() {
               <a-button @click="backToProgress">返回任务进度</a-button>
               <a-breadcrumb><a-breadcrumb-item>分析此项</a-breadcrumb-item><a-breadcrumb-item>{{ day.date }}</a-breadcrumb-item><a-breadcrumb-item>每日明细</a-breadcrumb-item></a-breadcrumb>
               <a-tag>规则 V{{ day.version }}</a-tag>
+              <a-input-search v-model:value="detailQuery" aria-label="按订单号或票号查找当日明细" placeholder="订单号或票号（完全匹配）"
+                :maxlength="80" allow-clear style="width: 260px" @search="day && showDay(day)" />
             </a-space>
             <a-table :data-source="detailRows" :columns="detailColumns" :pagination="false" row-key="id" :scroll="{ x: 1320 }">
               <template #expandedRowRender="{ record }">
@@ -489,7 +508,7 @@ function backToProgress() {
                 <template #default="{ record }">{{ money(record.estimatedReward, task?.currency) }}</template>
               </a-table-column>
             </a-table>
-            <p class="muted section">最近更新 {{ statusText[progress.status] }} · 数据截至 {{ progress.dataAsOf || '—' }} · {{ progress.version == null ? '规则版本待产出' : '规则 V' + progress.version }}</p>
+            <p class="muted section">最近更新 {{ statusText[progress.status] }}<template v-if="progress.refreshedAt"> · {{ progress.refreshMode === 'scheduled' ? '定时刷新' : '手动刷新' }} {{ formatDateTimeDisplay(progress.refreshedAt) }}</template> · 数据截至 {{ progress.dataAsOf || '—' }} · {{ progress.version == null ? '规则版本待产出' : '规则 V' + progress.version }}</p>
             <a-list header="每日累计进度" :data-source="progress.daily">
               <template #renderItem="{ item }"><a-list-item>
                 <a-space wrap>{{ item.date }} <strong>{{ money(item.actual, task?.currency) }}</strong><a-tag>{{ percent(item.completionRate) }}</a-tag><span class="muted">V{{ item.version }}</span></a-space>
