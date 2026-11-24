@@ -1,6 +1,7 @@
 import { http, type ApiEnvelope } from './http'
 
-export type PlacementTaskStatus = 'DRAFT' | 'PENDING_DATA_REVIEW' | 'PENDING_POLICY_REVIEW' | 'CLAIMABLE' | 'IN_PROGRESS' | 'MONITORING' | 'FAILED' | 'REJECTED' | 'CLOSED' | 'ENDED'
+export type PlacementTaskStatus = 'DRAFT' | 'PENDING_DATA_REVIEW' | 'PENDING_POLICY_REVIEW' | 'CLAIMABLE' | 'IN_PROGRESS' | 'MONITORING' | 'FAILED' | 'REJECTED' | 'CLOSED' | 'ENDED' | 'PENDING_RECALL_REVIEW' | 'PENDING_RECALL' | 'RECALLED'
+export type PlacementRecallAction = 'request' | 'approve' | 'reject' | 'confirm'
 export type PlacementPriority = 'HIGH' | 'MEDIUM' | 'LOW'
 export type PlacementLocationType = 'AIRPORT' | 'CITY' | 'COUNTRY' | 'LEGACY'
 
@@ -42,6 +43,7 @@ export interface PlacementTaskRow {
   createdAt: string
   updatedAt: string
   versionNo: number
+  recallReviewerId?: number | null
 }
 
 export type PlacementTask = PlacementTaskRow & Record<string, string | number | boolean | null>
@@ -67,6 +69,8 @@ export interface PlacementTaskList {
   page: number
   pageSize: number
   filterOptions?: { platforms: string[]; airlines: string[] }
+  workCounts?: Record<string, number>
+  hasAssignedRecall?: boolean
 }
 
 export interface PlacementTaskDetail {
@@ -296,6 +300,12 @@ export interface PlacementOrderList {
 
 export async function fetchPlacementTasks(params: Record<string, string | number>) {
   const response = await http.get<ApiEnvelope<PlacementTaskList>>('/v1/smart-placement/tasks', { params })
+  if (!response.data.success) throw new Error(response.data.message)
+  return response.data.data
+}
+
+export async function recallPlacementPolicy(id: number, action: PlacementRecallAction, reason: string, versionNo: number) {
+  const response = await http.post<ApiEnvelope<{ id: number; status: PlacementTaskStatus }>>(`/v1/smart-placement/tasks/${id}/recall`, { action, reason, versionNo })
   if (!response.data.success) throw new Error(response.data.message)
   return response.data.data
 }
