@@ -72,41 +72,78 @@ def policy_data(row):
 def rule_cards(policy):
     def card(identifier, name, page, conditions):
         return {"id": identifier, "name": name, "sourcePage": f"第 {page} 页", "conditions": [
-            {"id": key, "fieldLabel": label, "operator": op, "value": value}
-            for key, label, op, value in conditions
+            {"id": key, "fieldLabel": label, "operator": op, "value": value, "mapping": mapping}
+            for key, label, op, value, mapping in conditions
         ]}
+
+    route_points = "试算：segment_airport 与机场字典 airport_code、country_code。"
+    regional = "试算：dep_airport、arr_airport 与地区机场名单匹配。待核：联程、来回程、缺口程的逐段匹配。"
+    cabin = "试算：segment_real_cabin（整票聚合）。待核：票联实际舱位及票联金额。"
+    cumulative = "试算：累计符合计量条件的 issue_ticket_price（issue_currency = HKD）。待核：票联净承运收入。"
+    rate = "政策常量。试算按航线类别及 segment_real_cabin 判定费率组，乘相应 HKD 票面价。"
     return [
         card("eligibility", "适用与计量", 1, [
-            ("period", "承运期间", "eq", [policy["flownStart"], policy["flownEnd"]]),
-            ("stock", "票证前三位", "eq", policy["ticketPrefix"]),
-            ("carrier", "实际承运航司", "in", policy["carriers"]),
-            ("exception", "KN 例外", "eq", policy["carrierException"]),
-            ("excluded", "不计量不计奖舱位", "not_in", policy["excludedCabins"]),
-            ("other_excluded", "其他排除", "not_in", policy["exclude"]),
-            ("measure_only", "计量不计奖舱位", "in", policy["measureOnlyCabins"]),
-            ("measure_clients", "计量不计奖客户", "in", policy["measureOnly"]),
-            ("origin", "换开始发口径", "eq", policy["originBasis"]),
+            ("period", "航段实际承运日", "between", [policy["flownStart"], policy["flownEnd"]],
+             "试算：first_dep_time（首段计划起飞日，整票）。待核：东航结算票联实际承运日，跨期客票逐段归期。"),
+            ("issue_date", "出票日期", "unrestricted", "原政策未设出票日期窗口",
+             "试算：issue_ticket_time 筛 2025-07-01 至 2026-09-30（含首尾）。用于试点取数和回补，政策资格无此条件。"),
+            ("agency", "适用代理人", "in", "香港营业部所辖指定代理人",
+             "试算：supplier_code = HK_NGCHOW。待核：指定代理 IATA 名单与东航结算的代理明细。"),
+            ("stock", "票证前三位", "eq", policy["ticketPrefix"],
+             "试算及政策匹配：issue_ticket_no 前三位。"),
+            ("scope", "适用客票航程", "applies", "含国际或地区航线的单程、来回程、缺口程，可包含票内中国大陆段",
+             "试算：segment_airport、dep_airport、arr_airport 与机场国家字典。待核：票联航程和航段顺序。"),
+            ("carrier", "实际承运航司", "in", policy["carriers"],
+             "试算：marketing_airline 仅筛销售航司 MU/FM。待核：出票航段明细 operating_airline，与销售系统或结算样票对照。"),
+            ("exception", "KN 例外", "all", ["实际承运分公司归属为 KN", "销售系统显示实际承运方为 MU/FM"],
+             "试算未执行。待核：分公司归属字段及销售系统实际承运方字段，须分别取证。"),
+            ("excluded", "不计量不计奖舱位", "not_in", policy["excludedCabins"], cabin),
+            ("charter", "不计量不计奖航班", "not_in", ["包机", "包收入航班"],
+             "试算：issue_price_type_desc 文本包含包机或包收入。待核：业务确认的航班分类。"),
+            ("infant", "不计量不计奖旅客", "not_in", "婴儿票",
+             "试算：real_age_type_desc 匹配婴儿或 INF。待核：源字段取值覆盖。"),
+            ("domestic", "不计量不计奖客票", "not_in", "纯内地客票",
+             "试算：dep_airport、segment_airport 与机场国家字典判定。待核：整票完整航程。"),
+            ("non_operated", "不计量不计奖航段", "not_in", "共享或外航联运中非东上航实际承运航段",
+             "试算未逐段排除。待核：航段明细 operating_airline、code_share 和实际承运票联。"),
+            ("measure_only", "计量不计奖舱位", "in", policy["measureOnlyCabins"], cabin),
+            ("measure_clients", "计量不计奖客户", "in", policy["measureOnly"],
+             "试算：issue_price_type_desc 文本包含集团。待核：集团客户分类及票联收入。"),
+            ("origin", "换开始发与销量", "applies",
+             "代理人换开追溯旧票始发。东上航直属售票处或客服中心非自愿换开，销量还原并追溯旧票始发",
+             "试算：refund_issue_flag、issue_ticket_no_status、refund_flag_desc 识别退废及换开并分类。待核：新旧票关联、换开渠道、非自愿标识及旧票航程。"),
         ]),
         card("routes", "航线及舱位分组", 2, [
-            ("long", "远程经停或目的国家", "in", policy["longHaul"]),
-            ("short", "非远程经停或目的国家", "in", policy["shortHaul"]),
-            ("hkg_non", "香港非指定机场", "in", policy["regionalNonDesignated"]["HKG"]),
-            ("mfm_non", "澳门非指定机场", "in", policy["regionalNonDesignated"]["MFM"]),
-            ("hkg_designated", "香港指定机场", "in", policy["regionalDesignated"]["HKG"]),
-            ("group_a", "费率 A 组舱位", "in", policy["cabinGroups"][0]),
-            ("group_b", "费率 B 组舱位", "in", policy["cabinGroups"][1]),
+            ("long", "港澳始发远程经停或目的国家", "in", policy["longHaul"], route_points),
+            ("short", "港澳始发非远程经停或目的国家", "in", policy["shortHaul"],
+             route_points + "先判远程。政策要求全航程无远程点。"),
+            ("hkg_non", "香港非指定机场", "in", policy["regionalNonDesignated"]["HKG"], regional),
+            ("mfm_non", "澳门非指定机场", "in", policy["regionalNonDesignated"]["MFM"], regional),
+            ("hkg_designated", "香港指定机场", "in", policy["regionalDesignated"]["HKG"], regional),
+            ("other_origin", "异地始发", "applies", "非港澳始发、东上航实际承运的适用航线",
+             "试算：dep_airport 区分是否港澳始发。待核：逐段实际承运方。"),
+            ("group_a", "费率 A 组舱位", "in", policy["cabinGroups"][0], cabin),
+            ("group_b", "费率 B 组舱位", "in", policy["cabinGroups"][1], cabin),
         ]),
         *[card(f"tier-{item['lowerExclusive']}", "承运收入奖励档位 · HKD", 2, [
-            ("minimum", "累计收入下限", "gt", item["lowerExclusive"]),
-            *([("maximum", "累计收入上限", "lte", item["upperInclusive"])] if item["upperInclusive"] else []),
-            ("basis", "列序", "eq", ["远程", "非远程", "非指定", "指定", "异地始发"]),
-            ("group_a", "A 组费率（%）", "eq", item["ratesPercent"]["groupA"]),
-            ("group_b", "B 组费率（%）", "eq", item["ratesPercent"]["groupB"]),
+            ("minimum", "累计收入下限", "gt", item["lowerExclusive"], cumulative),
+            *([("maximum", "累计收入上限", "lte", item["upperInclusive"], cumulative)] if item["upperInclusive"] else []),
+            ("basis", "费率对应航线列序", "eq", ["远程", "非远程", "非指定", "指定", "异地始发"],
+             "政策常量。按此顺序读取 A、B 组费率。"),
+            ("group_a", "A 组费率（%）", "eq", item["ratesPercent"]["groupA"], rate),
+            ("group_b", "B 组费率（%）", "eq", item["ratesPercent"]["groupB"], rate),
         ]) for item in reversed(policy["tiers"])],
-        card("settlement", "结算与试算边界", 3, [
-            ("iata", "代理核定维度", "eq", policy["agencyBasis"]),
-            ("revenue", "政策计奖基数", "eq", policy["amountBasis"]),
-            ("trial", "宽表试算实际使用", "eq", "首段计划起飞日和 HKD 票面价，真实票联结算待核"),
+        card("settlement", "计奖、发放与结算", 3, [
+            ("iata", "代理核定维度", "eq", "东航代理人明细中的 IATA 号",
+             "试算按固定供应商汇总。待核：东航结算 IATA，可与出票航段明细 issuing_iata 对账。"),
+            ("revenue", "政策计奖基数", "applies", "不含税费及基础代理费的计奖运输收入净额，分别乘对应费率后求和",
+             "试算：issue_ticket_price、issue_currency。待核：东航结算票联净承运收入，票价、税费及佣金列供对账。"),
+            ("rounding", "结算资料及取整", "applies", "以东航收入结算部运输收入资料为准，港币四舍五入进整",
+             "待核：东航结算数据及取整层级。试算未执行结算取整。"),
+            ("payment", "奖励发放", "applies", "东航实际承运的运输收入奖励费按结算周期一并发放",
+             "用途：结算发放。待核：航司结算周期和发放记录，试算无对应宽表字段。"),
+            ("evaluation", "跨期评估", "applies", "连续两个奖励期未达到阶梯目标，从奖励政策范围中剔除",
+             "用途：代理资格管理。待核：代理 IATA、连续奖励期及各期目标达成记录。"),
         ]),
     ]
 

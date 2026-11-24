@@ -11,7 +11,7 @@
     "backend/data_report_api/api/__init__.py": "46f5dff73908c4739669923f2ca10db89b0e3aa9e8ca5e12dfbfb4a6fc5f7222",
     "backend/data_report_api/api/adm_parsing.py": "8d67f45d610683039deea1700b3f6f60863275fa3bed2d1fcc654bbc5ae763b6",
     "backend/data_report_api/api/admwf.py": "86d6e3d88191e0e1332d12523485e924a033e63c82c0d11e7f8dad0b13214049",
-    "backend/data_report_api/api/airline_rebates.py": "48717e51d646c488693f82f2b16f6bf1f2c21fbb2523a86484addc005a0e391e",
+    "backend/data_report_api/api/airline_rebates.py": "a02720f9363e5f3d34b4315d09fcb67fc2d7eacfa14dcbfeedfd28be91cc3090",
     "backend/data_report_api/api/analysis.py": "4ad1496b0344aa12a81ea3a37f16d1098a66e718db892eea279d5d505bd1d30a",
     "backend/data_report_api/api/annotations.py": "a7dc4c623c2cedb6c487b340cad7ccdc99fe7420e7a8502bc7f1e190c224a87d",
     "backend/data_report_api/api/asset_inventory.py": "d4eec34d3e6932a95785d8a51cb34cad8a14e4e70a0608f7c975ef7f47f45717",
@@ -229,6 +229,7 @@
     "Change SLA: honor existing authenticated system administrators in addition to active customer service managers; reject menu-only and unauthenticated access",
     "Change SLA: authenticated read-only batch snapshots and revision-checked platform configuration, isolated SQLite storage, no ERP writes or startup jobs",
     "Change SLA: read published facts and coverage in one read-only BI transaction; keep SQLite only for explicitly configured isolated checks",
-    "Data annotation: authenticated request-only routes, separate store and file namespace, no import-time DDL, model calls, worker start, workflow writes or external messaging."
+    "Data annotation: authenticated request-only routes, separate store and file namespace, no import-time DDL, model calls, worker start, workflow writes or external messaging.",
+    "HKG26003 rule-card presentation and field mappings only, no changes to startup, authorization, storage or trial calculation."
   ]
 }

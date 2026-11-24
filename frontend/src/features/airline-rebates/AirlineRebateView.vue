@@ -78,7 +78,13 @@ const number = (value: number | string) => Number(value).toLocaleString('zh-CN',
 const money = (value: RebateNumber, currency = '') => value == null ? '—' : [currency, number(value)].filter(Boolean).join(' ')
 const percent = (value: RebateNumber) => value == null ? '—' : number(value) + '%'
 const displayValue = (value: RebateCondition['value']) => Array.isArray(value) ? value.join(', ') : String(value)
-const operatorLabel = (code: string) => operators.find(item => item.value === code)?.label ?? code
+const policyOperatorLabels: Record<string, string> = {
+  between: '介于（含首尾）',
+  unrestricted: '不限',
+  all: '同时满足',
+  applies: '按政策执行',
+}
+const operatorLabel = (code: string) => policyOperatorLabels[code] ?? operators.find(item => item.value === code)?.label ?? code
 
 function explain(error: unknown) {
   if (error instanceof ApiError && [404, 501, 503].includes(error.status ?? 0)) return '航司后返服务尚未接通或暂不可用。'
@@ -378,7 +384,7 @@ function backToProgress() {
           <a-empty v-if="!drawerBusy && !drawerError && !ruleGroups.length" description="暂无规则" />
           <section v-for="group in ruleGroups" :key="group.id" class="section rule-group">
             <h3>{{ group.name }} <small v-if="group.sourcePage" class="muted">· {{ group.sourcePage }}</small></h3>
-            <a-table :data-source="group.conditions" row-key="id" :pagination="false" size="small" :scroll="{ x: 650 }">
+            <a-table :data-source="group.conditions" row-key="id" :pagination="false" size="small" :scroll="{ x: 845 }">
               <a-table-column title="字段" data-index="fieldLabel" :width="155" />
               <a-table-column title="运算符" :width="145">
                 <template #default="{ record }">
@@ -392,7 +398,7 @@ function backToProgress() {
                   <template v-else>{{ displayValue(record.value) }}<div v-if="drawer === 'details' && preceding(group, record)" class="muted">上版 {{ preceding(group, record) }}</div></template>
                 </template>
               </a-table-column>
-              <a-table-column title="宽表来源或用途" data-index="mapping" :width="215" />
+              <a-table-column title="宽表来源或用途" data-index="mapping" :width="310" />
             </a-table>
           </section>
           <a-space v-if="drawer === 'policy' && activePolicy && !activePolicy.confirmed && ruleGroups.length && canManage" wrap>
