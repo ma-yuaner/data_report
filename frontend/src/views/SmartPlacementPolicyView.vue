@@ -33,7 +33,9 @@
     <a-card :bordered="false" class="panel-card">
       <div class="work-toolbar">
         <div class="work-tabs">
-          <button v-for="item in workScopeOptions" :key="item.value" type="button" class="work-tab" :class="{ active: workScope === item.value }" @click="selectWorkScope(item.value)">{{ item.label }}</button>
+          <a-badge v-for="item in workScopeOptions" :key="item.value" class="work-tab-badge" :count="data?.workCounts?.[item.value] || 0" :show-zero="false" size="small">
+            <button type="button" class="work-tab" :class="{ active: workScope === item.value }" @click="selectWorkScope(item.value)">{{ item.label }}</button>
+          </a-badge>
         </div>
         <div class="filter-bar">
         <a-input v-model:value="filters.keyword" allow-clear placeholder="任务编号、机会名称、航司或航线" @press-enter="queryPolicies" />
@@ -53,7 +55,7 @@
         <div><strong>已选择 {{ selectedPolicyRows.length }} 条已投放政策</strong><span>选择需要修改的字段，逐条预览后整批确认；不自动下发外部系统。</span></div>
         <a-space><a-button @click="clearReviewSelection">清空选择</a-button><a-button type="primary" @click="openPolicyChange(selectedPolicyRows)">批量修改</a-button></a-space>
       </div>
-      <a-table :loading="loading" :columns="columns" :data-source="data?.rows || []" row-key="id" :row-selection="reviewRowSelection" :pagination="pagination" :scroll="{ x: 1500 }" @change="changePage">
+      <a-table :loading="loading" :columns="columns" :data-source="data?.rows || []" row-key="id" :row-selection="reviewRowSelection" :pagination="pagination" :scroll="{ x: 1500 }" :sticky="{ offsetHeader: 64 }" @change="changePage">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'opportunity'">
             <button class="task-link" type="button" @click="openDetail(record)"><strong>{{ record.opportunityName }}</strong><small>{{ record.taskNo }}</small></button>
@@ -76,7 +78,7 @@
           <template v-else-if="column.key === 'owner'">{{ record.currentAssigneeName || '—' }}</template>
           <template v-else-if="column.key === 'due'">{{ displayTime(record.expectedCompleteAt) }}</template>
           <template v-else-if="column.key === 'action'">
-            <a-space>
+            <a-space wrap>
               <a-button type="link" size="small" @click="openDetail(record)">详情</a-button>
               <a-button v-if="canCreate" type="link" size="small" @click="openCopy(record)">复制</a-button>
               <a-button v-if="canEditApproved(record)" type="link" size="small" @click="openEdit(record, true)">编辑</a-button>
@@ -84,6 +86,9 @@
               <a-button v-if="canChangePolicy(record)" type="link" size="small" @click="openPolicyChange([record])">修改已投放</a-button>
               <a-button v-if="canWithdraw(record)" type="link" size="small" @click="confirmWithdraw(record)">撤回修改</a-button>
               <a-button v-if="isReviewable(record)" type="link" size="small" @click="openReview(record)">审核</a-button>
+              <a-button v-if="workScope === 'all' && canChangePolicy(record) && record.currentAssigneeId" type="link" danger size="small" @click="openRecall(record, 'request')">收回政策</a-button>
+              <a-button v-if="workScope === 'review' && canReviewRecall(record)" type="link" size="small" @click="openRecall(record, 'review')">审核收回</a-button>
+              <a-button v-if="workScope === 'recall' && canConfirmRecall(record)" type="link" size="small" @click="openRecall(record, 'confirm')">已确认收回</a-button>
               <a-button v-if="canClaim(record)" type="link" size="small" @click="openClaim(record)">认领</a-button>
               <a-button v-if="canExecute(record)" type="link" size="small" @click="openExecution(record)">登记投放</a-button>
               <a-button v-if="record.status === 'MONITORING'" type="link" size="small" @click="router.push('/smart-analysis/placement/orders')">查看收单</a-button>
@@ -92,7 +97,7 @@
             </a-space>
           </template>
         </template>
-        <template #emptyText><a-empty :description="error || '当前条件没有投放任务'" /></template>
+        <template #emptyText><a-empty :description="error || (workScope === 'recall' ? '当前条件下没有需要你确认收回的政策。收回申请通过审核后，会出现在原认领人的待收回列表。' : '当前条件没有投放任务')" /></template>
       </a-table>
     </a-card>
 
@@ -262,6 +267,26 @@
       <div class="dialog-actions"><a-button @click="effectReviewOpen=false">取消</a-button><a-button type="primary" :loading="saving" @click="submitEffectReview">保存复盘</a-button></div>
     </a-modal>
 
+    <a-modal :open="!!recallDialog" :title="recallTitle" :footer="null" :mask-closable="false" :closable="!recallSaving" @cancel="closeRecall">
+      <template v-if="recallDialog">
+        <p>{{ recallDialog.row.opportunityName }}（{{ recallDialog.row.taskNo }}）</p>
+        <a-spin :spinning="recallLoading">
+          <p v-if="recallDialog.mode !== 'request'"><strong>收回理由：</strong>{{ recallReason }}</p>
+          <PlacementField v-if="recallDialog.mode === 'request'" label="收回理由" required><a-textarea v-model:value="recallNote" :rows="4" :maxlength="1000" show-count /></PlacementField>
+          <PlacementField v-if="recallDialog.mode === 'review'" label="审核意见" hint="驳回时必填"><a-textarea v-model:value="recallNote" :rows="3" :maxlength="1000" show-count /></PlacementField>
+          <p v-if="recallDialog.mode === 'confirm'">请确认已收回外部政策。确认后停止本系统的后续订单匹配，并记录确认人及时间。</p>
+        </a-spin>
+        <div class="dialog-actions">
+          <a-button :disabled="recallSaving" @click="closeRecall">取消</a-button>
+          <template v-if="recallDialog.mode === 'review'">
+            <a-button danger :disabled="recallLoading || recallSaving || !recallReason" @click="submitRecall('reject')">驳回</a-button>
+            <a-button type="primary" :disabled="recallLoading || !recallReason" :loading="recallSaving" @click="submitRecall('approve')">审核通过</a-button>
+          </template>
+          <a-button v-else type="primary" :loading="recallSaving" :disabled="recallLoading || (recallDialog.mode === 'confirm' && !recallReason)" @click="submitRecall(recallDialog.mode)">{{ recallDialog.mode === 'request' ? '提交审核' : '已确认收回' }}</a-button>
+        </div>
+      </template>
+    </a-modal>
+
     <a-drawer v-model:open="detailOpen" title="投放任务详情" :width="'min(1060px, 100vw)'" class="placement-detail-drawer">
       <a-spin :spinning="detailLoading">
         <template v-if="detail">
@@ -326,7 +351,7 @@
               <a-empty v-if="!detail.reviews.length" description="暂无审核记录" />
               <div v-else class="record-list">
                 <article v-for="review in detail.reviews" :key="review.id" class="record-card">
-                  <header><div><strong>{{ reviewStageLabel(review.reviewStage) }}</strong><span>{{ review.reviewerName }} · {{ displayTime(review.createdAt) }}</span></div><a-tag :color="reviewResultMeta(review.reviewResult).color">{{ reviewResultMeta(review.reviewResult).label }}</a-tag></header>
+                  <header><div><strong>{{ reviewStageLabel(review.reviewStage) }}</strong><span>{{ review.reviewerName }} · {{ displayTime(review.createdAt) }}</span></div><a-tag :color="reviewResultMeta(review.reviewResult).color">{{ review.reviewStage === 'RECALL_POLICY' && review.reviewResult === 'REJECTED' ? '驳回收回' : reviewResultMeta(review.reviewResult).label }}</a-tag></header>
                   <div class="record-grid">
                     <span v-if="review.reviewStage === 'POLICY_MANAGER'">可执行性：{{ executableLabel(review.policyExecutableLevel) }}</span><span v-if="review.reviewStage === 'POLICY_MANAGER'">风险等级：{{ priorityDisplay(review.riskLevel).label }}</span><span v-if="review.adjustedPriority">调整优先级：{{ priorityDisplay(review.adjustedPriority).label }}</span>
                   </div>
@@ -342,7 +367,7 @@
                   <div v-if="execution.executionResult === 'SUCCESS'" class="record-grid"><span>政策 ID：{{ execution.externalPolicyId }}</span><span>政策名称：{{ valueOrDash(execution.externalPolicyName) }}</span><span>实际投放：{{ displayTime(execution.actualPlacementAt) }}</span><span>政策有效期：{{ displayTime(execution.effectiveStartAt) }} 至 {{ yesNo(execution.longTermFlag) === '是' ? '长期有效' : displayTime(execution.effectiveEndAt) }}</span><span>平台/站点：{{ execution.platformName }} / {{ valueOrDash(execution.siteName, '全部站点') }}</span><span>订单来源：{{ orderSourceLabel(execution.orderSource) }}</span><span>航司/航线：{{ execution.airlineCode }} / {{ routeName(execution) }}</span><span>航段类型：{{ segmentTypeLabel(execution.segmentType) }}</span><span>亏损阈值：{{ lossThreshold(execution.lossThresholdMin, execution.lossThresholdMax) }}</span></div>
                   <div v-else class="record-grid"><span>失败类型：{{ execution.failureType }}</span><span>重新执行：{{ yesNo(execution.retryRequired) }}</span><span v-if="execution.nextHandleAt">下次处理：{{ displayTime(execution.nextHandleAt) }}</span></div>
                   <div v-if="execution.executionResult === 'SUCCESS'" class="record-grid"><span>当前登记包含舱位：{{ valueOrDash(execution.includeCabins, '不限') }}</span><span>当前登记排除舱位：{{ valueOrDash(execution.excludeCabins, '无') }}</span></div>
-                  <p v-if="execution.executionResult === 'SUCCESS'" class="text-muted">后续配置变更的原值、新值及实际修改时间见流转日志。</p>
+                  <p v-if="execution.executionResult === 'SUCCESS'" class="text-muted">后续配置变更的原值、新值及实际修改时间见全流程操作日志。</p>
                   <p><b>{{ execution.executionResult === 'SUCCESS' ? '执行说明' : '失败原因' }}：</b>{{ valueOrDash(execution.executionResult === 'SUCCESS' ? execution.executionNote : execution.failureReason, '无') }}</p>
                 </article>
               </div>
@@ -394,8 +419,15 @@
                 <div class="record-list"><article v-for="review in detail.effectReviews" :key="review.id" class="record-card"><header><div><strong>{{ effectReviewLabel(review.reviewResult) }}</strong><span>{{ review.reviewerName }} · {{ displayTime(review.createdAt) }}</span></div></header><p><b>复盘结论：</b>{{ review.reviewConclusion }}</p><p v-if="review.nextAction"><b>下一步：</b>{{ review.nextAction }}</p></article></div>
               </section>
             </a-tab-pane>
-            <a-tab-pane key="logs" :tab="`流转日志（${detail.logs.length}）`">
-              <a-timeline :items="detail.logs.map(log => ({ color: log.toStatus === 'REJECTED' || log.toStatus === 'FAILED' ? 'red' : 'blue', children: `${displayTime(log.createdAt)} · ${log.operatorName} · ${actionLabel(log.actionCode)} · ${log.operationNote || ''}` }))" />
+            <a-tab-pane key="logs" :tab="`全流程操作日志（${detail.logs.length}）`">
+              <a-empty v-if="!detail.logs.length" description="暂无操作日志" />
+              <a-timeline v-else>
+                <a-timeline-item v-for="log in detail.logs" :key="log.id" :color="['REJECTED', 'FAILED'].includes(log.toStatus || '') || log.actionCode === 'RECALL_REJECT' ? 'red' : 'blue'">
+                  <strong>{{ actionLabel(log.actionCode) }}</strong> · {{ log.operatorName }} · {{ displayTime(log.createdAt) }}
+                  <div v-if="log.fromStatus !== log.toStatus">{{ statusDisplay(log.fromStatus).label }} → {{ statusDisplay(log.toStatus).label }}</div>
+                  <div v-if="log.operationNote">{{ operationNote(log.operationNote) }}</div>
+                </a-timeline-item>
+              </a-timeline>
               <details v-for="log in detail.logs.filter(item => item.actionCode === 'APPROVED_EDIT' || item.actionCode.startsWith('POLICY_CHANGE_'))" :key="log.id" class="record-card">
                 <summary>{{ displayTime(log.createdAt) }} · {{ log.operatorName }} · {{ actionLabel(log.actionCode) }}（展开原值/新值）</summary>
                 <pre class="policy-change-log">{{ policyChangeLog(log.detailJson) }}</pre>
@@ -442,9 +474,9 @@ import OpportunityImportDialog from '@/components/OpportunityImportDialog.vue'
 import PlacementRouteDiagnosis from '@/components/PlacementRouteDiagnosis.vue'
 import {
   batchReviewPlacementTasks, cancelPlacementTask, claimPlacementTask, createPlacementEffectReview, createPlacementTask, deletePlacementTask, executePlacementTask, fetchPlacementTask, fetchPlacementTaskMonitoring,
-  fetchPlacementDimensions, fetchPlacementTasks, reviewPlacementTask, updatePlacementTask,
+  fetchPlacementDimensions, fetchPlacementTasks, recallPlacementPolicy, reviewPlacementTask, updatePlacementTask,
   stopPlacementMonitoring, withdrawPlacementTask,
-  type PlacementDimensionOptions, type PlacementPriority,
+  type PlacementDimensionOptions, type PlacementPriority, type PlacementRecallAction,
   type PlacementTaskDetail, type PlacementTaskInput, type PlacementTaskList, type PlacementTaskMonitoring,
   type PlacementTaskRow, type PlacementTaskStatus,
 } from '@/api/smartPlacement'
@@ -482,6 +514,13 @@ const approvedExecutionId = ref<number>()
 const approvedExecutionForm = ref<Record<string, any>>({})
 const editingVersion = ref<number>()
 const detail = ref<PlacementTaskDetail>()
+type RecallMode = 'request' | 'review' | 'confirm'
+const recallDialog = ref<{ row: PlacementTaskRow; mode: RecallMode }>()
+const recallNote = ref('')
+const recallReason = ref('')
+const recallLoading = ref(false)
+const recallSaving = ref(false)
+const recallTitle = computed(() => ({ request: '收回政策', review: '审核收回申请', confirm: '确认政策已收回' })[recallDialog.value?.mode || 'request'])
 const monitoring = ref<PlacementTaskMonitoring>()
 const activeTask = ref<PlacementTaskRow>()
 const selectedReviewTaskIds = ref<number[]>([])
@@ -502,13 +541,15 @@ const statusMeta: Record<PlacementTaskStatus, { label: string; color: string }> 
   IN_PROGRESS: { label: '执行中', color: 'processing' }, MONITORING: { label: '监控中', color: 'green' },
   FAILED: { label: '投放失败', color: 'red' }, REJECTED: { label: '已驳回', color: 'red' },
   CLOSED: { label: '已关闭', color: 'default' }, ENDED: { label: '已结束', color: 'default' },
+  PENDING_RECALL_REVIEW: { label: '收回待审核', color: 'gold' },
+  PENDING_RECALL: { label: '待收回', color: 'orange' }, RECALLED: { label: '已结束', color: 'default' },
 }
 const monitorStatusMeta: Record<string, { label: string; color: string }> = { ACTIVE: { label: '运行中', color: 'green' }, SCHEDULED: { label: '待生效', color: 'blue' }, PAUSED: { label: '已暂停', color: 'orange' }, EXPIRED: { label: '已过期', color: 'default' }, DISABLED: { label: '已停用', color: 'red' } }
 const canOpenMonitoringCenter = computed(() => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.menuCodes?.includes('monitor.center')))
 const priorityMeta: Record<PlacementPriority, { label: string; color: string }> = { HIGH: { label: '高', color: 'red' }, MEDIUM: { label: '中', color: 'orange' }, LOW: { label: '低', color: 'blue' } }
 const priorityDisplay = (value: unknown) => priorityMeta[String(value) as PlacementPriority] || { label: String(value || '—'), color: 'default' }
 const statusDisplay = (value: unknown) => statusMeta[String(value) as PlacementTaskStatus] || { label: String(value || '—'), color: 'default' }
-const statusFilterOptions = [{ label: '全部状态', value: '' }, ...Object.entries(statusMeta).map(([value, meta]) => ({ label: meta.label, value }))]
+const statusFilterOptions = [{ label: '全部状态', value: '' }, ...Object.entries(statusMeta).filter(([value]) => value !== 'RECALLED').map(([value, meta]) => ({ label: meta.label, value }))]
 const priorityOptions = Object.entries(priorityMeta).map(([value, meta]) => ({ value, label: meta.label }))
 const sourceOptions = [{ value: 'AUTO_ANALYSIS', label: '数据分析规则识别' }, { value: 'MANUAL', label: '人工发现' }, { value: 'MEETING', label: '会议要求' }]
 const journeyOptions = [{ value: 'ONE_WAY', label: '单程' }, { value: 'ROUND_TRIP', label: '往返' }, { value: 'MULTI_CITY', label: '多程' }]
@@ -541,7 +582,8 @@ const workScopeOptions = computed(() => {
   const options = [{ value: 'all', label: authStore.user?.isAdmin ? '全部任务' : '与我相关' }]
   if (canReviewData.value || canReviewPolicy.value) options.push({ value: 'review', label: '待我审核' })
   if (canClaimTasks.value) options.push({ value: 'claim', label: '可认领' })
-  if (canCreate.value || canEditTasks.value || canDeleteTasks.value || canWithdrawTasks.value || canExecuteTasks.value) options.push({ value: 'mine', label: '我的任务' })
+  if (canCreate.value || canEditTasks.value || canDeleteTasks.value || canWithdrawTasks.value || canExecuteTasks.value || data.value?.hasAssignedRecall) options.push({ value: 'mine', label: '我的任务' })
+  if (canClaimTasks.value || canExecuteTasks.value) options.push({ value: 'recall', label: '待收回' })
   return options
 })
 const flowSteps = [{ title: '分析入池', description: '保存并提交' }, { title: '数据审核', description: '确认口径价值' }, { title: '政策审核', description: '确认可执行性' }, { title: '政策认领', description: '明确负责人' }, { title: '完成投放', description: '登记政策 ID' }, { title: '订单匹配', description: '命中新订单' }, { title: '来单关注', description: '跟进处理' }]
@@ -604,7 +646,7 @@ const journeyLabel = (value: unknown) => journeyOptions.find(item => item.value 
 const segmentTypeLabel = (value: unknown) => segmentTypeOptions.find(item => item.value === value)?.label || valueOrDash(value, '不限')
 const journeySegmentLabel = (record?: Partial<PlacementTaskRow>) => `${journeyLabel(record?.journeyType)} - ${segmentTypeLabel(record?.segmentType)}`
 const executableLabel = (value: unknown) => executableOptions.find(item => item.value === value)?.label || valueOrDash(value)
-const reviewStageLabel = (value: unknown) => value === 'DATA_MANAGER' ? '数据部经理审核' : value === 'POLICY_MANAGER' ? '政策经理审核' : valueOrDash(value)
+const reviewStageLabel = (value: unknown) => ({ DATA_MANAGER: '数据部经理审核', POLICY_MANAGER: '政策经理审核', RECALL_POLICY: '收回审核' }[String(value)] || valueOrDash(value))
 const yesNo = (value: unknown) => value === true || value === 1 || value === '1' ? '是' : '否'
 const reviewResultMap: Record<string, { label: string; color: string }> = {
   APPROVED: { label: '通过', color: 'green' }, RETURNED: { label: '退回修改', color: 'orange' }, REJECTED: { label: '驳回终止', color: 'red' },
@@ -614,10 +656,13 @@ const actionLabelMap: Record<string, string> = {
   ASSESSMENT_EXCLUDE: '标记异常（不计考核）', ASSESSMENT_RESTORE: '恢复正常（计入考核）',
   POLICY_CHANGE_REQUESTED: '待人工外部执行（仅请求）', POLICY_CHANGE_APPLIED: '已线下处理·补登记实际配置',
   APPROVED_EDIT: '已审核机会修改（直接生效）',
+  RECALL_REQUEST: '发起收回申请', RECALL_APPROVE: '审核通过收回', RECALL_REJECT: '驳回收回申请', RECALL_CONFIRM: '确认已收回',
+  EFFECT_REVIEW: '登记效果复盘',
   CREATE: '保存草稿', UPDATE: '更新草稿', DELETE: '删除任务', WITHDRAW: '撤回修改', CANCEL: '作废任务', SUBMIT: '提交审核', RESUBMIT: '重新提交', REVIEW: '审核', CLAIM: '认领', EXECUTE: '登记投放', ATTENTION: '订单关注', STOP_MONITORING: '停止监控', STOP_MONITORING_CENTER: '从监控中心停止',
 }
 const reviewResultMeta = (value: unknown) => reviewResultMap[String(value)] || { label: valueOrDash(value), color: 'default' }
 const actionLabel = (value: unknown) => actionLabelMap[String(value)] || valueOrDash(value)
+const operationNote = (value: string) => reviewResultMap[value]?.label || executionResultOptions.find(item => item.value === value)?.label || value
 const approvedFieldLabels: Record<string, string> = { externalPolicyId: '外部政策ID', externalPolicyName: '外部政策名称', actualPlacementAt: '实际投放时间', effectiveStartAt: '政策生效时间', effectiveEndAt: '政策失效时间', placementChannel: '投放渠道', proofUrl: '投放凭证地址', executionNote: '执行说明', failureType: '失败类型', failureReason: '失败原因', nextHandleAt: '下次处理时间',"opportunityName": "机会名称", "opportunitySource": "机会来源", "analysisRuleCode": "分析规则编号", "analysisStartDate": "分析开始日期", "analysisEndDate": "分析结束日期", "platformCode": "平台编码", "platformName": "平台名称", "siteCode": "站点编码", "siteName": "站点名称", "airlineCode": "航司", "departureCode": "出发代码", "arrivalCode": "到达代码", "departureType": "出发类型", "arrivalType": "到达类型", "journeyType": "航程类型", "segmentType": "航段类型", "flightNos": "航班号", "includeCabins": "包含舱位", "excludeCabins": "排除舱位", "productType": "产品类型", "orderSource": "订单来源", "orderStartDate": "销售开始日期", "orderEndDate": "销售结束日期", "advanceSaleDays": "提前销售天数", "travelStartDate": "旅行开始日期", "travelEndDate": "旅行结束日期", "placementMethod": "建议投放方式", "lossThresholdMin": "亏损阈值下限", "lossThresholdMax": "亏损阈值上限", "longTermFlag": "长期有效", "suggestedEffectiveStart": "建议生效时间", "suggestedEffectiveEnd": "建议失效时间", "historicalTicketCount": "历史票数", "historicalProfitCny": "历史利润", "estimatedMonthTicketCount": "预估月票数", "estimatedMonthProfitCny": "预估月利润", "analysisConclusion": "分析结论", "riskNote": "风险提示", "priority": "优先级", "expectedCompleteAt": "期望完成时间", "routeText": "历史航线文本"}
 function policyChangeLog(raw: unknown) {
   try {
@@ -632,7 +677,7 @@ function policyChangeLog(raw: unknown) {
 }
 const effectReviewLabel = (value: unknown) => effectReviewOptions.find(item => item.value === value)?.label || valueOrDash(value)
 const lossThreshold = (minimum: unknown, maximum: unknown) => minimum === null || minimum === undefined || minimum === '' || maximum === null || maximum === undefined || maximum === '' ? '—' : `${moneyValue(minimum)} 至 ${moneyValue(maximum)}`
-function taskStepIndex(status: PlacementTaskStatus) { return ({ DRAFT: 0, PENDING_DATA_REVIEW: 1, PENDING_POLICY_REVIEW: 2, CLAIMABLE: 3, IN_PROGRESS: 4, MONITORING: 5, FAILED: 4, REJECTED: 1, CLOSED: 4, ENDED: 5 } as Record<PlacementTaskStatus, number>)[status] ?? 0 }
+function taskStepIndex(status: PlacementTaskStatus) { return ({ DRAFT: 0, PENDING_DATA_REVIEW: 1, PENDING_POLICY_REVIEW: 2, CLAIMABLE: 3, IN_PROGRESS: 4, MONITORING: 5, FAILED: 4, REJECTED: 1, CLOSED: 4, ENDED: 5, PENDING_RECALL_REVIEW: 5, PENDING_RECALL: 5, RECALLED: 5 })[status] }
 function businessToday() { return new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' }) }
 function plusDays(day: string, amount: number) { const value = new Date(`${day}T00:00:00+08:00`); value.setDate(value.getDate() + amount); return value.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' }) }
 function blankTask(): PlacementTaskInput {
@@ -957,6 +1002,52 @@ async function submitEffectReview() {
 const isReviewable = (row: PlacementTaskRow) => row.status === 'PENDING_DATA_REVIEW' ? canReviewData.value : row.status === 'PENDING_POLICY_REVIEW' ? canReviewPolicy.value : false
 const canClaim = (row: PlacementTaskRow) => canClaimTasks.value && row.status === 'CLAIMABLE'
 const canExecute = (row: PlacementTaskRow) => canExecuteTasks.value && row.status === 'IN_PROGRESS' && (Boolean(authStore.user?.isAdmin) || row.currentAssigneeId === authStore.user?.id)
+const canReviewRecall = (row: PlacementTaskRow) => canReviewPolicy.value && row.status === 'PENDING_RECALL_REVIEW' && row.recallReviewerId === authStore.user?.id
+const canConfirmRecall = (row: PlacementTaskRow) => (canClaimTasks.value || canExecuteTasks.value) && row.status === 'PENDING_RECALL' && row.currentAssigneeId === authStore.user?.id
+async function openRecall(row: PlacementTaskRow, mode: RecallMode) {
+  const dialog = { row, mode }
+  recallDialog.value = dialog
+  recallNote.value = ''
+  recallReason.value = ''
+  recallLoading.value = mode !== 'request'
+  if (mode === 'request') return
+  const opened = recallDialog.value
+  try {
+    const taskDetail = await fetchPlacementTask(row.id)
+    if (recallDialog.value !== opened) return
+    recallReason.value = taskDetail.logs.find(log => log.actionCode === 'RECALL_REQUEST')?.operationNote || ''
+    if (!recallReason.value) message.error('未读取到收回理由，请刷新列表后重试')
+  } catch (failure) {
+    if (recallDialog.value === opened) message.error(failure instanceof Error ? failure.message : '读取收回申请失败')
+  } finally {
+    if (recallDialog.value === opened) recallLoading.value = false
+  }
+}
+function closeRecall() {
+  if (!recallSaving.value) recallDialog.value = undefined
+}
+async function submitRecall(action: PlacementRecallAction) {
+  const row = recallDialog.value?.row
+  if (!row || recallSaving.value || recallLoading.value) return
+  const note = recallNote.value.trim()
+  if ((action === 'request' || action === 'reject') && !note) {
+    message.warning(action === 'request' ? '请填写收回理由' : '请填写驳回意见')
+    return
+  }
+  recallSaving.value = true
+  try {
+    await recallPlacementPolicy(row.id, action, note, row.versionNo)
+    recallDialog.value = undefined
+    message.success(({ request: '收回申请已提交', approve: '审核通过，等待原认领人确认收回', reject: '收回申请已驳回', confirm: '政策已确认收回' })[action])
+    const nextPage = data.value?.rows.length === 1 && page.value > 1 && workScope.value !== 'all' ? page.value - 1 : page.value
+    await load(nextPage)
+    if (detailOpen.value && detail.value?.task.id === row.id) await openDetail(row)
+  } catch (failure) {
+    message.error(failure instanceof Error ? failure.message : '收回操作失败')
+  } finally {
+    recallSaving.value = false
+  }
+}
 function openReview(row: PlacementTaskRow) {
   activeTask.value = row
   batchReviewRows.value = []
@@ -1091,6 +1182,8 @@ onMounted(() => {
 .detail-hero { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin: -8px 0 18px; padding: 18px 20px; border: 1px solid #d7e3f4; border-radius: 13px; background: linear-gradient(135deg,#f3f7fe,#fff); }.detail-hero span,.detail-hero p { color: #76859a; font-size: 12px; }.detail-hero h2 { margin: 4px 0; color: #253a58; font-size: 19px; }.detail-hero p { margin: 0; }.detail-hero-meta { display: grid; flex: none; justify-items: end; gap: 5px; }.detail-hero-meta strong { color: #3a4c66; font-size: 12px; }.detail-hero-meta small { color: #69768a; }.detail-steps { margin: 0 8px 18px; }.detail-tabs :deep(.ant-tabs-nav) { position: sticky; top: 0; z-index: 4; background: #fff; }.detail-section-card { margin-bottom: 14px; padding: 16px; border: 1px solid #e4e9f0; border-radius: 11px; background: #fff; }.detail-section-card h3 { margin: 0 0 12px; color: #31445f; font-size: 14px; }.record-list { display: grid; gap: 12px; }.record-card { padding: 15px 16px; border: 1px solid #e2e8f0; border-radius: 11px; background: #fff; }.record-card header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 11px; padding-bottom: 10px; border-bottom: 1px solid #edf1f5; }.record-card header strong,.record-card header span { display: block; }.record-card header strong { color: #2f435f; }.record-card header span { margin-top: 3px; color: #69768a; font-size: 12px; }.record-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 7px 12px; color: #5f6e82; font-size: 12px; }.record-card p { margin: 9px 0 0; color: #5f6e82; font-size: 12px; line-height: 1.7; }.record-card b { color: #3e516c; }
 .monitoring-card { border-color: #cde6df; background: linear-gradient(145deg,#f5fcf9,#fff); }.monitoring-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 15px; }.monitoring-heading span,.monitoring-heading code { display: block; color: #718198; font-size: 12px; }.monitoring-heading h3 { margin: 3px 0; font-size: 17px; }.monitoring-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; }.monitoring-grid > div { min-height: 68px; padding: 11px 13px; border: 1px solid #e1eee9; border-radius: 9px; background: rgba(255,255,255,.78); }.monitoring-grid label,.monitoring-grid strong { display: block; }.monitoring-grid label { color: #69768a; font-size: 12px; }.monitoring-grid strong { margin-top: 5px; color: #2f435f; font-size: 12px; }.monitoring-conditions { margin-top: 14px; padding-top: 14px; border-top: 1px solid #dceae5; }.monitoring-conditions > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }.monitoring-conditions h4,.monitoring-conditions p { margin: 0; }.monitoring-conditions h4 { color: #31445f; font-size: 13px; }.monitoring-conditions p { margin-top: 3px; color: #8290a4; font-size: 12px; }.monitoring-condition-list { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }.monitoring-condition-list article { display: grid; grid-template-columns: 90px 72px minmax(0,1fr) auto; align-items: center; gap: 8px; padding: 9px 10px; border: 1px solid #e4ece9; border-radius: 8px; background: rgba(255,255,255,.82); font-size: 12px; }.monitoring-condition-list article > span { color: #6f7f92; }.monitoring-condition-list article > strong { color: #39546c; }.monitoring-condition-list code { overflow: hidden; color: #2e6a5a; text-overflow: ellipsis; white-space: nowrap; }.monitoring-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }.effect-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #dceae5; }.effect-grid > div { padding: 10px 12px; border-radius: 9px; background: rgba(255,255,255,.86); }.effect-grid label,.effect-grid strong { display: block; }.effect-grid label { color: #69768a; font-size: 12px; }.effect-grid strong { margin-top: 4px; color: #29445c; }.monitoring-warning { margin-top: 12px; }
 .filter-bar { grid-template-columns: minmax(180px, 1fr) 130px 135px 115px repeat(3, auto); align-items: end; }
+.work-tabs { flex-wrap: wrap; row-gap: 12px; }
+.work-tab-badge :deep(.ant-badge-count) { inset-inline-end: 3px; transform: translateY(-58%); z-index: 1; }
 @media (max-width: 1180px) { .summary-grid { grid-template-columns: repeat(3,1fr); }.filter-bar { grid-template-columns: repeat(3,1fr); }.workflow-chain { grid-template-columns: repeat(4,1fr); gap: 24px 0; }.workflow-node::after { display: none; } }
 @media (max-width: 820px) { .form-grid,.form-grid.three { grid-template-columns: repeat(2,minmax(0,1fr)); }.span-3 { grid-column: span 2; }.grid-placeholder { display: none; } }
 @media (max-width: 600px) { .summary-grid,.form-grid,.form-grid.three,.review-checks,.record-grid,.monitoring-grid,.effect-grid,.monitoring-condition-list { grid-template-columns: 1fr; }.span-2,.span-3 { grid-column: auto; }.filter-bar { grid-template-columns: 1fr 1fr; }.placement-hero { align-items: flex-start; flex-direction: column; }.flow-card { overflow-x: auto; }.workflow-chain { min-width: 760px; grid-template-columns: repeat(7,1fr); }.form-section { padding: 15px 14px; }.form-intro { align-items: flex-start; }.field-legend { display: none; }.modal-actions { align-items: stretch; flex-direction: column; margin-right: -14px; margin-left: -14px; padding-right: 14px; padding-left: 14px; }.modal-actions > div { display: grid; grid-template-columns: repeat(3,1fr); }.detail-hero { flex-direction: column; }.detail-hero-meta { justify-items: start; }.monitoring-condition-list article { grid-template-columns: 76px 64px minmax(0,1fr) auto; } }
