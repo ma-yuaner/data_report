@@ -43,6 +43,7 @@ _DIMENSION_CACHE_LOCK = threading.Lock()
 TASK_STATUSES = frozenset({
     "DRAFT", "PENDING_DATA_REVIEW", "PENDING_POLICY_REVIEW", "CLAIMABLE",
     "IN_PROGRESS", "MONITORING", "FAILED", "REJECTED", "CLOSED", "ENDED",
+    "PENDING_RECALL_REVIEW", "PENDING_RECALL", "RECALLED",
 })
 PRIORITIES = frozenset({"HIGH", "MEDIUM", "LOW"})
 REVIEW_STAGES = {
@@ -665,6 +666,12 @@ class SmartPlacementService:
             raise ValueError("投放任务不存在")
         return row
 
+    def _recall_reviewer(self, task_id_sql: str) -> str:
+        return (
+            f"(SELECT rv.reviewer_id FROM {self._table(REVIEW_TABLE)} rv WHERE rv.task_id={task_id_sql} "
+            "AND rv.review_stage='POLICY_MANAGER' AND rv.review_result='APPROVED' ORDER BY rv.id DESC LIMIT 1)"
+        )
+
     def _visibility_condition(self, user: dict[str, Any], alias: str = "t") -> tuple[str, list[Any]]:
         if _is_admin(user):
             return "1=1", []
@@ -685,7 +692,7 @@ class SmartPlacementService:
             clauses.append(f"{alias}.current_assignee_id=%s")
             params.append(actor_id)
             if scope_type in {"WORKFLOW", ""}:
-                clauses.append(f"{alias}.status IN ('CLAIMABLE','IN_PROGRESS','MONITORING','FAILED','ENDED')")
+                clauses.append(f"{alias}.status IN ('CLAIMABLE','IN_PROGRESS','MONITORING','FAILED','ENDED','PENDING_RECALL_REVIEW','PENDING_RECALL','RECALLED')")
         if PERMISSION_CLAIM in permissions or PERMISSION_EXECUTE in permissions:
             clauses.append(f"({alias}.status='CLAIMABLE' OR {alias}.current_assignee_id=%s)")
             params.append(actor_id)
@@ -762,12 +769,14 @@ class SmartPlacementService:
     ) -> tuple[str, list[Any]]:
         if status and status not in TASK_STATUSES:
             raise ValueError("任务状态不支持")
-        if scope not in {"", "review", "claim", "mine"}:
+        if scope not in {"", "review", "claim", "mine", "recall"}:
             raise ValueError("任务分组不支持")
         visibility, visibility_params = self._visibility_condition(user)
         where = ["t.is_deleted=0", visibility]
         params: list[Any] = list(visibility_params)
-        if status:
+        if status == "ENDED":
+            where.append("t.status IN ('ENDED','RECALLED')")
+        elif status:
             where.append("t.status=%s"); params.append(status)
         if keyword:
             token = f"%{_text(keyword, '搜索词', 100)}%"
@@ -780,12 +789,14 @@ class SmartPlacementService:
         if owner:
             where.append("t.current_assignee_name=%s"); params.append(_text(owner, "负责人", 100))
         if scope == "review":
-            review_statuses: list[str] = []
+            review_conditions: list[str] = []
             if _is_admin(user) or _has_permission(user, PERMISSION_REVIEW_DATA):
-                review_statuses.append("'PENDING_DATA_REVIEW'")
+                review_conditions.append("t.status='PENDING_DATA_REVIEW'")
             if _is_admin(user) or _has_permission(user, PERMISSION_REVIEW_POLICY):
-                review_statuses.append("'PENDING_POLICY_REVIEW'")
-            where.append(f"t.status IN ({','.join(review_statuses)})" if review_statuses else "1=0")
+                review_conditions.append("t.status='PENDING_POLICY_REVIEW'")
+                review_conditions.append(f"(t.status='PENDING_RECALL_REVIEW' AND {self._recall_reviewer('t.id')}=%s)")
+                params.append(int(user.get("id") or 0))
+            where.append(f"({' OR '.join(review_conditions)})" if review_conditions else "1=0")
         elif scope == "claim":
             where.append("t.status='CLAIMABLE'" if _has_permission(user, PERMISSION_CLAIM) else "1=0")
         elif scope == "mine":
@@ -794,7 +805,35 @@ class SmartPlacementService:
                 raise ValueError("登录用户信息不完整")
             where.append("(t.current_assignee_id=%s OR t.created_by_id=%s)")
             params.extend([actor_id, actor_id])
+        elif scope == "recall":
+            if _has_permission(user, PERMISSION_CLAIM) or _has_permission(user, PERMISSION_EXECUTE):
+                where.append("t.status='PENDING_RECALL' AND t.current_assignee_id=%s")
+                params.append(int(user.get("id") or 0))
+            else:
+                where.append("1=0")
         return " AND ".join(where), params
+
+    def _work_counts(self, cursor, user):
+        counts = {}
+        actor_id = int(user.get("id") or 0)
+        for scope in ("review", "claim", "mine", "recall"):
+            condition, params = self.task_list_condition(user=user, scope=scope)
+            if scope == "mine":
+                pending = []
+                if _has_permission(user, PERMISSION_EXECUTE):
+                    pending.append("(t.status='IN_PROGRESS' AND t.current_assignee_id=%s)")
+                    params.append(actor_id)
+                if _has_permission(user, PERMISSION_EDIT):
+                    pending.append(
+                        f"(t.status='DRAFT' AND t.resume_review_stage IS NOT NULL AND t.created_by_id=%s "
+                        f"AND (SELECT l.action_code FROM {self._table(LOG_TABLE)} l WHERE l.task_id=t.id "
+                        "AND l.to_status='DRAFT' AND l.from_status<>l.to_status ORDER BY l.id DESC LIMIT 1)='REVIEW')"
+                    )
+                    params.append(actor_id)
+                condition += f" AND ({' OR '.join(pending)})" if pending else " AND 1=0"
+            cursor.execute(f"SELECT COUNT(*) FROM {self._table(TASK_TABLE)} t WHERE {condition}", tuple(params))
+            counts[scope] = int(cursor.fetchone()[0])
+        return counts
 
     def list_tasks(
         self, *, user: dict[str, Any], status: str = "", keyword: str = "", platform: str = "",
@@ -829,7 +868,8 @@ class SmartPlacementService:
                        estimated_month_profit_cny, priority, status,
                        current_assignee_id, current_assignee_name, expected_complete_at,
                        created_by_id, created_by_name,
-                       created_at, updated_at, version_no
+                       created_at, updated_at, version_no,
+                       CASE WHEN t.status='PENDING_RECALL_REVIEW' THEN {self._recall_reviewer('t.id')} END AS recall_reviewer_id
                 FROM {self._table(TASK_TABLE)} t
                 WHERE {condition}
                 ORDER BY FIELD(priority,'HIGH','MEDIUM','LOW'),
@@ -845,6 +885,16 @@ class SmartPlacementService:
                 summary[str(row["status"])] = int(row["amount"])
             result = {"available": True, "error": "", "summary": summary, "rows": rows, "total": total, "page": page, "pageSize": page_size}
             if include_filter_options:
+                result["workCounts"] = self._work_counts(cursor, user)
+                if _has_permission(user, PERMISSION_CLAIM) and not _permissions(user).intersection({
+                    PERMISSION_CREATE, PERMISSION_EDIT, PERMISSION_DELETE, PERMISSION_WITHDRAW, PERMISSION_EXECUTE,
+                }) and not _is_admin(user):
+                    cursor.execute(
+                        f"SELECT 1 FROM {self._table(TASK_TABLE)} t WHERE t.is_deleted=0 AND {visibility} "
+                        "AND t.current_assignee_id=%s AND t.status IN ('PENDING_RECALL','RECALLED') LIMIT 1",
+                        (*visibility_params, int(user.get("id") or 0)),
+                    )
+                    result["hasAssignedRecall"] = cursor.fetchone() is not None
                 option_condition, option_params = self.task_list_condition(user=user, scope=scope)
                 options = {}
                 for key, column in (("platforms", "platform_name"), ("airlines", "airline_code")):
@@ -1015,9 +1065,10 @@ class SmartPlacementService:
                         WHERE m.task_id=t.id) AS matched_order_count
                 FROM {self._table(TASK_TABLE)} t
                 WHERE {condition}
-                ORDER BY CASE t.status WHEN 'MONITORING' THEN 0 WHEN 'IN_PROGRESS' THEN 1
-                         WHEN 'CLAIMABLE' THEN 2 WHEN 'PENDING_POLICY_REVIEW' THEN 3
-                         WHEN 'PENDING_DATA_REVIEW' THEN 4 WHEN 'DRAFT' THEN 5 ELSE 6 END,
+                ORDER BY CASE t.status WHEN 'MONITORING' THEN 0 WHEN 'PENDING_RECALL' THEN 1
+                         WHEN 'PENDING_RECALL_REVIEW' THEN 1 WHEN 'RECALLED' THEN 2 WHEN 'IN_PROGRESS' THEN 3
+                         WHEN 'CLAIMABLE' THEN 4 WHEN 'PENDING_POLICY_REVIEW' THEN 5
+                         WHEN 'PENDING_DATA_REVIEW' THEN 6 WHEN 'DRAFT' THEN 7 ELSE 8 END,
                          t.updated_at DESC,t.id DESC
                 LIMIT %s
                 """,
@@ -1096,7 +1147,7 @@ class SmartPlacementService:
             reviews = _dict_rows(cursor, list(cursor.fetchall()))
             cursor.execute(f"SELECT * FROM {self._table(EXECUTION_TABLE)} WHERE task_id=%s ORDER BY attempt_no DESC", (task_id,))
             executions = _dict_rows(cursor, list(cursor.fetchall()))
-            cursor.execute(f"SELECT * FROM {self._table(LOG_TABLE)} WHERE task_id=%s ORDER BY id DESC LIMIT 200", (task_id,))
+            cursor.execute(f"SELECT * FROM {self._table(LOG_TABLE)} WHERE task_id=%s ORDER BY id DESC", (task_id,))
             logs = _dict_rows(cursor, list(cursor.fetchall()))
             cursor.execute(f"SELECT * FROM {self._table(EFFECT_REVIEW_TABLE)} WHERE task_id=%s ORDER BY id DESC", (task_id,))
             effect_reviews = _dict_rows(cursor, list(cursor.fetchall()))
@@ -2175,6 +2226,94 @@ class SmartPlacementService:
             if cursor is not None: cursor.close()
             if connection is not None: connection.close()
 
+    def _disable_task_monitoring(self, cursor, task_id, actor, now):
+        cursor.execute(
+            f"""UPDATE {self._table(MONITOR_RULE_TABLE)}
+                SET status='DISABLED',updated_by_id=%s,updated_by_name=%s,updated_at=%s
+                WHERE source_parent_id=%s AND source_business_type='SMART_PLACEMENT_EXECUTION'
+                  AND status IN ('ACTIVE','SCHEDULED','PAUSED')""",
+            (actor[0], actor[1], now, task_id),
+        )
+
+    def recall_policy(self, user: dict[str, Any], task_id: int, values: dict[str, Any]) -> dict[str, Any]:
+        action = values.get("action")
+        if action not in ("request", "approve", "reject", "confirm"):
+            raise ValueError("不支持的政策收回操作")
+        version = values.get("versionNo")
+        if type(version) is not int or version < 0:
+            raise ValueError("请刷新投放政策列表后重试")
+        actor = _actor(user)
+        if action == "request":
+            _require_permission(user, PERMISSION_EXECUTE, "当前账号没有收回政策申请权限")
+        elif action in ("approve", "reject"):
+            _require_permission(user, PERMISSION_REVIEW_POLICY, "当前账号没有审核收回申请的权限")
+        elif not (_has_permission(user, PERMISSION_CLAIM) or _has_permission(user, PERMISSION_EXECUTE)):
+            raise PermissionError("当前账号没有确认收回权限")
+        now = _now()
+        note = _text(values.get("reason"), "收回理由" if action == "request" else "审核意见", 1000,
+                     required=action in ("request", "reject"))
+        connection = cursor = None
+        try:
+            connection = self.source.connect(); connection.begin(); cursor = connection.cursor()
+            task = self._task_for_update(cursor, task_id)
+            assignee = int(task.get("current_assignee_id") or 0)
+            if action == "confirm" and actor[0] != assignee:
+                raise PermissionError("只有原认领人可以确认收回")
+            if action == "request" and not _is_admin(user) and actor[0] != assignee:
+                raise PermissionError("只有原认领人可以申请收回该政策")
+            if action != "confirm":
+                cursor.execute(f"SELECT {self._recall_reviewer('%s')} AS reviewer_id", (task_id,))
+                reviewer_id = int((_dict_row(cursor, cursor.fetchone()) or {}).get("reviewer_id") or 0)
+                if action != "request" and reviewer_id != actor[0]:
+                    raise PermissionError("只有原政策审核人可以审核收回申请")
+            if task["version_no"] != version:
+                raise ValueError("任务已变更，请刷新列表后重试")
+            old_status = task["status"]
+            closed_at = task.get("closed_at")
+            if action == "request":
+                if old_status != "MONITORING" or not assignee:
+                    raise ValueError("只有已有认领人的监控中政策可以申请收回")
+                if not reviewer_id:
+                    raise ValueError("该政策缺少原政策审核人，无法发起收回")
+                new_status, log_action = "PENDING_RECALL_REVIEW", "RECALL_REQUEST"
+            elif action in ("approve", "reject"):
+                if old_status != "PENDING_RECALL_REVIEW":
+                    raise ValueError("该政策当前没有待审核的收回申请")
+                approved = action == "approve"
+                new_status = "PENDING_RECALL" if approved else "MONITORING"
+                log_action = "RECALL_APPROVE" if approved else "RECALL_REJECT"
+                cursor.execute(
+                    f"""INSERT INTO {self._table(REVIEW_TABLE)}
+                        (task_id,review_stage,review_result,review_comment,reviewer_id,reviewer_name,reviewer_role_snapshot,created_at)
+                        VALUES (%s,'RECALL_POLICY',%s,%s,%s,%s,%s,%s)""",
+                    (task_id, "APPROVED" if approved else "REJECTED", note or None, actor[0], actor[1], actor[2], now),
+                )
+            else:
+                if old_status != "PENDING_RECALL":
+                    raise ValueError("该政策当前不在待收回状态")
+                self._disable_task_monitoring(cursor, task_id, actor, now)
+                new_status, log_action, closed_at = "RECALLED", "RECALL_CONFIRM", now
+
+            cursor.execute(
+                f"""UPDATE {self._table(TASK_TABLE)} SET status=%s,closed_at=%s,
+                    updated_by_id=%s,updated_by_name=%s,version_no=version_no+1,updated_at=%s WHERE id=%s""",
+                (new_status, closed_at, actor[0], actor[1], now, task_id),
+            )
+            self._log(cursor, task_id=task_id, action=log_action, actor=actor,
+                      from_status=old_status, to_status=new_status, note=note or None)
+            connection.commit()
+            return {"id": task_id, "status": new_status}
+        except (ValueError, PermissionError):
+            if connection is not None: connection.rollback()
+            raise
+        except Exception as error:
+            if connection is not None: connection.rollback()
+            LOGGER.exception("Smart placement recall failed")
+            raise SmartPlacementUnavailable("投放政策收回操作失败") from error
+        finally:
+            if cursor is not None: cursor.close()
+            if connection is not None: connection.close()
+
     def stop_monitoring(self, user: dict[str, Any], task_id: int, values: dict[str, Any]) -> dict[str, Any]:
         _require_permission(user, PERMISSION_STOP, "当前账号没有停止投放监控权限")
         reason = _text(values.get("reason"), "停止原因", 1000, required=True)
@@ -2185,13 +2324,7 @@ class SmartPlacementService:
             task = self._task_for_update(cursor, task_id)
             if task["status"] != "MONITORING":
                 raise ValueError("只有监控中的投放任务可以停止")
-            cursor.execute(
-                f"""UPDATE {self._table(MONITOR_RULE_TABLE)}
-                    SET status='DISABLED',updated_by_id=%s,updated_by_name=%s,updated_at=%s
-                    WHERE source_parent_id=%s AND source_business_type='SMART_PLACEMENT_EXECUTION'
-                      AND status IN ('ACTIVE','SCHEDULED','PAUSED')""",
-                (actor[0], actor[1], current, task_id),
-            )
+            self._disable_task_monitoring(cursor, task_id, actor, current)
             cursor.execute(
                 f"""UPDATE {self._table(TASK_TABLE)} SET status='ENDED',closed_at=%s,
                     updated_by_id=%s,updated_by_name=%s,version_no=version_no+1,updated_at=%s

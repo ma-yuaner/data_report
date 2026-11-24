@@ -960,6 +960,8 @@ class MonitoringService(MonitoringNotifications):
                 linked_task = _dict_row(cursor, cursor.fetchone())
                 if not linked_task:
                     raise ValueError("关联的智能投放任务不存在，不能调整监控状态")
+                if target == "DISABLED" and linked_task.get("status") in {"PENDING_RECALL_REVIEW", "PENDING_RECALL"}:
+                    raise ValueError("投放政策正在办理收回，请在投放政策页面完成收回流程")
                 if target == "ACTIVE" and str(linked_task.get("status")) != "MONITORING":
                     raise ValueError("投放政策任务已结束或不在监控中，不能从监控中心直接启用；请回到投放政策调整并重新审核")
             cursor.execute(
