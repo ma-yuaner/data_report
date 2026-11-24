@@ -1,5 +1,6 @@
 import { ApiError, http, type ApiEnvelope } from './http'
 
+export type RebateNumber = number | string | null
 export type RebateConditionValue = string | number | string[] | number[]
 export interface RebateCondition {
   id: string
@@ -21,6 +22,7 @@ export interface RebatePolicy {
   period?: string
   status: 'pending' | 'ready' | 'failed'
   errorMessage?: string
+  confirmed?: boolean
 }
 export interface RebateVersion {
   version: number
@@ -36,34 +38,39 @@ export interface RebateTask {
   owner: string
   currency: string
   policyName: string
-  target: number | null
-  actual: number | null
-  completionRate: number | null
+  editable?: boolean
+  target: RebateNumber
+  actual: RebateNumber
+  completionRate: RebateNumber
   dataAsOf: string | null
 }
 export interface RebateDailyPoint {
   id: string
   date: string
   version: number
-  actual: number | null
-  completionRate: number | null
+  actual: RebateNumber
+  completionRate: RebateNumber
 }
 export interface RebateProgress {
-  target: number | null
-  actual: number | null
-  completionRate: number | null
-  estimatedReward: number | null
+  target: RebateNumber
+  actual: RebateNumber
+  completionRate: RebateNumber
+  estimatedReward: RebateNumber
   dataAsOf: string | null
   version: number | null
   status: 'pending' | 'ready' | 'failed'
   errorMessage?: string
   daily: RebateDailyPoint[]
+  dataNote?: string
+  otherOriginReward?: RebateNumber
+  pendingCount?: number
+  tier?: string | null
 }
 export interface RebateDetailRow {
   id: string
   orderNo: string
   route: string
-  eligibleAmount: number | null
+  eligibleAmount: RebateNumber
   result: string
 }
 export interface RebateTaskDraft { policyId: string; name: string; owner: string }
@@ -86,6 +93,9 @@ export const airlineRebates = {
   listTasks: (signal: AbortSignal) => unwrap(http.get<ApiEnvelope<RebateTask[]>>(tasks, { signal })),
   readPolicy: (id: string, signal: AbortSignal) =>
     unwrap(http.get<ApiEnvelope<RebateRule[]>>(policies + '/' + encodeURIComponent(id), { signal })),
+  confirmPolicy: (id: string) =>
+    unwrap(http.post<ApiEnvelope<RebatePolicy>>(policies + '/' + encodeURIComponent(id) + '/confirm')),
+  run: (id: string) => unwrap(http.post<ApiEnvelope<RebateProgress>>(taskPath(id) + '/runs')),
   upload(file: File) {
     const form = new FormData()
     form.append('file', file)
