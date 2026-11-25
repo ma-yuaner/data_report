@@ -18,11 +18,12 @@ export interface RebateHiveDetails {
   rows: Record<string, string | null>[]
   page: number
   hasNext: boolean
+  preparedAt?: string
 }
 export interface RebateMappingReview {
   policy: RebatePolicy
   rules: RebateRule[]
-  validation?: { rows: number; fields: Record<string, MappingCheck>; at: string; error?: string }
+  validation?: { rows: number; fields: Record<string, MappingCheck>; at: string; error?: string; referenceError?: string }
 }
 export interface RebateCondition {
   id: string
@@ -145,8 +146,8 @@ export const airlineRebates = {
     unwrap(http.get<ApiEnvelope<RebateMappingReview>>(mappingPath(id), { signal })),
   validateMapping: (id: string) =>
     unwrap(http.post<ApiEnvelope<RebateMappingReview>>(mappingPath(id) + '/validate')),
-  readHiveDetails: (id: string, page: number, signal: AbortSignal) =>
-    unwrap(http.get<ApiEnvelope<RebateHiveDetails>>(mappingPath(id) + '/details', { signal, params: { page } })),
+  readHiveReference: (id: string, signal: AbortSignal) =>
+    unwrap(http.get<ApiEnvelope<RebateHiveDetails>>(mappingPath(id) + '/details', { signal })),
   reviewMapping: (id: string, group: string, rule: string, state: MappingDecision, note: string, field?: string) =>
     unwrap(http.put<ApiEnvelope<RebateMappingReview>>(mappingPath(id), { group, rule, state, note, field })),
   confirmPolicy: (id: string) =>

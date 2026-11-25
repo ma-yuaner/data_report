@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message, Modal, Statistic } from 'ant-design-vue'
 import PageHeader from '@/components/PageHeader.vue'
@@ -13,6 +13,7 @@ import {
   type RebatePolicy, type RebateNumber, type RebateProgress, type RebateRule, type RebateTask, type RebateVersion,
 } from '@/api/airlineRebates'
 import { useAuthStore } from '@/stores/auth'
+import PolicySourcePdf from './PolicySourcePdf.vue'
 import { formatHiveMapping, hiveFieldChineseLabel, hiveFieldLabel } from './hiveMappingDisplay'
 
 const route = useRoute()
@@ -62,12 +63,34 @@ const mappingDecision = ref<'confirmed' | 'missing'>()
 const mappingNote = ref('')
 const hiveDetails = ref<RebateHiveDetails>()
 const hiveBusy = ref(false)
+const referenceTable = ref<HTMLElement>()
 const hiveError = ref('')
 let hiveRequest: AbortController | undefined
 const hiveFields = computed(() => hiveDetails.value?.columns.map(({ name }) => ({
   value: name, label: hiveFieldLabel(name) + (hiveFieldLabel(name) === name ? '' : ' · ' + name),
 })) ?? [])
-const hiveRows = computed(() => hiveDetails.value?.rows.map((cells, index) => ({ cells, index })) ?? [])
+const hiveRows = computed(() => {
+  const details = hiveDetails.value
+  if (!details?.rows.length) return []
+  return details.columns.map(field => ({
+    name: field.name, label: hiveFieldLabel(field.name),
+    value: field.valueVisible ? (details.rows[0][field.name] ?? '—') : '受限',
+  }))
+})
+const reviewSourcePage = computed(() =>
+  policyRules.value.find(group => group.id === reviewTarget.value?.group)?.sourcePage)
+
+watch([mappingField, hiveDetails], async () => {
+  await nextTick()
+  const body = referenceTable.value?.querySelector('.ant-table-body')
+  const selected = body?.querySelector('.selected-hive-field')
+  if (body && selected) {
+    const row = selected.getBoundingClientRect()
+    const view = body.getBoundingClientRect()
+    if (row.top < view.top) body.scrollTop += row.top - view.top
+    if (row.bottom > view.bottom) body.scrollTop += row.bottom - view.bottom
+  }
+})
 const removedReviewItems = computed(() => policyRules.value.flatMap(group => group.conditions
   .filter(rule => rule.dataMapping?.status === 'removed').map(rule => ({ group: group.id, rule }))))
 const mappingLabels = {
@@ -316,7 +339,7 @@ function closeMappingReview() {
   hiveBusy.value = false
   reviewTarget.value = undefined
 }
-async function loadHiveDetails(page: number) {
+async function loadHiveReference() {
   const id = activePolicy.value?.id
   if (!id || !reviewTarget.value) return
   hiveRequest?.abort()
@@ -325,7 +348,7 @@ async function loadHiveDetails(page: number) {
   hiveBusy.value = true
   hiveError.value = ''
   try {
-    const details = await airlineRebates.readHiveDetails(id, page, request.signal)
+    const details = await airlineRebates.readHiveReference(id, request.signal)
     if (request.signal.aborted) return
     hiveDetails.value = details
     if (!mappingField.value) {
@@ -345,7 +368,7 @@ function openMappingReview(group: string, rule: RebateCondition) {
   mappingField.value = previous?.field
   mappingDecision.value = previous?.state === 'confirmed' || previous?.state === 'missing' ? previous.state : undefined
   mappingNote.value = previous?.note ?? ''
-  if (rule.dataMapping && rule.dataMapping.kind !== 'constant' && canManage.value) void loadHiveDetails(1)
+  if (rule.dataMapping && rule.dataMapping.kind !== 'constant' && canManage.value) void loadHiveReference()
 }
 async function saveMapping(group: string, rule: string, state: MappingDecision, note = '', field?: string) {
   const id = activePolicy.value?.id
@@ -690,6 +713,7 @@ function backToProgress() {
           <a-space v-if="drawer === 'policy' && activePolicy && policyRules.length" wrap class="section">
             <a-button v-if="canManage" :loading="saving" @click="validateMapping">校验 Hive 明细</a-button>
             <span v-if="mappingValidation?.error" class="muted">校验未完成，请在详情核对中查看</span>
+            <span v-else-if="mappingValidation?.referenceError" class="muted">{{ mappingValidation.referenceError }}</span>
           </a-space>
           <a-space v-if="task && drawer !== 'policy'" wrap class="section">
             <strong class="task-full-name">{{ task.name }}</strong>
@@ -768,75 +792,65 @@ function backToProgress() {
           <a-drawer v-if="reviewTarget" :open="true" :width="'min(1200px, 100vw)'"
             :title="'详情核对 · ' + reviewTarget.rule.fieldLabel" @close="!saving && closeMappingReview()">
             <a-alert v-if="drawerError" :message="drawerError" type="warning" show-icon class="section" />
-            <section class="section">
-              <h3>合同原文</h3>
-              <p>{{ reviewTarget.rule.sourceText || displayValue(reviewTarget.rule.value) }}</p>
-            </section>
-            <details class="section">
-              <summary>查看校验依据</summary>
-              <p v-if="reviewTarget.rule.mapping">{{ formatHiveMapping(reviewTarget.rule.mapping) }}</p>
-              <p v-if="reviewTarget.rule.dataMapping">{{ mappingLabels[reviewTarget.rule.dataMapping.status] }}</p>
-              <p v-if="mappingValidation?.error">{{ mappingValidation.error }}</p>
-              <p v-if="mappingValidation?.rows" class="muted">{{ mappingValidation.rows }} 条候选明细 · {{ formatDateTimeDisplay(mappingValidation.at) }}</p>
-              <div v-for="(check, field) in reviewTarget.rule.dataMapping?.checks" :key="field">
-                {{ hiveFieldLabel(field) }}（{{ field }}） · {{ check.expected }} · {{ check.passed ? '通过' : '未通过' }}
-                <template v-if="check.present != null"> · {{ check.present }} 条有值 · {{ check.invalid }} 条类型异常</template>
-              </div>
-              <p v-if="reviewTarget.rule.dataMapping?.filterFields.length">
-                取数条件 {{ reviewTarget.rule.dataMapping.filterFields.map(hiveFieldLabel).join('、') }}
-              </p>
-              <p v-if="reviewTarget.rule.dataMapping?.decision.note">{{ reviewTarget.rule.dataMapping.decision.note }}</p>
-            </details>
-            <template v-if="canManage && reviewTarget.rule.dataMapping && reviewTarget.rule.dataMapping.kind !== 'constant'">
-            <a-form layout="vertical">
-              <a-form-item label="选择 Hive 字段">
-                <a-select v-model:value="mappingField" show-search option-filter-prop="label" allow-clear
-                  placeholder="搜索中文名或 Hive 字段名" :options="hiveFields" :loading="hiveBusy" />
-              </a-form-item>
-            </a-form>
-            <div class="section">
-              <h3>Hive 明细</h3>
-              <a-alert v-if="hiveError" :message="hiveError" type="warning" show-icon class="section">
-                <template #action><a-button size="small" @click="loadHiveDetails(hiveDetails?.page ?? 1)">重试</a-button></template>
-              </a-alert>
-              <a-table :data-source="hiveRows" :loading="hiveBusy" row-key="index" :pagination="false"
-                size="small" :scroll="{ x: 'max-content', y: 340 }">
-                <a-table-column v-for="field in hiveDetails?.columns ?? []" :key="field.name"
-                  :title="hiveFieldLabel(field.name)" :width="185">
-                  <template #title>
-                    <span :class="{ 'selected-hive-field': field.name === mappingField }">{{ hiveFieldLabel(field.name) }}</span>
-                  </template>
-                  <template #default="{ record }">
-                    <span :class="{ 'selected-hive-field': field.name === mappingField }">
-                      {{ field.valueVisible ? (record.cells[field.name] ?? '—') : '受限' }}
-                    </span>
-                  </template>
-                </a-table-column>
-              </a-table>
-              <a-space v-if="hiveDetails" wrap>
-                <a-button size="small" :disabled="hiveBusy || hiveDetails.page === 1"
-                  @click="loadHiveDetails(hiveDetails.page - 1)">上一页</a-button>
-                <span>第 {{ hiveDetails.page }} 页</span>
-                <a-button size="small" :disabled="hiveBusy || !hiveDetails.hasNext"
-                  @click="loadHiveDetails(hiveDetails.page + 1)">下一页</a-button>
-              </a-space>
+            <div v-if="activePolicy" class="review-evidence-layout">
+              <PolicySourcePdf :url="'/api/v1/airline-rebates/policies/' + encodeURIComponent(activePolicy.id) + '/original'"
+                :source-page="reviewSourcePage" :source-text="reviewTarget.rule.sourceText" />
+              <section class="review-reference">
+                <h3>政策条件</h3>
+                <p>{{ displayValue(reviewTarget.rule.value) }}</p>
+                <details class="section">
+                  <summary>查看校验依据</summary>
+                  <p v-if="reviewTarget.rule.mapping">{{ formatHiveMapping(reviewTarget.rule.mapping) }}</p>
+                  <p v-if="reviewTarget.rule.dataMapping">{{ mappingLabels[reviewTarget.rule.dataMapping.status] }}</p>
+                  <p v-if="mappingValidation?.error">{{ mappingValidation.error }}</p>
+                  <p v-if="mappingValidation?.referenceError">{{ mappingValidation.referenceError }}</p>
+                  <div v-for="(check, field) in reviewTarget.rule.dataMapping?.checks" :key="field">
+                    {{ hiveFieldLabel(field) }}（{{ field }}） · {{ check.expected }} · {{ check.passed ? '通过' : '未通过' }}
+                    <template v-if="check.present != null"> · {{ check.present }} 条有值 · {{ check.invalid }} 条类型异常</template>
+                  </div>
+                  <p v-if="reviewTarget.rule.dataMapping?.decision.note">{{ reviewTarget.rule.dataMapping.decision.note }}</p>
+                </details>
+                <template v-if="canManage && reviewTarget.rule.dataMapping && reviewTarget.rule.dataMapping.kind !== 'constant'">
+                  <h3>Hive 字段参考</h3>
+                  <p v-if="hiveDetails?.preparedAt" class="muted">参考记录准备于 {{ formatDateTimeDisplay(hiveDetails.preparedAt) }}</p>
+                  <a-alert v-if="hiveError" :message="hiveError" type="warning" show-icon />
+                  <a-alert v-else-if="!hiveBusy && !hiveRows.length"
+                    message="暂无预备样例。关闭抽屉后点击「校验 Hive 明细」准备参考记录。"
+                    type="info" show-icon />
+                  <a-form layout="vertical">
+                    <a-form-item label="核对使用的字段">
+                      <a-select v-model:value="mappingField" show-search option-filter-prop="label" allow-clear
+                        placeholder="搜索中文名或 Hive 字段名" :options="hiveFields" :loading="hiveBusy"
+                        :disabled="!hiveRows.length" />
+                    </a-form-item>
+                  </a-form>
+                  <div ref="referenceTable">
+                  <a-table v-if="hiveRows.length || hiveBusy" :data-source="hiveRows" :loading="hiveBusy"
+                    :row-class-name="(record: { name: string }) => record.name === mappingField ? 'selected-hive-field' : ''"
+                    row-key="name" :pagination="false" size="small" :scroll="{ y: 280 }">
+                    <a-table-column title="字段中文名" data-index="label" />
+                    <a-table-column title="参考值" data-index="value" />
+                    <a-table-column title="Hive 字段名" data-index="name" />
+                  </a-table>
+                  </div>
+                  <a-form layout="vertical" class="review-decision">
+                    <a-form-item label="核实结论" required>
+                      <a-radio-group v-model:value="mappingDecision">
+                        <a-radio value="confirmed" :disabled="!mappingField || !hiveRows.length">采用所选字段</a-radio>
+                        <a-radio value="missing" :disabled="!hiveRows.length || hiveBusy">当前 Hive 无可用字段</a-radio>
+                      </a-radio-group>
+                    </a-form-item>
+                    <a-form-item label="核实说明">
+                      <a-textarea v-model:value="mappingNote" :maxlength="500" :rows="2" />
+                    </a-form-item>
+                  </a-form>
+                </template>
+              </section>
             </div>
-            <a-form layout="vertical">
-              <a-form-item label="核实结论" required>
-                <a-radio-group v-model:value="mappingDecision">
-                  <a-radio value="confirmed" :disabled="!mappingField">采用所选字段</a-radio>
-                  <a-radio value="missing" :disabled="!hiveDetails || hiveBusy">当前 Hive 无可用字段</a-radio>
-                </a-radio-group>
-              </a-form-item>
-              <a-form-item label="核实说明">
-                <a-textarea v-model:value="mappingNote" :maxlength="500" :rows="2" />
-              </a-form-item>
-            </a-form>
-            </template>
             <template v-if="canManage && reviewTarget.rule.dataMapping && reviewTarget.rule.dataMapping.kind !== 'constant'" #footer>
               <a-space>
                 <a-button :disabled="saving" @click="closeMappingReview()">取消</a-button>
-                <a-button type="primary" :disabled="!canSaveMapping || hiveBusy" :loading="saving"
+                <a-button type="primary" :disabled="!canSaveMapping || hiveBusy || !hiveRows.length" :loading="saving"
                   @click="submitMapping">保存核实</a-button>
               </a-space>
             </template>
@@ -955,7 +969,11 @@ function backToProgress() {
 </template>
 
 <style scoped>
-.selected-hive-field { background: #e2effc; padding: 3px 5px; border-radius: 3px; }
+.review-evidence-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
+.review-reference { min-width: 0; overflow-wrap: anywhere; }
+.review-reference h3, .review-decision { margin-top: 12px; }
+.review-reference :deep(.selected-hive-field > td) { background: #e2effc; }
+@media (max-width: 800px) { .review-evidence-layout { grid-template-columns: minmax(0, 1fr); } }
 .section { margin-bottom: 16px; }
 .muted { color: #566477; font-size: 13px; overflow-wrap: anywhere; }
 .task-card { min-width: 0; }

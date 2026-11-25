@@ -348,8 +348,9 @@ def register_routes(api):
         if not 1 <= page <= 2500:
             raise PilotError("明细页码无效")
         with connect(directory) as db:
-            policy = json.loads(find(db, "rebate_policies", identifier)["profile"])["policy"]
-        return ok(fetch_review_details(current_app.config, policy, page, 20))
+            profile = json.loads(find(db, "rebate_policies", identifier)["profile"])
+        reference = profile.get("mappingReference") or {"columns": [], "rows": []}
+        return ok({**reference, "page": 1, "hasNext": False})
 
     @api.put(ROOT + "/policies/<identifier>/mapping")
     @endpoint
@@ -375,10 +376,9 @@ def register_routes(api):
                 raise PilotError("该政策项属于必核项")
             profile = json.loads(row["profile"])
             if state == "confirmed":
-                # Validate against the authoritative source, never trust a browser-provided column.
-                details = fetch_review_details(current_app.config, profile["policy"], 1, 1)
-                if not any(item["name"] == field for item in details["columns"]):
-                    raise PilotError("该字段不在当前 Hive 明细中")
+                reference = profile.get("mappingReference", {})
+                if not any(item["name"] == field for item in reference.get("columns", [])):
+                    raise PilotError("该字段不在已准备的参考记录中，请先校验 Hive 明细")
             review = profile.setdefault("mappingReview", {})
             key = f"{group}/{rule}"
             if state == "reset":
@@ -403,7 +403,20 @@ def register_routes(api):
         except Exception as error:
             current_app.logger.warning("Rebate mapping validation failed: %s", type(error).__name__)
             validation = {"rows": 0, "fields": {}, "error": "Hive 校验失败，请核对连接、字段和政策期间覆盖"}
-        profile["mappingValidation"] = {**validation, "catalogVersion": CATALOG_VERSION, "at": now()}
+        checked_at = now()
+        if validation.get("rows"):
+            try:
+                reference = fetch_review_details(current_app.config, profile["policy"], 1, 1)
+                if reference["rows"]:
+                    profile["mappingReference"] = {
+                        "columns": reference["columns"], "rows": reference["rows"][:1], "preparedAt": checked_at,
+                    }
+                else:
+                    validation["referenceError"] = "本次未取得参考记录"
+            except Exception as error:
+                current_app.logger.warning("Rebate reference preparation failed: %s", type(error).__name__)
+                validation["referenceError"] = "本次未能准备参考记录"
+        profile["mappingValidation"] = {**validation, "catalogVersion": CATALOG_VERSION, "at": checked_at}
         with connect(directory) as db:
             return ok(save_mapping_profile(db, row, profile))
 
