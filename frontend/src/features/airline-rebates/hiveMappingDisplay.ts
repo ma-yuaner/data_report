@@ -26,6 +26,10 @@ const fieldLabels: Record<string, string> = {
   issuing_iata: '出票代理 IATA 号',
 }
 
+export function hiveFieldLabel(field: string): string {
+  return fieldLabels[field] ?? field
+}
+
 const conditionLabels: Record<string, string> = {
   'supplier_code = HK_NGCHOW': '按试点指定供应商筛选（HK_NGCHOW）',
   'order_status = TICKETED': '订单状态为已出票',

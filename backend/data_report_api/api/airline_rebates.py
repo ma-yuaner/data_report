@@ -12,7 +12,7 @@ from flask import current_app, g, jsonify, request, send_file
 from pypdf.errors import PdfReadError
 
 from .common import json_body, ok, smart_excel_response
-from ..services.airline_rebates.calculation import CATEGORIES, fetch_facts, simulate
+from ..services.airline_rebates.calculation import CATEGORIES, fetch_facts, mapping_example, simulate
 from ..services.airline_rebates.mapping import (
     CATALOG_VERSION, MappingValidationError, blocked_trial_rules, review_cards, trial_ready, validate_facts,
 )
@@ -380,6 +380,7 @@ def register_routes(api):
         try:
             records, airports = fetch_facts(current_app.config, profile["policy"])
             validation = validate_facts(records, airports)
+            validation["example"] = mapping_example(profile["policy"], records)
         except MappingValidationError as error:
             validation = {"rows": 0, "fields": {}, "error": str(error)}
         except Exception as error:

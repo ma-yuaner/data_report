@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 
 from ..data_source import DataSource
-from .mapping import MappingValidationError, validate_facts, validate_projection
+from .mapping import FIELDS, MappingValidationError, validate_facts, validate_projection
 
 MAX_ROWS = 50_000
 SOURCE_SQL = Path(__file__).with_name("hive_trial.sql")
@@ -68,6 +68,47 @@ def split_values(value):
     return [part.strip().upper() for part in str(value or "").split(",")]
 
 
+def in_flown_period(policy, day):
+    return policy["flownStart"] <= day <= policy["flownEnd"]
+
+
+def departure_examples(policy, row):
+    segments = split_values(row[2])
+    departures = split_values(row[14])
+    if len(segments) != len(departures):
+        return []
+    examples = []
+    for segment, value in zip(segments, departures):
+        if not re.fullmatch(r"[A-Z]{3}-[A-Z]{3}", segment):
+            return []
+        try:
+            day = date.fromisoformat(value[:10]).isoformat()
+        except ValueError:
+            return []
+        examples.append({
+            "route": segment, "raw": value[:60], "day": day,
+            "inPeriod": in_flown_period(policy, day),
+        })
+    return examples
+
+
+def mapping_example(policy, records):
+    """Use one real candidate row, with only fields needed for policy review."""
+    chosen = records[0]
+    departures = []
+    for row in records:
+        departures = departure_examples(policy, row)
+        if departures:
+            chosen = row
+            break
+    fields = {
+        "issue_ticket_no": str(chosen[1] or "")[:3] or None,
+        **{FIELDS[index][0]: None if chosen[index] is None else str(chosen[index])[:240]
+           for index in (2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)},
+    }
+    return {"fields": fields, "departures": departures[:12], "segmentCount": len(departures)}
+
+
 def classify(policy, row, airports, duplicates):
     (order, ticket, route, first, cabin_text, fare, currency, origin, destination, age, refund, status,
      reissue, fare_type, departure_text, marketing_text, flight_status) = row
@@ -113,7 +154,7 @@ def classify(policy, row, airports, duplicates):
     for segment, day, cabin, carrier in zip(segments, dates, cabins, marketing):
         flag = "期外"
         group = None
-        if policy["flownStart"] <= day <= policy["flownEnd"]:
+        if in_flown_period(policy, day):
             if cabin in excluded:
                 flag = "不计量不计奖"
             elif carrier not in policy["carriers"]:

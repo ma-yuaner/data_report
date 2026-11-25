@@ -12,10 +12,15 @@ export interface RebateDataMapping {
   checks: Record<string, MappingCheck>
   decision: { state?: MappingDecision; note?: string; by?: string; at?: string }
 }
+interface RebateMappingExample {
+  fields: Record<string, string | null>
+  departures: { route: string; raw: string; day: string; inPeriod: boolean }[]
+  segmentCount: number
+}
 export interface RebateMappingReview {
   policy: RebatePolicy
   rules: RebateRule[]
-  validation?: { rows: number; fields: Record<string, MappingCheck>; at: string; error?: string }
+  validation?: { rows: number; fields: Record<string, MappingCheck>; at: string; error?: string; example?: RebateMappingExample }
 }
 export interface RebateCondition {
   id: string
