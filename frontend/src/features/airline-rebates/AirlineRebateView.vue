@@ -256,6 +256,7 @@ async function upload() {
   finally { uploading.value = false }
 }
 function confirmDelete(kind: 'policy' | 'task', item: RebatePolicy | RebateTask) {
+  if (!auth.user?.isAdmin) return
   const isPolicy = kind === 'policy'
   Modal.confirm({
     title: isPolicy ? '删除此政策？' : '删除此任务？',
@@ -539,7 +540,7 @@ function backToProgress() {
             </template>
             <a-space v-else-if="column.key === 'action'" :size="4" wrap>
               <a-button type="link" :disabled="record.status !== 'ready'" @click="openPolicy(record)">查看解析结果</a-button>
-              <a-button v-if="canManage" type="link" danger @click="confirmDelete('policy', record)">删除</a-button>
+              <a-button v-if="auth.user?.isAdmin" type="link" danger @click="confirmDelete('policy', record)">删除</a-button>
             </a-space>
           </template>
         </a-table>
@@ -590,7 +591,7 @@ function backToProgress() {
           </template>
           <a-space v-else-if="column.key === 'action'" :size="4" wrap>
             <a-button type="link" size="small" @click="openTask(record, 'analysis')">分析此项</a-button>
-            <a-button v-if="canManage" type="link" size="small" danger @click="confirmDelete('task', record)">删除</a-button>
+            <a-button v-if="auth.user?.isAdmin" type="link" size="small" danger @click="confirmDelete('task', record)">删除</a-button>
             <a-button v-if="canManage && record.editable !== false" type="link" size="small" @click="openTask(record, 'edit')">编辑规则</a-button>
           </a-space>
         </template>
