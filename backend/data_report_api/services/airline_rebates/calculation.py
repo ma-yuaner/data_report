@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 
 from ..data_source import DataSource
-from .mapping import FIELDS, MappingValidationError, validate_facts, validate_projection
+from .mapping import MappingValidationError, validate_facts, validate_projection
 
 MAX_ROWS = 50_000
 SOURCE_SQL = Path(__file__).with_name("hive_trial.sql")
@@ -21,7 +21,7 @@ CATEGORIES = {
 FIXED_RATE = Decimal("0.01")
 
 
-def fetch_facts(config, policy):
+def hive_candidate_source(config, policy):
     source = DataSource({**config, "DATA_MODE": "hive"})
     if source.database != "lywz":
         raise ValueError("HKG26003 试点只支持 lywz 宽表")
@@ -29,20 +29,77 @@ def fetch_facts(config, policy):
     end = date.fromisoformat(policy["flownEnd"])
     months = sorted({(start + timedelta(days=i)).strftime("%Y-%m") for i in range((end - start).days + 1)})
     month_pattern = "(" + "|".join(months) + ")-[0-9]{2}"
+    parameters = (policy["ticketPrefix"], start.isoformat(), (end + timedelta(days=1)).isoformat(), month_pattern)
+    return source, parameters
+
+
+def fetch_facts(config, policy):
+    source, parameters = hive_candidate_source(config, policy)
     dimension, extract = SOURCE_SQL.read_text(encoding="utf-8-sig").strip().rstrip(";").split(";")
     airports = defaultdict(set)
     with closing(source.connect()) as connection, closing(connection.cursor()) as cursor:
         cursor.execute(dimension.strip())
         for airport, country in cursor:
             airports[airport.strip()].add(country.strip())
-        cursor.execute(extract.strip(), (
-            policy["ticketPrefix"], start.isoformat(), (end + timedelta(days=1)).isoformat(), month_pattern,
-        ))
+        cursor.execute(extract.strip(), parameters)
         validate_projection(cursor.description)
         records = cursor.fetchmany(MAX_ROWS + 1)
     if not records or len(records) > MAX_ROWS:
         raise ValueError("宽表无数据或超出试点容量，未生成结果")
     return records, airports
+
+
+def fetch_review_details(config, policy, page, page_size):
+    source, parameters = hive_candidate_source(config, policy)
+    # Reuse the fixed source, eligibility filters and stable ordering of the pilot query.
+    extract = SOURCE_SQL.read_text(encoding="utf-8-sig").split(";")[1]
+    _, _, source_clause = extract.partition("\nFROM ")
+    if not source_clause:
+        raise ValueError("Hive 明细来源未配置")
+    offset = (page - 1) * page_size
+    limit = min(offset + page_size + 1, MAX_ROWS)
+    query = "SELECT *\nFROM " + source_clause.rsplit("LIMIT", 1)[0] + "LIMIT " + str(limit)
+    preferred = ("issue_ticket_time", "order_id", "segment_airport", "segment_dep_time",
+                 "segment_marketing_airline", "segment_real_cabin", "issue_ticket_price")
+    visible = {
+        *preferred, "issue_ticket_no", "issue_currency", "dep_airport", "arr_airport", "first_dep_time",
+        "supplier_code", "order_status", "issue_status", "real_age_type_desc", "refund_flag_desc",
+        "issue_ticket_no_status", "refund_issue_flag", "issue_price_type_desc", "flt_status",
+        "operating_airline", "segment_operating_airline", "code_share", "issuing_iata",
+    }
+    with closing(source.connect()) as connection, closing(connection.cursor()) as cursor:
+        cursor.execute(query, parameters)
+        columns = [column[0].rsplit(".", 1)[-1].lower() for column in cursor.description]
+        remaining = offset
+        while remaining:
+            skipped = len(cursor.fetchmany(min(remaining, 250)))
+            if not skipped:
+                break
+            remaining -= skipped
+        records = cursor.fetchmany(page_size + 1) if not remaining else []
+    indices = {name: index for index, name in enumerate(columns)}
+    ordered = [name for name in preferred if name in indices]
+    ordered.extend(name for name in columns if name not in preferred)
+
+    def display(name, value):
+        if value is None or name not in visible:
+            return None
+        value = str(value)
+        if name == "order_id":
+            return "***" + value[-4:]
+        if name == "issue_ticket_no":
+            return value[:3] + "***"
+        return value[:300]
+
+    return {
+        "columns": [{"name": name, "valueVisible": name in visible} for name in ordered],
+        "rows": [
+            {name: display(name, row[indices[name]]) for name in ordered}
+            for row in records[:page_size]
+        ],
+        "page": page,
+        "hasNext": len(records) > page_size,
+    }
 
 
 def route_category(policy, origin, destination, segments, airports):
@@ -70,43 +127,6 @@ def split_values(value):
 
 def in_flown_period(policy, day):
     return policy["flownStart"] <= day <= policy["flownEnd"]
-
-
-def departure_examples(policy, row):
-    segments = split_values(row[2])
-    departures = split_values(row[14])
-    if len(segments) != len(departures):
-        return []
-    examples = []
-    for segment, value in zip(segments, departures):
-        if not re.fullmatch(r"[A-Z]{3}-[A-Z]{3}", segment):
-            return []
-        try:
-            day = date.fromisoformat(value[:10]).isoformat()
-        except ValueError:
-            return []
-        examples.append({
-            "route": segment, "raw": value[:60], "day": day,
-            "inPeriod": in_flown_period(policy, day),
-        })
-    return examples
-
-
-def mapping_example(policy, records):
-    """Use one real candidate row, with only fields needed for policy review."""
-    chosen = records[0]
-    departures = []
-    for row in records:
-        departures = departure_examples(policy, row)
-        if departures:
-            chosen = row
-            break
-    fields = {
-        "issue_ticket_no": str(chosen[1] or "")[:3] or None,
-        **{FIELDS[index][0]: None if chosen[index] is None else str(chosen[index])[:240]
-           for index in (2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)},
-    }
-    return {"fields": fields, "departures": departures[:12], "segmentCount": len(departures)}
 
 
 def classify(policy, row, airports, duplicates):

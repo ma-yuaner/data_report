@@ -12,7 +12,7 @@ from flask import current_app, g, jsonify, request, send_file
 from pypdf.errors import PdfReadError
 
 from .common import json_body, ok, smart_excel_response
-from ..services.airline_rebates.calculation import CATEGORIES, fetch_facts, mapping_example, simulate
+from ..services.airline_rebates.calculation import CATEGORIES, fetch_facts, fetch_review_details, simulate
 from ..services.airline_rebates.mapping import (
     CATALOG_VERSION, MappingValidationError, blocked_trial_rules, review_cards, trial_ready, validate_facts,
 )
@@ -341,16 +341,27 @@ def register_routes(api):
         with connect(directory) as db:
             return ok(mapping_review(find(db, "rebate_policies", identifier)))
 
+    @api.get(ROOT + "/policies/<identifier>/mapping/details")
+    @endpoint
+    def rebate_mapping_details(directory, identifier):
+        page = int(request.args.get("page", "1"))
+        if not 1 <= page <= 2500:
+            raise PilotError("明细页码无效")
+        with connect(directory) as db:
+            policy = json.loads(find(db, "rebate_policies", identifier)["profile"])["policy"]
+        return ok(fetch_review_details(current_app.config, policy, page, 20))
+
     @api.put(ROOT + "/policies/<identifier>/mapping")
     @endpoint
     def rebate_review_mapping(directory, identifier):
         payload = json_body()
         group, rule, state = (payload.get(key) for key in ("group", "rule", "state"))
         note = str(payload.get("note") or "").strip()
-        if state not in ("confirmed", "missing", "found", "reset") or (
-            state in ("missing", "found") and not note
-        ) or len(note) > 500:
-            raise PilotError("请填写核实结论，最多 500 字")
+        field = payload.get("field")
+        if state not in ("confirmed", "missing", "removed", "reset") or len(note) > 500:
+            raise PilotError("核实结论无效，说明最多 500 字")
+        if state == "confirmed" and (not isinstance(field, str) or not field or len(field) > 128):
+            raise PilotError("请选择 Hive 明细字段")
         with connect(directory) as db:
             row = find(db, "rebate_policies", identifier)
             cards = mapping_review(row)["rules"]
@@ -360,15 +371,22 @@ def register_routes(api):
             ), None)
             if not selected or selected["kind"] == "constant":
                 raise PilotError("该规则无需字段核实")
-            if state == "confirmed" and not selected["fields"]:
-                raise PilotError("请记录查到的来源，数据团队接入后再验证")
+            if state == "removed" and not selected["removable"]:
+                raise PilotError("该政策项属于必核项")
             profile = json.loads(row["profile"])
+            if state == "confirmed":
+                # Validate against the authoritative source, never trust a browser-provided column.
+                details = fetch_review_details(current_app.config, profile["policy"], 1, 1)
+                if not any(item["name"] == field for item in details["columns"]):
+                    raise PilotError("该字段不在当前 Hive 明细中")
             review = profile.setdefault("mappingReview", {})
             key = f"{group}/{rule}"
             if state == "reset":
                 review.pop(key, None)
             else:
                 review[key] = {"state": state, "note": note, "by": user_label(), "at": now()}
+                if state == "confirmed":
+                    review[key]["field"] = field
             return ok(save_mapping_profile(db, row, profile))
 
     @api.post(ROOT + "/policies/<identifier>/mapping/validate")
@@ -380,7 +398,6 @@ def register_routes(api):
         try:
             records, airports = fetch_facts(current_app.config, profile["policy"])
             validation = validate_facts(records, airports)
-            validation["example"] = mapping_example(profile["policy"], records)
         except MappingValidationError as error:
             validation = {"rows": 0, "fields": {}, "error": str(error)}
         except Exception as error:

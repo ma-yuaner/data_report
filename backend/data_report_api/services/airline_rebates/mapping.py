@@ -97,6 +97,9 @@ def validate_facts(records, airports):
     return {"rows": len(records), "fields": fields}
 
 
+REMOVABLE_RULES = {("eligibility", "agency")}
+
+
 def review_cards(cards, profile):
     review = profile.get("mappingReview", {})
     validation = profile.get("mappingValidation", {})
@@ -106,7 +109,11 @@ def review_cards(cards, profile):
         for rule in group["conditions"]:
             kind, fields = capability(group["id"], rule["id"])
             decision = review.get(f"{group['id']}/{rule['id']}", {})
-            if decision.get("state") == "missing":
+            if decision.get("state") == "removed":
+                status = "removed"
+            elif decision.get("state") == "confirmed" and decision.get("field") and decision["field"] not in fields:
+                status = "pending_registration"
+            elif decision.get("state") == "missing":
                 status = "missing"
             elif decision.get("state") == "found":
                 status = "pending_registration"
@@ -120,6 +127,7 @@ def review_cards(cards, profile):
                 status = kind
             rule["dataMapping"] = {
                 "status": status, "kind": kind, "fields": fields, "decision": decision,
+                "removable": (group["id"], rule["id"]) in REMOVABLE_RULES,
                 "checks": {field: evidence[field] for field in fields if field in evidence},
                 "filterFields": [field for field in fields if field in FILTER_FIELDS],
             }
@@ -138,6 +146,8 @@ def trial_ready(profile):
 
 def blocked_trial_rules(profile):
     return any(
-        decision["state"] in {"missing", "found"} and capability(*key.split("/"))[1]
+        (decision["state"] in {"missing", "found"} and capability(*key.split("/"))[1])
+        or (decision["state"] == "confirmed" and decision.get("field")
+            and decision["field"] not in capability(*key.split("/"))[1])
         for key, decision in profile.get("mappingReview", {}).items()
     )

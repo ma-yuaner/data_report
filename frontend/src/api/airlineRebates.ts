@@ -2,25 +2,27 @@ import { ApiError, http, type ApiEnvelope } from './http'
 
 export type RebateNumber = number | string | null
 export type RebateConditionValue = string | number | string[] | number[]
-export type MappingDecision = 'confirmed' | 'missing' | 'found' | 'reset'
+export type MappingDecision = 'confirmed' | 'missing' | 'found' | 'reset' | 'removed'
 interface MappingCheck { expected: string; present?: number; invalid?: number; passed: boolean }
 export interface RebateDataMapping {
-  status: 'exact' | 'trial' | 'unchecked' | 'failed' | 'missing' | 'unmapped' | 'pending_registration' | 'constant'
+  status: 'exact' | 'trial' | 'unchecked' | 'failed' | 'missing' | 'unmapped' | 'pending_registration' | 'constant' | 'removed'
   kind: 'exact' | 'trial' | 'unmapped' | 'constant'
   fields: string[]
   filterFields: string[]
   checks: Record<string, MappingCheck>
-  decision: { state?: MappingDecision; note?: string; by?: string; at?: string }
+  removable: boolean
+  decision: { state?: MappingDecision; note?: string; by?: string; at?: string; field?: string }
 }
-interface RebateMappingExample {
-  fields: Record<string, string | null>
-  departures: { route: string; raw: string; day: string; inPeriod: boolean }[]
-  segmentCount: number
+export interface RebateHiveDetails {
+  columns: { name: string; valueVisible: boolean }[]
+  rows: Record<string, string | null>[]
+  page: number
+  hasNext: boolean
 }
 export interface RebateMappingReview {
   policy: RebatePolicy
   rules: RebateRule[]
-  validation?: { rows: number; fields: Record<string, MappingCheck>; at: string; error?: string; example?: RebateMappingExample }
+  validation?: { rows: number; fields: Record<string, MappingCheck>; at: string; error?: string }
 }
 export interface RebateCondition {
   id: string
@@ -143,8 +145,10 @@ export const airlineRebates = {
     unwrap(http.get<ApiEnvelope<RebateMappingReview>>(mappingPath(id), { signal })),
   validateMapping: (id: string) =>
     unwrap(http.post<ApiEnvelope<RebateMappingReview>>(mappingPath(id) + '/validate')),
-  reviewMapping: (id: string, group: string, rule: string, state: MappingDecision, note: string) =>
-    unwrap(http.put<ApiEnvelope<RebateMappingReview>>(mappingPath(id), { group, rule, state, note })),
+  readHiveDetails: (id: string, page: number, signal: AbortSignal) =>
+    unwrap(http.get<ApiEnvelope<RebateHiveDetails>>(mappingPath(id) + '/details', { signal, params: { page } })),
+  reviewMapping: (id: string, group: string, rule: string, state: MappingDecision, note: string, field?: string) =>
+    unwrap(http.put<ApiEnvelope<RebateMappingReview>>(mappingPath(id), { group, rule, state, note, field })),
   confirmPolicy: (id: string) =>
     unwrap(http.post<ApiEnvelope<RebatePolicy>>(policies + '/' + encodeURIComponent(id) + '/confirm')),
   run: (id: string) => unwrap(http.post<ApiEnvelope<RebateProgress>>(taskPath(id) + '/runs')),
