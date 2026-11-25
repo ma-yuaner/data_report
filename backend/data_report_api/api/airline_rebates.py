@@ -1,7 +1,6 @@
 """HKG26003 pilot endpoints on the existing authenticated blueprint."""
 from datetime import datetime, timezone
 from functools import wraps
-from hashlib import sha256
 from io import BytesIO
 import json
 import time
