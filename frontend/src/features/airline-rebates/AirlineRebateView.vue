@@ -13,6 +13,7 @@ import {
   type RebatePolicy, type RebateNumber, type RebateProgress, type RebateRule, type RebateTask, type RebateVersion,
 } from '@/api/airlineRebates'
 import { useAuthStore } from '@/stores/auth'
+import { formatHiveMapping } from './hiveMappingDisplay'
 
 const route = useRoute()
 const router = useRouter()
@@ -535,7 +536,9 @@ function backToProgress() {
                   <template v-else>{{ displayValue(record.value) }}<details v-if="record.sourceText" class="muted"><summary>查看合同原文</summary>{{ record.sourceText }}</details><div v-if="drawer === 'details' && preceding(group, record)" class="muted">上版 {{ preceding(group, record) }}</div></template>
                 </template>
               </a-table-column>
-              <a-table-column title="Hive 字段及口径" data-index="mapping" :width="310" />
+              <a-table-column title="Hive 字段及口径" :width="310">
+                <template #default="{ record }">{{ formatHiveMapping(record.mapping) }}</template>
+              </a-table-column>
             </a-table>
           </section>
           <a-space v-if="drawer === 'policy' && activePolicy && !activePolicy.confirmed && ruleGroups.length && canManage" wrap>
