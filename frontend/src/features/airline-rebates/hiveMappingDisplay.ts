@@ -1,5 +1,8 @@
 // These labels describe the fields used in the HKG26003 policy review.
 const fieldLabels: Record<string, string> = {
+  order_id: '订单号',
+  first_dep_time: '首段计划起飞时间',
+  segment_operating_airline: '航段实际承运航司',
   segment_dep_time: '航段计划起飞时间',
   issue_ticket_time: '出票时间',
   supplier_code: '供应商',
@@ -28,6 +31,10 @@ const fieldLabels: Record<string, string> = {
 
 export function hiveFieldLabel(field: string): string {
   return fieldLabels[field] ?? field
+}
+
+export function hiveFieldChineseLabel(field: string): string {
+  return fieldLabels[field] ?? '中文名待补充'
 }
 
 const conditionLabels: Record<string, string> = {
