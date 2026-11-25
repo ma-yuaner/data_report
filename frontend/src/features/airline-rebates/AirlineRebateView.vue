@@ -9,7 +9,7 @@ import FormGrid from '@/components/FormGrid.vue'
 import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
 import { ApiError } from '@/api/http'
 import {
-  airlineRebates, type RebateCondition, type RebateRouteDay, type RebateRouteCategory, type RebateDetailRow,
+  airlineRebates, type MappingDecision, type RebateMappingReview, type RebateCondition, type RebateRouteDay, type RebateRouteCategory, type RebateDetailRow,
   type RebatePolicy, type RebateNumber, type RebateProgress, type RebateRule, type RebateTask, type RebateVersion,
 } from '@/api/airlineRebates'
 import { useAuthStore } from '@/stores/auth'
@@ -55,6 +55,24 @@ const drawerError = ref('')
 const activePolicy = ref<RebatePolicy>()
 const task = ref<RebateTask>()
 const policyRules = ref<RebateRule[]>([])
+const mappingValidation = ref<RebateMappingReview['validation']>()
+const reviewTarget = ref<{ group: string; rule: RebateCondition }>()
+const mappingDecision = ref<MappingDecision>()
+const mappingNote = ref('')
+const mappingLabels = {
+  exact: '已校验', trial: '仅可试算', unchecked: '待 Hive 校验', failed: '校验未通过',
+  missing: '确认缺数据', unmapped: '待人工核实', pending_registration: '待接入数据源', constant: '政策常量',
+}
+const failedMappingFields = computed(() => Object.entries(mappingValidation.value?.fields ?? {})
+  .filter(([, check]) => !check.passed).map(([field]) => field))
+const mappingActions = computed(() => [
+  ...(reviewTarget.value?.rule.dataMapping?.fields.length ? [{ value: 'confirmed', label: '确认采用字典映射' }] : []),
+  { value: 'missing', label: '确认缺数据' }, { value: 'found', label: '已找到其他来源，待接入' },
+  { value: 'reset', label: '恢复自动匹配' },
+])
+const canSaveMapping = computed(() => mappingDecision.value && (
+  ['confirmed', 'reset'].includes(mappingDecision.value) || mappingNote.value.trim()
+))
 const versions = ref<RebateVersion[]>([])
 const selectedVersion = ref<number>()
 const draft = ref<RebateRule[]>([])
@@ -81,7 +99,7 @@ let drawerRequest: AbortController | undefined
 const currentVersion = computed(() => versions.value[0])
 const viewedVersion = computed(() => versions.value.find(item => item.version === selectedVersion.value))
 const previousVersion = computed(() => versions.value.find(item => item.version < (viewedVersion.value?.version ?? 0)))
-const readyPolicies = computed(() => policies.value.filter(item => item.status === 'ready' && item.confirmed))
+const readyPolicies = computed(() => policies.value.filter(item => item.status === 'ready' && item.confirmed && item.trialReady))
 const ruleGroups = computed(() => drawer.value === 'policy' ? policyRules.value : drawer.value === 'edit' ? draft.value : viewedVersion.value?.rules ?? [])
 const drawerTitle = computed(() => {
   if (drawer.value === 'policy') return '解析结果 · ' + (activePolicy.value?.name ?? '')
@@ -186,6 +204,7 @@ function closeDrawer() {
   if (saving.value) return
   drawerRequest?.abort()
   drawer.value = undefined
+  reviewTarget.value = undefined
   routeScope.value = undefined
   day.value = undefined
   drawerBusy.value = false
@@ -236,15 +255,70 @@ async function upload() {
   } catch (error) { if (isPolicies.value) notice.value = explain(error) }
   finally { uploading.value = false }
 }
+function confirmDelete(kind: 'policy' | 'task', item: RebatePolicy | RebateTask) {
+  const isPolicy = kind === 'policy'
+  Modal.confirm({
+    title: isPolicy ? '删除此政策？' : '删除此任务？',
+    content: isPolicy
+      ? `「${item.name}」及上传的 PDF、解析结果和字段核实记录将永久删除。若已建档，请先删除对应任务。`
+      : `「${item.name}」及全部试算批次和明细将永久删除。政策原件仍可用于重新建档。`,
+    okText: '删除',
+    okType: 'danger',
+    cancelText: '取消',
+    async onOk() {
+      try {
+        if (isPolicy) await airlineRebates.deletePolicy(item.id)
+        else await airlineRebates.deleteTask(item.id)
+      } catch (error) {
+        message.error(explain(error))
+        return
+      }
+      message.success('已删除')
+      await load()
+    },
+  })
+}
 function openPolicy(policy: RebatePolicy) {
   activePolicy.value = policy
   confirmedCheck.value = false
   policyRules.value = []
+  mappingValidation.value = undefined
   drawer.value = 'policy'
   void loadDrawer(async signal => {
-    const rules = await airlineRebates.readPolicy(policy.id, signal)
-    if (!signal.aborted) policyRules.value = rules
+    const review = await airlineRebates.readMapping(policy.id, signal)
+    if (!signal.aborted) applyMapping(review)
   })
+}
+function applyMapping(review: RebateMappingReview) {
+  if (drawer.value !== 'policy' || activePolicy.value?.id !== review.policy.id) return
+  activePolicy.value = review.policy
+  policyRules.value = review.rules
+  mappingValidation.value = review.validation
+  policies.value = policies.value.map(item => item.id === review.policy.id ? review.policy : item)
+}
+function openMappingReview(group: string, rule: RebateCondition) {
+  reviewTarget.value = { group, rule }
+  mappingDecision.value = rule.dataMapping?.decision.state
+  mappingNote.value = rule.dataMapping?.decision.note ?? ''
+}
+async function updateMapping(validate: boolean) {
+  const id = activePolicy.value?.id
+  if (!id || saving.value) return
+  const target = reviewTarget.value
+  const decision = mappingDecision.value
+  if (!validate && (!target || !decision || !canSaveMapping.value)) return
+  saving.value = true
+  drawerError.value = ''
+  try {
+    if (validate) {
+      applyMapping(await airlineRebates.validateMapping(id))
+    } else if (target && decision) {
+      applyMapping(await airlineRebates.reviewMapping(id, target.group, target.rule.id, decision, mappingNote.value.trim()))
+      reviewTarget.value = undefined
+      message.success('已保存核实结果')
+    }
+  } catch (error) { drawerError.value = explain(error) }
+  finally { saving.value = false }
 }
 async function confirmPolicy() {
   const item = activePolicy.value
@@ -256,7 +330,7 @@ async function confirmPolicy() {
     if (activePolicy.value?.id === item.id) {
       activePolicy.value = confirmed
       saving.value = false
-      await router.push({ name: 'airline-rebate-tasks', query: { policy: confirmed.id } })
+      message.success('已确认政策条款')
     }
     void load()
   } catch (error) { drawerError.value = explain(error) }
@@ -463,7 +537,10 @@ function backToProgress() {
               <a-tag :color="record.status === 'failed' ? 'red' : record.status === 'ready' ? 'green' : 'default'">{{ { pending: '解析中', ready: '已解析', failed: '解析失败' }[record.status as RebatePolicy['status']] }}</a-tag>
               <div v-if="record.errorMessage" class="muted">{{ record.errorMessage }}</div>
             </template>
-            <a-button v-else-if="column.key === 'action'" type="link" :disabled="record.status !== 'ready'" @click="openPolicy(record)">查看解析结果</a-button>
+            <a-space v-else-if="column.key === 'action'" :size="4" wrap>
+              <a-button type="link" :disabled="record.status !== 'ready'" @click="openPolicy(record)">查看解析结果</a-button>
+              <a-button v-if="canManage" type="link" danger @click="confirmDelete('policy', record)">删除</a-button>
+            </a-space>
           </template>
         </a-table>
       </a-card>
@@ -513,6 +590,7 @@ function backToProgress() {
           </template>
           <a-space v-else-if="column.key === 'action'" :size="4" wrap>
             <a-button type="link" size="small" @click="openTask(record, 'analysis')">分析此项</a-button>
+            <a-button v-if="canManage" type="link" size="small" danger @click="confirmDelete('task', record)">删除</a-button>
             <a-button v-if="canManage && record.editable !== false" type="link" size="small" @click="openTask(record, 'edit')">编辑规则</a-button>
           </a-space>
         </template>
@@ -549,9 +627,19 @@ function backToProgress() {
           <a-space v-if="drawer === 'policy' && activePolicy" wrap class="section">
             <a-tag>{{ activePolicy.confirmed ? '已确认' : '解析初版' }}</a-tag>{{ activePolicy.airline || '—' }} · {{ activePolicy.period || '—' }}
             <a-button :href="'/api/v1/airline-rebates/policies/' + encodeURIComponent(activePolicy.id) + '/original'">下载原件</a-button>
-            <a-button v-if="canManage && activePolicy.confirmed && !drawerBusy && !drawerError" type="primary"
-              @click="router.push({ name: 'airline-rebate-tasks', query: { policy: activePolicy.id } })">去任务管理建档</a-button>
+            <a-button v-if="canManage && activePolicy.confirmed && activePolicy.trialReady && !drawerBusy && !drawerError" type="primary"
+              @click="router.push({ name: 'airline-rebate-tasks', query: { policy: activePolicy.id } })">建试算任务</a-button>
           </a-space>
+          <a-space v-if="drawer === 'policy' && activePolicy && policyRules.length" wrap class="section">
+            <a-tag :color="activePolicy.trialReady ? 'blue' : 'orange'">{{ activePolicy.trialReady ? '试算数据已通过' : '试算数据待通过' }}</a-tag>
+            <a-tag color="orange">正式结算数据未通过</a-tag>
+            <a-button v-if="canManage" :loading="saving" @click="updateMapping(true)">校验 Hive 明细</a-button>
+            <span v-if="mappingValidation?.rows" class="muted">{{ mappingValidation.rows }} 条候选明细 · {{ formatDateTimeDisplay(mappingValidation.at) }}</span>
+          </a-space>
+          <a-alert v-if="drawer === 'policy' && mappingValidation?.error" :message="mappingValidation.error" type="warning" show-icon class="section" />
+          <a-alert v-if="drawer === 'policy' && failedMappingFields.length"
+            :message="'字段类型或有效值校验未通过 · ' + failedMappingFields.join('、')"
+            type="warning" show-icon class="section" />
           <a-space v-if="task && drawer !== 'policy'" wrap class="section">
             <strong class="task-full-name">{{ task.name }}</strong>
             <span>{{ task.airline }} · {{ task.period }}</span><span>负责人 {{ task.owner || '—' }}</span><span>政策文件 {{ task.policyName }}</span>
@@ -591,14 +679,47 @@ function backToProgress() {
                 </template>
               </a-table-column>
               <a-table-column title="Hive 字段及口径" :width="310">
-                <template #default="{ record }">{{ formatHiveMapping(record.mapping) }}</template>
+                <template #default="{ record }">
+                  {{ formatHiveMapping(record.mapping) }}
+                  <template v-if="record.dataMapping">
+                    <div><a-tag>{{ mappingLabels[(record as RebateCondition).dataMapping!.status] }}</a-tag></div>
+                    <div v-if="record.dataMapping.fields.length" class="muted">{{ record.dataMapping.fields.join('、') }}</div>
+                    <details v-if="Object.keys(record.dataMapping.checks).length || record.dataMapping.filterFields.length" class="muted">
+                      <summary>查看校验依据</summary>
+                      <div v-for="(check, field) in (record as RebateCondition).dataMapping!.checks" :key="field">
+                        {{ field }} · {{ check.expected }}<template v-if="check.present != null"> · {{ check.present }} 条有值 · {{ check.invalid }} 条类型异常</template>
+                      </div>
+                      <div v-if="record.dataMapping.filterFields.length">取数过滤条件 {{ record.dataMapping.filterFields.join('、') }}</div>
+                    </details>
+                    <div v-if="record.dataMapping.decision.state" class="muted">
+                      {{ record.dataMapping.decision.by }} · {{ formatDateTimeDisplay(record.dataMapping.decision.at) }}
+                      {{ record.dataMapping.decision.note || '已确认采用字典映射' }}
+                    </div>
+                    <a-button v-if="drawer === 'policy' && canManage && record.dataMapping.kind !== 'constant'"
+                      type="link" size="small" @click="openMappingReview(group.id, record)">人工核实</a-button>
+                  </template>
+                </template>
               </a-table-column>
             </a-table>
           </section>
           <a-space v-if="drawer === 'policy' && activePolicy && !activePolicy.confirmed && ruleGroups.length && canManage" wrap>
-            <a-checkbox v-model:checked="confirmedCheck">已核对合同原文、费率及宽表字段映射</a-checkbox>
-            <a-button type="primary" :loading="saving" :disabled="!confirmedCheck" @click="confirmPolicy">确认并前往任务管理</a-button>
+            <a-checkbox v-model:checked="confirmedCheck">已核对合同原文和费率</a-checkbox>
+            <a-button type="primary" :loading="saving" :disabled="!confirmedCheck" @click="confirmPolicy">确认政策条款</a-button>
           </a-space>
+          <a-modal v-if="reviewTarget" :open="true" :title="'核实数据来源 · ' + reviewTarget.rule.fieldLabel"
+            :ok-button-props="{ disabled: !canSaveMapping }" :confirm-loading="saving" ok-text="保存核实结果"
+            @cancel="reviewTarget = undefined" @ok="updateMapping(false)">
+            <a-alert v-if="drawerError" :message="drawerError" type="warning" show-icon class="section" />
+            <p v-if="reviewTarget.rule.sourceText">{{ reviewTarget.rule.sourceText }}</p>
+            <a-form layout="vertical">
+              <a-form-item label="核实结论" required>
+                <a-select v-model:value="mappingDecision" :options="mappingActions" />
+              </a-form-item>
+              <a-form-item label="来源或缺失说明" :required="mappingDecision === 'missing' || mappingDecision === 'found'">
+                <a-textarea v-model:value="mappingNote" :maxlength="500" :rows="3" />
+              </a-form-item>
+            </a-form>
+          </a-modal>
           <a-form v-if="drawer === 'edit' && currentVersion" layout="vertical">
             <a-form-item label="修改说明" required><a-input v-model:value="reason" /></a-form-item>
             <a-button type="primary" :loading="saving" :disabled="!hasRuleChanges || !validDraft || !reason.trim()" @click="save">保存为 V{{ currentVersion.version + 1 }}</a-button>

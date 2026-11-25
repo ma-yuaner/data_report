@@ -2,12 +2,28 @@ import { ApiError, http, type ApiEnvelope } from './http'
 
 export type RebateNumber = number | string | null
 export type RebateConditionValue = string | number | string[] | number[]
+export type MappingDecision = 'confirmed' | 'missing' | 'found' | 'reset'
+interface MappingCheck { expected: string; present?: number; invalid?: number; passed: boolean }
+export interface RebateDataMapping {
+  status: 'exact' | 'trial' | 'unchecked' | 'failed' | 'missing' | 'unmapped' | 'pending_registration' | 'constant'
+  kind: 'exact' | 'trial' | 'unmapped' | 'constant'
+  fields: string[]
+  filterFields: string[]
+  checks: Record<string, MappingCheck>
+  decision: { state?: MappingDecision; note?: string; by?: string; at?: string }
+}
+export interface RebateMappingReview {
+  policy: RebatePolicy
+  rules: RebateRule[]
+  validation?: { rows: number; fields: Record<string, MappingCheck>; at: string; error?: string }
+}
 export interface RebateCondition {
   id: string
   fieldLabel: string
   operator: string
   value: RebateConditionValue
   mapping?: string
+  dataMapping?: RebateDataMapping
   sourceText?: string | null
 }
 export interface RebateRule {
@@ -24,6 +40,7 @@ export interface RebatePolicy {
   status: 'pending' | 'ready' | 'failed'
   errorMessage?: string
   confirmed?: boolean
+  trialReady?: boolean
 }
 export interface RebateVersion {
   version: number
@@ -110,11 +127,19 @@ async function unwrap<T>(request: Promise<{data: ApiEnvelope<T>}>): Promise<T> {
   return data.data
 }
 
+const mappingPath = (id: string) => policies + '/' + encodeURIComponent(id) + '/mapping'
+
 export const airlineRebates = {
+  deletePolicy: (id: string) => unwrap(http.delete<ApiEnvelope<null>>(policies + '/' + encodeURIComponent(id))),
+  deleteTask: (id: string) => unwrap(http.delete<ApiEnvelope<null>>(taskPath(id))),
   listPolicies: (signal: AbortSignal) => unwrap(http.get<ApiEnvelope<RebatePolicy[]>>(policies, { signal })),
   listTasks: (signal: AbortSignal) => unwrap(http.get<ApiEnvelope<RebateTask[]>>(tasks, { signal })),
-  readPolicy: (id: string, signal: AbortSignal) =>
-    unwrap(http.get<ApiEnvelope<RebateRule[]>>(policies + '/' + encodeURIComponent(id), { signal })),
+  readMapping: (id: string, signal: AbortSignal) =>
+    unwrap(http.get<ApiEnvelope<RebateMappingReview>>(mappingPath(id), { signal })),
+  validateMapping: (id: string) =>
+    unwrap(http.post<ApiEnvelope<RebateMappingReview>>(mappingPath(id) + '/validate')),
+  reviewMapping: (id: string, group: string, rule: string, state: MappingDecision, note: string) =>
+    unwrap(http.put<ApiEnvelope<RebateMappingReview>>(mappingPath(id), { group, rule, state, note })),
   confirmPolicy: (id: string) =>
     unwrap(http.post<ApiEnvelope<RebatePolicy>>(policies + '/' + encodeURIComponent(id) + '/confirm')),
   run: (id: string) => unwrap(http.post<ApiEnvelope<RebateProgress>>(taskPath(id) + '/runs')),

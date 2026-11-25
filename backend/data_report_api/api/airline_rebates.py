@@ -12,13 +12,17 @@ from flask import current_app, g, jsonify, request, send_file
 from pypdf.errors import PdfReadError
 
 from .common import json_body, ok, smart_excel_response
-from ..services.airline_rebates.calculation import CATEGORIES, simulate
+from ..services.airline_rebates.calculation import CATEGORIES, fetch_facts, simulate
+from ..services.airline_rebates.mapping import (
+    CATALOG_VERSION, MappingValidationError, blocked_trial_rules, review_cards, trial_ready, validate_facts,
+)
 from ..services.airline_rebates.policy import parse_policy
 from ..services.airline_rebates.route_progress import eligible_route_rows, route_days, route_workbook
 from ..services.airline_rebates.store import connect, encode
 
 ROOT = "/v1/airline-rebates"
 MAX_FILE = 10 * 1024 * 1024
+RUN_LEASE_SECONDS = 900
 
 
 class PilotError(Exception):
@@ -78,6 +82,7 @@ def policy_data(row):
     return {key: record[key] for key in ("id", "name", "airline", "period")} | {
         "status": "ready", "confirmed": bool(row["confirmed_at"]),
         "confirmedAt": row["confirmed_at"], "confirmedBy": row["confirmed_by"],
+        "trialReady": trial_ready(record),
     }
 
 
@@ -176,6 +181,24 @@ def rule_cards(policy):
     ]
 
 
+def mapping_review(row):
+    profile = json.loads(row["profile"])
+    return {
+        "policy": policy_data(row),
+        "rules": review_cards(rule_cards(policy_for_review(row)), profile),
+        "validation": profile.get("mappingValidation"),
+    }
+
+
+def save_mapping_profile(db, row, profile):
+    if not db.execute(
+        "UPDATE rebate_policies SET profile=? WHERE id=? AND profile=?",
+        (encode(profile), row["id"], row["profile"]),
+    ).rowcount:
+        raise PilotError("校验期间有其他人修改了数据映射，请刷新后重试", 409)
+    return mapping_review(find(db, "rebate_policies", row["id"]))
+
+
 def task_data(db, row):
     result = json.loads(row["profile"])
     if row["current_run"]:
@@ -191,6 +214,10 @@ def run_trial(directory, identifier, refresh_interval=0):
     started = int(time.time())
     with connect(directory) as db:
         task = find(db, "rebate_tasks", identifier)
+        policy_row = find(db, "rebate_policies", task["policy_id"])
+        profile = json.loads(policy_row["profile"])
+        if blocked_trial_rules(profile):
+            raise PilotError("试算依赖的字段待核实，请在政策审阅中处理", 422)
         if refresh_interval and task["current_run"]:
             previous = json.loads(find(db, "rebate_runs", task["current_run"])["summary"])
             last = previous.get("refreshedAt")
@@ -198,23 +225,28 @@ def run_trial(directory, identifier, refresh_interval=0):
                 return None
         updated = db.execute(
             "UPDATE rebate_tasks SET run_token=?, run_at=? WHERE id=? AND current_run IS ? AND (run_token IS NULL OR run_at<?)",
-            (token, started, identifier, task["current_run"], started - 900),
+            (token, started, identifier, task["current_run"], started - RUN_LEASE_SECONDS),
         ).rowcount
         if not updated:
             raise PilotError("已有试算正在运行", 409)
-        policy = json.loads(find(db, "rebate_policies", task["policy_id"])["profile"])["policy"]
+        policy = profile["policy"]
     try:
         summary, days = simulate(current_app.config, policy)
         summary.update(runId=token, refreshedAt=now(), refreshMode="scheduled" if refresh_interval else "manual")
         for point in summary["daily"]:
             point["id"] = token + "_" + point["date"]
         with connect(directory) as db:
+            latest_policy = find(db, "rebate_policies", task["policy_id"])
+            if json.loads(latest_policy["profile"]).get("mappingReview") != profile.get("mappingReview"):
+                raise ValueError("试算期间政策数据映射已变更")
             updated = db.execute(
-                "UPDATE rebate_tasks SET current_run=?, run_token=NULL, run_at=NULL, run_error=NULL WHERE id=? AND run_token=?",
-                (token, identifier, token),
+                "UPDATE rebate_tasks SET current_run=?, run_token=NULL, run_at=NULL, run_error=NULL "
+                "WHERE id=? AND run_token=? AND EXISTS ("
+                "SELECT 1 FROM rebate_policies p WHERE p.id=rebate_tasks.policy_id AND p.profile=?)",
+                (token, identifier, token, latest_policy["profile"]),
             ).rowcount
             if not updated:
-                raise PilotError("本次试算已被更新的运行替代", 409)
+                raise ValueError("本次试算已被替代或数据映射已更新")
             db.execute("INSERT INTO rebate_runs(id, task_id, summary) VALUES (?, ?, ?)",
                        (token, identifier, encode(summary)))
             db.executemany("INSERT INTO rebate_days(run_id, day, details) VALUES (?, ?, ?)",
@@ -223,7 +255,11 @@ def run_trial(directory, identifier, refresh_interval=0):
     except PilotError:
         raise
     except Exception as error:
-        message = "Hive 试算失败，保留最近成功结果。请核对宽表覆盖或联系数据团队。"
+        message = (
+            f"{error}。如有历史结果，仍可查看。"
+            if isinstance(error, MappingValidationError)
+            else "Hive 试算失败，保留最近成功结果。请核对宽表覆盖或联系数据团队。"
+        )
         with connect(directory) as db:
             db.execute("UPDATE rebate_tasks SET run_token=NULL, run_at=NULL, run_error=? WHERE id=? AND run_token=?",
                        (message, identifier, token))
@@ -286,7 +322,8 @@ def register_routes(api):
             raise PilotError("PDF 未通过 HKG26003 政策结构校验，请核对原件") from error
         identifier = sha256(raw).hexdigest()
         profile = {"id": identifier, "name": file.filename.replace("\\", "/").rsplit("/", 1)[-1][:200],
-                   "airline": "MU/FM", "period": policy["flownStart"] + " 至 " + policy["flownEnd"], "policy": policy}
+                   "airline": "MU/FM", "period": policy["flownStart"] + " 至 " + policy["flownEnd"], "policy": policy,
+                   "uploadRevision": uuid4().hex}
         with connect(directory) as db:
             db.execute("INSERT OR IGNORE INTO rebate_policies(id, profile, original) VALUES (?, ?, ?)",
                        (identifier, encode(profile), raw))
@@ -297,6 +334,72 @@ def register_routes(api):
     def rebate_policy(directory, identifier):
         with connect(directory) as db:
             return ok(rule_cards(policy_for_review(find(db, "rebate_policies", identifier))))
+
+    @api.get(ROOT + "/policies/<identifier>/mapping")
+    @endpoint
+    def rebate_mapping(directory, identifier):
+        with connect(directory) as db:
+            return ok(mapping_review(find(db, "rebate_policies", identifier)))
+
+    @api.put(ROOT + "/policies/<identifier>/mapping")
+    @endpoint
+    def rebate_review_mapping(directory, identifier):
+        payload = json_body()
+        group, rule, state = (payload.get(key) for key in ("group", "rule", "state"))
+        note = str(payload.get("note") or "").strip()
+        if state not in ("confirmed", "missing", "found", "reset") or (
+            state in ("missing", "found") and not note
+        ) or len(note) > 500:
+            raise PilotError("请填写核实结论，最多 500 字")
+        with connect(directory) as db:
+            row = find(db, "rebate_policies", identifier)
+            cards = mapping_review(row)["rules"]
+            selected = next((
+                condition["dataMapping"] for card in cards if card["id"] == group
+                for condition in card["conditions"] if condition["id"] == rule
+            ), None)
+            if not selected or selected["kind"] == "constant":
+                raise PilotError("该规则无需字段核实")
+            if state == "confirmed" and not selected["fields"]:
+                raise PilotError("请记录查到的来源，数据团队接入后再验证")
+            profile = json.loads(row["profile"])
+            review = profile.setdefault("mappingReview", {})
+            key = f"{group}/{rule}"
+            if state == "reset":
+                review.pop(key, None)
+            else:
+                review[key] = {"state": state, "note": note, "by": user_label(), "at": now()}
+            return ok(save_mapping_profile(db, row, profile))
+
+    @api.post(ROOT + "/policies/<identifier>/mapping/validate")
+    @endpoint
+    def rebate_validate_mapping(directory, identifier):
+        with connect(directory) as db:
+            row = find(db, "rebate_policies", identifier)
+        profile = json.loads(row["profile"])
+        try:
+            records, airports = fetch_facts(current_app.config, profile["policy"])
+            validation = validate_facts(records, airports)
+        except MappingValidationError as error:
+            validation = {"rows": 0, "fields": {}, "error": str(error)}
+        except Exception as error:
+            current_app.logger.warning("Rebate mapping validation failed: %s", type(error).__name__)
+            validation = {"rows": 0, "fields": {}, "error": "Hive 校验失败，请核对连接、字段和政策期间覆盖"}
+        profile["mappingValidation"] = {**validation, "catalogVersion": CATALOG_VERSION, "at": now()}
+        with connect(directory) as db:
+            return ok(save_mapping_profile(db, row, profile))
+
+    @api.delete(ROOT + "/policies/<identifier>")
+    @endpoint
+    def rebate_delete_policy(directory, identifier):
+        with connect(directory) as db:
+            db.execute("BEGIN IMMEDIATE")
+            find(db, "rebate_policies", identifier)
+            if db.execute("SELECT 1 FROM rebate_tasks WHERE policy_id=?", (identifier,)).fetchone():
+                raise PilotError("请先删除该政策对应的试算任务", 409)
+            db.execute("DELETE FROM rebate_policies WHERE id=?", (identifier,))
+        current_app.logger.info("Rebate policy deleted by %s: %s", user_label(), identifier)
+        return ok(None)
 
     @api.get(ROOT + "/policies/<identifier>/original")
     @endpoint
@@ -333,13 +436,38 @@ def register_routes(api):
             if not policy_row["confirmed_at"]:
                 raise PilotError("请先核对并确认政策解析结果", 409)
             policy = json.loads(policy_row["profile"])
+            existing = db.execute("SELECT * FROM rebate_tasks WHERE policy_id=?", (policy["id"],)).fetchone()
+            if existing:
+                return ok(task_data(db, existing))
+            if not trial_ready(policy):
+                raise PilotError("请先核实试算字段并通过 Hive 明细校验", 422)
             item = {"id": uuid4().hex, "name": name, "airline": policy["airline"], "period": policy["period"],
                     "owner": owner, "currency": "HKD", "policyName": policy["name"], "editable": False,
                     "target": None, "actual": None, "completionRate": None, "dataAsOf": None}
-            db.execute("INSERT OR IGNORE INTO rebate_tasks(id, policy_id, profile) VALUES (?, ?, ?)",
-                       (item["id"], policy["id"], encode(item)))
+            db.execute(
+                "INSERT OR IGNORE INTO rebate_tasks(id, policy_id, profile) "
+                "SELECT ?, id, ? FROM rebate_policies WHERE id=? AND profile=?",
+                (item["id"], encode(item), policy["id"], policy_row["profile"]),
+            )
             row = db.execute("SELECT * FROM rebate_tasks WHERE policy_id = ?", (policy["id"],)).fetchone()
+            if not row:
+                raise PilotError("字段校验状态已更新，请刷新政策后重试", 409)
             return ok(task_data(db, row))
+
+    @api.delete(ROOT + "/tasks/<identifier>")
+    @endpoint
+    def rebate_delete_task(directory, identifier):
+        with connect(directory) as db:
+            db.execute("BEGIN IMMEDIATE")
+            task = find(db, "rebate_tasks", identifier)
+            if task["run_token"] and task["run_at"] >= int(time.time()) - RUN_LEASE_SECONDS:
+                raise PilotError("试算正在运行，请在本次运行结束后删除", 409)
+            db.execute("DELETE FROM rebate_days WHERE run_id IN (SELECT id FROM rebate_runs WHERE task_id=?)",
+                       (identifier,))
+            db.execute("DELETE FROM rebate_runs WHERE task_id=?", (identifier,))
+            db.execute("DELETE FROM rebate_tasks WHERE id=?", (identifier,))
+        current_app.logger.info("Rebate task deleted by %s: %s", user_label(), identifier)
+        return ok(None)
 
     @api.get(ROOT + "/tasks/<identifier>/versions")
     @endpoint

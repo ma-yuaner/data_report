@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 
 from ..data_source import DataSource
+from .mapping import MappingValidationError, validate_facts, validate_projection
 
 MAX_ROWS = 50_000
 SOURCE_SQL = Path(__file__).with_name("hive_trial.sql")
@@ -37,6 +38,7 @@ def fetch_facts(config, policy):
         cursor.execute(extract.strip(), (
             policy["ticketPrefix"], start.isoformat(), (end + timedelta(days=1)).isoformat(), month_pattern,
         ))
+        validate_projection(cursor.description)
         records = cursor.fetchmany(MAX_ROWS + 1)
     if not records or len(records) > MAX_ROWS:
         raise ValueError("宽表无数据或超出试点容量，未生成结果")
@@ -142,6 +144,10 @@ def classify(policy, row, airports, duplicates):
 
 def simulate(config, policy):
     records, airports = fetch_facts(config, policy)
+    validation = validate_facts(records, airports)
+    if not all(item["passed"] for item in validation["fields"].values()):
+        failed = [name for name, item in validation["fields"].items() if not item["passed"]]
+        raise MappingValidationError("候选明细的类型或有效值校验失败：" + "、".join(failed))
     counts = Counter((row[0], row[1]) for row in records)
     duplicates = {key for key, count in counts.items() if count > 1}
     details = defaultdict(list)
