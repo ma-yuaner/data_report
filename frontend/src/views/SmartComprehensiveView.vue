@@ -185,7 +185,7 @@ function coverageMeta(tasks: SmartPlacementCoverageTask[]) {
   if (tasks.length) return { label: '已停止/结束', color: 'default' }
   return { label: '未投递', color: 'red' }
 }
-const recallStatuses = ['PENDING_RECALL_REVIEW', 'PENDING_RECALL', 'RECALLED']
+const recallStatuses = ['PENDING_RECALL_REVIEW', 'PENDING_RECALL_POLICY_REVIEW', 'PENDING_RECALL', 'RECALLED']
 function coverageBadges(tasks: SmartPlacementCoverageTask[]) {
   const otherTasks = tasks.filter(task => !recallStatuses.includes(task.status))
   const badges = otherTasks.length || !tasks.length ? [coverageMeta(otherTasks)] : []
@@ -201,7 +201,8 @@ function taskStatus(status: string) {
     IN_PROGRESS: { label: '投放中', color: 'cyan' }, MONITORING: { label: '监控中', color: 'green' },
     FAILED: { label: '投放失败', color: 'red' }, REJECTED: { label: '已驳回', color: 'red' },
     CLOSED: { label: '已作废', color: 'default' }, ENDED: { label: '已结束', color: 'default' },
-    PENDING_RECALL_REVIEW: { label: '收回待审核', color: 'gold' }, PENDING_RECALL: { label: '待收回', color: 'orange' },
+    PENDING_RECALL_REVIEW: { label: '收回待数据审核', color: 'gold' }, PENDING_RECALL_POLICY_REVIEW: { label: '收回待政策审核', color: 'gold' },
+    PENDING_RECALL: { label: '待收回', color: 'orange' },
     RECALLED: { label: '已收回', color: 'default' },
   }
   return values[status] || { label: status, color: 'default' }

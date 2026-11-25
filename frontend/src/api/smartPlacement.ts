@@ -1,6 +1,6 @@
 import { http, type ApiEnvelope } from './http'
 
-export type PlacementTaskStatus = 'DRAFT' | 'PENDING_DATA_REVIEW' | 'PENDING_POLICY_REVIEW' | 'CLAIMABLE' | 'IN_PROGRESS' | 'MONITORING' | 'FAILED' | 'REJECTED' | 'CLOSED' | 'ENDED' | 'PENDING_RECALL_REVIEW' | 'PENDING_RECALL' | 'RECALLED'
+export type PlacementTaskStatus = 'DRAFT' | 'PENDING_DATA_REVIEW' | 'PENDING_POLICY_REVIEW' | 'CLAIMABLE' | 'IN_PROGRESS' | 'MONITORING' | 'FAILED' | 'REJECTED' | 'CLOSED' | 'ENDED' | 'PENDING_RECALL_REVIEW' | 'PENDING_RECALL_POLICY_REVIEW' | 'PENDING_RECALL' | 'RECALLED'
 export type PlacementRecallAction = 'request' | 'approve' | 'reject' | 'confirm'
 export type PlacementPriority = 'HIGH' | 'MEDIUM' | 'LOW'
 export type PlacementLocationType = 'AIRPORT' | 'CITY' | 'COUNTRY' | 'LEGACY'
