@@ -1,5 +1,5 @@
 {
-  "commit": "2ac52f298117cd1efef88eda8a687ed728b9aee7",
+  "commit": "4caf5d5bbc6231a01082c8e7b794c6bd8a6e4621",
   "files": {
     "backend/.dockerignore": "347d5a129fd71a0cc9942ce1c9b1479856421019704bc493cda6ed63afdf2692",
     "backend/Dockerfile": "9b8cf8d5e63309b131503de114dafd7b22e56a77341e4cc53d0827c7f3377e3f",
@@ -12,7 +12,7 @@
     "backend/data_report_api/api/adm_parsing.py": "8d67f45d610683039deea1700b3f6f60863275fa3bed2d1fcc654bbc5ae763b6",
     "backend/data_report_api/api/admwf.py": "86d6e3d88191e0e1332d12523485e924a033e63c82c0d11e7f8dad0b13214049",
     "backend/data_report_api/api/airline_rebates.py": "380bef37aabcd228919cae786c31967a7b4e749fcf02e82bcce9e9ad15fddbb2",
-    "backend/data_report_api/api/analysis.py": "4ad1496b0344aa12a81ea3a37f16d1098a66e718db892eea279d5d505bd1d30a",
+    "backend/data_report_api/api/analysis.py": "1094e514972f6542a051abcc29506909f9e135ce86a6534905799358e90d4d1e",
     "backend/data_report_api/api/annotations.py": "a7dc4c623c2cedb6c487b340cad7ccdc99fe7420e7a8502bc7f1e190c224a87d",
     "backend/data_report_api/api/asset_inventory.py": "d4eec34d3e6932a95785d8a51cb34cad8a14e4e70a0608f7c975ef7f47f45717",
     "backend/data_report_api/api/change_sla.py": "5f64d811705cb652168a8ff98c007e51cdda7c30ce5fafa9ee33bbde7e883aba",
@@ -80,7 +80,7 @@
     "backend/data_report_api/services/change_sla_limits.py": "eaacfc6a32ae3b8840c2122eb3efd7ed8f7ee2b3942430c41b25ec5650c28fa8",
     "backend/data_report_api/services/change_sla_snapshot.py": "fca2f2624b1ef8c217ccf81d56d2b67a117f77ec1a515718f966edfdd057a20e",
     "backend/data_report_api/services/comprehensive_analysis.py": "237a92074de04954d2637eb18e154c3c4226312998aa751aebb58ba17a293c03",
-    "backend/data_report_api/services/comprehensive_detail.py": "2755ed0016fdedce590e48f72f77e0c9d9d0da36a0ba8c466a673c0db7cc61a9",
+    "backend/data_report_api/services/comprehensive_detail.py": "789dde28069cedba1fbebd19443949db128770e33841079af3f33ef3b467aefa",
     "backend/data_report_api/services/comprehensive_export.py": "457a70c98f0803814ec020313973491ce715014d4de6b7cd5ebc4e0e66e29a7b",
     "backend/data_report_api/services/core_asset_registry.py": "225cbe483b7f89393c555830a290602c1fdd03149ac07a8356ffe2dd8dd1a459",
     "backend/data_report_api/services/dashboard.py": "8bff917450265a45ac93f7b06c54287129651809216a49869384f9d8e1dd15dc",
@@ -234,6 +234,7 @@
     "HKG26003 rule-card presentation and field mappings only, no changes to startup, authorization, storage or trial calculation.",
     "HKG26003 request-only planned-flight trial applies completed issue and refund/void filters, retains segment decisions and snapshots, and displays category and order totals. Startup, auth and storage schema unchanged.",
     "HKG26003 policy evidence extraction and read-only evidence backfill from stored PDF. Trial calculation, startup, authorization and storage boundaries unchanged.",
-    "HKG26003: authenticated category drill-down and XLSX export from immutable SQLite snapshots; no new writes, startup workers, DDL or Hive changes."
+    "HKG26003: authenticated category drill-down and XLSX export from immutable SQLite snapshots; no new writes, startup workers, DDL or Hive changes.",
+    "Comprehensive issue detail: the existing authenticated GET sorts by segment profit before pagination with allowlisted directions; startup, auth, worker, notification and write paths are unchanged."
   ]
 }
