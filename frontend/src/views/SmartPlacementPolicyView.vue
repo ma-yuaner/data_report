@@ -549,7 +549,7 @@ const canOpenMonitoringCenter = computed(() => Boolean(authStore.user?.isAdmin) 
 const priorityMeta: Record<PlacementPriority, { label: string; color: string }> = { HIGH: { label: '高', color: 'red' }, MEDIUM: { label: '中', color: 'orange' }, LOW: { label: '低', color: 'blue' } }
 const priorityDisplay = (value: unknown) => priorityMeta[String(value) as PlacementPriority] || { label: String(value || '—'), color: 'default' }
 const statusDisplay = (value: unknown) => statusMeta[String(value) as PlacementTaskStatus] || { label: String(value || '—'), color: 'default' }
-const statusFilterOptions = [{ label: '全部状态', value: '' }, ...Object.entries(statusMeta)
+const allStatusFilterOptions = [{ label: '全部状态', value: '' }, ...Object.entries(statusMeta)
   .filter(([value]) => value !== 'RECALLED' && value !== 'PENDING_RECALL_POLICY_REVIEW')
   .map(([value, meta]) => ({ label: value === 'PENDING_RECALL_REVIEW' ? '收回待审核' : meta.label, value }))]
 const priorityOptions = Object.entries(priorityMeta).map(([value, meta]) => ({ value, label: meta.label }))
@@ -570,6 +570,18 @@ const canWithdrawTasks = computed(() => hasPermission('smart_placement.withdraw'
 const canCancelTasks = computed(() => hasPermission('smart_placement.cancel'))
 const canReviewData = computed(() => hasPermission('smart_placement.review_data'))
 const canReviewPolicy = computed(() => hasPermission('smart_placement.review_policy'))
+const fixedStatusByScope: Record<string, PlacementTaskStatus | undefined> = { claim: 'CLAIMABLE', recall: 'PENDING_RECALL' }
+const statusFilterOptions = computed(() => {
+  const fixed = fixedStatusByScope[workScope.value]
+  if (fixed) return [{ label: statusMeta[fixed].label, value: fixed }]
+  if (workScope.value !== 'review') return allStatusFilterOptions
+  return [
+    { label: '全部审核状态', value: '' },
+    ...(canReviewData.value ? [{ label: statusMeta.PENDING_DATA_REVIEW.label, value: 'PENDING_DATA_REVIEW' }] : []),
+    ...(canReviewPolicy.value ? [{ label: statusMeta.PENDING_POLICY_REVIEW.label, value: 'PENDING_POLICY_REVIEW' }] : []),
+    { label: '收回待审核', value: 'PENDING_RECALL_REVIEW' },
+  ]
+})
 const canClaimTasks = computed(() => hasPermission('smart_placement.claim'))
 const canExecuteTasks = computed(() => hasPermission('smart_placement.execute'))
 const canStopMonitoring = computed(() => hasPermission('smart_placement.stop'))
@@ -774,12 +786,12 @@ function preferredScope() {
   if (!authStore.user?.isAdmin && canCreate.value) return 'mine'
   return 'all'
 }
-function resetFilters() { workScope.value = preferredScope(); filters.value = { keyword: '', status: '', platform: '', airline: '', owner: '', scope: workScope.value === 'all' ? '' : workScope.value }; queryPolicies() }
+function resetFilters() { workScope.value = preferredScope(); filters.value = { keyword: '', status: fixedStatusByScope[workScope.value] || '', platform: '', airline: '', owner: '', scope: workScope.value === 'all' ? '' : workScope.value }; queryPolicies() }
 function selectWorkScope(value: string) {
   if (workScope.value === value) return
   workScope.value = value
   filters.value.scope = value === 'all' ? '' : value
-  filters.value.status = ''
+  filters.value.status = fixedStatusByScope[value] || ''
   filters.value.owner = ''
   filters.value.platform = ''
   filters.value.airline = ''
@@ -1155,6 +1167,7 @@ async function openDetail(row: PlacementTaskRow) {
 onMounted(() => {
   workScope.value = preferredScope()
   filters.value.scope = workScope.value === 'all' ? '' : workScope.value
+  filters.value.status = fixedStatusByScope[workScope.value] || ''
   queryPolicies()
   if (canCreate.value || canExecuteTasks.value) void loadDimensions()
   if (route.query.create === '1' && canCreate.value) openCreateFromAnalysis()

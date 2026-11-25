@@ -813,9 +813,12 @@ class SmartPlacementService:
                 review_conditions.append("t.status='PENDING_DATA_REVIEW'")
             if _is_admin(user) or _has_permission(user, PERMISSION_REVIEW_POLICY):
                 review_conditions.append("t.status='PENDING_POLICY_REVIEW'")
-            recall_conditions, recall_params = self._recall_review_conditions(user, "t")
-            review_conditions.extend(recall_conditions)
-            params.extend(recall_params)
+            if _is_admin(user):
+                review_conditions.extend(f"t.status='{status}'" for status in RECALL_REVIEW_STAGES)
+            else:
+                recall_conditions, recall_params = self._recall_review_conditions(user, "t")
+                review_conditions.extend(recall_conditions)
+                params.extend(recall_params)
             where.append(f"({' OR '.join(review_conditions)})" if review_conditions else "1=0")
         elif scope == "claim":
             where.append("t.status='CLAIMABLE'" if _has_permission(user, PERMISSION_CLAIM) else "1=0")
