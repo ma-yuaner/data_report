@@ -14,11 +14,12 @@ export interface RebateDataMapping {
   decision: { state?: MappingDecision; note?: string; by?: string; at?: string; field?: string }
 }
 export interface RebateHiveDetails {
-  columns: { name: string; valueVisible: boolean }[]
+  columns: { name: string; valueVisible: boolean; hiveType?: string; label?: string; grain?: string; scope?: string }[]
   rows: Record<string, string | null>[]
   page: number
   hasNext: boolean
   preparedAt?: string
+  scope?: string
 }
 export interface RebateMappingReview {
   policy: RebatePolicy
@@ -33,6 +34,7 @@ export interface RebateCondition {
   mapping?: string
   dataMapping?: RebateDataMapping
   sourceText?: string | null
+  sourceEvidence?: { page: string | null; quote: string | null; region: string | null; verified: boolean }[]
 }
 export interface RebateRule {
   id: string
@@ -47,6 +49,15 @@ export interface RebatePolicy {
   period?: string
   status: 'pending' | 'ready' | 'failed'
   errorMessage?: string
+  stage?: string
+  parseFailed?: boolean
+  hasReference?: boolean
+  hasCandidate?: boolean
+  source?: 'model' | 'legacy'
+  executionId?: string
+  modelReceipt?: { model: string; providerRequestId?: string; responseSha256: string; promptVersion: string }
+  formalReady?: boolean
+  contract?: { number: string | null; name: string | null; currency: string | null; scope: string | null } | null
   confirmed?: boolean
   trialReady?: boolean
 }
@@ -153,9 +164,12 @@ export const airlineRebates = {
   confirmPolicy: (id: string) =>
     unwrap(http.post<ApiEnvelope<RebatePolicy>>(policies + '/' + encodeURIComponent(id) + '/confirm')),
   run: (id: string) => unwrap(http.post<ApiEnvelope<RebateProgress>>(taskPath(id) + '/runs')),
-  upload(file: File) {
+  retryPolicyParse: (id: string) =>
+    unwrap(http.post<ApiEnvelope<RebatePolicy>>(policies + '/' + encodeURIComponent(id) + '/parse/retry')),
+  upload(file: File, submissionId: string) {
     const form = new FormData()
     form.append('file', file)
+    form.append('submissionId', submissionId)
     return unwrap(http.post<ApiEnvelope<RebatePolicy>>(policies, form))
   },
   createTask: (draft: RebateTaskDraft) => unwrap(http.post<ApiEnvelope<RebateTask>>(tasks, draft)),

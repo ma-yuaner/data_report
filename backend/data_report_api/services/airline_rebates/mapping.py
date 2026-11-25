@@ -100,14 +100,71 @@ def validate_facts(records, airports):
 REMOVABLE_RULES = {("eligibility", "agency")}
 
 
+# Exact business concepts only. In particular, actual carriage date never maps to planned departure.
+BUSINESS_FIELDS = {
+    "航段计划起飞日期": ("segment_dep_time",), "航段计划起飞时间": ("segment_dep_time",),
+    "航段实际承运航司": ("segment_operating_airline", "operating_airline"),
+    "实际承运航司": ("segment_operating_airline", "operating_airline"),
+    "航段实际舱位": ("segment_real_cabin",), "实际舱位": ("segment_real_cabin",),
+    "票证前三位": ("issue_ticket_no",), "出票代理iata号": ("issuing_iata",),
+    "出票日期": ("issue_ticket_time",), "始发机场": ("dep_airport",), "到达机场": ("arr_airport",),
+    "航段起降机场": ("segment_airport",), "出票票面价": ("issue_ticket_price",),
+    "币种": ("issue_currency",), "出票币种": ("issue_currency",),
+}
+
+
+REVIEW_FIELDS = {
+    "segment_dep_time": ("航段计划起飞时间", (str,), "航段", "计划日期"),
+    "segment_operating_airline": ("航段实际承运航司", (str,), "航段", "承运航司"),
+    "operating_airline": ("实际承运航司", (str,), "宽表记录", "承运航司，逐段关系需人工核实"),
+    "segment_real_cabin": ("航段实际舱位", (str,), "航段", "舱位条件"),
+    "issue_ticket_no": ("票号", (str,), "客票", "票证前缀"),
+    "issuing_iata": ("出票代理 IATA 号", (str,), "客票", "出票代理"),
+    "issue_ticket_time": ("出票时间", (str, date, datetime), "客票", "出票日期"),
+    "dep_airport": ("始发机场", (str,), "客票", "旅程始发"),
+    "arr_airport": ("到达机场", (str,), "客票", "旅程到达"),
+    "segment_airport": ("各航段起降机场", (str,), "航段", "航段航程"),
+    "issue_ticket_price": ("出票票面价", (int, Decimal), "客票", "整票票面金额"),
+    "issue_currency": ("出票币种", (str,), "客票", "出票金额币种"),
+}
+
+
+def review_field_metadata(name, hive_type):
+    definition = REVIEW_FIELDS.get(name)
+    if definition is None:
+        return {}
+    label, accepted, grain, scope = definition
+    return {
+        "label": label, "grain": grain, "scope": scope,
+        "typeMatches": any(hive_type in HIVE_TYPES[kind] for kind in accepted),
+    }
+
+
+def model_fields(rule, available):
+    label = "".join((rule.get("fieldLabel") or "").lower().split())
+    concept = "".join((rule.get("businessConcept") or "").lower().split())
+    candidates = BUSINESS_FIELDS.get(label) or BUSINESS_FIELDS.get(concept, ())
+    if label in BUSINESS_FIELDS and concept in BUSINESS_FIELDS and BUSINESS_FIELDS[label] != BUSINESS_FIELDS[concept]:
+        return ()
+    if "实际" in label and any(word in label for word in ("日期", "时间", "乘机日")):
+        return ()
+    if any(word in label for word in ("净承运收入", "净收入", "结算收入")):
+        return ()
+    return tuple(field for field in candidates if available.get(field, {}).get("typeMatches") is True)
+
+
 def review_cards(cards, profile):
     review = profile.get("mappingReview", {})
     validation = profile.get("mappingValidation", {})
     checked = validation.get("catalogVersion") == CATALOG_VERSION
     evidence = validation.get("fields", {}) if checked else {}
+    available = {item["name"]: item for item in profile.get("mappingReference", {}).get("columns", [])}
+    is_model = profile.get("source") == "model"
     for group in cards:
         for rule in group["conditions"]:
             kind, fields = capability(group["id"], rule["id"])
+            if is_model:
+                kind, fields = "unmapped", model_fields(rule, available)
             decision = review.get(f"{group['id']}/{rule['id']}", {})
             if decision.get("state") == "removed":
                 status = "removed"
@@ -117,6 +174,10 @@ def review_cards(cards, profile):
                 status = "missing"
             elif decision.get("state") == "found":
                 status = "pending_registration"
+            elif is_model and decision.get("state") == "confirmed":
+                status = "pending_registration"
+            elif is_model and len(fields) == 1:
+                status = "unchecked"
             elif kind in {"constant", "unmapped"}:
                 status = kind
             elif any(field in evidence and not evidence[field]["passed"] for field in fields):
@@ -127,7 +188,7 @@ def review_cards(cards, profile):
                 status = kind
             rule["dataMapping"] = {
                 "status": status, "kind": kind, "fields": fields, "decision": decision,
-                "removable": (group["id"], rule["id"]) in REMOVABLE_RULES,
+                "removable": bool(rule.get("optionalReview")) if is_model else (group["id"], rule["id"]) in REMOVABLE_RULES,
                 "checks": {field: evidence[field] for field in fields if field in evidence},
                 "filterFields": [field for field in fields if field in FILTER_FIELDS],
             }
@@ -137,7 +198,8 @@ def review_cards(cards, profile):
 def trial_ready(profile):
     validation = profile.get("mappingValidation", {})
     return (
-        validation.get("catalogVersion") == CATALOG_VERSION
+        profile.get("source") != "model"
+        and validation.get("catalogVersion") == CATALOG_VERSION
         and validation.get("rows", 0) > 0
         and all(field["passed"] for field in validation["fields"].values())
         and not blocked_trial_rules(profile)

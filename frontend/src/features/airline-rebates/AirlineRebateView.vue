@@ -48,6 +48,24 @@ const listError = ref('')
 const notice = ref('')
 const uploadInput = ref<HTMLInputElement>()
 const file = ref<File>()
+let submissionId = ''
+let policyPoll: ReturnType<typeof setTimeout> | undefined
+const parseStages: Record<string, string> = {
+  queued: '等待处理', reading: '读取 PDF', model: '模型解析', validating: '校验初稿', reference: '准备 Hive 参考记录',
+}
+function parsingLabel(item: RebatePolicy) {
+  if (item.parseFailed) return (parseStages[item.stage ?? ''] ?? '解析') + '失败'
+  if (item.status === 'pending' || (item.stage && !item.hasReference)) return parseStages[item.stage ?? ''] ?? '处理中'
+  if (item.confirmed) return '政策已确认'
+  return item.source === 'model' ? '模型初稿待核对' : '已解析'
+}
+function newSubmissionId() {
+  const bytes = crypto.getRandomValues(new Uint8Array(16))
+  bytes[6] = (bytes[6] & 15) | 64
+  bytes[8] = (bytes[8] & 63) | 128
+  return Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('')
+}
+
 const uploading = ref(false)
 const drawer = ref<'policy' | 'create' | 'details' | 'edit' | 'analysis'>()
 const drawerBusy = ref(false)
@@ -73,7 +91,8 @@ const hiveRows = computed(() => {
   const details = hiveDetails.value
   if (!details?.rows.length) return []
   return details.columns.map(field => ({
-    name: field.name, label: hiveFieldLabel(field.name),
+    name: field.name, label: field.label || hiveFieldLabel(field.name),
+    hiveType: field.hiveType, grain: field.grain, scope: field.scope,
     value: field.valueVisible ? (details.rows[0][field.name] ?? '—') : '受限',
   }))
 })
@@ -204,6 +223,7 @@ const rateMatrix = computed(() => ruleGroups.value.filter(group => group.id.star
 const rebateRouteLabels = ['国际远程', '国际非远程', '地区非指定', '地区指定', '异地始发']
 const policyOperatorLabels: Record<string, string> = {
   between: '介于（含首尾）',
+  lt: '小于',
   unrestricted: '不限',
   all: '同时满足',
   applies: '按政策执行',
@@ -216,16 +236,22 @@ function explain(error: unknown) {
   return error instanceof Error ? error.message : '请求失败，请重试。'
 }
 
-async function load() {
+async function load(quiet = false) {
+  clearTimeout(policyPoll)
   listRequest?.abort()
   const request = new AbortController()
   listRequest = request
-  loading.value = true
+  if (!quiet) loading.value = true
   listError.value = ''
   try {
     if (isPolicies.value) {
       const rows = await airlineRebates.listPolicies(request.signal)
-      if (!request.signal.aborted) policies.value = rows
+      if (!request.signal.aborted) {
+        policies.value = rows
+        if (rows.some(row => !row.parseFailed && (row.status === 'pending' || (row.stage && !row.hasReference)))) {
+          policyPoll = setTimeout(() => { if (isPolicies.value) void load(true) }, 1800)
+        }
+      }
     } else {
       const rows = await airlineRebates.listTasks(request.signal)
       if (!request.signal.aborted) tasks.value = rows
@@ -258,7 +284,7 @@ watch(() => route.name, () => {
   file.value = undefined
   void load()
 }, { immediate: true })
-onBeforeUnmount(() => { listRequest?.abort(); drawerRequest?.abort() })
+onBeforeUnmount(() => { clearTimeout(policyPoll); listRequest?.abort(); drawerRequest?.abort(); hiveRequest?.abort() })
 
 async function loadDrawer(action: (signal: AbortSignal) => Promise<void>) {
   drawerRequest?.abort()
@@ -279,16 +305,26 @@ function selectFile(event: Event) {
     return
   }
   file.value = selected
+  submissionId = selected ? newSubmissionId() : ''
   notice.value = ''
 }
 async function upload() {
   if (!file.value || uploading.value || !canManage.value) return
   uploading.value = true
   try {
-    const policy = await airlineRebates.upload(file.value)
+    const policy = await airlineRebates.upload(file.value, submissionId || (submissionId = newSubmissionId()))
     file.value = undefined
     if (isPolicies.value) { notice.value = '已提交：' + policy.name; await load() }
   } catch (error) { if (isPolicies.value) notice.value = explain(error) }
+  finally { uploading.value = false }
+}
+async function retryPolicy(item: RebatePolicy) {
+  if (uploading.value) return
+  uploading.value = true
+  try {
+    await airlineRebates.retryPolicyParse(item.id)
+    await load()
+  } catch (error) { notice.value = explain(error) }
   finally { uploading.value = false }
 }
 function confirmDelete(kind: 'policy' | 'task', item: RebatePolicy | RebateTask) {
@@ -352,8 +388,9 @@ async function loadHiveReference() {
     if (request.signal.aborted) return
     hiveDetails.value = details
     if (!mappingField.value) {
-      mappingField.value = reviewTarget.value?.rule.dataMapping?.fields.find(field =>
-        details.columns.some(column => column.name === field))
+      const fields = reviewTarget.value?.rule.dataMapping?.fields ?? []
+      const candidates = fields.filter(field => details.columns.some(column => column.name === field))
+      if (candidates.length === 1) mappingField.value = candidates[0]
     }
   } catch (error) {
     if (!request.signal.aborted) hiveError.value = explain(error)
@@ -594,7 +631,7 @@ function backToProgress() {
     <PageHeader eyebrow="后返管理" :title="isPolicies ? '政策解析' : '任务管理'"
       :description="isPolicies ? '上传政策 PDF，查看解析初版及字段来源。' : '查看航司后返任务、规则版本与每日进度。'">
       <a-space>
-        <a-button :loading="loading" @click="load">刷新</a-button>
+        <a-button :loading="loading" @click="load()">刷新</a-button>
         <a-button v-if="!isPolicies && canManage" type="primary" @click="openCreate">新建任务</a-button>
       </a-space>
     </PageHeader>
@@ -614,11 +651,18 @@ function backToProgress() {
           <template #emptyText><a-empty :description="listError ? '解析文件暂不可用' : '暂无解析文件'" /></template>
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'status'">
-              <a-tag :color="record.status === 'failed' ? 'red' : record.status === 'ready' ? 'green' : 'default'">{{ { pending: '解析中', ready: '已解析', failed: '解析失败' }[record.status as RebatePolicy['status']] }}</a-tag>
+              <a-tag :color="record.status === 'failed' ? 'red' : record.status === 'ready' ? 'green' : 'default'">{{ parsingLabel(record) }}</a-tag>
               <div v-if="record.errorMessage" class="muted">{{ record.errorMessage }}</div>
             </template>
             <a-space v-else-if="column.key === 'action'" :size="4" wrap>
-              <a-button type="link" :disabled="record.status !== 'ready'" @click="openPolicy(record)">查看解析结果</a-button>
+              <a-button type="link" :disabled="record.status !== 'ready' || !record.hasReference" @click="openPolicy(record)">查看解析结果</a-button>
+              <a-button v-if="record.parseFailed && canManage" type="link" :disabled="uploading" @click="retryPolicy(record)">
+                {{ record.stage === 'reference' ? '重试准备参考记录' : record.stage === 'validating' ? '重试校验初稿' : '重试解析' }}
+              </a-button>
+              <a-button v-if="record.parseFailed && record.hasCandidate" type="link"
+                :href="'/api/v1/airline-rebates/policies/' + encodeURIComponent(record.id) + '/parse/candidate'">下载模型初稿</a-button>
+              <a-button v-if="record.status !== 'ready'" type="link"
+                :href="'/api/v1/airline-rebates/policies/' + encodeURIComponent(record.id) + '/original'">下载原件</a-button>
               <a-button v-if="auth.user?.isAdmin" type="link" danger @click="confirmDelete('policy', record)">删除</a-button>
             </a-space>
           </template>
@@ -710,8 +754,16 @@ function backToProgress() {
             <a-button v-if="canManage && activePolicy.confirmed && activePolicy.trialReady && !drawerBusy && !drawerError" type="primary"
               @click="router.push({ name: 'airline-rebate-tasks', query: { policy: activePolicy.id } })">建试算任务</a-button>
           </a-space>
+          <a-descriptions v-if="drawer === 'policy' && activePolicy?.contract" size="small" :column="2" class="section">
+            <a-descriptions-item v-if="activePolicy.contract.name" label="合同名称">{{ activePolicy.contract.name }}</a-descriptions-item>
+            <a-descriptions-item v-if="activePolicy.contract.number" label="合同编号">{{ activePolicy.contract.number }}</a-descriptions-item>
+            <a-descriptions-item v-if="activePolicy.contract.currency" label="政策币种">{{ activePolicy.contract.currency }}</a-descriptions-item>
+            <a-descriptions-item v-if="activePolicy.contract.scope" label="适用范围">{{ activePolicy.contract.scope }}</a-descriptions-item>
+          </a-descriptions>
           <a-space v-if="drawer === 'policy' && activePolicy && policyRules.length" wrap class="section">
-            <a-button v-if="canManage" :loading="saving" @click="validateMapping">校验 Hive 明细</a-button>
+            <a-button v-if="canManage && activePolicy.source !== 'model'" :loading="saving" @click="validateMapping">校验 Hive 明细</a-button>
+            <a-tag v-if="activePolicy.source === 'model'">计算规则待接入</a-tag>
+            <span v-if="activePolicy.modelReceipt" class="muted">模型 {{ activePolicy.modelReceipt.model }} · {{ activePolicy.executionId }}</span>
             <span v-if="mappingValidation?.error" class="muted">校验未完成，请在详情核对中查看</span>
             <span v-else-if="mappingValidation?.referenceError" class="muted">{{ mappingValidation.referenceError }}</span>
           </a-space>
@@ -750,7 +802,7 @@ function backToProgress() {
               <a-table-column title="运算符" :width="145">
                 <template #default="{ record }">
                   <a-select v-if="drawer === 'edit'" v-model:value="record.operator" :options="operators" class="operator" :aria-label="record.fieldLabel + '运算符'" />
-                  <span v-else>{{ operatorLabel(record.operator) }}</span>
+                  <span v-else>{{ activePolicy?.source === 'model' && record.operator === 'between' ? '介于' : operatorLabel(record.operator) }}</span>
                 </template>
               </a-table-column>
               <a-table-column title="值" :width="235">
@@ -801,6 +853,11 @@ function backToProgress() {
                 <details class="section">
                   <summary>查看校验依据</summary>
                   <p v-if="reviewTarget.rule.mapping">{{ formatHiveMapping(reviewTarget.rule.mapping) }}</p>
+                  <div v-for="(evidence, index) in reviewTarget.rule.sourceEvidence" :key="index" class="muted">
+                    <strong>{{ evidence.page ? '第 ' + evidence.page + ' 页' : '页码待核实' }}</strong>
+                    <span v-if="!evidence.verified"> · 模型提供的位置待核实</span>
+                    <p v-if="evidence.region && !evidence.verified">{{ evidence.region }}</p>
+                  </div>
                   <p v-if="reviewTarget.rule.dataMapping">{{ mappingLabels[reviewTarget.rule.dataMapping.status] }}</p>
                   <p v-if="mappingValidation?.error">{{ mappingValidation.error }}</p>
                   <p v-if="mappingValidation?.referenceError">{{ mappingValidation.referenceError }}</p>
@@ -812,10 +869,13 @@ function backToProgress() {
                 </details>
                 <template v-if="canManage && reviewTarget.rule.dataMapping && reviewTarget.rule.dataMapping.kind !== 'constant'">
                   <h3>Hive 字段参考</h3>
-                  <p v-if="hiveDetails?.preparedAt" class="muted">参考记录准备于 {{ formatDateTimeDisplay(hiveDetails.preparedAt) }}</p>
+                  <p v-if="hiveDetails?.preparedAt" class="muted">
+                    {{ hiveDetails.scope === 'wideTableExample' ? '宽表参考记录 · ' : '' }}
+                    {{ formatDateTimeDisplay(hiveDetails.preparedAt) }}
+                  </p>
                   <a-alert v-if="hiveError" :message="hiveError" type="warning" show-icon />
                   <a-alert v-else-if="!hiveBusy && !hiveRows.length"
-                    message="暂无预备样例。关闭抽屉后点击「校验 Hive 明细」准备参考记录。"
+                    message="这次解析的参考记录未能读取，请刷新政策列表并重试。"
                     type="info" show-icon />
                   <a-form layout="vertical">
                     <a-form-item label="核对使用的字段">
@@ -828,9 +888,16 @@ function backToProgress() {
                   <a-table v-if="hiveRows.length || hiveBusy" :data-source="hiveRows" :loading="hiveBusy"
                     :row-class-name="(record: { name: string }) => record.name === mappingField ? 'selected-hive-field' : ''"
                     row-key="name" :pagination="false" size="small" :scroll="{ y: 280 }">
-                    <a-table-column title="字段中文名" data-index="label" />
+                    <a-table-column title="字段中文名">
+                      <template #default="{ record }">
+                        {{ record.label }}
+                        <div v-if="record.grain" class="muted">{{ record.grain }} · {{ record.scope }}</div>
+                      </template>
+                    </a-table-column>
                     <a-table-column title="参考值" data-index="value" />
-                    <a-table-column title="Hive 字段名" data-index="name" />
+                    <a-table-column title="Hive 字段名">
+                      <template #default="{ record }">{{ record.name }}<small v-if="record.hiveType" class="muted"> · {{ record.hiveType }}</small></template>
+                    </a-table-column>
                   </a-table>
                   </div>
                   <a-form layout="vertical" class="review-decision">

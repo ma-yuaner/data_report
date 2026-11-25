@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 
 from ..data_source import DataSource
-from .mapping import MappingValidationError, validate_facts, validate_projection
+from .mapping import MappingValidationError, review_field_metadata, validate_facts, validate_projection
 
 MAX_ROWS = 50_000
 SOURCE_SQL = Path(__file__).with_name("hive_trial.sql")
@@ -59,14 +59,6 @@ def fetch_review_details(config, policy, page, page_size):
     offset = (page - 1) * page_size
     limit = min(offset + page_size + 1, MAX_ROWS)
     query = "SELECT *\nFROM " + source_clause.rsplit("LIMIT", 1)[0] + "LIMIT " + str(limit)
-    preferred = ("issue_ticket_time", "order_id", "segment_airport", "segment_dep_time",
-                 "segment_marketing_airline", "segment_real_cabin", "issue_ticket_price")
-    visible = {
-        *preferred, "issue_ticket_no", "issue_currency", "dep_airport", "arr_airport", "first_dep_time",
-        "supplier_code", "order_status", "issue_status", "real_age_type_desc", "refund_flag_desc",
-        "issue_ticket_no_status", "refund_issue_flag", "issue_price_type_desc", "flt_status",
-        "operating_airline", "segment_operating_airline", "code_share", "issuing_iata",
-    }
     with closing(source.connect()) as connection, closing(connection.cursor()) as cursor:
         cursor.execute(query, parameters)
         columns = [column[0].rsplit(".", 1)[-1].lower() for column in cursor.description]
@@ -77,6 +69,43 @@ def fetch_review_details(config, policy, page, page_size):
                 break
             remaining -= skipped
         records = cursor.fetchmany(page_size + 1) if not remaining else []
+    return review_projection(columns, records[:page_size]) | {
+        "page": page, "hasNext": len(records) > page_size,
+    }
+
+
+def fetch_policy_reference(config):
+    source = DataSource({**config, "DATA_MODE": "hive"})
+    if source.database != "lywz":
+        raise ValueError("Hive 参考宽表未配置")
+    with closing(source.connect()) as connection, closing(connection.cursor()) as cursor:
+        cursor.execute(
+            "SELECT * FROM lywz.dwd_order_issue_wide_year "
+            "WHERE issue_ticket_no IS NOT NULL AND segment_airport IS NOT NULL "
+            "AND segment_dep_time IS NOT NULL LIMIT 1"
+        )
+        columns = [column[0].rsplit(".", 1)[-1].lower() for column in cursor.description]
+        types = [column[1] for column in cursor.description]
+        records = cursor.fetchmany(1)
+    result = review_projection(columns, records)
+    hive_types = dict(zip(columns, types))
+    for field in result["columns"]:
+        hive_type = hive_types[field["name"]]
+        field.update(hiveType=hive_type, **review_field_metadata(field["name"], hive_type))
+    if not result["rows"]:
+        raise ValueError("Hive 宽表没有能用于字段核对的记录")
+    return result
+
+
+def review_projection(columns, records):
+    preferred = ("issue_ticket_time", "order_id", "segment_airport", "segment_dep_time",
+                 "segment_marketing_airline", "segment_real_cabin", "issue_ticket_price")
+    visible = {
+        *preferred, "issue_ticket_no", "issue_currency", "dep_airport", "arr_airport", "first_dep_time",
+        "supplier_code", "order_status", "issue_status", "real_age_type_desc", "refund_flag_desc",
+        "issue_ticket_no_status", "refund_issue_flag", "issue_price_type_desc", "flt_status",
+        "operating_airline", "segment_operating_airline", "code_share", "issuing_iata",
+    }
     indices = {name: index for index, name in enumerate(columns)}
     ordered = [name for name in preferred if name in indices]
     ordered.extend(name for name in columns if name not in preferred)
@@ -95,10 +124,8 @@ def fetch_review_details(config, policy, page, page_size):
         "columns": [{"name": name, "valueVisible": name in visible} for name in ordered],
         "rows": [
             {name: display(name, row[indices[name]]) for name in ordered}
-            for row in records[:page_size]
+            for row in records
         ],
-        "page": page,
-        "hasNext": len(records) > page_size,
     }
 
 

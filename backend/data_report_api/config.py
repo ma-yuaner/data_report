@@ -18,6 +18,12 @@ def explicit_erp_settings() -> bool:
 
 class Config:
     AIRLINE_REBATE_PILOT_ROOT = os.getenv("AIRLINE_REBATE_PILOT_ROOT", "").strip()
+    AIRLINE_REBATE_MODEL_ENABLED = env_bool("AIRLINE_REBATE_MODEL_ENABLED", False)
+    AIRLINE_REBATE_MODEL_URL = os.getenv("AIRLINE_REBATE_MODEL_URL", "")
+    AIRLINE_REBATE_MODEL_KEY = os.getenv("AIRLINE_REBATE_MODEL_KEY", "")
+    AIRLINE_REBATE_MODEL_NAME = os.getenv("AIRLINE_REBATE_MODEL_NAME", "")
+    AIRLINE_REBATE_MODEL_TIMEOUT = int(os.getenv("AIRLINE_REBATE_MODEL_TIMEOUT", "90"))
+    AIRLINE_REBATE_MODEL_MAX_PAGES = int(os.getenv("AIRLINE_REBATE_MODEL_MAX_PAGES", "12"))
     ANNOTATION_ROOT = os.getenv("ANNOTATION_ROOT", "").strip() or str(Path(__file__).resolve().parents[1] / "var/adm/annotations")
     CHANGE_SLA_AUDIT_MINUTES = os.getenv("CHANGE_SLA_AUDIT_MINUTES", "45")
     CHANGE_SLA_OPERATION_MINUTES = os.getenv("CHANGE_SLA_OPERATION_MINUTES", "90")

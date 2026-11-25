@@ -5,17 +5,18 @@ from hashlib import sha256
 from io import BytesIO
 import json
 import time
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import click
 from flask import current_app, g, jsonify, request, send_file
-from pypdf.errors import PdfReadError
 
 from .common import json_body, ok, smart_excel_response
 from ..services.airline_rebates.calculation import CATEGORIES, fetch_facts, fetch_review_details, simulate
 from ..services.airline_rebates.mapping import (
     CATALOG_VERSION, MappingValidationError, blocked_trial_rules, review_cards, trial_ready, validate_facts,
 )
+from ..services.airline_rebates.extraction import ExtractionError
+from ..services.airline_rebates.jobs import enqueue, kick, prepare_legacy, retry
 from ..services.airline_rebates.policy import parse_policy
 from ..services.airline_rebates.route_progress import eligible_route_rows, route_days, route_workbook
 from ..services.airline_rebates.store import connect, encode
@@ -41,6 +42,8 @@ def endpoint(function):
             if not g.current_user.get("is_admin"):
                 raise PilotError("仅限授权管理员使用航司后返试点", 403)
             return function(directory, *args, **kwargs)
+        except ExtractionError as error:
+            return jsonify(success=False, data=None, message=str(error)), 422
         except PilotError as error:
             return jsonify(success=False, data=None, message=str(error)), error.status
         except (ValueError, TypeError):
@@ -79,19 +82,71 @@ def user_label():
 
 def policy_data(row):
     record = json.loads(row["profile"])
+    job = record.get("parse", {})
     return {key: record[key] for key in ("id", "name", "airline", "period")} | {
-        "status": "ready", "confirmed": bool(row["confirmed_at"]),
+        "status": job.get("status", "ready") if record.get("source") == "model" else "ready",
+        "stage": job.get("stage"),
+        "errorMessage": job.get("error"),
+        "parseFailed": job.get("status") == "failed",
+        "hasReference": bool(record.get("mappingReference", {}).get("rows")),
+        "source": record.get("source", "legacy"),
+        "executionId": job.get("executionId"),
+        "modelReceipt": job.get("modelReceipt"),
+        "hasCandidate": isinstance(job.get("candidate"), str),
+        "confirmed": bool(row["confirmed_at"]),
         "confirmedAt": row["confirmed_at"], "confirmedBy": row["confirmed_by"],
         "trialReady": trial_ready(record),
+        "formalReady": False,
+        "contract": record.get("policy", {}).get("contract") if record.get("source") == "model" else None,
     }
 
 
 def policy_for_review(row):
-    stored = json.loads(row["profile"])["policy"]
-    return stored if "sourceClauses" in stored else parse_policy(BytesIO(row["original"]))
+    profile = json.loads(row["profile"])
+    stored = profile.get("policy")
+    if stored is None:
+        raise PilotError("解析初稿尚不可查阅", 409)
+    return stored if profile.get("source") == "model" or "sourceClauses" in stored else parse_policy(BytesIO(row["original"]))
+
+
+def model_rule_cards(draft):
+    names = {"scope": "适用范围", "measurement": "计档条件", "reward": "奖励条件", "exclusion": "排除条件",
+             "exception": "例外条款", "tier": "奖励档位", "information": "其他条款"}
+    cards = []
+    for rule in draft["rules"]:
+        evidence = next((item for item in rule["evidence"] if item["verified"]), None)
+        source = evidence or next((item for item in rule["evidence"] if item["page"]), None)
+        tier = rule["tier"]
+        details = []
+        if rule["kind"] == "tier":
+            if tier["lower"] is not None:
+                details.append(("≥" if tier["lowerInclusive"] == "yes" else ">" if tier["lowerInclusive"] == "no"
+                                else "下界（含界待核）") + tier["lower"])
+            if tier["upper"] is not None:
+                details.append(("≤" if tier["upperInclusive"] == "yes" else "<" if tier["upperInclusive"] == "no"
+                                else "上界（含界待核）") + tier["upper"])
+            details.extend(item for item in (tier["currency"], tier["basis"]) if item)
+            if tier["ratePercent"] is not None:
+                details.append(tier["ratePercent"] + "%")
+        cards.append({
+            "id": "model-" + rule["id"], "name": names[rule["kind"]],
+            "sourcePage": f"第 {source['page']} 页" if source else None,
+            "conditions": [{
+                "id": rule["id"], "fieldLabel": rule["label"], "operator": rule["operator"],
+                "value": " · ".join(item for item in [rule["value"], *details] if item) or "待核实",
+                "sourceText": evidence["quote"] if evidence else None,
+                "sourceEvidence": rule["evidence"],
+                "mapping": rule["reviewReason"],
+                "businessConcept": rule["concept"],
+                "optionalReview": rule["kind"] == "information",
+            }],
+        })
+    return cards
 
 
 def rule_cards(policy):
+    if "schemaVersion" in policy:
+        return model_rule_cards(policy)
     clauses = dict(policy["sourceClauses"])
     clauses["carrier"] += "。" + clauses["exception"]
     def card(identifier, name, page, conditions):
@@ -216,6 +271,8 @@ def run_trial(directory, identifier, refresh_interval=0):
         task = find(db, "rebate_tasks", identifier)
         policy_row = find(db, "rebate_policies", task["policy_id"])
         profile = json.loads(policy_row["profile"])
+        if profile.get("source") == "model":
+            raise PilotError("通用政策暂无已验证的试算适配", 422)
         if blocked_trial_rules(profile):
             raise PilotError("试算依赖的字段待核实，请在政策审阅中处理", 422)
         if refresh_interval and task["current_run"]:
@@ -302,7 +359,12 @@ def register_routes(api):
     @endpoint
     def rebate_policies(directory):
         with connect(directory) as db:
-            return ok([policy_data(row) for row in db.execute("SELECT * FROM rebate_policies ORDER BY rowid DESC")])
+            prepare_legacy(db)
+            rows = [policy_data(row) for row in db.execute("SELECT * FROM rebate_policies ORDER BY rowid DESC")]
+        if any(row["stage"] in {"queued", "reading", "model", "validating", "reference"} and not row["parseFailed"]
+               for row in rows):
+            kick(directory, dict(current_app.config), current_app.logger)
+        return ok(rows)
 
     @api.post(ROOT + "/policies")
     @endpoint
@@ -310,24 +372,34 @@ def register_routes(api):
         request.max_content_length = MAX_FILE + 1024 * 32
         file = request.files.get("file")
         if not file or not file.filename or not file.filename.lower().endswith(".pdf"):
-            raise PilotError("请选择 HKG26003 PDF")
+            raise PilotError("请选择政策 PDF")
         raw = file.stream.read(MAX_FILE + 1)
         if len(raw) > MAX_FILE:
             raise PilotError("PDF 最大 10 MB", 413)
         if not raw.startswith(b"%PDF-"):
             raise PilotError("请选择有效 PDF")
+        submission = request.form.get("submissionId")
         try:
-            policy = parse_policy(BytesIO(raw))
-        except (ValueError, PdfReadError, KeyError, TypeError) as error:
-            raise PilotError("PDF 未通过 HKG26003 政策结构校验，请核对原件") from error
-        identifier = sha256(raw).hexdigest()
-        profile = {"id": identifier, "name": file.filename.replace("\\", "/").rsplit("/", 1)[-1][:200],
-                   "airline": "MU/FM", "period": policy["flownStart"] + " 至 " + policy["flownEnd"], "policy": policy,
-                   "uploadRevision": uuid4().hex}
+            identifier = UUID(submission).hex if submission else uuid4().hex
+        except ValueError:
+            raise PilotError("提交标识无效") from None
+        name = file.filename.replace("\\", "/").rsplit("/", 1)[-1][:200]
         with connect(directory) as db:
-            db.execute("INSERT OR IGNORE INTO rebate_policies(id, profile, original) VALUES (?, ?, ?)",
-                       (identifier, encode(profile), raw))
-            return ok(policy_data(find(db, "rebate_policies", identifier)))
+            row = enqueue(db, identifier, name, raw)
+            result = policy_data(row)
+        if result["status"] == "pending":
+            kick(directory, dict(current_app.config), current_app.logger)
+        return ok(result)
+
+    @api.post(ROOT + "/policies/<identifier>/parse/retry")
+    @endpoint
+    def rebate_retry_parse(directory, identifier):
+        with connect(directory) as db:
+            db.execute("BEGIN IMMEDIATE")
+            retry(db, find(db, "rebate_policies", identifier))
+            result = policy_data(find(db, "rebate_policies", identifier))
+        kick(directory, dict(current_app.config), current_app.logger)
+        return ok(result)
 
     @api.get(ROOT + "/policies/<identifier>")
     @endpoint
@@ -395,6 +467,8 @@ def register_routes(api):
         with connect(directory) as db:
             row = find(db, "rebate_policies", identifier)
         profile = json.loads(row["profile"])
+        if profile.get("source") == "model":
+            raise PilotError("此通用政策暂无已验证的计算适配，请在详情核对中查看字段参考", 409)
         try:
             records, airports = fetch_facts(current_app.config, profile["policy"])
             validation = validate_facts(records, airports)
@@ -425,12 +499,26 @@ def register_routes(api):
     def rebate_delete_policy(directory, identifier):
         with connect(directory) as db:
             db.execute("BEGIN IMMEDIATE")
-            find(db, "rebate_policies", identifier)
+            policy = find(db, "rebate_policies", identifier)
+            if json.loads(policy["profile"]).get("parse", {}).get("token"):
+                raise PilotError("政策任务正在执行，请稍后再删除", 409)
             if db.execute("SELECT 1 FROM rebate_tasks WHERE policy_id=?", (identifier,)).fetchone():
                 raise PilotError("请先删除该政策对应的试算任务", 409)
             db.execute("DELETE FROM rebate_policies WHERE id=?", (identifier,))
         current_app.logger.info("Rebate policy deleted by %s: %s", user_label(), identifier)
         return ok(None)
+
+    @api.get(ROOT + "/policies/<identifier>/parse/candidate")
+    @endpoint
+    def rebate_candidate(directory, identifier):
+        with connect(directory) as db:
+            profile = json.loads(find(db, "rebate_policies", identifier)["profile"])
+        candidate = profile.get("parse", {}).get("candidate")
+        if not isinstance(candidate, str):
+            raise PilotError("本次没有可回读的模型初稿", 404)
+        return send_file(BytesIO(candidate.encode("utf-8")), mimetype="text/plain", as_attachment=True,
+                         download_name="policy-candidate.txt", max_age=0)
+
 
     @api.get(ROOT + "/policies/<identifier>/original")
     @endpoint
@@ -444,7 +532,9 @@ def register_routes(api):
     @endpoint
     def rebate_confirm(directory, identifier):
         with connect(directory) as db:
-            find(db, "rebate_policies", identifier)
+            row = find(db, "rebate_policies", identifier)
+            if policy_data(row)["status"] != "ready":
+                raise PilotError("请等待解析和参考记录准备完成", 409)
             db.execute("UPDATE rebate_policies SET confirmed_by=?, confirmed_at=? WHERE id=? AND confirmed_at IS NULL",
                        (user_label(), now(), identifier))
             return ok(policy_data(find(db, "rebate_policies", identifier)))
