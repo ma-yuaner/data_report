@@ -141,7 +141,7 @@
             <a-alert v-if="detailError" class="range-error" type="error" :message="detailError" show-icon />
             <a-table class="wide-detail-table" size="small" :loading="detailLoading" :columns="detailColumns" :data-source="detailData?.rows || []" row-key="recordKey"
               :pagination="detailPagination" :sticky="detailSticky"
-              :scroll="{ x: detailTableWidth, y: 'calc(100vh - 390px)' }" @change="changeDetailPage">
+              :scroll="{ x: detailTableWidth, y: 'calc(100vh - 390px)' }" @change="changeDetailTable">
               <template #bodyCell="{ column, record }">
                 <span :class="{ negative: column.valueType === 'money' && isNegative(detailValue(record, column.key)), 'key-value': ['otaOrderNo', 'issueTicketNo', 'changeOrderNo'].includes(column.key) }">
                   {{ formatDetailValue(record, column.key, column.valueType) }}
@@ -166,6 +166,7 @@ import PageHeader from '@/components/PageHeader.vue'
 import FilterPanel from '@/components/FilterPanel.vue'
 import DateRangeField from '@/components/DateRangeField.vue'
 import ComprehensiveDetailDownloadDialog from '@/components/ComprehensiveDetailDownloadDialog.vue'
+import type { TableProps } from 'ant-design-vue'
 import BaseChart from '@/components/BaseChart.vue'
 import { fetchComprehensive, fetchComprehensiveDiagnosis, fetchComprehensiveDetails, type BusinessKey, type ComparisonSortKey, type ComprehensiveData, type ComprehensiveDiagnosisData, type ComprehensiveDetailData, type ComprehensiveDetailRow, type ComprehensiveDetailValueType, type DimensionKey, type DimensionRow, type FilterScope } from '@/api/comprehensive'
 import { useAuthStore } from '@/stores/auth'
@@ -454,6 +455,7 @@ const detailTitle = ref('宽表业务明细')
 const workspaceTitle = computed(() => workspaceView.value === 'diagnosis' ? diagnosisTitle.value : workspaceView.value === 'daily' ? drawerTitle.value : detailTitle.value)
 const detailPage = ref(1)
 const detailPageSize = ref(50)
+const detailProfitOrder = ref<'ascend' | 'descend' | null>(null)
 const detailFilterScope = ref<FilterScope>(todayScope())
 const detailScopeText = ref('全部范围')
 const exportCreating = ref(false)
@@ -464,6 +466,7 @@ const detailColumns = computed(() => (detailData.value?.columns || []).map((colu
   dataIndex: column.key,
   fixed: index === 0 ? 'left' as const : undefined,
   ellipsis: column.valueType === 'text' ? { showTitle: true } : false,
+  ...(column.key === 'singleSegmentProfit' && { sorter: true, sortOrder: detailProfitOrder.value }),
 })))
 const detailTableWidth = computed(() => detailColumns.value.reduce((total, column) => total + column.width, 0))
 function detailValue(record: ComprehensiveDetailRow, key: string) { return record[key] }
@@ -482,7 +485,11 @@ async function loadWideDetail() {
   detailError.value = ''
   try {
     const scope = { ...detailFilterScope.value, preset: 'custom', startDate: detailDate.value, endDate: detailDate.value }
-    const result = await fetchComprehensiveDetails(scope, detailBusiness.value, detailPage.value, detailPageSize.value)
+    const profitOrder = detailProfitOrder.value
+    const result = await fetchComprehensiveDetails(
+      scope, detailBusiness.value, detailPage.value, detailPageSize.value,
+      profitOrder ? (profitOrder === 'ascend' ? 'asc' : 'desc') : undefined,
+    )
     if (id !== detailRequestId) return
     detailData.value = result
     detailError.value = result.error
@@ -497,17 +504,25 @@ function openWideDetail(row: DailyRow) {
   detailScopeText.value = drawerScope.value
   detailTitle.value = `${row.date} · ${row.label}宽表明细`
   detailPage.value = 1
+  detailProfitOrder.value = null
   detailData.value = undefined
   showWorkspace('detail')
   void loadWideDetail()
 }
 function changeDetailBusiness() {
   detailPage.value = 1
+  detailProfitOrder.value = null
   detailData.value = undefined
   detailTitle.value = `${detailDate.value} · ${businesses.find(business => business.key === detailBusiness.value)?.label || ''}宽表明细`
   void loadWideDetail()
 }
-function changeDetailPage(pagination: { current?: number; pageSize?: number }) {
+const changeDetailTable: NonNullable<TableProps<ComprehensiveDetailRow>['onChange']> = (pagination, _filters, sorter, extra) => {
+  if (extra.action === 'sort' && !Array.isArray(sorter)) {
+    detailProfitOrder.value = sorter.order ?? null
+    detailPage.value = 1
+    void loadWideDetail()
+    return
+  }
   const nextSize = pagination.pageSize || detailPageSize.value
   detailPage.value = nextSize === detailPageSize.value ? pagination.current || 1 : 1
   detailPageSize.value = nextSize
