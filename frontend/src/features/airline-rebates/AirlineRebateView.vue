@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Modal, Statistic } from 'ant-design-vue'
+import { message, Modal, Statistic } from 'ant-design-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import FilterPanel from '@/components/FilterPanel.vue'
 import FormDialog from '@/components/FormDialog.vue'
@@ -9,7 +9,7 @@ import FormGrid from '@/components/FormGrid.vue'
 import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
 import { ApiError } from '@/api/http'
 import {
-  airlineRebates, type RebateCondition, type RebateDailyPoint, type RebateDetailRow,
+  airlineRebates, type RebateCondition, type RebateRouteDay, type RebateRouteCategory, type RebateDetailRow,
   type RebatePolicy, type RebateNumber, type RebateProgress, type RebateRule, type RebateTask, type RebateVersion,
 } from '@/api/airlineRebates'
 import { useAuthStore } from '@/stores/auth'
@@ -67,7 +67,10 @@ const createReady = computed(() => !!activePolicy.value && !!taskName.value.trim
 const createValues = () => JSON.stringify([activePolicy.value?.id, taskName.value, owner.value])
 const progress = ref<RebateProgress>()
 const dailyPage = ref(1)
-const day = ref<RebateDailyPoint>()
+const routeScope = ref<{ category: RebateRouteCategory; runId: string }>()
+const routeDays = ref<RebateRouteDay[]>([])
+const day = ref<RebateRouteDay>()
+const exporting = ref(false)
 const detailRows = ref<RebateDetailRow[]>([])
 const detailPage = ref(1)
 const detailQuery = ref('')
@@ -83,7 +86,9 @@ const ruleGroups = computed(() => drawer.value === 'policy' ? policyRules.value 
 const drawerTitle = computed(() => {
   if (drawer.value === 'policy') return '解析结果 · ' + (activePolicy.value?.name ?? '')
   if (drawer.value === 'create') return '新建后返任务'
-  const label = drawer.value === 'analysis' ? (day.value ? '每日明细' : '分析此项') : drawer.value === 'edit' ? '编辑规则' : '任务详情'
+  const label = drawer.value === 'analysis'
+    ? (day.value ? '当日明细' : routeScope.value ? '航线类型逐日数据' : '分析此项')
+    : drawer.value === 'edit' ? '编辑规则' : '任务详情'
   return label + ' · ' + (task.value?.name ?? '')
 })
 const policyColumns = [
@@ -102,9 +107,23 @@ const taskColumns = [
 ]
 const taskPagination = { defaultPageSize: 10, showSizeChanger: false, showTotal: (total: number) => `共 ${total} 条` }
 const detailColumns = [
-  { title: '订单号', dataIndex: 'orderNo', width: 180 }, { title: '航程', dataIndex: 'route', width: 170 },
-  { title: '计量票面价（试算）', key: 'amount', width: 150, align: 'right' as const }, { title: '匹配结果', dataIndex: 'result', width: 230 },
+  { title: '订单号', dataIndex: 'orderNo', width: 145 },
+  { title: '票号', dataIndex: 'ticketNo', width: 145 },
+  { title: '航程', dataIndex: 'route', width: 175 },
+  { title: '航段计划起飞日', key: 'segmentDates', width: 155 },
+  { title: '实际舱位', key: 'segmentCabins', width: 95 },
+  { title: '销售航司', key: 'segmentCarriers', width: 105 },
+  { title: '币种', dataIndex: 'currency', width: 68 },
+  { title: '整票票面价', key: 'ticketFare', width: 135, align: 'right' as const },
+  { title: '计量金额', key: 'amount', width: 135, align: 'right' as const },
+  { title: '批次费率', key: 'rate', width: 96, align: 'right' as const },
+  { title: '本票预计后返', key: 'reward', width: 135, align: 'right' as const },
+  { title: '订单已算后返（全批）', key: 'orderReward', width: 170, align: 'right' as const },
+  { title: '匹配结果', dataIndex: 'result', width: 145 },
 ]
+function segmentField(row: RebateDetailRow, key: 'date' | 'cabin' | 'marketingAirline') {
+  return row.segmentDecisions?.map(segment => segment[key] || '—').join(' / ') || '—'
+}
 const statusText = { pending: '尚未产出', ready: '刷新成功', failed: '刷新失败' }
 const statusColors = { pending: 'default', ready: 'green', failed: 'red' }
 const refreshOptions = (['pending', 'ready', 'failed'] as const).map(value => ({ value, label: statusText[value] }))
@@ -167,6 +186,7 @@ function closeDrawer() {
   if (saving.value) return
   drawerRequest?.abort()
   drawer.value = undefined
+  routeScope.value = undefined
   day.value = undefined
   drawerBusy.value = false
 }
@@ -308,6 +328,7 @@ function openTask(item: RebateTask, mode: 'details' | 'edit' | 'analysis') {
   task.value = item
   drawer.value = mode
   day.value = undefined
+  routeScope.value = undefined
   dailyPage.value = 1
   progress.value = undefined
   versions.value = []
@@ -359,22 +380,56 @@ async function save() {
   } catch (error) { drawerError.value = explain(error) }
   finally { saving.value = false }
 }
-function showDay(point: RebateDailyPoint, page = 1) {
+function openRouteCategory(category: RebateRouteCategory) {
+  const runId = progress.value?.runId
   const item = task.value
-  if (!item) return
+  if (!item || !runId || runningTrial.value) return
+  routeScope.value = { category, runId }
+  routeDays.value = []
+  dailyPage.value = 1
+  void loadDrawer(async signal => {
+    const points = await airlineRebates.routeDays(item.id, runId, category.id, signal)
+    if (!signal.aborted) routeDays.value = points
+  })
+}
+async function exportRoute(dayDate?: string) {
+  const scope = routeScope.value
+  const item = task.value
+  if (!item || !scope || exporting.value) return
+  exporting.value = true
+  try {
+    const { data } = await airlineRebates.exportRoute(item.id, scope.runId, scope.category.id, dayDate)
+    const url = URL.createObjectURL(data)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `后返-${scope.category.name}-${dayDate || '全期'}.xlsx`
+    anchor.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    message.success('已生成导出文件')
+  } catch (error) {
+    message.error(explain(error))
+  } finally {
+    exporting.value = false
+  }
+}
+function showDay(point: RebateRouteDay, page = 1) {
+  const item = task.value
+  const scope = routeScope.value
+  if (!item || !scope) return
   if (day.value?.id !== point.id) detailQuery.value = ''
   day.value = point
   detailPage.value = page
   detailRows.value = []
   detailTotal.value = 0
   void loadDrawer(async signal => {
-    const rows = await airlineRebates.details(item.id, point.id, page, signal, detailQuery.value.trim())
+    const rows = await airlineRebates.details(item.id, point.id, scope.category.id, page, signal, detailQuery.value.trim())
     if (!signal.aborted) { detailRows.value = rows.items; detailTotal.value = rows.total }
   })
 }
 function backToProgress() {
   drawerRequest?.abort()
-  day.value = undefined
+  if (day.value) day.value = undefined
+  else routeScope.value = undefined
   drawerError.value = ''
   drawerBusy.value = false
 }
@@ -446,7 +501,6 @@ function backToProgress() {
           <template v-else-if="column.key === 'reward'">
             <strong>{{ money(record.estimatedReward ?? null, record.currency) }}</strong>
             <div class="muted">档位 {{ record.tier || '—' }}</div>
-            <div class="muted">待核 {{ record.pendingCount == null ? '—' : number(record.pendingCount) + ' 条' }}</div>
           </template>
           <template v-else-if="column.key === 'asOf'">
             <a-tag :color="record.refreshStatus ? statusColors[record.refreshStatus as keyof typeof statusColors] : 'default'">
@@ -554,21 +608,14 @@ function backToProgress() {
         <template v-else-if="drawer === 'analysis'">
           <template v-if="day">
             <a-space wrap class="section">
-              <a-button @click="backToProgress">返回任务进度</a-button>
-              <a-breadcrumb><a-breadcrumb-item>分析此项</a-breadcrumb-item><a-breadcrumb-item>{{ day.date }}</a-breadcrumb-item><a-breadcrumb-item>每日明细</a-breadcrumb-item></a-breadcrumb>
-              <a-tag>规则 V{{ day.version }}</a-tag>
+              <a-button @click="backToProgress">返回逐日数据</a-button>
+              <a-breadcrumb><a-breadcrumb-item>分析此项</a-breadcrumb-item><a-breadcrumb-item>{{ routeScope?.category.name }}</a-breadcrumb-item><a-breadcrumb-item>{{ day.date }}</a-breadcrumb-item></a-breadcrumb>
+              <a-button :loading="exporting" :disabled="!day.records" @click="exportRoute(day.date)">导出当日全部数据</a-button>
               <a-input-search v-model:value="detailQuery" aria-label="按订单号或票号查找当日明细" placeholder="订单号或票号（完全匹配）"
                 :maxlength="80" allow-clear style="width: 260px" @search="day && showDay(day)" />
             </a-space>
-            <a-table :data-source="detailRows" :columns="detailColumns" :pagination="false" row-key="id" :scroll="{ x: 1320 }">
+            <a-table :data-source="detailRows" :columns="detailColumns" :pagination="false" row-key="id" :scroll="{ x: 1800 }" size="small" sticky>
               <template #expandedRowRender="{ record }">
-                <a-descriptions size="small" :column="3">
-                  <a-descriptions-item label="票号">{{ record.ticketNo || '—' }}</a-descriptions-item>
-                  <a-descriptions-item label="整票票面价">{{ money(record.ticketFare, record.currency) }}</a-descriptions-item>
-                  <a-descriptions-item label="批次费率">{{ record.ratePercent == null ? '—' : record.ratePercent + '%' }}</a-descriptions-item>
-                  <a-descriptions-item label="本票预计后返">{{ money(record.estimatedReward, record.currency) }}</a-descriptions-item>
-                  <a-descriptions-item label="订单已算后返小计">{{ money(record.orderEstimatedReward, record.currency) }}</a-descriptions-item>
-                </a-descriptions>
                 <a-list v-if="record.segmentDecisions?.length" :data-source="record.segmentDecisions" size="small">
                   <template #renderItem="{ item }"><a-list-item>
                     <a-space wrap>{{ item.route }} <span>{{ item.date }}</span><span>{{ item.cabin }} 舱</span>
@@ -578,15 +625,49 @@ function backToProgress() {
                 </a-list>
               </template>
               <template #emptyText><a-empty :description="drawerError ? '明细暂不可用' : '暂无订单明细'" /></template>
-              <template #bodyCell="{ column, record }"><span v-if="column.key === 'amount'">{{ money(record.eligibleAmount, task?.currency) }}</span></template>
+              <template #bodyCell="{ column, record }">
+                <span v-if="column.key === 'segmentDates'">{{ segmentField(record, 'date') }}</span>
+                <span v-else-if="column.key === 'segmentCabins'">{{ segmentField(record, 'cabin') }}</span>
+                <span v-else-if="column.key === 'segmentCarriers'">{{ segmentField(record, 'marketingAirline') }}</span>
+                <span v-else-if="column.key === 'ticketFare'">{{ money(record.ticketFare) }}</span>
+                <span v-else-if="column.key === 'amount'">{{ money(record.eligibleAmount) }}</span>
+                <span v-else-if="column.key === 'rate'">{{ percent(record.ratePercent) }}</span>
+                <span v-else-if="column.key === 'reward'">{{ money(record.estimatedReward) }}</span>
+                <span v-else-if="column.key === 'orderReward'">{{ money(record.orderEstimatedReward) }}</span>
+              </template>
             </a-table>
             <a-pagination v-if="detailTotal > 25" class="pagination" :current="detailPage" :page-size="25" :total="detailTotal" :show-size-changer="false" @change="(page: number) => day && showDay(day, page)" />
+          </template>
+          <template v-else-if="routeScope">
+            <a-space wrap class="section">
+              <a-button @click="backToProgress">返回航线类型</a-button>
+              <strong>{{ routeScope.category.name }}</strong>
+              <a-button type="primary" :loading="exporting" :disabled="drawerBusy || !!drawerError || !routeDays.length"
+                @click="exportRoute()">导出该类型全期数据</a-button>
+            </a-space>
+            <p class="muted section">计量归属日为符合条件的最晚航段计划起飞日。每日预计后返按本批费率计算。</p>
+            <a-table :data-source="routeDays" row-key="id" size="small" :scroll="{ x: 700 }"
+              :pagination="{ ...taskPagination, current: dailyPage, onChange: (page: number) => dailyPage = page }">
+              <a-table-column title="计量归属日" data-index="date" :width="128" />
+              <a-table-column title="计量记录数" data-index="records" align="right" :width="120" />
+              <a-table-column title="当日计量（试算）" align="right" :width="160">
+                <template #default="{ record }">{{ money(record.measuredAmount, task?.currency) }}</template>
+              </a-table-column>
+              <a-table-column title="预计后返（本批费率）" align="right" :width="160">
+                <template #default="{ record }">{{ money(record.estimatedReward, task?.currency) }}</template>
+              </a-table-column>
+              <a-table-column title="操作" :width="132">
+                <template #default="{ record }">
+                  <a-button type="link" size="small" :disabled="!record.records" @click="showDay(record)">查看明细</a-button>
+                </template>
+              </a-table-column>
+              <template #emptyText><a-empty :description="drawerError ? '逐日数据暂不可用' : '暂无逐日数据'" /></template>
+            </a-table>
           </template>
           <template v-else-if="progress">
             <a-space wrap class="section">
               <a-button v-if="canManage" type="primary" :loading="runningTrial" @click="runTrial">运行 Hive 试算</a-button>
               <a-tag v-if="progress.tier">{{ progress.tier }} · 代理口径</a-tag>
-              <a-tag v-if="progress.pendingCount != null" :color="progress.pendingCount ? 'orange' : 'default'">{{ number(progress.pendingCount) }} 条待核</a-tag>
             </a-space>
             <a-alert v-if="progress.dataNote" type="info" :message="progress.dataNote" show-icon class="section" />
             <a-alert v-if="progress.status === 'failed'" type="warning" :message="progress.errorMessage || '最近一次更新失败。'" show-icon class="section" />
@@ -607,6 +688,11 @@ function backToProgress() {
               <a-table-column title="预计后返（试算）" align="right">
                 <template #default="{ record }">{{ money(record.estimatedReward, task?.currency) }}</template>
               </a-table-column>
+              <a-table-column title="操作" :width="136">
+                <template #default="{ record }">
+                  <a-button type="link" size="small" :disabled="runningTrial || !progress.runId" @click="openRouteCategory(record)">查看逐日数据</a-button>
+                </template>
+              </a-table-column>
             </a-table>
             <a-descriptions size="small" bordered :column="{ xs: 1, sm: 2 }" class="section">
               <a-descriptions-item label="更新状态">
@@ -617,34 +703,7 @@ function backToProgress() {
               <a-descriptions-item label="快照更新时间">{{ formatDateTimeDisplay(progress.refreshedAt) }} {{ progress.refreshMode ? refreshModes[progress.refreshMode] : '' }}</a-descriptions-item>
               <a-descriptions-item label="试算规则版本">{{ progress.version == null ? '—' : 'V' + progress.version }}</a-descriptions-item>
               <a-descriptions-item label="试算源记录数">{{ progress.sourceRows == null ? '—' : number(progress.sourceRows) + ' 条' }}</a-descriptions-item>
-              <a-descriptions-item label="待核记录数">{{ progress.pendingCount == null ? '—' : number(progress.pendingCount) + ' 条' }}</a-descriptions-item>
             </a-descriptions>
-            <details v-if="progress.pendingReasons && Object.keys(progress.pendingReasons).length" class="pending-reasons section">
-              <summary>待核原因</summary>
-              <a-descriptions size="small" :column="1">
-                <a-descriptions-item v-for="(count, label) in progress.pendingReasons" :key="label" :label="label">
-                  {{ number(count) }} 条
-                </a-descriptions-item>
-              </a-descriptions>
-            </details>
-            <h3>每日累计进度</h3>
-            <a-table :data-source="progress.daily" row-key="id" size="small" :scroll="{ x: 680 }"
-              :pagination="{ ...taskPagination, current: dailyPage, onChange: (page: number) => dailyPage = page }">
-              <a-table-column title="计划起飞日" data-index="date" :width="128" />
-              <a-table-column title="累计计量（试算）" align="right" :width="170">
-                <template #default="{ record }">{{ money(record.actual, task?.currency) }}</template>
-              </a-table-column>
-              <a-table-column title="首档门槛进度" align="right" :width="130">
-                <template #default="{ record }">{{ percent(record.completionRate) }}</template>
-              </a-table-column>
-              <a-table-column title="规则版本" :width="100">
-                <template #default="{ record }">V{{ record.version }}</template>
-              </a-table-column>
-              <a-table-column title="操作" :width="152">
-                <template #default="{ record }"><a-button type="link" size="small" @click="showDay(record)">查看当日明细</a-button></template>
-              </a-table-column>
-              <template #emptyText><a-empty :description="progress.status === 'pending' ? '尚未产出每日进度' : '暂无每日进度'" /></template>
-            </a-table>
           </template>
           <a-empty v-else-if="!drawerBusy && !drawerError" description="暂无任务进度" />
         </template>
@@ -661,7 +720,6 @@ function backToProgress() {
 .two-lines { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .task-name { height: auto; max-width: 100%; padding: 0; text-align: left; white-space: normal; overflow-wrap: anywhere; }
 .task-full-name { overflow-wrap: anywhere; }
-.pending-reasons summary { cursor: pointer; font-weight: 500; margin-bottom: 8px; }
 .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 .metrics :deep(.ant-statistic) { padding: 12px; border: 1px solid #e4e9ef; border-radius: 8px; background: #f6f8fc; }
 .operator { width: 100%; }

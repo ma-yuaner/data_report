@@ -11,9 +11,10 @@ import click
 from flask import current_app, g, jsonify, request, send_file
 from pypdf.errors import PdfReadError
 
-from .common import json_body, ok
-from ..services.airline_rebates.calculation import simulate
+from .common import json_body, ok, smart_excel_response
+from ..services.airline_rebates.calculation import CATEGORIES, simulate
 from ..services.airline_rebates.policy import parse_policy
+from ..services.airline_rebates.route_progress import eligible_route_rows, route_days, route_workbook
 from ..services.airline_rebates.store import connect, encode
 
 ROOT = "/v1/airline-rebates"
@@ -56,6 +57,16 @@ def find(db, table, identifier):
 
 def now():
     return datetime.now(timezone.utc).isoformat()
+
+
+def check_category(category):
+    if category not in CATEGORIES:
+        raise PilotError("航线类型不存在", 404)
+
+
+def check_snapshot(db, task_id, run_id):
+    if db.execute("SELECT 1 FROM rebate_runs WHERE id=? AND task_id=?", (run_id, task_id)).fetchone() is None:
+        raise PilotError("批次明细不存在", 404)
 
 
 def user_label():
@@ -194,7 +205,7 @@ def run_trial(directory, identifier, refresh_interval=0):
         policy = json.loads(find(db, "rebate_policies", task["policy_id"])["profile"])["policy"]
     try:
         summary, days = simulate(current_app.config, policy)
-        summary.update(refreshedAt=now(), refreshMode="scheduled" if refresh_interval else "manual")
+        summary.update(runId=token, refreshedAt=now(), refreshMode="scheduled" if refresh_interval else "manual")
         for point in summary["daily"]:
             point["id"] = token + "_" + point["date"]
         with connect(directory) as db:
@@ -351,6 +362,7 @@ def register_routes(api):
             task = find(db, "rebate_tasks", identifier)
             if task["current_run"]:
                 result = json.loads(find(db, "rebate_runs", task["current_run"])["summary"])
+                result["runId"] = task["current_run"]
             else:
                 result = dict(target=None, actual=None, completionRate=None, dataAsOf=None, version=None,
                               status="pending", daily=[], estimatedReward=None)
@@ -363,6 +375,30 @@ def register_routes(api):
     def rebate_run(directory, identifier):
         return ok(run_trial(directory, identifier))
 
+    @api.get(ROOT + "/tasks/<identifier>/runs/<run_id>/routes/<category>/days")
+    @endpoint
+    def rebate_route_progress(directory, identifier, run_id, category):
+        check_category(category)
+        with connect(directory) as db:
+            check_snapshot(db, identifier, run_id)
+            return ok([point for point, _ in route_days(db, run_id, category)])
+
+    @api.get(ROOT + "/tasks/<identifier>/runs/<run_id>/routes/<category>/export")
+    @endpoint
+    def rebate_route_export(directory, identifier, run_id, category):
+        check_category(category)
+        day = request.args.get("day")
+        with connect(directory) as db:
+            check_snapshot(db, identifier, run_id)
+            if day is not None and db.execute(
+                "SELECT 1 FROM rebate_days WHERE run_id=? AND day=?", (run_id, day),
+            ).fetchone() is None:
+                raise PilotError("批次当日明细不存在", 404)
+            currency = json.loads(find(db, "rebate_tasks", identifier)["profile"])["currency"]
+            label = CATEGORIES[category]
+            content = route_workbook(route_days(db, run_id, category, day), label, currency)
+        return smart_excel_response((content, f"后返-{label}-{day or '全期'}.xlsx"))
+
     @api.get(ROOT + "/tasks/<identifier>/progress/<daily_id>/details")
     @endpoint
     def rebate_day_details(directory, identifier, daily_id):
@@ -371,6 +407,9 @@ def register_routes(api):
             raise PilotError("批次明细不存在", 404)
         page = int(request.args.get("page", 1))
         query = request.args.get("q", "").strip()
+        category = request.args.get("category")
+        if category is not None:
+            check_category(category)
         if len(query) > 80:
             raise PilotError("订单号或票号筛选值过长")
         if page < 1 or page > 2000:
@@ -383,6 +422,8 @@ def register_routes(api):
             if record is None:
                 raise PilotError("批次明细不存在", 404)
             rows = json.loads(record["details"])
+            if category is not None:
+                rows = eligible_route_rows(rows, category)
             if query:
                 rows = [row for row in rows if query in (row.get("orderNo"), row.get("ticketNo"))]
             start = (page - 1) * 25

@@ -51,14 +51,16 @@ export interface RebateTask {
   completionRate: RebateNumber
   dataAsOf: string | null
 }
-export interface RebateDailyPoint {
+export interface RebateRouteDay {
   id: string
   date: string
-  version: number
-  actual: RebateNumber
-  completionRate: RebateNumber
+  records: number
+  measuredAmount: RebateNumber
+  estimatedReward: RebateNumber
 }
+export interface RebateRouteCategory extends Omit<RebateRouteDay, 'date'> { name: string }
 export interface RebateProgress {
+  runId?: string
   refreshedAt?: string | null
   refreshMode?: 'scheduled' | 'manual' | null
   target: RebateNumber
@@ -69,14 +71,13 @@ export interface RebateProgress {
   version: number | null
   status: 'pending' | 'ready' | 'failed'
   errorMessage?: string
-  daily: RebateDailyPoint[]
   dataNote?: string
   otherOriginReward?: RebateNumber
   pendingCount?: number
   sourceRows?: number
   pendingReasons?: Record<string, number>
   tier?: string | null
-  categories?: { id: string; name: string; records: number; measuredAmount: RebateNumber; estimatedReward: RebateNumber }[]
+  categories?: RebateRouteCategory[]
 }
 export interface RebateDetailRow {
   id: string
@@ -98,6 +99,8 @@ const root = '/v1/airline-rebates'
 const policies = root + '/policies'
 const tasks = root + '/tasks'
 const taskPath = (id: string) => tasks + '/' + encodeURIComponent(id)
+const routePath = (id: string, run: string, category: string) =>
+  taskPath(id) + '/runs/' + encodeURIComponent(run) + '/routes/' + encodeURIComponent(category)
 async function unwrap<T>(request: Promise<{data: ApiEnvelope<T>}>): Promise<T> {
   const { data } = await request
   if (!data || typeof data !== 'object' || typeof data.success !== 'boolean') {
@@ -127,9 +130,13 @@ export const airlineRebates = {
     unwrap(http.post<ApiEnvelope<RebateVersion>>(taskPath(id) + '/versions', { baseVersion, reason, rules })),
   progress: (id: string, signal: AbortSignal) =>
     unwrap(http.get<ApiEnvelope<RebateProgress>>(taskPath(id) + '/progress', { signal })),
-  details: (id: string, dailyId: string, page: number, signal: AbortSignal, q?: string) =>
+  routeDays: (id: string, run: string, category: string, signal: AbortSignal) =>
+    unwrap(http.get<ApiEnvelope<RebateRouteDay[]>>(routePath(id, run, category) + '/days', { signal })),
+  exportRoute: (id: string, run: string, category: string, day?: string) =>
+    http.get<Blob>(routePath(id, run, category) + '/export', { params: { day }, responseType: 'blob' }),
+  details: (id: string, dailyId: string, category: string, page: number, signal: AbortSignal, q?: string) =>
     unwrap(http.get<ApiEnvelope<{ items: RebateDetailRow[]; total: number }>>(
       taskPath(id) + '/progress/' + encodeURIComponent(dailyId) + '/details',
-      { params: { page, pageSize: 25, q }, signal },
+      { params: { category, page, pageSize: 25, q }, signal },
     )),
 }
