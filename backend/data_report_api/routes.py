@@ -2,6 +2,7 @@
 from flask import Blueprint
 
 from .api import admwf
+from .api import airline_rebates
 from .api import data_workbench, asset_inventory
 from .api import hr_mail
 from .api import risk_verification
@@ -17,6 +18,7 @@ placement_import.register_routes(api)
 placement_diagnosis.register_routes(api)
 
 admwf.register_routes(api)
+airline_rebates.register_routes(api)
 
 targets.register_routes(api)
 core.register_routes(api)

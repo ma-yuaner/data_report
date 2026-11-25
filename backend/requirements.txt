@@ -16,3 +16,4 @@ hdfs>=2.7,<3
 pyorc>=0.11,<1
 thrift>=0.20,<1
 thrift-sasl>=0.4,<1
+pypdfium2>=4.30,<6

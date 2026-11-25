@@ -8,6 +8,10 @@
       {"key": "/analysis/refund","label": "退票分析","menuCode": "analysis.refund","aliases": ["退票报表"]},
       {"key": "/analysis/ancillary","label": "增值分析","menuCode": "analysis.ancillary","aliases": ["辅营"]}
     ]},
+    {"key": "airline-rebates", "label": "后返管理", "aliases": ["航司后返"], "children": [
+      {"key": "/airline-rebates/policies","label": "政策解析","menuCode": "airline_rebates.center"},
+      {"key": "/airline-rebates/tasks","label": "任务管理","menuCode": "airline_rebates.center","aliases": ["后返任务"]}
+    ]},
     {"key": "business-configuration", "label": "业务配置", "children": [
       {"key": "/business-configuration/target-progress","label": "目标进度","menuCode": "business_config.target_progress"},
       {"key": "/business-configuration/targets","label": "目标配置","menuCode": "business_config.targets"}

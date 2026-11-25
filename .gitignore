@@ -35,3 +35,4 @@ coverage/
 frontend/scripts/monitoring-center.test.mjs
 frontend/scripts/smart-analysis-filter.test.mjs
 frontend/scripts/target-management.test.mjs
+.leader/

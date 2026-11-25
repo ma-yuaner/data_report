@@ -49,6 +49,12 @@ def column(
     return DetailColumn(key, title, expression, value_type, width)
 
 
+ISSUE_SEGMENT_PROFIT = (
+    "CASE WHEN src.segment_num IS NULL OR src.segment_num=0 "
+    "THEN NULL ELSE src.issue_profit/src.segment_num END"
+)
+
+
 DETAIL_SPECS = {
     "issue": DetailSpec(
         table="bi_order_issue_year",
@@ -72,8 +78,7 @@ DETAIL_SPECS = {
             column(
                 "singleSegmentProfit",
                 "单段利润",
-                "CASE WHEN src.segment_num IS NULL OR src.segment_num=0 "
-                "THEN NULL ELSE src.issue_profit/src.segment_num END",
+                ISSUE_SEGMENT_PROFIT,
                 "money",
                 125,
                 raw=True,
@@ -218,6 +223,7 @@ def build_detail_queries(
     filters: dict[str, list[str | None]],
     page: int,
     page_size: int,
+    segment_profit_order: str | None = None,
 ) -> tuple[str, str, list[str], list[Any]]:
     spec = DETAIL_SPECS[business]
     table = f"{database}.{spec.table}"
@@ -259,11 +265,18 @@ def build_detail_queries(
     count_query = f"SELECT COUNT(1) FROM {table} src WHERE {where_clause}"
     offset = (page - 1) * page_size
     select_clause = ",\n       ".join(item.expression for item in spec.columns)
+    order_by = f"src.{spec.time_field} DESC, src.{spec.order_field} DESC"
+    if segment_profit_order is not None:
+        directions = {"asc": "ASC", "desc": "DESC"}
+        if business != "issue" or segment_profit_order not in directions:
+            raise ValueError("单段利润排序参数不合法")
+        direction = directions[segment_profit_order]
+        order_by = f"({ISSUE_SEGMENT_PROFIT}) IS NULL, ({ISSUE_SEGMENT_PROFIT}) {direction}, {order_by}"
     data_query = (
         f"SELECT {select_clause}\n"
         f"FROM {table} src\n"
         f"WHERE {where_clause}\n"
-        f"ORDER BY src.{spec.time_field} DESC, src.{spec.order_field} DESC\n"
+        f"ORDER BY {order_by}\n"
         "LIMIT %s OFFSET %s"
     )
     return count_query, data_query, parameters, [*parameters, page_size, offset]
@@ -301,6 +314,7 @@ class ComprehensiveDetailService:
         filters: dict[str, str | None],
         page_value: str | int | None = 1,
         page_size_value: str | int | None = 50,
+        segment_profit_order: str | None = None,
     ) -> dict[str, Any]:
         if business not in BUSINESSES:
             raise ValueError("不支持的业务类型")
@@ -344,6 +358,7 @@ class ComprehensiveDetailService:
             filters=parsed_filters,
             page=page,
             page_size=page_size,
+            segment_profit_order=segment_profit_order,
         )
         connection = count_cursor = data_cursor = None
         try:

@@ -56,6 +56,7 @@ def register_routes(api: Blueprint) -> None:
                     filters={key: request.args.get(key) for key in DIMENSIONS},
                     page_value=request.args.get("page", "1"),
                     page_size_value=request.args.get("pageSize", "50"),
+                    segment_profit_order=request.args.get("segmentProfitOrder"),
                 )
             )
         except ValueError as error:

@@ -91,9 +91,9 @@ export async function fetchComprehensiveDiagnosis(scope: FilterScope, groupBy: D
   if (!response.data.success) throw new Error(response.data.message)
   return response.data.data
 }
-export async function fetchComprehensiveDetails(scope: FilterScope, businessType: BusinessKey, page = 1, pageSize = 50): Promise<ComprehensiveDetailData> {
+export async function fetchComprehensiveDetails(scope: FilterScope, businessType: BusinessKey, page = 1, pageSize = 50, segmentProfitOrder?: 'asc' | 'desc'): Promise<ComprehensiveDetailData> {
   const { preset: _preset, ...params } = scope
-  const response = await http.get<ApiEnvelope<ComprehensiveDetailData>>('/v1/analysis/comprehensive/details', { params: { ...params, businessType, page, pageSize } })
+  const response = await http.get<ApiEnvelope<ComprehensiveDetailData>>('/v1/analysis/comprehensive/details', { params: { ...params, businessType, page, pageSize, segmentProfitOrder } })
   if (!response.data.success) throw new Error(response.data.message)
   return response.data.data
 }

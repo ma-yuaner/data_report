@@ -16,7 +16,7 @@
     <a-tab-pane key="policies" tab="政策列表">
     <section class="summary-grid">
       <article v-for="item in summaryCards" :key="item.key" class="summary-card">
-        <span>{{ item.label }}</span><strong :class="item.tone">{{ number(data?.summary[item.key] || 0) }}</strong><small>{{ item.note }}</small>
+        <span>{{ item.label }}</span><strong :class="item.tone">{{ number(summaryCount(item.key)) }}</strong><small>{{ item.note }}</small>
       </article>
     </section>
 
@@ -39,7 +39,7 @@
         </div>
         <div class="filter-bar">
         <a-input v-model:value="filters.keyword" allow-clear placeholder="任务编号、机会名称、航司或航线" @press-enter="queryPolicies" />
-        <a-select v-model:value="filters.status" :options="statusFilterOptions" />
+        <a-select v-model:value="filters.status" :options="statusFilterOptions" @change="queryPolicies" />
         <a-select :value="filters.platform || undefined" aria-label="平台" :options="policyPlatformOptions" :disabled="loading" show-search option-filter-prop="label" allow-clear placeholder="平台" @change="filters.platform = String($event ?? '')" />
         <a-select :value="filters.airline || undefined" aria-label="航司" :options="policyAirlineOptions" :disabled="loading" show-search option-filter-prop="label" allow-clear placeholder="航司" @change="filters.airline = String($event ?? '')" />
         <a-button type="primary" :loading="loading" @click="queryPolicies"><SearchOutlined />查询</a-button>
@@ -351,7 +351,7 @@
               <a-empty v-if="!detail.reviews.length" description="暂无审核记录" />
               <div v-else class="record-list">
                 <article v-for="review in detail.reviews" :key="review.id" class="record-card">
-                  <header><div><strong>{{ reviewStageLabel(review.reviewStage) }}</strong><span>{{ review.reviewerName }} · {{ displayTime(review.createdAt) }}</span></div><a-tag :color="reviewResultMeta(review.reviewResult).color">{{ review.reviewStage === 'RECALL_POLICY' && review.reviewResult === 'REJECTED' ? '驳回收回' : reviewResultMeta(review.reviewResult).label }}</a-tag></header>
+                  <header><div><strong>{{ reviewStageLabel(review.reviewStage) }}</strong><span>{{ review.reviewerName }} · {{ displayTime(review.createdAt) }}</span></div><a-tag :color="reviewResultMeta(review.reviewResult).color">{{ review.reviewStage.startsWith('RECALL_') && review.reviewResult === 'REJECTED' ? '驳回收回' : reviewResultMeta(review.reviewResult).label }}</a-tag></header>
                   <div class="record-grid">
                     <span v-if="review.reviewStage === 'POLICY_MANAGER'">可执行性：{{ executableLabel(review.policyExecutableLevel) }}</span><span v-if="review.reviewStage === 'POLICY_MANAGER'">风险等级：{{ priorityDisplay(review.riskLevel).label }}</span><span v-if="review.adjustedPriority">调整优先级：{{ priorityDisplay(review.adjustedPriority).label }}</span>
                   </div>
@@ -422,7 +422,7 @@
             <a-tab-pane key="logs" :tab="`全流程操作日志（${detail.logs.length}）`">
               <a-empty v-if="!detail.logs.length" description="暂无操作日志" />
               <a-timeline v-else>
-                <a-timeline-item v-for="log in detail.logs" :key="log.id" :color="['REJECTED', 'FAILED'].includes(log.toStatus || '') || log.actionCode === 'RECALL_REJECT' ? 'red' : 'blue'">
+                <a-timeline-item v-for="log in detail.logs" :key="log.id" :color="['REJECTED', 'FAILED'].includes(log.toStatus || '') || (log.actionCode.startsWith('RECALL_') && log.actionCode.endsWith('_REJECT')) ? 'red' : 'blue'">
                   <strong>{{ actionLabel(log.actionCode) }}</strong> · {{ log.operatorName }} · {{ displayTime(log.createdAt) }}
                   <div v-if="log.fromStatus !== log.toStatus">{{ statusDisplay(log.fromStatus).label }} → {{ statusDisplay(log.toStatus).label }}</div>
                   <div v-if="log.operationNote">{{ operationNote(log.operationNote) }}</div>
@@ -520,7 +520,7 @@ const recallNote = ref('')
 const recallReason = ref('')
 const recallLoading = ref(false)
 const recallSaving = ref(false)
-const recallTitle = computed(() => ({ request: '收回政策', review: '审核收回申请', confirm: '确认政策已收回' })[recallDialog.value?.mode || 'request'])
+const recallTitle = computed(() => ({ request: '收回政策', review: recallDialog.value?.row.status === 'PENDING_RECALL_REVIEW' ? '收回申请 · 数据审核' : '收回申请 · 政策审核', confirm: '确认政策已收回' })[recallDialog.value?.mode || 'request'])
 const monitoring = ref<PlacementTaskMonitoring>()
 const activeTask = ref<PlacementTaskRow>()
 const selectedReviewTaskIds = ref<number[]>([])
@@ -541,7 +541,7 @@ const statusMeta: Record<PlacementTaskStatus, { label: string; color: string }> 
   IN_PROGRESS: { label: '执行中', color: 'processing' }, MONITORING: { label: '监控中', color: 'green' },
   FAILED: { label: '投放失败', color: 'red' }, REJECTED: { label: '已驳回', color: 'red' },
   CLOSED: { label: '已关闭', color: 'default' }, ENDED: { label: '已结束', color: 'default' },
-  PENDING_RECALL_REVIEW: { label: '收回待审核', color: 'gold' },
+  PENDING_RECALL_REVIEW: { label: '收回待数据审核', color: 'gold' }, PENDING_RECALL_POLICY_REVIEW: { label: '收回待政策审核', color: 'gold' },
   PENDING_RECALL: { label: '待收回', color: 'orange' }, RECALLED: { label: '已结束', color: 'default' },
 }
 const monitorStatusMeta: Record<string, { label: string; color: string }> = { ACTIVE: { label: '运行中', color: 'green' }, SCHEDULED: { label: '待生效', color: 'blue' }, PAUSED: { label: '已暂停', color: 'orange' }, EXPIRED: { label: '已过期', color: 'default' }, DISABLED: { label: '已停用', color: 'red' } }
@@ -549,7 +549,9 @@ const canOpenMonitoringCenter = computed(() => Boolean(authStore.user?.isAdmin) 
 const priorityMeta: Record<PlacementPriority, { label: string; color: string }> = { HIGH: { label: '高', color: 'red' }, MEDIUM: { label: '中', color: 'orange' }, LOW: { label: '低', color: 'blue' } }
 const priorityDisplay = (value: unknown) => priorityMeta[String(value) as PlacementPriority] || { label: String(value || '—'), color: 'default' }
 const statusDisplay = (value: unknown) => statusMeta[String(value) as PlacementTaskStatus] || { label: String(value || '—'), color: 'default' }
-const statusFilterOptions = [{ label: '全部状态', value: '' }, ...Object.entries(statusMeta).filter(([value]) => value !== 'RECALLED').map(([value, meta]) => ({ label: meta.label, value }))]
+const allStatusFilterOptions = [{ label: '全部状态', value: '' }, ...Object.entries(statusMeta)
+  .filter(([value]) => value !== 'RECALLED' && value !== 'PENDING_RECALL_POLICY_REVIEW')
+  .map(([value, meta]) => ({ label: value === 'PENDING_RECALL_REVIEW' ? '收回待审核' : meta.label, value }))]
 const priorityOptions = Object.entries(priorityMeta).map(([value, meta]) => ({ value, label: meta.label }))
 const sourceOptions = [{ value: 'AUTO_ANALYSIS', label: '数据分析规则识别' }, { value: 'MANUAL', label: '人工发现' }, { value: 'MEETING', label: '会议要求' }]
 const journeyOptions = [{ value: 'ONE_WAY', label: '单程' }, { value: 'ROUND_TRIP', label: '往返' }, { value: 'MULTI_CITY', label: '多程' }]
@@ -568,6 +570,18 @@ const canWithdrawTasks = computed(() => hasPermission('smart_placement.withdraw'
 const canCancelTasks = computed(() => hasPermission('smart_placement.cancel'))
 const canReviewData = computed(() => hasPermission('smart_placement.review_data'))
 const canReviewPolicy = computed(() => hasPermission('smart_placement.review_policy'))
+const fixedStatusByScope: Record<string, PlacementTaskStatus | undefined> = { claim: 'CLAIMABLE', recall: 'PENDING_RECALL' }
+const statusFilterOptions = computed(() => {
+  const fixed = fixedStatusByScope[workScope.value]
+  if (fixed) return [{ label: statusMeta[fixed].label, value: fixed }]
+  if (workScope.value !== 'review') return allStatusFilterOptions
+  return [
+    { label: '全部审核状态', value: '' },
+    ...(canReviewData.value ? [{ label: statusMeta.PENDING_DATA_REVIEW.label, value: 'PENDING_DATA_REVIEW' }] : []),
+    ...(canReviewPolicy.value ? [{ label: statusMeta.PENDING_POLICY_REVIEW.label, value: 'PENDING_POLICY_REVIEW' }] : []),
+    { label: '收回待审核', value: 'PENDING_RECALL_REVIEW' },
+  ]
+})
 const canClaimTasks = computed(() => hasPermission('smart_placement.claim'))
 const canExecuteTasks = computed(() => hasPermission('smart_placement.execute'))
 const canStopMonitoring = computed(() => hasPermission('smart_placement.stop'))
@@ -589,13 +603,19 @@ const workScopeOptions = computed(() => {
 const flowSteps = [{ title: '分析入池', description: '保存并提交' }, { title: '数据审核', description: '确认口径价值' }, { title: '政策审核', description: '确认可执行性' }, { title: '政策认领', description: '明确负责人' }, { title: '完成投放', description: '登记政策 ID' }, { title: '订单匹配', description: '命中新订单' }, { title: '来单关注', description: '跟进处理' }]
 const detailFlowSteps = flowSteps.slice(0, 6).map(step => ({ title: step.title }))
 const summaryCards: { key: PlacementTaskStatus; label: string; note: string; tone: string }[] = [
-  { key: 'PENDING_DATA_REVIEW', label: '待数据经理审核', note: '确认口径和机会价值', tone: 'orange' },
-  { key: 'PENDING_POLICY_REVIEW', label: '待政策经理审核', note: '确认政策可执行性', tone: 'orange' },
+  { key: 'PENDING_DATA_REVIEW', label: '待数据经理审核', note: '含投放审核和收回审核', tone: 'orange' },
+  { key: 'PENDING_POLICY_REVIEW', label: '待政策经理审核', note: '含投放审核和收回审核', tone: 'orange' },
   { key: 'CLAIMABLE', label: '可认领', note: '审核通过待领取', tone: 'blue' },
   { key: 'IN_PROGRESS', label: '执行中', note: '已认领未完成投放', tone: 'blue' },
   { key: 'MONITORING', label: '监控中', note: '已登记政策并匹配订单', tone: 'green' },
   { key: 'FAILED', label: '投放失败', note: '等待重试或关闭', tone: 'red' },
 ]
+function summaryCount(status: PlacementTaskStatus) {
+  const summary = data.value?.summary
+  const recallCount = status === 'PENDING_DATA_REVIEW' ? summary?.PENDING_RECALL_REVIEW
+    : status === 'PENDING_POLICY_REVIEW' ? summary?.PENDING_RECALL_POLICY_REVIEW : 0
+  return (summary?.[status] || 0) + (recallCount || 0)
+}
 const columns = [
   { title: '投放机会', key: 'opportunity', width: 240, fixed: 'left' as const }, { title: '平台 / 站点', key: 'scope', width: 180 },
   { title: '航司 / 航线', key: 'route', width: 180 }, { title: '舱位条件', key: 'cabins', width: 180 }, { title: '渠道来源', key: 'orderSource', width: 130 },
@@ -646,7 +666,7 @@ const journeyLabel = (value: unknown) => journeyOptions.find(item => item.value 
 const segmentTypeLabel = (value: unknown) => segmentTypeOptions.find(item => item.value === value)?.label || valueOrDash(value, '不限')
 const journeySegmentLabel = (record?: Partial<PlacementTaskRow>) => `${journeyLabel(record?.journeyType)} - ${segmentTypeLabel(record?.segmentType)}`
 const executableLabel = (value: unknown) => executableOptions.find(item => item.value === value)?.label || valueOrDash(value)
-const reviewStageLabel = (value: unknown) => ({ DATA_MANAGER: '数据部经理审核', POLICY_MANAGER: '政策经理审核', RECALL_POLICY: '收回审核' }[String(value)] || valueOrDash(value))
+const reviewStageLabel = (value: unknown) => ({ DATA_MANAGER: '数据部经理审核', POLICY_MANAGER: '政策经理审核', RECALL_DATA: '收回数据审核', RECALL_POLICY: '收回政策审核' }[String(value)] || valueOrDash(value))
 const yesNo = (value: unknown) => value === true || value === 1 || value === '1' ? '是' : '否'
 const reviewResultMap: Record<string, { label: string; color: string }> = {
   APPROVED: { label: '通过', color: 'green' }, RETURNED: { label: '退回修改', color: 'orange' }, REJECTED: { label: '驳回终止', color: 'red' },
@@ -657,6 +677,8 @@ const actionLabelMap: Record<string, string> = {
   POLICY_CHANGE_REQUESTED: '待人工外部执行（仅请求）', POLICY_CHANGE_APPLIED: '已线下处理·补登记实际配置',
   APPROVED_EDIT: '已审核机会修改（直接生效）',
   RECALL_REQUEST: '发起收回申请', RECALL_APPROVE: '审核通过收回', RECALL_REJECT: '驳回收回申请', RECALL_CONFIRM: '确认已收回',
+  RECALL_DATA_APPROVE: '收回数据审核通过', RECALL_DATA_REJECT: '收回数据审核驳回',
+  RECALL_POLICY_APPROVE: '收回政策审核通过', RECALL_POLICY_REJECT: '收回政策审核驳回',
   EFFECT_REVIEW: '登记效果复盘',
   CREATE: '保存草稿', UPDATE: '更新草稿', DELETE: '删除任务', WITHDRAW: '撤回修改', CANCEL: '作废任务', SUBMIT: '提交审核', RESUBMIT: '重新提交', REVIEW: '审核', CLAIM: '认领', EXECUTE: '登记投放', ATTENTION: '订单关注', STOP_MONITORING: '停止监控', STOP_MONITORING_CENTER: '从监控中心停止',
 }
@@ -677,7 +699,7 @@ function policyChangeLog(raw: unknown) {
 }
 const effectReviewLabel = (value: unknown) => effectReviewOptions.find(item => item.value === value)?.label || valueOrDash(value)
 const lossThreshold = (minimum: unknown, maximum: unknown) => minimum === null || minimum === undefined || minimum === '' || maximum === null || maximum === undefined || maximum === '' ? '—' : `${moneyValue(minimum)} 至 ${moneyValue(maximum)}`
-function taskStepIndex(status: PlacementTaskStatus) { return ({ DRAFT: 0, PENDING_DATA_REVIEW: 1, PENDING_POLICY_REVIEW: 2, CLAIMABLE: 3, IN_PROGRESS: 4, MONITORING: 5, FAILED: 4, REJECTED: 1, CLOSED: 4, ENDED: 5, PENDING_RECALL_REVIEW: 5, PENDING_RECALL: 5, RECALLED: 5 })[status] }
+function taskStepIndex(status: PlacementTaskStatus) { return ({ DRAFT: 0, PENDING_DATA_REVIEW: 1, PENDING_POLICY_REVIEW: 2, CLAIMABLE: 3, IN_PROGRESS: 4, MONITORING: 5, FAILED: 4, REJECTED: 1, CLOSED: 4, ENDED: 5, PENDING_RECALL_REVIEW: 5, PENDING_RECALL_POLICY_REVIEW: 5, PENDING_RECALL: 5, RECALLED: 5 })[status] }
 function businessToday() { return new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' }) }
 function plusDays(day: string, amount: number) { const value = new Date(`${day}T00:00:00+08:00`); value.setDate(value.getDate() + amount); return value.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' }) }
 function blankTask(): PlacementTaskInput {
@@ -764,11 +786,12 @@ function preferredScope() {
   if (!authStore.user?.isAdmin && canCreate.value) return 'mine'
   return 'all'
 }
-function resetFilters() { workScope.value = preferredScope(); filters.value = { keyword: '', status: '', platform: '', airline: '', owner: '', scope: workScope.value === 'all' ? '' : workScope.value }; queryPolicies() }
+function resetFilters() { workScope.value = preferredScope(); filters.value = { keyword: '', status: fixedStatusByScope[workScope.value] || '', platform: '', airline: '', owner: '', scope: workScope.value === 'all' ? '' : workScope.value }; queryPolicies() }
 function selectWorkScope(value: string) {
   if (workScope.value === value) return
   workScope.value = value
   filters.value.scope = value === 'all' ? '' : value
+  filters.value.status = fixedStatusByScope[value] || ''
   filters.value.owner = ''
   filters.value.platform = ''
   filters.value.airline = ''
@@ -1002,7 +1025,9 @@ async function submitEffectReview() {
 const isReviewable = (row: PlacementTaskRow) => row.status === 'PENDING_DATA_REVIEW' ? canReviewData.value : row.status === 'PENDING_POLICY_REVIEW' ? canReviewPolicy.value : false
 const canClaim = (row: PlacementTaskRow) => canClaimTasks.value && row.status === 'CLAIMABLE'
 const canExecute = (row: PlacementTaskRow) => canExecuteTasks.value && row.status === 'IN_PROGRESS' && (Boolean(authStore.user?.isAdmin) || row.currentAssigneeId === authStore.user?.id)
-const canReviewRecall = (row: PlacementTaskRow) => canReviewPolicy.value && row.status === 'PENDING_RECALL_REVIEW' && row.recallReviewerId === authStore.user?.id
+const canReviewRecall = (row: PlacementTaskRow) => row.recallReviewerId === authStore.user?.id && (
+  row.status === 'PENDING_RECALL_REVIEW' ? canReviewData.value : row.status === 'PENDING_RECALL_POLICY_REVIEW' && canReviewPolicy.value
+)
 const canConfirmRecall = (row: PlacementTaskRow) => (canClaimTasks.value || canExecuteTasks.value) && row.status === 'PENDING_RECALL' && row.currentAssigneeId === authStore.user?.id
 async function openRecall(row: PlacementTaskRow, mode: RecallMode) {
   const dialog = { row, mode }
@@ -1036,9 +1061,9 @@ async function submitRecall(action: PlacementRecallAction) {
   }
   recallSaving.value = true
   try {
-    await recallPlacementPolicy(row.id, action, note, row.versionNo)
+    const result = await recallPlacementPolicy(row.id, action, note, row.versionNo)
     recallDialog.value = undefined
-    message.success(({ request: '收回申请已提交', approve: '审核通过，等待原认领人确认收回', reject: '收回申请已驳回', confirm: '政策已确认收回' })[action])
+    message.success(({ request: '收回申请已提交数据审核', approve: result.status === 'PENDING_RECALL_POLICY_REVIEW' ? '数据审核通过，已流转到政策审核' : '政策审核通过，等待原认领人确认收回', reject: '收回申请已驳回', confirm: '政策已确认收回' })[action])
     const nextPage = data.value?.rows.length === 1 && page.value > 1 && workScope.value !== 'all' ? page.value - 1 : page.value
     await load(nextPage)
     if (detailOpen.value && detail.value?.task.id === row.id) await openDetail(row)
@@ -1142,6 +1167,7 @@ async function openDetail(row: PlacementTaskRow) {
 onMounted(() => {
   workScope.value = preferredScope()
   filters.value.scope = workScope.value === 'all' ? '' : workScope.value
+  filters.value.status = fixedStatusByScope[workScope.value] || ''
   queryPolicies()
   if (canCreate.value || canExecuteTasks.value) void loadDimensions()
   if (route.query.create === '1' && canCreate.value) openCreateFromAnalysis()

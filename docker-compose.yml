@@ -11,6 +11,13 @@ services:
       SECRET_KEY: ${SECRET_KEY:-change-this-in-production}
       DATA_MODE: ${DATA_MODE:-mysql}
       CHANGE_SLA_SHARED_RULES: ${CHANGE_SLA_SHARED_RULES:-0}
+      AIRLINE_REBATE_PILOT_ROOT: ${AIRLINE_REBATE_PILOT_ROOT:-}
+      AIRLINE_REBATE_MODEL_ENABLED: ${AIRLINE_REBATE_MODEL_ENABLED:-false}
+      AIRLINE_REBATE_MODEL_URL: ${AIRLINE_REBATE_MODEL_URL:-}
+      AIRLINE_REBATE_MODEL_KEY: ${AIRLINE_REBATE_MODEL_KEY:-}
+      AIRLINE_REBATE_MODEL_NAME: ${AIRLINE_REBATE_MODEL_NAME:-}
+      AIRLINE_REBATE_MODEL_TIMEOUT: ${AIRLINE_REBATE_MODEL_TIMEOUT:-90}
+      AIRLINE_REBATE_MODEL_MAX_PAGES: ${AIRLINE_REBATE_MODEL_MAX_PAGES:-12}
       ASSET_INVENTORY_ROOT: /app/var/assets
       MYSQL_HOST: ${MYSQL_HOST:-}
       MYSQL_PORT: ${MYSQL_PORT:-3306}
@@ -152,6 +159,7 @@ services:
       - data_workbench_data:/app/var/data-workbench
       - hr_mail_data:/app/var/hr-mail
       - risk_verification_data:/app/var/risk-verification
+      - airline_rebate_pilot_data:/app/var/airline-rebates
       - asset_inventory_data:/app/var/assets
     restart: unless-stopped
     healthcheck:
@@ -300,6 +308,7 @@ services:
       start_period: 10s
 
 volumes:
+  airline_rebate_pilot_data:
   asset_inventory_data:
   risk_verification_data:
   hr_mail_data:
