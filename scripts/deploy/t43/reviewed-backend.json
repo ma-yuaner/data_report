@@ -1,5 +1,5 @@
 {
-  "commit": "5672360b5890b21aaafe018c7ad16e46b3324c33",
+  "commit": "86233c61a9da7357e9facdac44e6354edf5087c8",
   "files": {
     "backend/.dockerignore": "347d5a129fd71a0cc9942ce1c9b1479856421019704bc493cda6ed63afdf2692",
     "backend/Dockerfile": "9b8cf8d5e63309b131503de114dafd7b22e56a77341e4cc53d0827c7f3377e3f",
@@ -11,7 +11,7 @@
     "backend/data_report_api/api/__init__.py": "46f5dff73908c4739669923f2ca10db89b0e3aa9e8ca5e12dfbfb4a6fc5f7222",
     "backend/data_report_api/api/adm_parsing.py": "8d67f45d610683039deea1700b3f6f60863275fa3bed2d1fcc654bbc5ae763b6",
     "backend/data_report_api/api/admwf.py": "86d6e3d88191e0e1332d12523485e924a033e63c82c0d11e7f8dad0b13214049",
-    "backend/data_report_api/api/airline_rebates.py": "b9f5edda845c5cf509edfbe2d708e3907d0ba9d7cc49ca3cd8ad8ee69582653c",
+    "backend/data_report_api/api/airline_rebates.py": "3ef4d9af77667bcc0d6731a035c2238c86b81235d3d7b07459bfdc9a6b68bd54",
     "backend/data_report_api/api/analysis.py": "1094e514972f6542a051abcc29506909f9e135ce86a6534905799358e90d4d1e",
     "backend/data_report_api/api/annotations.py": "a7dc4c623c2cedb6c487b340cad7ccdc99fe7420e7a8502bc7f1e190c224a87d",
     "backend/data_report_api/api/asset_inventory.py": "d4eec34d3e6932a95785d8a51cb34cad8a14e4e70a0608f7c975ef7f47f45717",
@@ -33,7 +33,7 @@
     "backend/data_report_api/api/targets.py": "9bcc02f55d3cf7433aec9ebc412dd23eca5c4f12e780743625f8143196d9caab",
     "backend/data_report_api/api/telemetry.py": "1e724dd700b6af49e1d6547d7ee1b83c7c0256b3144aa8ebe481e71840090bc6",
     "backend/data_report_api/auth_routes.py": "0c3e026413b6d06352d281806c8344decf16e812c9bc9edbfe70440c864d20da",
-    "backend/data_report_api/config.py": "a5be113ea14a83b76ab38919e465fa903d428c6d4d23871c1fd0d96fe1f57d4c",
+    "backend/data_report_api/config.py": "d500ba1faa21e949c48dfc6cfdb68b170088b0e042f22562963046d3c4214df6",
     "backend/data_report_api/data_workbench_worker.py": "b4a7d656a77f6b5cd0a3d87ec810e0bbeaf97d6b3ca5f0c2c26d0ab707b8e573",
     "backend/data_report_api/hr_mail_worker.py": "3ba0718b84c5eea00b595e1350d46982f7f34f99bb1b7f5e40b1a6cd815c0828",
     "backend/data_report_api/jobs/__init__.py": "fd537326a7e16c450236771d47bd4b2e4a2bd1596d771ed087ca4248ef7ab18f",
@@ -64,7 +64,7 @@
     "backend/data_report_api/services/admwf/workflow.py": "c4454a353f1c8858c35c5d2b669c265a74418cc5b259ff4df754478725cb3dde",
     "backend/data_report_api/services/airline_rebates/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "backend/data_report_api/services/airline_rebates/calculation.py": "fcf2267d9ecf45b510a52c54b1e71faf00168d48ee05841ff773e1c65246f419",
-    "backend/data_report_api/services/airline_rebates/extraction.py": "55e40498be4f5fd074d2e8237f267cf59f326f3c867b5ad0c2020a6d9a3a7018",
+    "backend/data_report_api/services/airline_rebates/extraction.py": "c77c9250d0cb7580a9a0be0983d26d2bf877efefcbf93283a48b54777ea7493b",
     "backend/data_report_api/services/airline_rebates/hive_trial.sql": "fad9566a9f800c623c95514a21ce74a75826b0f20d51cd1aca55697ed901f77d",
     "backend/data_report_api/services/airline_rebates/jobs.py": "f6b5b33268e35437cab42ed02f954ca353281cce651703a665692f5b0872a801",
     "backend/data_report_api/services/airline_rebates/mapping.py": "f6769952e26acc43d587bd0b47e813638834ccc43fdfd5c1f3dc71f36ba66cbb",
@@ -194,6 +194,7 @@
     "backend/tests/test_admwf_operations.py": "e443108b7bbf9f962c77966e9a71d6c25d33e7e7e72f132ee8c06a8f27ef514b",
     "backend/tests/test_admwf_schema.py": "29c3ba1aa269b649a43e4500446a13692e786e63d36971a9354fc9abbfcf1f96",
     "backend/tests/test_admwf_workflow.py": "209bb3096021afa010d18c395cc2f6e5088f96c67bd6f27a70b034481562e29d",
+    "backend/tests/test_airline_rebate_task_filing.py": "d0253e6f7f6f92831c29bf87b490875fd61683af96eef1c5151d8bb7e46debfc",
     "backend/tests/test_api.py": "9cfa3c88520dc437ba8d27769b6b451959c7b83429e60783cc5648369f8ec4c0",
     "backend/tests/test_architecture_guards.py": "7ad0b22bb80d1ee6f64a0a9f5ac996699d37152809eeec06d301f5b34b940664",
     "backend/tests/test_auth.py": "6b00f8292972232546a98c4919fb9150bda7878b4d76f7bea48742d193a65fed",
@@ -238,6 +239,7 @@
     "HKG26003 request-only planned-flight trial applies completed issue and refund/void filters, retains segment decisions and snapshots, and displays category and order totals. Startup, auth and storage schema unchanged.",
     "HKG26003 policy evidence extraction and read-only evidence backfill from stored PDF. Trial calculation, startup, authorization and storage boundaries unchanged.",
     "HKG26003: authenticated category drill-down and XLSX export from immutable SQLite snapshots; no new writes, startup workers, DDL or Hive changes.",
-    "Comprehensive issue detail: the existing authenticated GET sorts by segment profit before pagination with allowlisted directions; startup, auth, worker, notification and write paths are unchanged."
+    "Comprehensive issue detail: the existing authenticated GET sorts by segment profit before pagination with allowlisted directions; startup, auth, worker, notification and write paths are unchanged.",
+    "Airline-rebate: authenticated management-only task filing and snapshots, explicit ADM provider reuse, scheduled trial skip for model policies, and synthetic regression. No startup job, migration or automatic model call added."
   ]
 }

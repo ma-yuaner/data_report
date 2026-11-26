@@ -19,6 +19,7 @@ def explicit_erp_settings() -> bool:
 class Config:
     AIRLINE_REBATE_PILOT_ROOT = os.getenv("AIRLINE_REBATE_PILOT_ROOT", "").strip()
     AIRLINE_REBATE_MODEL_ENABLED = env_bool("AIRLINE_REBATE_MODEL_ENABLED", False)
+    AIRLINE_REBATE_MODEL_SOURCE = os.getenv("AIRLINE_REBATE_MODEL_SOURCE", "dedicated").strip()
     AIRLINE_REBATE_MODEL_URL = os.getenv("AIRLINE_REBATE_MODEL_URL", "")
     AIRLINE_REBATE_MODEL_KEY = os.getenv("AIRLINE_REBATE_MODEL_KEY", "")
     AIRLINE_REBATE_MODEL_NAME = os.getenv("AIRLINE_REBATE_MODEL_NAME", "")

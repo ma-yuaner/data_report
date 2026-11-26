@@ -66,6 +66,7 @@ export interface RebateVersion {
   reason: string
   savedAt?: string
   rules: RebateRule[]
+  contract?: RebatePolicy['contract']
 }
 export interface RebateTask {
   id: string
@@ -75,6 +76,8 @@ export interface RebateTask {
   owner: string
   currency: string
   policyName: string
+  policyId?: string
+  trialAvailable?: boolean
   tier?: string | null
   refreshedAt?: string | null
   refreshMode?: 'scheduled' | 'manual' | null
