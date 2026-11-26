@@ -45,14 +45,28 @@ def test_model_policy_can_be_confirmed_and_filed_without_trial(tmp_path, monkeyp
     }
     draft = {
         "schemaVersion": extraction.VERSION, "contract": contract,
+        "schemes": [{"id": "S1", "name": "Base", "tablePages": ["1"]},
+                    {"id": "S2", "name": "Brand bonus", "tablePages": ["1", "2"]}],
         "rules": [{
-            "kind": "tier", "label": "First tier", "concept": "Sales", "operator": "gte",
+            "schemeId": "S1", "kind": "tier", "label": "First tier", "concept": "Sales", "operator": "gte",
             "value": "100", "reviewReason": None,
             "tier": {"lower": "100", "upper": None, "currency": "USD", "ratePercent": "4.5",
                      "basis": "Sales", "lowerInclusive": "yes", "upperInclusive": "unknown"},
-            "evidence": [{"page": "1", "quote": None, "region": "table"}],
+            "evidence": [{"page": "1", "quote": None, "region": "table row", "role": "data"}],
         }],
     }
+    primary = draft["rules"][0]
+    draft["rules"].append({
+        **primary, "schemeId": "S2", "label": "Continued brand tier",
+        "evidence": [
+            {"page": "1", "quote": None, "region": "brand header", "role": "header"},
+            {"page": "1", "quote": None, "region": "brand first row", "role": "data"},
+            {"page": "2", "quote": None, "region": "brand continued row", "role": "data"},
+        ],
+    })
+    draft["rules"].append({
+        **primary, "schemeId": None, "kind": "settlement", "label": "Settlement on agency code", "value": "IATA",
+    })
     calls = []
 
     def reply(request, timeout):
@@ -70,6 +84,7 @@ def test_model_policy_can_be_confirmed_and_filed_without_trial(tmp_path, monkeyp
     monkeypatch.setattr(import_module("data_report_api.api.airline_rebates"), "kick", jobs.drain)
     document = BytesIO()
     writer = PdfWriter()
+    writer.add_blank_page(300, 400)
     writer.add_blank_page(300, 400)
     writer.write(document)
     document.seek(0)
@@ -110,9 +125,77 @@ def test_model_policy_can_be_confirmed_and_filed_without_trial(tmp_path, monkeyp
         assert db.execute("SELECT COUNT(*) FROM rebate_tasks").fetchone()[0] == 1
     version = client.get(task_url + "/versions").json["data"][0]
     assert version["contract"] == contract
-    assert version["rules"]
+    assert version["schemes"] == draft["schemes"]
+    assert [card["name"] for card in version["rules"]] == [
+        "Base · 奖励档位", "Brand bonus · 奖励档位", "合同通用 · 结算条件",
+    ]
     assert client.get(f"{ROOT}/policies/{policy_id}/original").status_code == 200
     assert client.post(task_url + "/runs").status_code == 422
     refresh = app.test_cli_runner().invoke(api.cli, ["airline-rebate-refresh", "--interval-minutes", "1"])
     assert refresh.exit_code == 0
     assert "skipped=1 failed=0" in refresh.output
+
+
+def test_hkg_rate_table_restores_all_columns_and_normalizes_hkd(monkeypatch):
+    quote = "T > 6000 U/F 7 4 5.5 6 1 Q/I 5 2 3 4.5"
+    bands = [(60_000_000, None), (30_000_000, 60_000_000),
+             (16_000_000, 30_000_000), (6_000_000, 16_000_000)]
+    policy = {
+        "cabinGroups": [["U", "F"], ["Q", "I"]],
+        "tiers": [{"lowerExclusive": low, "upperInclusive": high,
+                   "ratesPercent": {"groupA": ["7", "4", "5.5", "6", "1"],
+                                    "groupB": ["5", "2", "3", "4.5", "1"]}}
+                  for low, high in bands],
+        "sourceClauses": {f"tier-{low}": quote for low, _ in bands},
+    }
+    monkeypatch.setattr(extraction, "parse_policy", lambda source: policy)
+    original = {"contract": {"number": "HKG26003"}, "rules": [{"kind": "tier"}, {"kind": "scope"}]}
+    result = extraction.verify_hkg_rate_table(original, b"", ["HKG26003", quote, "settlement"])
+    rules = result["rules"][1:]
+    assert result["rateTableVerification"]["verifiedCells"] == 36
+    assert original["rules"] == [{"kind": "tier"}, {"kind": "scope"}]
+    assert result["rules"][0] == {"kind": "scope"}
+    assert len({rule["id"] for rule in rules}) == 36
+    assert all(rule["evidence"][0]["verified"] for rule in rules)
+    assert [rule["tier"]["ratePercent"] for rule in rules[:9]] == ["7", "5", "4", "2", "5.5", "3", "6", "4.5", "1"]
+    assert rules[0]["tier"]["lower"] == "60000000"
+    assert rules[9]["tier"]["upper"] == "60000000"
+    assert rules[-1]["tier"]["lower"] == "6000000"
+    assert sum(rule["value"] == "异地始发" for rule in rules) == 4
+
+
+def test_hkg_rate_table_does_not_silently_accept_unrecognized_layout(monkeypatch):
+    def invalid_policy(source):
+        raise ValueError("fixture")
+    monkeypatch.setattr(extraction, "parse_policy", invalid_policy)
+    with pytest.raises(extraction.ExtractionError, match="无法完整核对"):
+        extraction.verify_hkg_rate_table({"contract": {"number": "HKG26003"}}, b"", ["HKG26003"])
+
+
+@pytest.mark.parametrize("bad_case, message", [
+    ("missing_page", "缺少表格页证据"),
+    ("header_only", "缺少表格页证据"),
+    ("unknown_scheme", "未归属有效奖励方案"),
+    ("no_scheme_reward", "缺少带页码证据的奖励规则"),
+])
+def test_scheme_coverage_rejects_incomplete_tables(bad_case, message):
+    draft = {
+        "schemaVersion": extraction.VERSION,
+        "schemes": [{"id": "S1", "name": "Base", "tablePages": ["1", "2"]}],
+        "rules": [{"kind": "tier", "schemeId": "S1", "evidence": [
+            {"page": "1", "role": "data", "quote": None, "region": "base row"},
+            {"page": "2", "role": "data", "quote": None, "region": "continued row"},
+        ]}],
+    }
+    extraction.validate_scheme_coverage(draft, 2)
+    rule = draft["rules"][0]
+    if bad_case == "missing_page":
+        rule["evidence"].pop()
+    elif bad_case == "header_only":
+        rule["evidence"][1]["role"] = "header"
+    elif bad_case == "unknown_scheme":
+        rule["schemeId"] = "S2"
+    else:
+        rule["kind"] = "scope"
+    with pytest.raises(extraction.ExtractionError, match=message):
+        extraction.validate_scheme_coverage(draft, 2)

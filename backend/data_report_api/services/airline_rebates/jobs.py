@@ -7,7 +7,10 @@ import time
 from uuid import uuid4
 
 from .calculation import fetch_policy_reference
-from .extraction import ExtractionError, call_model, model_settings, page_inputs, validated_draft
+from .extraction import (
+    PROMPT_VERSION, ExtractionError, call_model, model_settings, page_inputs,
+    validate_scheme_coverage, validated_draft, verify_hkg_rate_table,
+)
 from .store import connect, encode
 
 LEASE_SECONDS = 900
@@ -140,7 +143,11 @@ def _process(directory, config, logger, profile, raw):
                                modelFinishedAt=stamp(), pageTexts=[p["text"] for p in pages]):
                 return
         if stage == "validating":
-            draft = validated_draft(job["candidate"], job["pageTexts"])
+            page_texts = job["pageTexts"]
+            allow_legacy = job.get("modelReceipt", {}).get("promptVersion") != PROMPT_VERSION
+            draft = validated_draft(job["candidate"], page_texts, allow_legacy=allow_legacy)
+            draft = verify_hkg_rate_table(draft, raw, page_texts)
+            validate_scheme_coverage(draft, len(page_texts))
             contract = draft["contract"]
             profile.update(policy=draft, airline=contract["airline"] or "",
                            period=" 至 ".join(value for value in (contract["start"], contract["end"]) if value))
