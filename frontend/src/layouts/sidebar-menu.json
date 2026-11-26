@@ -9,7 +9,6 @@
       {"key": "/analysis/ancillary","label": "增值分析","menuCode": "analysis.ancillary","aliases": ["辅营"]}
     ]},
     {"key": "airline-rebates", "label": "后返管理", "aliases": ["航司后返"], "children": [
-      {"key": "/airline-rebates/policies","label": "政策解析","menuCode": "airline_rebates.center"},
       {"key": "/airline-rebates/tasks","label": "任务管理","menuCode": "airline_rebates.center","aliases": ["后返任务"]}
     ]},
     {"key": "business-configuration", "label": "业务配置", "children": [
@@ -51,9 +50,12 @@
     ]},
     {"key": "adm", "label": "ADM 控制台", "children": [
       {"key": "/adm","label": "ADM 任务台账","menuCode": "adm.center","aliases": ["ADM台账","ADM工作台","借项通知单"]},
-      {"key": "/adm/parsing","label": "ADM 解析","menuCode": "adm.center","aliases": ["ADM抽取","账单解析"]},
       {"key": "/adm/analysis","label": "业务分析与跟进","menuCode": "adm.center","aliases": ["ADM分析"],"anyPermission": ["adm.analysis","adm.notify.manage"]}
     ]}
+  ]},
+  {"key": "document-parsing", "label": "文档解析", "children": [
+      {"key": "/adm/parsing","label": "ADM 来件","menuCode": "adm.center","aliases": ["ADM抽取","账单解析"]},
+      {"key": "/airline-rebates/policies","label": "航司后返政策","menuCode": "airline_rebates.center"}
   ]},
   {"key": "data", "label": "数据管理", "children": [
     {"key": "/data-assets","label": "数据资产","menuCode": "data_assets","aliases": ["资产盘点","数据字典"]},

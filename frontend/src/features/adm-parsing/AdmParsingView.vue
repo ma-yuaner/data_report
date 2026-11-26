@@ -1,10 +1,12 @@
 <template>
   <div class="page-wrap parsing-page">
     <PageHeader
-      eyebrow="ADM 控制台 / ADM 解析"
+      eyebrow="文档解析"
       title="ADM 解析"
       description="上传材料、提取并核对字段；在ADM任务台账选择待登记来件，补充信息后登记。"
     >
+      <RouterLink v-if="auth.user?.isAdmin || auth.user?.menuCodes?.includes('airline_rebates.center')"
+        :to="{ name: 'airline-rebate-policies' }">航司后返政策</RouterLink>
       <a-button @click="rulesOpen = true">字段与校验规则</a-button>
       <a-button :loading="loading" @click="refresh">刷新</a-button>
       <a-button

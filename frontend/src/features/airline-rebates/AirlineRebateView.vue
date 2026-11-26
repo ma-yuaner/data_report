@@ -20,7 +20,11 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const isPolicies = computed(() => route.name === 'airline-rebate-policies')
-const confirmedCheck = ref(false)
+const selectedClause = ref<{ group: string; rule: string }>()
+const selectedEvidence = ref<number>()
+const editingClause = ref(false)
+const clauseCorrection = ref('')
+const clauseNote = ref('')
 const runningTrial = ref(false)
 const canManage = computed(() => Boolean(auth.user?.isAdmin || auth.user?.permissions?.includes('airline_rebates.manage')))
 const policies = ref<RebatePolicy[]>([])
@@ -96,6 +100,41 @@ const hiveRows = computed(() => {
     value: field.valueVisible ? (details.rows[0][field.name] ?? '—') : '受限',
   }))
 })
+const clauseGroup = computed(() => policyRules.value.find(group => group.id === selectedClause.value?.group))
+const clause = computed(() => clauseGroup.value?.conditions.find(item => item.id === selectedClause.value?.rule))
+const policyClauses = computed(() => policyRules.value.flatMap(group => group.conditions
+  .filter(rule => rule.dataMapping?.status !== 'removed').map(rule => ({ group, rule }))))
+const sections = [
+  { name: '哪些票适用', kinds: ['scope', 'exclusion', 'exception', 'eligibility', 'trial_filters'] },
+  { name: '哪些票计入达标', kinds: ['measurement'] },
+  { name: '哪些票计奖，怎么算', kinds: ['reward', 'tier', 'routes'] },
+  { name: '结算与其他条款', kinds: [] },
+]
+const policySchemes = computed(() => {
+  const schemes = new Map(policyClauses.value.map(({ group }) => [group.schemeId || '', group.schemeName || '合同通用']))
+  return [...schemes].map(([id, name]) => ({
+    id, name,
+    sections: sections.map(section => ({
+      name: section.name,
+      items: policyClauses.value.filter(({ group }) => {
+        if ((group.schemeId || '') !== id) return false
+        const kind = group.kind || (group.id.startsWith('tier-') ? 'tier' : group.id)
+        return section.kinds.length ? section.kinds.includes(kind) : !sections.some(item => item.kinds.includes(kind))
+      }),
+    })).filter(section => section.items.length),
+  }))
+})
+const readyToConfirm = computed(() => policyClauses.value.length > 0 && policyClauses.value.every(({ rule }) =>
+  rule.clauseReview?.state === 'confirmed' && rule.dataMapping?.decision.state !== 'missing'
+  && (!rule.dataMapping?.fields.length || activePolicy.value?.source !== 'model'
+      || rule.dataMapping?.decision.state === 'confirmed'),
+))
+const clauseEvidence = computed(() => selectedEvidence.value == null
+  ? undefined : clause.value?.sourceEvidence?.[selectedEvidence.value])
+const clauseSourcePage = computed(() => clauseEvidence.value?.page || clauseGroup.value?.sourcePage)
+const clauseSourceText = computed(() => clauseEvidence.value
+  ? (clauseEvidence.value.verified ? clauseEvidence.value.quote : undefined)
+  : clause.value?.sourceText)
 const reviewSourcePage = computed(() =>
   policyRules.value.find(group => group.id === reviewTarget.value?.group)?.sourcePage)
 
@@ -353,7 +392,9 @@ function confirmDelete(kind: 'policy' | 'task', item: RebatePolicy | RebateTask)
 }
 function openPolicy(policy: RebatePolicy) {
   activePolicy.value = policy
-  confirmedCheck.value = false
+  selectedClause.value = undefined
+  selectedEvidence.value = undefined
+  editingClause.value = false
   policyRules.value = []
   mappingValidation.value = undefined
   drawer.value = 'policy'
@@ -437,9 +478,30 @@ async function validateMapping() {
   catch (error) { drawerError.value = explain(error) }
   finally { saving.value = false }
 }
+function selectClause(group: string, rule: RebateCondition) {
+  selectedClause.value = { group, rule: rule.id }
+  selectedEvidence.value = undefined
+  clauseCorrection.value = rule.clauseReview?.correction ?? ''
+  clauseNote.value = rule.clauseReview?.note ?? ''
+  editingClause.value = false
+}
+async function saveClause(state: 'confirmed' | 'pending') {
+  const id = activePolicy.value?.id
+  const target = selectedClause.value
+  if (!id || !target || saving.value || (state === 'pending' && !clauseNote.value.trim())) return
+  saving.value = true
+  drawerError.value = ''
+  try {
+    applyMapping(await airlineRebates.reviewClause(id, target.group, target.rule, state,
+      clauseCorrection.value.trim(), clauseNote.value.trim()))
+    editingClause.value = false
+    message.success('已保存条款审核')
+  } catch (error) { drawerError.value = explain(error) }
+  finally { saving.value = false }
+}
 async function confirmPolicy() {
   const item = activePolicy.value
-  if (!item || !confirmedCheck.value || drawerBusy.value || saving.value) return
+  if (!item || !readyToConfirm.value || drawerBusy.value || saving.value) return
   saving.value = true
   drawerError.value = ''
   try {
@@ -628,10 +690,13 @@ function backToProgress() {
 
 <template>
   <div class="page-wrap">
-    <PageHeader eyebrow="后返管理" :title="isPolicies ? '政策解析' : '任务管理'"
+    <PageHeader :eyebrow="isPolicies ? '文档解析' : '后返管理'" :title="isPolicies ? '航司后返政策' : '任务管理'"
       :description="isPolicies ? '上传政策 PDF，查看解析初版及字段来源。' : '查看航司后返任务、规则版本与每日进度。'">
       <a-space>
         <a-button :loading="loading" @click="load()">刷新</a-button>
+        <RouterLink v-if="isPolicies && (auth.user?.isAdmin || auth.user?.menuCodes?.includes('adm.center'))"
+          :to="{ name: 'adm-parsing' }">ADM 来件</RouterLink>
+        <RouterLink v-if="!isPolicies" :to="{ name: 'airline-rebate-policies' }">查看政策解析</RouterLink>
         <a-button v-if="!isPolicies && canManage" type="primary" @click="openCreate">新建任务</a-button>
       </a-space>
     </PageHeader>
@@ -790,26 +855,76 @@ function backToProgress() {
           </a-descriptions>
           <p v-if="drawer === 'details' && viewedVersion" class="muted section">{{ formatDateTimeDisplay(viewedVersion.savedAt) }} {{ viewedVersion.reason }}</p>
           <a-empty v-if="!drawerBusy && !drawerError && !ruleGroups.length" description="暂无规则" />
-          <section v-if="drawer !== 'edit' && rateMatrix.length" class="section rule-group">
+          <div v-if="drawer === 'policy' && activePolicy && policyRules.length" class="review-evidence-layout">
+            <PolicySourcePdf :url="'/api/v1/airline-rebates/policies/' + encodeURIComponent(activePolicy.id) + '/original'"
+              :source-page="clauseSourcePage" :source-text="clauseSourceText" />
+            <section class="policy-clause-list">
+              <template v-for="scheme in policySchemes" :key="scheme.id">
+                <h2 class="policy-scheme">{{ scheme.name }}</h2>
+                <template v-for="section in scheme.sections" :key="section.name">
+                  <h3 class="policy-section">{{ section.name }}</h3>
+                  <div v-for="{ group, rule } in section.items" :key="group.id + '/' + rule.id" class="policy-clause">
+                    <h3>{{ rule.fieldLabel }}</h3>
+                    <p><span v-if="!rule.clauseReview?.correction" class="muted">{{ operatorLabel(rule.operator) }} </span>{{ displayValue(rule.value) }}</p>
+                    <a-space wrap>
+                      <a-tag v-if="!activePolicy.confirmed || rule.clauseReview" :color="rule.clauseReview?.state === 'confirmed' ? 'green' : 'orange'">
+                        {{ rule.clauseReview?.state === 'confirmed' ? '已核对' : '待核' }}
+                      </a-tag>
+                      <a-button size="small" @click="selectClause(group.id, rule)">查看原文{{ group.sourcePage ? ' · ' + group.sourcePage : '' }}</a-button>
+                      <a-button v-if="rule.dataMapping?.kind !== 'constant'" size="small" @click="openMappingReview(group.id, rule)">字段与订单核验</a-button>
+                      <a-popconfirm v-if="canManage && (!activePolicy.confirmed || activePolicy.source !== 'model') && rule.dataMapping?.removable"
+                        title="从本政策核实清单移除？" @confirm="saveMapping(group.id, rule.id, 'removed')">
+                        <a-button size="small" type="link">移除核实项</a-button>
+                      </a-popconfirm>
+                    </a-space>
+                    <a-space v-if="clauseGroup?.id === group.id && clause?.id === rule.id && (rule.sourceEvidence?.length ?? 0) > 1" wrap class="section">
+                      <a-button v-for="(evidence, index) in rule.sourceEvidence" :key="index"
+                        size="small" :disabled="!evidence.page" @click="selectedEvidence = index">
+                        第 {{ evidence.page || '—' }} 页 · {{ evidence.role === 'header' ? '表头' : evidence.role === 'data' ? '数据行' : '正文' }}
+                      </a-button>
+                    </a-space>
+                    <p v-if="rule.clauseReview?.note" class="muted">{{ rule.clauseReview.note }}</p>
+                    <p v-if="rule.dataMapping?.decision.field || rule.dataMapping?.decision.state === 'missing'" class="muted">
+                      {{ mappedFieldNames(rule) === '—' ? '当前 Hive 无可用字段' : mappedFieldNames(rule) }}
+                    </p>
+                    <div v-if="canManage && !activePolicy.confirmed && clauseGroup?.id === group.id && clause?.id === rule.id" class="section">
+                      <a-space v-if="!editingClause">
+                        <a-button size="small" :loading="saving" @click="saveClause('confirmed')">核对通过</a-button>
+                        <a-button size="small" @click="editingClause = true">{{ activePolicy.source === 'model' ? '修正或标待核' : '标待核' }}</a-button>
+                      </a-space>
+                      <a-form v-else layout="vertical">
+                        <a-form-item v-if="activePolicy.source === 'model'" label="修正后的条款">
+                          <a-textarea v-model:value="clauseCorrection" :maxlength="2000" :rows="2" />
+                        </a-form-item>
+                        <a-form-item label="待核说明">
+                          <a-textarea v-model:value="clauseNote" :maxlength="500" :rows="2" />
+                        </a-form-item>
+                        <a-space>
+                          <a-button v-if="activePolicy.source === 'model'" :disabled="!clauseCorrection.trim()" :loading="saving" @click="saveClause('confirmed')">保存修正</a-button>
+                          <a-button :disabled="!clauseNote.trim()" :loading="saving" @click="saveClause('pending')">保存待核</a-button>
+                          <a-button @click="selectClause(group.id, rule)">取消</a-button>
+                        </a-space>
+                      </a-form>
+                    </div>
+                  </div>
+                </template>
+              </template>
+            </section>
+          </div>
+          <section v-if="drawer === 'details' && rateMatrix.length" class="section rule-group">
             <h3>航线奖励费率 <small class="muted">· 第 2 页 · 累计收入单位为万 HKD</small></h3>
             <a-table :data-source="rateMatrix" row-key="id" :pagination="false" size="small" :scroll="{ x: 780 }">
               <a-table-column title="累计收入档位" data-index="threshold" />
               <a-table-column title="舱位组" :width="190">
                 <template #default="{ record }">{{ record.cabin }}<div class="muted">{{ displayValue(record.codes) }}</div></template>
               </a-table-column>
-              <template v-if="drawer !== 'policy'" #expandedRowRender="{ record }"><p v-if="record.sourceText" class="muted">{{ record.sourceText }}</p></template>
+              <template #expandedRowRender="{ record }"><p v-if="record.sourceText" class="muted">{{ record.sourceText }}</p></template>
               <a-table-column v-for="(label, index) in rebateRouteLabels" :key="label" :title="label">
                 <template #default="{ record }">{{ record.rates[index] == null ? '—' : record.rates[index] + '%' }}</template>
               </a-table-column>
-              <a-table-column v-if="drawer === 'policy'" title="操作" :width="100">
-                <template #default="{ record }">
-                  <a-button v-if="record.condition" type="link" size="small"
-                    @click="openMappingReview(record.groupId, record.condition)">详情核对</a-button>
-                </template>
-              </a-table-column>
             </a-table>
           </section>
-          <section v-for="group in ruleGroups.filter(item => drawer === 'edit' || !item.id.startsWith('tier-'))" :key="group.id" class="section rule-group">
+          <section v-for="group in ruleGroups.filter(item => drawer === 'edit' || (drawer === 'details' && !item.id.startsWith('tier-')))" :key="group.id" class="section rule-group">
             <h3>{{ group.name }} <small v-if="group.sourcePage" class="muted">· {{ group.sourcePage }}</small></h3>
             <a-table :data-source="group.conditions.filter((rule: RebateCondition) => rule.dataMapping?.status !== 'removed')" row-key="id" :pagination="false" size="small" :scroll="{ x: 845 }">
               <a-table-column title="字段" data-index="fieldLabel" :width="155" />
@@ -825,21 +940,8 @@ function backToProgress() {
                   <template v-else>{{ displayValue(record.value) }}<details v-if="drawer !== 'policy' && record.sourceText" class="muted"><summary>查看合同原文</summary>{{ record.sourceText }}</details><div v-if="drawer === 'details' && preceding(group, record)" class="muted">上版 {{ preceding(group, record) }}</div></template>
                 </template>
               </a-table-column>
-              <a-table-column :title="drawer === 'policy' ? 'Hive 字段' : 'Hive 字段及口径'" :width="310">
-                <template #default="{ record }">
-                  {{ drawer === 'policy' ? mappedFieldNames(record) : formatHiveMapping(record.mapping) }}
-                </template>
-              </a-table-column>
-              <a-table-column v-if="drawer === 'policy'" title="操作" :width="190">
-                <template #default="{ record }">
-                  <a-space wrap>
-                    <a-button type="link" size="small" @click="openMappingReview(group.id, record)">详情核对</a-button>
-                    <a-popconfirm v-if="canManage && record.dataMapping?.removable" title="从本政策核实清单移除？"
-                      ok-text="移除" cancel-text="取消" @confirm="saveMapping(group.id, record.id, 'removed')">
-                      <a-button type="link" danger size="small">移除核实项</a-button>
-                    </a-popconfirm>
-                  </a-space>
-                </template>
+              <a-table-column title="Hive 字段及口径" :width="310">
+                <template #default="{ record }">{{ formatHiveMapping(record.mapping) }}</template>
               </a-table-column>
             </a-table>
           </section>
@@ -847,13 +949,13 @@ function backToProgress() {
             <summary>已移除的核实项（{{ removedReviewItems.length }}）</summary>
             <div v-for="{ group, rule } in removedReviewItems" :key="group + '/' + rule.id">
               {{ rule.fieldLabel }}
-              <a-button v-if="canManage" type="link" size="small" :disabled="saving"
+              <a-button v-if="canManage && (!activePolicy?.confirmed || activePolicy.source !== 'model')" type="link" size="small" :disabled="saving"
                 @click="saveMapping(group, rule.id, 'reset')">恢复核实项</a-button>
             </div>
           </details>
           <a-space v-if="drawer === 'policy' && activePolicy && !activePolicy.confirmed && ruleGroups.length && canManage" wrap>
-            <a-checkbox v-model:checked="confirmedCheck">已核对合同原文和费率</a-checkbox>
-            <a-button type="primary" :loading="saving" :disabled="!confirmedCheck" @click="confirmPolicy">确认政策条款</a-button>
+            <span v-if="!readyToConfirm" class="muted">核对全部条款、有候选字段的模型规则及待核字段后可确认。</span>
+            <a-button type="primary" :loading="saving" :disabled="!readyToConfirm" @click="confirmPolicy">确认政策条款</a-button>
           </a-space>
           <a-drawer v-if="reviewTarget" :open="true" :width="'min(1200px, 100vw)'"
             :title="'详情核对 · ' + reviewTarget.rule.fieldLabel" @close="!saving && closeMappingReview()">
@@ -884,7 +986,7 @@ function backToProgress() {
                 <template v-if="canManage && reviewTarget.rule.dataMapping && reviewTarget.rule.dataMapping.kind !== 'constant'">
                   <h3>Hive 字段参考</h3>
                   <p v-if="hiveDetails?.preparedAt" class="muted">
-                    {{ hiveDetails.scope === 'wideTableExample' ? '宽表参考记录 · ' : '' }}
+                    {{ hiveDetails.scope === 'wideTableExample' ? '宽表参考记录，可能超出本合同范围 · ' : '' }}
                     {{ formatDateTimeDisplay(hiveDetails.preparedAt) }}
                   </p>
                   <a-alert v-if="hiveError" :message="hiveError" type="warning" show-icon />
@@ -928,7 +1030,8 @@ function backToProgress() {
                 </template>
               </section>
             </div>
-            <template v-if="canManage && reviewTarget.rule.dataMapping && reviewTarget.rule.dataMapping.kind !== 'constant'" #footer>
+            <template v-if="canManage && !(activePolicy?.confirmed && activePolicy.source === 'model')
+              && reviewTarget.rule.dataMapping && reviewTarget.rule.dataMapping.kind !== 'constant'" #footer>
               <a-space>
                 <a-button :disabled="saving" @click="closeMappingReview()">取消</a-button>
                 <a-button type="primary" :disabled="!canSaveMapping || hiveBusy || !hiveRows.length" :loading="saving"
@@ -1050,6 +1153,11 @@ function backToProgress() {
 </template>
 
 <style scoped>
+.policy-scheme { margin: 10px 0; font-size: 18px; }
+.policy-section { padding: 8px 12px; background: #f3f6fa; }
+.policy-clause-list { min-width: 0; max-height: 72vh; overflow: auto; }
+.policy-clause { padding: 12px; border-bottom: 1px solid var(--ant-color-border-secondary, #e7edf4); overflow-wrap: anywhere; }
+.policy-clause h3 { margin: 4px 0; }
 .review-evidence-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
 .review-reference { min-width: 0; overflow-wrap: anywhere; }
 .review-reference h3, .review-decision { margin-top: 12px; }

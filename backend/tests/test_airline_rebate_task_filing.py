@@ -65,7 +65,7 @@ def test_model_policy_can_be_confirmed_and_filed_without_trial(tmp_path, monkeyp
         ],
     })
     draft["rules"].append({
-        **primary, "schemeId": None, "kind": "settlement", "label": "Settlement on agency code", "value": "IATA",
+        **primary, "schemeId": None, "kind": "settlement", "label": "出票日期", "concept": "出票日期", "value": "2026 Q1",
     })
     calls = []
 
@@ -80,7 +80,10 @@ def test_model_policy_can_be_confirmed_and_filed_without_trial(tmp_path, monkeyp
         response.headers = {}
         return response
 
-    monkeypatch.setattr(jobs, "fetch_policy_reference", lambda config: {"rows": [{}]})
+    monkeypatch.setattr(jobs, "fetch_policy_reference", lambda config: {
+        "rows": [{"issue_ticket_time": "2026-02-01"}],
+        "columns": [{"name": "issue_ticket_time", "typeMatches": True}],
+    })
     monkeypatch.setattr(import_module("data_report_api.api.airline_rebates"), "kick", jobs.drain)
     document = BytesIO()
     writer = PdfWriter()
@@ -110,7 +113,30 @@ def test_model_policy_can_be_confirmed_and_filed_without_trial(tmp_path, monkeyp
     assert policy["trialReady"] is False
     payload = {"policyId": policy_id, "name": "Example task", "owner": "reviewer"}
     assert client.post(ROOT + "/tasks", json=payload).status_code == 409
-    assert client.post(f"{ROOT}/policies/{policy_id}/confirm").json["data"]["confirmed"] is True
+    policy_url = f"{ROOT}/policies/{policy_id}"
+    assert client.post(policy_url + "/confirm").status_code == 409
+    cards = client.get(policy_url + "/mapping").json["data"]["rules"]
+    first = {"group": cards[0]["id"], "rule": cards[0]["conditions"][0]["id"]}
+    assert client.put(policy_url + "/clauses", json={**first, "state": "pending"}).status_code == 422
+    assert client.put(policy_url + "/clauses", json={
+        **first, "state": "pending", "note": "Check rate against PDF",
+    }).status_code == 200
+    assert client.post(policy_url + "/confirm").status_code == 409
+    for card in cards:
+        for condition in card["conditions"]:
+            review = {"group": card["id"], "rule": condition["id"], "state": "confirmed"}
+            if card is cards[0]:
+                review["correction"] = "Verified base rate"
+            assert client.put(policy_url + "/clauses", json=review).status_code == 200
+    mapping = {"group": cards[-1]["id"], "rule": cards[-1]["conditions"][0]["id"]}
+    assert client.post(policy_url + "/confirm").status_code == 409
+    assert client.put(policy_url + "/mapping", json={**mapping, "state": "missing"}).status_code == 200
+    assert client.post(policy_url + "/confirm").status_code == 409
+    field_review = {**mapping, "state": "confirmed", "field": "issue_ticket_time"}
+    assert client.put(policy_url + "/mapping", json=field_review).status_code == 200
+    assert client.post(policy_url + "/confirm").json["data"]["confirmed"] is True
+    assert client.put(policy_url + "/mapping", json=field_review).status_code == 409
+    assert client.put(policy_url + "/clauses", json={**first, "state": "confirmed"}).status_code == 409
 
     created = client.post(ROOT + "/tasks", json=payload)
     assert created.status_code == 200
@@ -124,6 +150,8 @@ def test_model_policy_can_be_confirmed_and_filed_without_trial(tmp_path, monkeyp
     with connect(tmp_path) as db:
         assert db.execute("SELECT COUNT(*) FROM rebate_tasks").fetchone()[0] == 1
     version = client.get(task_url + "/versions").json["data"][0]
+    assert version["rules"][0]["conditions"][0]["value"] == "Verified base rate"
+    assert version["rules"][-1]["conditions"][0]["dataMapping"]["decision"]["field"] == "issue_ticket_time"
     assert version["contract"] == contract
     assert version["schemes"] == draft["schemes"]
     assert [card["name"] for card in version["rules"]] == [

@@ -33,12 +33,16 @@ export interface RebateCondition {
   value: RebateConditionValue
   mapping?: string
   dataMapping?: RebateDataMapping
+  clauseReview?: { state: 'confirmed' | 'pending'; correction: string; note: string; by: string; at: string }
   sourceText?: string | null
-  sourceEvidence?: { page: string | null; quote: string | null; region: string | null; verified: boolean }[]
+  sourceEvidence?: { page: string | null; quote: string | null; region: string | null; verified: boolean; role?: 'header' | 'data' | 'clause' }[]
 }
 export interface RebateRule {
   id: string
   name: string
+  kind?: string
+  schemeId?: string | null
+  schemeName?: string | null
   sourcePage?: string
   conditions: RebateCondition[]
 }
@@ -164,6 +168,9 @@ export const airlineRebates = {
     unwrap(http.get<ApiEnvelope<RebateHiveDetails>>(mappingPath(id) + '/details', { signal })),
   reviewMapping: (id: string, group: string, rule: string, state: MappingDecision, note: string, field?: string) =>
     unwrap(http.put<ApiEnvelope<RebateMappingReview>>(mappingPath(id), { group, rule, state, note, field })),
+  reviewClause: (id: string, group: string, rule: string, state: 'confirmed' | 'pending', correction: string, note: string) =>
+    unwrap(http.put<ApiEnvelope<RebateMappingReview>>(policies + '/' + encodeURIComponent(id) + '/clauses',
+      { group, rule, state, correction, note })),
   confirmPolicy: (id: string) =>
     unwrap(http.post<ApiEnvelope<RebatePolicy>>(policies + '/' + encodeURIComponent(id) + '/confirm')),
   run: (id: string) => unwrap(http.post<ApiEnvelope<RebateProgress>>(taskPath(id) + '/runs')),

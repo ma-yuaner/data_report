@@ -133,7 +133,8 @@ def model_rule_cards(draft):
         scheme = schemes.get(rule.get("schemeId"))
         title = f"{scheme} · {kind}" if scheme else f"合同通用 · {kind}" if schemes else kind
         cards.append({
-            "id": "model-" + rule["id"], "name": title,
+            "id": "model-" + rule["id"], "name": title, "kind": rule["kind"],
+            "schemeId": rule.get("schemeId"), "schemeName": scheme,
             "sourcePage": f"第 {source['page']} 页" if source else None,
             "conditions": [{
                 "id": rule["id"], "fieldLabel": rule["label"], "operator": rule["operator"],
@@ -240,19 +241,33 @@ def rule_cards(policy):
     ]
 
 
+def reviewed_rule_cards(row):
+    profile = json.loads(row["profile"])
+    reviews = profile.get("clauseReviews", {})
+    cards = rule_cards(policy_for_review(row))
+    for card in cards:
+        for condition in card["conditions"]:
+            review = reviews.get(f"{card['id']}/{condition['id']}")
+            if review:
+                condition["clauseReview"] = review
+                if review.get("correction"):
+                    condition["value"] = review["correction"]
+    return cards
+
+
 def mapping_review(row):
     profile = json.loads(row["profile"])
     return {
         "policy": policy_data(row),
-        "rules": review_cards(rule_cards(policy_for_review(row)), profile),
+        "rules": review_cards(reviewed_rule_cards(row), profile),
         "validation": profile.get("mappingValidation"),
     }
 
 
 def save_mapping_profile(db, row, profile):
     if not db.execute(
-        "UPDATE rebate_policies SET profile=? WHERE id=? AND profile=?",
-        (encode(profile), row["id"], row["profile"]),
+        "UPDATE rebate_policies SET profile=? WHERE id=? AND profile=? AND confirmed_at IS ?",
+        (encode(profile), row["id"], row["profile"], row["confirmed_at"]),
     ).rowcount:
         raise PilotError("校验期间有其他人修改了数据映射，请刷新后重试", 409)
     return mapping_review(find(db, "rebate_policies", row["id"]))
@@ -444,6 +459,8 @@ def register_routes(api):
             raise PilotError("请选择 Hive 明细字段")
         with connect(directory) as db:
             row = find(db, "rebate_policies", identifier)
+            if row["confirmed_at"] and json.loads(row["profile"]).get("source") == "model":
+                raise PilotError("已确认政策的字段核实已锁定", 409)
             cards = mapping_review(row)["rules"]
             selected = next((
                 condition["dataMapping"] for card in cards if card["id"] == group
@@ -535,6 +552,38 @@ def register_routes(api):
             return send_file(BytesIO(row["original"]), mimetype="application/pdf", as_attachment=True,
                              download_name=json.loads(row["profile"])["name"], max_age=0)
 
+    @api.put(ROOT + "/policies/<identifier>/clauses")
+    @endpoint
+    def rebate_review_clause(directory, identifier):
+        payload = json_body()
+        group, rule, state = (payload.get(key) for key in ("group", "rule", "state"))
+        correction = payload.get("correction", "")
+        note = payload.get("note", "")
+        if (state not in ("confirmed", "pending") or not isinstance(correction, str)
+                or not isinstance(note, str) or len(correction) > 2000 or len(note) > 500
+                or (state == "pending" and not note.strip())):
+            raise PilotError("请提交有效的条款结论或待核说明")
+        with connect(directory) as db:
+            row = find(db, "rebate_policies", identifier)
+            if row["confirmed_at"] or policy_data(row)["status"] != "ready":
+                raise PilotError("当前政策版本不可修改", 409)
+            profile = json.loads(row["profile"])
+            if correction.strip() and profile.get("source") != "model":
+                raise PilotError("试算专用规则需要沿用已验证的合同口径")
+            if not any(card["id"] == group and any(item["id"] == rule for item in card["conditions"])
+                       for card in reviewed_rule_cards(row)):
+                raise PilotError("条款不存在", 404)
+            profile.setdefault("clauseReviews", {})[f"{group}/{rule}"] = {
+                "state": state, "correction": correction.strip(), "note": note.strip(),
+                "by": user_label(), "at": now(),
+            }
+            if not db.execute(
+                "UPDATE rebate_policies SET profile=? WHERE id=? AND profile=? AND confirmed_at IS NULL",
+                (encode(profile), identifier, row["profile"]),
+            ).rowcount:
+                raise PilotError("政策已变化，请刷新后重试", 409)
+            return ok(mapping_review(find(db, "rebate_policies", identifier)))
+
     @api.post(ROOT + "/policies/<identifier>/confirm")
     @endpoint
     def rebate_confirm(directory, identifier):
@@ -549,8 +598,23 @@ def register_routes(api):
                     and number.strip().upper() == "HKG26003"
                     and draft.get("rateTableVerification", {}).get("verifiedCells") != 36):
                 raise PilotError("此初稿缺少费率表完整性核对，请重新提交原合同后确认", 409)
-            db.execute("UPDATE rebate_policies SET confirmed_by=?, confirmed_at=? WHERE id=? AND confirmed_at IS NULL",
-                       (user_label(), now(), identifier))
+            if not row["confirmed_at"]:
+                cards = mapping_review(row)["rules"]
+                if any(
+                    condition.get("clauseReview", {}).get("state") != "confirmed"
+                    or condition["dataMapping"]["decision"].get("state") == "missing"
+                    or (profile.get("source") == "model" and condition["dataMapping"]["fields"]
+                        and condition["dataMapping"]["decision"].get("state") != "confirmed")
+                    for card in cards for condition in card["conditions"]
+                    if condition.get("dataMapping", {}).get("status") != "removed"
+                ):
+                    raise PilotError("请先核对全部条款并处理待核字段", 409)
+                if not db.execute(
+                    "UPDATE rebate_policies SET confirmed_by=?, confirmed_at=? "
+                    "WHERE id=? AND profile=? AND confirmed_at IS NULL",
+                    (user_label(), now(), identifier, row["profile"]),
+                ).rowcount:
+                    raise PilotError("政策已变化，请刷新后重试", 409)
             return ok(policy_data(find(db, "rebate_policies", identifier)))
 
     @api.get(ROOT + "/tasks")
@@ -584,7 +648,7 @@ def register_routes(api):
                 item.update(policyId=policy["id"], currency=policy["policy"]["contract"]["currency"] or "",
                             trialAvailable=False, policyVersion={
                                 "version": 1, "reason": "由人工确认的政策解析结果建档",
-                                "savedAt": policy_row["confirmed_at"], "rules": rule_cards(policy_for_review(policy_row)),
+                                "savedAt": policy_row["confirmed_at"], "rules": mapping_review(policy_row)["rules"],
                                 "contract": policy["policy"]["contract"],
                                 "schemes": policy["policy"].get("schemes", []),
                             })

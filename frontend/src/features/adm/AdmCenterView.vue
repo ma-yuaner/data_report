@@ -2,6 +2,7 @@
   <div class="v05-app embedded">
     <main class="v05-main v05-page">
       <PageHeader eyebrow="" title="ADM 任务台账" description="按当前责任办理待办，也可查看全部主单与订单明细。">
+        <RouterLink :to="{ name: 'adm-parsing' }">解析来件</RouterLink>
         <a-space wrap>
           <a-button v-if="canCreate" @click="parsePickerOpen = true">从解析结果新建</a-button>
           <a-button v-if="canCreate" @click="openImport">批量新增主单</a-button>
