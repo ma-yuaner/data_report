@@ -5,6 +5,7 @@ export type ParseTask = {
   ownerId: string
   title: string
   version: number
+  canDelete?: boolean
   registration?: { caseId: number; internalNo: string; sourceVersion: number; at: string; by: string }
   state: string
   saveStatus: string
@@ -69,6 +70,7 @@ export const parsingApi = {
   list: (page: number, state: string) =>
     data<{ items: ParseTask[]; total: number }>(http.get(`${base}/tasks`, { params: { page, pageSize: 20, state } })),
   detail: (id: string) => data<ParseTask>(http.get(`${base}/tasks/${id}`)),
+  delete: (task: ParseTask) => data<null>(http.delete(`${base}/tasks/${task.id}`, { data: { version: task.version } })),
   upload: (files: File[], key: string) => {
     const body = new FormData()
     files.forEach((file) => body.append('files', file))

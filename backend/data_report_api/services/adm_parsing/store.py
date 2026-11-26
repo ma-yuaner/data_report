@@ -81,7 +81,7 @@ class ParsingStore:
                 raise AdmError("解析任务已更新，请刷新后操作", 409, "PARSE_VERSION_CONFLICT")
 
     def list(self, owner, page, size, state=""):
-        where, params = ("1=1", []) if owner is None else ("owner_id=?", [owner])
+        where, params = ("state<>'DELETED'", []) if owner is None else ("state<>'DELETED' AND owner_id=?", [owner])
         if state:
             where += " AND state=?"
             params.append(state)

@@ -114,6 +114,16 @@
               ><a-button :disabled="!status?.canUpload || acting">重新调用模型</a-button></a-popconfirm
             >
           </details>
+          <a-popconfirm
+            v-if="selected.canDelete"
+            title="确认删除此来件？删除后将从来件列表和待登记列表移除。"
+            ok-text="删除"
+            cancel-text="取消"
+            :ok-button-props="{ danger: true }"
+            @confirm="deleteIntake"
+          >
+            <a-button danger :disabled="acting">删除来件</a-button>
+          </a-popconfirm>
         </div>
       </header>
       <section class="parsing-pane parsing-result">
@@ -599,6 +609,37 @@ async function loadList() {
 async function changeFilter() {
   page.value = 1
   await loadList()
+}
+async function deleteIntake() {
+  const task = selected.value
+  if (!task?.canDelete || acting.value) return
+  acting.value = true
+  error.value = ''
+  notice.value = ''
+  try {
+    await parsingApi.delete(task)
+    if (selected.value?.id === task.id) {
+      generation++
+      selected.value = undefined
+      clearSource()
+    }
+    notice.value = '来件已删除'
+    if (route.query.task === task.id) {
+      const query = { ...route.query }
+      delete query.task
+      await router.replace({ query })
+    }
+    await loadList()
+    const lastPage = Math.max(1, Math.ceil(total.value / 20))
+    if (page.value > lastPage) {
+      page.value = lastPage
+      await loadList()
+    }
+  } catch (e) {
+    error.value = message(e)
+  } finally {
+    acting.value = false
+  }
 }
 function schedule() {
   if (timer) clearTimeout(timer)

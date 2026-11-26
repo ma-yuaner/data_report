@@ -14,7 +14,7 @@ def response(function):
     def wrapped(*args, **kwargs):
         try:
             maximum = 51 * 1024 * 1024 if function.__name__ == "adm_parsing_upload" else 16 * 1024
-            if request.method == "POST":
+            if request.method in {"POST", "DELETE"}:
                 request.max_content_length = maximum
                 if request.content_length and request.content_length > maximum:
                     raise AdmError("解析请求超过允许大小，单件文件合计上限50MB", 413, "PARSE_REQUEST_LIMIT")
@@ -65,6 +65,12 @@ def register_routes(api):
     @response
     def adm_parsing_detail(service, user, task_id):
         return ok(service.detail(user, task_id))
+
+    @api.delete("/v1/adm/parsing/tasks/<task_id>")
+    @response
+    def adm_parsing_delete(service, user, task_id):
+        service.delete(user, task_id, json_body().get("version"))
+        return ok(None, "来件已删除")
 
     @api.post("/v1/adm/parsing/tasks/<task_id>/parse")
     @response

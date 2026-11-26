@@ -59,6 +59,7 @@
 | `GET` | `/api/v1/adm/parsing/tasks` | [adm_parsing_list](../../backend/data_report_api/api/adm_parsing.py) |
 | `POST` | `/api/v1/adm/parsing/tasks` | [adm_parsing_upload](../../backend/data_report_api/api/adm_parsing.py) |
 | `GET` | `/api/v1/adm/parsing/tasks/<task_id>` | [adm_parsing_detail](../../backend/data_report_api/api/adm_parsing.py) |
+| `DELETE` | `/api/v1/adm/parsing/tasks/<task_id>` | [adm_parsing_delete](../../backend/data_report_api/api/adm_parsing.py) |
 | `GET` | `/api/v1/adm/parsing/tasks/<task_id>/files/<file_id>` | [adm_parsing_file](../../backend/data_report_api/api/adm_parsing.py) |
 | `POST` | `/api/v1/adm/parsing/tasks/<task_id>/parse` | [adm_parsing_start](../../backend/data_report_api/api/adm_parsing.py) |
 | `POST` | `/api/v1/adm/parsing/tasks/<task_id>/register` | [adm_parsing_register](../../backend/data_report_api/api/adm_parsing.py) |

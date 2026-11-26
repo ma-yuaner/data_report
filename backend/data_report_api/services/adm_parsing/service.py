@@ -56,7 +56,7 @@ class ParsingService:
         if not re.fullmatch(r"[a-f0-9]{32}", str(task_id)):
             raise AdmError("解析任务不存在", 404, "PARSE_NOT_FOUND")
         task = self.store.get(task_id)
-        if not task or task["ownerId"] != actor and not has(user, "adm.manage"):
+        if not task or task["state"] == "DELETED" or task["ownerId"] != actor and not has(user, "adm.manage"):
             raise AdmError("解析任务不存在或无权查看", 404, "PARSE_NOT_FOUND")
         return task
 
@@ -118,7 +118,22 @@ class ParsingService:
             old = task["version"]
             task.update(state="FAILED", error={"code": "PARSE_INTERRUPTED", "message": "解析进程中断或超过10分钟，请显式重试；未自动重复调用模型"}, version=old+1, updatedAt=stamp())
             self.store.save(task, old)
-        return self._public(task, True)
+        return {
+            **self._public(task, True),
+            "canDelete": (has(user, "adm.create") or has(user, "adm.manage"))
+            and not task.get("registration") and task["state"] not in {"QUEUED", "RUNNING"},
+        }
+
+    def delete(self, user, task_id, version):
+        task = self._get(user, task_id, True)
+        if type(version) is not int or task["version"] != version:
+            raise AdmError("任务版本已改变，请刷新后再试", 409, "PARSE_VERSION_CONFLICT")
+        if task.get("registration"):
+            raise AdmError("来件已登记台账，无法删除", 409, "PARSE_ALREADY_REGISTERED")
+        if task["state"] in {"QUEUED", "RUNNING"}:
+            raise AdmError("请等待解析结束后再删除", 409, "PARSE_BUSY")
+        task.update(state="DELETED", version=version + 1, updatedAt=stamp(), deletedBy=str(user["id"]))
+        self.store.save(task, version)
 
     def list(self, user, page=1, size=20, state=""):
         owner = self.actor(user)
@@ -169,6 +184,8 @@ class ParsingService:
             task = {"id": task_id, "ownerId": actor, "title": files[0]["name"], "version": 1, "state": "UPLOADED", "createdAt": stamp(), "updatedAt": stamp(),
                     "files": files, "requestHash": fingerprint, "segments": [], "candidate": None, "issues": [], "history": [], "attempts": 0, "error": None, "saveStatus": "SAVED"}
             result = self.store.create(task, key, fingerprint)
+            if result["state"] == "DELETED":
+                raise AdmError("该上传请求对应的来件已删除，请重新打开上传窗口", 409, "PARSE_DELETED")
             if result["id"] != task_id:
                 for f in files:
                     self._path(f["storageKey"]).unlink(missing_ok=True)
@@ -299,7 +316,7 @@ class ParsingService:
                     updatedAt=stamp(), revalidatedAt=stamp(), revalidatedById=str(user["id"]), saveStatus="SAVED",
                     error={"code": "PARSE_VALIDATION_FAILED", "message": "已有结果仍有校验问题，请核对具体字段"} if failed else None)
         self.store.save(task, version)
-        return self._public(task, True)
+        return {**self._public(task, True), "canDelete": True}
 
     def retry_save(self, user, task_id, version):
         task = self._get(user, task_id, True)
