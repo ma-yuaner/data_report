@@ -119,7 +119,7 @@ def _diff_label(value, item=None):
 
 
 def _attribution_label(value):
-    return {"HUMAN": "人为问题", "PLATFORM": "平台问题", "SYSTEM": "系统问题"}.get(
+    return {"HUMAN": "人为问题", "PLATFORM": "平台问题", "SYSTEM": "系统问题", "EXTERNAL":"外部规则/平台", "BUSINESS":"业务原因", "FORCE_MAJEURE":"不可抗力", "UNKNOWN":"待查明"}.get(
         str(value or ""), value,
     )
 
@@ -221,7 +221,7 @@ class AdmDailyWorkbook:
     def _read_bytes(self, upload):
         filename = str(getattr(upload, "filename", "") or "").strip()
         if not filename.lower().endswith(".xlsx"):
-            raise AdmError("请上传.xlsx格式的19列ADM模板")
+            raise AdmError("请上传.xlsx格式的ADM模板")
         content = upload.stream.read(self.max_bytes + 1)
         if len(content) > self.max_bytes:
             raise AdmError(f"Excel文件不能超过{self.max_bytes // (1024 * 1024)}MB")
@@ -361,7 +361,7 @@ class AdmDailyWorkbook:
                 (27, ["已查看并处理"] if recovery in {"WAITING", "REMINDER_DUE"} else []),
                 (28, _operator_actions(item)),
                 (30, list(APPEAL_TARGETS.values()) if not correction_only else []),
-                (32, ["人为问题", "平台问题", "系统问题"] if not correction_only else []),
+                (32, ["人为问题", "平台问题", "系统问题", "外部规则/平台", "业务原因", "不可抗力", "待查明"] if not correction_only else []),
             )
             for column, options in validations:
                 if not options:
@@ -456,3 +456,97 @@ class StoredUpload:
 
     def close(self):
         self.stream.close()
+
+
+MASTER_HEADERS = ("ADM单号", "ADM来源", "供应商名称", "航司", "票号", "业务分类", "罚单原因类型",
+                  "原币币种", "原币总金额", "下发日期", "主单回复截止时间", "负责组长", "差异类型", "细分差异原因", "主单备注")
+MASTER_IMPORT_KEYS = ("admNo", "issuerType", "supplier", "airline", "ticketNo", "businessCategory", "penaltyReasonType",
+                      "currency", "originalAmount", "issuedDate", "replyDeadline", "leader", "diffType", "differenceReason", "remark")
+
+
+class AdmMasterWorkbook(AdmDailyWorkbook):
+    """One row creates a master only; legacy parsing remains for existing preview batches."""
+    def template(self, diff_types=()):
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from openpyxl.worksheet.datavalidation import DataValidation
+        from .domain import PENALTY_REASON_TYPES
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "ADM主单导入"
+        sheet.append(MASTER_HEADERS)
+        sheet.append([EXAMPLE_ADM_PREFIX + "6007100530", "航司", "", "CI（297）", "297-1234567890", "票务",
+                      "其他", "CNY", 1000, "2026-11-13", "2026-11-20 18:00:00", "请填写实际组长姓名或账号", "", "罚单原因说明", "示例行自动忽略"])
+        for cell in sheet[1]:
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = PatternFill("solid", fgColor="245FCE")
+        for row in sheet:
+            for cell in row: cell.alignment = Alignment(vertical="top", wrap_text=True)
+        from openpyxl.utils import get_column_letter
+        for index in range(1, len(MASTER_HEADERS) + 1):
+            sheet.column_dimensions[get_column_letter(index)].width = 24 if index not in (7, 11, 14, 15) else 32
+        sheet.freeze_panes = "A2"
+        sheet.auto_filter.ref = "A1:O1"
+        # Force identifiers to text so leading zeroes and long ticket numbers survive Excel.
+        for column in ("A", "C", "D", "E", "L"):
+            for row in range(2, min(self.max_rows + 2, 10002)):
+                sheet[f"{column}{row}"].number_format = "@"
+        for column, choices, optional in [("B", ("航司", "供应商"), False), ("F", ("票务", "客服", "业务"), False),
+                                            ("G", PENALTY_REASON_TYPES, False)]:
+            rule = DataValidation(type="list", formula1='"' + ",".join(choices) + '"', allow_blank=optional)
+            rule.showErrorMessage = True
+            rule.error = "请选择列表中的有效选项"
+            sheet.add_data_validation(rule)
+            rule.add(f"{column}2:{column}{self.max_rows + 1}")
+        instructions = workbook.create_sheet("填写说明")
+        for row in [("项目", "说明"), ("用途", "每行新增一张ADM主单，不导入订单明细；进入组长恢复判断。"),
+                    ("必填", "ADM单号、ADM来源、航司、业务分类、罚单原因类型、币种、原币总金额、下发日期、回复截止时间、负责组长、细分差异原因。"),
+                    ("供应商", "来源选供应商时须填写有效供应商编码或名称；其他来源选填。"),
+                    ("航司", "填写航司代码或代码（三字出票代码），例如CI或CI（297），从基础资料校验。"),
+                    ("选填", "票号、差异类型、主单备注；不要求归属部门、平台、PNR或明细金额。"),
+                    ("组长", "填写有效组长账号/姓名，重名时使用账号或人员ID。"),
+                    ("重复", "同一文件ADM单号不能重复；已提交批次再次提交按原批次幂等返回。"),
+                    ("附件", "模板不导入附件，建单后从ADM详情上传。"),
+                    ("版本", "MASTER15_V2；旧19列文件仅兼容原有流程，请重新下载新版用于主单批量新增。")]:
+            instructions.append(row)
+        instructions.column_dimensions["A"].width = 18
+        instructions.column_dimensions["B"].width = 110
+        output = BytesIO()
+        workbook.save(output)
+        workbook.close()
+        output.seek(0)
+        return output
+
+    def parse(self, upload):
+        from openpyxl import load_workbook
+        content = self._read_bytes(upload)
+        try:
+            workbook = load_workbook(BytesIO(content), read_only=True, data_only=False)
+        except Exception as exc:
+            raise AdmError("Excel文件无法读取") from exc
+        try:
+            if "ADM主单导入" not in workbook.sheetnames:
+                return super().parse(StoredUploadBytes(content))
+            if not set(workbook.sheetnames).issubset({"ADM主单导入", "填写说明"}):
+                raise AdmError("主单模板工作表结构已修改，请重新下载模板")
+            sheet = workbook["ADM主单导入"]
+            headers = tuple(_cell_text(sheet.cell(1, index)) for index in range(1, len(MASTER_HEADERS) + 1))
+            if headers != MASTER_HEADERS or sheet.max_column > len(MASTER_HEADERS):
+                raise AdmError("主单模板表头或列顺序已修改，请重新下载模板")
+            rows, seen = [], set()
+            for row_number, cells in enumerate(sheet.iter_rows(min_row=2, max_col=len(MASTER_HEADERS)), 2):
+                values = [_cell_text(cell) for cell in cells]
+                if not any(values) or values[0].startswith(EXAMPLE_ADM_PREFIX): continue
+                if len(rows) >= self.max_rows: raise AdmError(f"单次最多导入{self.max_rows}张主单")
+                if values[0] in seen: raise AdmError(f"第{row_number}行ADM单号重复，一行只能新增一张主单")
+                seen.add(values[0])
+                rows.append({"rowNumber": row_number, **dict(zip(MASTER_IMPORT_KEYS, values))})
+            if not rows: raise AdmError("Excel中没有正式ADM主单，请在示例行下方填写数据")
+            return {"content": content, "rows": rows, "groups": [[row] for row in rows], "templateVersion": "MASTER15_V2"}
+        finally:
+            workbook.close()
+
+
+class StoredUploadBytes:
+    filename = "adm.xlsx"
+    def __init__(self, content): self.stream = BytesIO(content)

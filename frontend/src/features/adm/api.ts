@@ -1,7 +1,30 @@
 import { http, type ApiEnvelope } from '@/api/http'
 
 export type Fields = Record<string, any>
-export interface Option { code: string; name: string }
+export function admLineDisplay(admNo: unknown, internalNo: unknown) {
+  const suffix = /-(\d+)$/.exec(String(internalNo || ''))?.[1]
+  return suffix ? `${admNo}-${String(Number(suffix)).padStart(2, '0')}` : String(admNo || '—')
+}
+export function amountInCents(value: unknown): bigint | null {
+  const parts = /^(\d+)(?:\.(\d{1,2}))?$/.exec(String(value ?? '').trim())
+  if (!parts) return null
+  return BigInt(parts[1]) * 100n + BigInt((parts[2] || '').padEnd(2, '0'))
+}
+export function centsText(amount: bigint) {
+  return `${amount / 100n}.${String(amount % 100n).padStart(2, '0')}`
+}
+export function admCnyPreview(amount: unknown, rate: unknown) {
+  const cents = amountInCents(amount)
+  const parts = /^(\d+)(?:\.(\d+))?$/.exec(String(rate ?? ''))
+  if (cents === null || !parts) return '—'
+  const fraction = parts[2] || ''
+  const divisor = 10n ** BigInt(fraction.length)
+  return centsText((cents * BigInt(parts[1] + fraction) + divisor / 2n) / divisor)
+}
+export interface Option { code: string; name: string; ticketingCode?: string | null }
+export function formatAdmAirline(code: string, ticketingCode?: string | null) {
+  return ticketingCode ? `${code}（${ticketingCode}）` : code
+}
 export interface Person {
   id: string
   name: string
@@ -29,6 +52,7 @@ export interface FxSnapshot extends Fields {
   rateField: string
 }
 export interface AdmConfig extends Fields {
+  penaltyReasonTypes: string[]
   masterDepartments: Array<{ value: string; label: string }>
   caseStatuses: string[]; lineStatuses: string[]; issuerTypes: string[]
   sourceTypes: string[]
@@ -94,10 +118,11 @@ export const admApi = {
   importCommit: (batchNo: string) => data<Fields>(http.post(`${base}/imports/${encodeURIComponent(batchNo)}/commit`, {})),
   masterLeaderTransfer: (caseId: number, body: Fields) =>
     data<AdmCaseDetail>(http.post(`${casePath(caseId)}/master-leader-transfer`, body)),
-  masterRecovery: (caseId: number, action: string, locators?: string) =>
-    data<AdmCaseDetail>(http.post(`${casePath(caseId)}/master-recovery`, { action, locators })),
+  masterRecovery: (caseId: number, action: string, value?: string) =>
+    data<AdmCaseDetail>(http.post(`${casePath(caseId)}/master-recovery`, { action, locators: value })),
   assignOperator: (caseId: number, lineId: number, body: Fields) => data<Fields>(http.post(`${linePath(caseId, lineId)}/assign-operator`, body)),
   changeLeader: (caseId: number, lineId: number, body: Fields) => data<Fields>(http.post(`${linePath(caseId, lineId)}/change-leader`, body)),
+  rejectAssignment: (caseId: number, lineId: number) => data<Fields>(http.post(`${linePath(caseId, lineId)}/reject`, {})),
   accept: (caseId: number, lineId: number) => data<Fields>(http.post(`${linePath(caseId, lineId)}/accept`, {})),
   investigationNote: (caseId: number, lineId: number, investigationNote: string) => data<Fields>(http.post(`${linePath(caseId, lineId)}/investigation-note`, { investigationNote })),
   transfer: (caseId: number, lineId: number, body: Fields) => data<Fields>(http.post(`${linePath(caseId, lineId)}/transfers`, body)),
@@ -135,6 +160,7 @@ export const statusLabel: Record<string, string> = {
   IN_PROGRESS: '申诉中', SUCCEEDED: '申诉成功', FAILED: '申诉失败', NO_APPEAL: '不申诉', RETURNED: '审核退回', WITHDRAWN: '已撤回',
   SUPPLIER: '供应商', PLATFORM: '平台', AIRLINE: '航司', HUMAN: '人为问题', SYSTEM: '系统问题',
   NOT_MATCHED: '未录入', QUERY_FAILED: '查询失败', NOT_CONNECTED: '未连接',
+  EXTERNAL:'外部规则/平台', BUSINESS:'业务原因', FORCE_MAJEURE:'不可抗力', UNKNOWN:'待查明',
   MATCHED: '已录入', MATCHED_OTA_ORDER: '已录入', MATCHED_LEGACY_ADM_NO: '已录入', MATCHED_LINE_INTERNAL_NO: '已录入',
   UNMATCHED: '未录入', PENDING: '待匹配', APPROVED: '审核通过', VALID: '有效', VOID: '已作废',
   TEST: '测试数据', LEGACY: '旧系统数据', MANUAL: '新系统人工数据', EXCEL: '新系统导入数据',
@@ -151,3 +177,12 @@ export const diffMatchTone = (value: unknown) => {
   return status.startsWith('MATCHED_') || status === 'MATCHED' ? 'green' : status === 'NOT_REQUIRED' ? 'blue' : 'red'
 }
 export const errorText = (error: unknown) => (error as { message?: string })?.message || '请求失败，请重试'
+
+export interface AdmCasePanel {
+  caseId: number
+  lineId?: number
+  lineStatus?: string
+  taskAction?: string
+  addLine?: boolean
+  directAction?: 'basic' | 'edit' | 'recovery' | 'appeal' | 'noAppeal' | 'appealResult' | 'review' | 'collection'
+}

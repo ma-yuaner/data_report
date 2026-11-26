@@ -50,7 +50,9 @@
       {"key": "/risk-followup/policies","label": "规章制度","menuCode": "risk.verification","anyPermission": ["risk.verification.view"]}
     ]},
     {"key": "adm", "label": "ADM 控制台", "children": [
-      {"key": "/adm","label": "ADM 任务台账","menuCode": "adm.center","aliases": ["ADM台账","ADM工作台","借项通知单"]}
+      {"key": "/adm","label": "ADM 任务台账","menuCode": "adm.center","aliases": ["ADM台账","ADM工作台","借项通知单"]},
+      {"key": "/adm/parsing","label": "ADM 解析","menuCode": "adm.center","aliases": ["ADM抽取","账单解析"]},
+      {"key": "/adm/analysis","label": "业务分析与跟进","menuCode": "adm.center","aliases": ["ADM分析"],"anyPermission": ["adm.analysis","adm.notify.manage"]}
     ]}
   ]},
   {"key": "data", "label": "数据管理", "children": [

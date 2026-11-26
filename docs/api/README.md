@@ -431,3 +431,8 @@
 `GET/POST /api/v1/analysis/change-sla/limits` 供系统管理员和客服经理查看、录入及导入配置，修改要求当前版本并沿用应用 CSRF 校验。配置及版本留痕保存在现有数据卷下的 change-sla-limits.sqlite3。报表由独立 ETL 发布，生产调度由发布阶段配置。
 
 专用 ETL 服务器与中台分开部署。生产查询默认走现有 BI MySQL 连接，读取已发布的 bi_change_sla_fact 和 bi_change_sla_coverage。CHANGE_SLA_SNAPSHOT_PATH 仅用于明确配置的隔离验收快照。时限管理数据仍在 T43 本机持久卷，使用 scripts/deploy/t43/export-change-sla-rules.py 导出去除通讯信息的规则文件，再经现有受控内网流程交给 216。
+
+
+## ADM 解析
+
+ADM 解析接口见 [路由源码](../../backend/data_report_api/api/adm_parsing.py)。删除使用 `DELETE /api/v1/adm/parsing/tasks/{id}`，JSON 参数为 `version`。已登记、排队和运行中的来件不可删除。

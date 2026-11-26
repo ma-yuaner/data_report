@@ -1,211 +1,282 @@
 <template>
   <div class="v05-app embedded">
-    <main class="v05-main">
-      <header class="v05-top">
-        <div><h1>ADM 任务台账</h1><p>按当前责任办理待办，也可查看全部主单与订单明细。</p></div>
+    <main class="v05-main v05-page">
+      <PageHeader eyebrow="" title="ADM 任务台账" description="按当前责任办理待办，也可查看全部主单与订单明细。">
         <a-space wrap>
-          <a-button v-if="canCreate" @click="openImport">跨主单批量导入</a-button>
+          <a-button v-if="canCreate" @click="parsePickerOpen = true">从解析结果新建</a-button>
+          <a-button v-if="canCreate" @click="openImport">批量新增主单</a-button>
           <a-button v-if="canCreate" type="primary" @click="openCreate">新建 ADM 主单</a-button>
         </a-space>
-      </header>
-      <section class="v05-card adm-flow" aria-label="ADM 业务流转">
-        <strong>业务流转</strong>
-        <ol><li v-for="step in workflowSteps" :key="step">{{ step }}</li></ol>
-      </section>
-      <a-tabs :active-key="isWorkbench ? 'mine' : 'all'" @change="switchScope">
-        <a-tab-pane key="mine" tab="我的待办" />
-        <a-tab-pane key="all" tab="全部记录" />
-      </a-tabs>
-      <section v-if="isWorkbench" class="v05-page">
-        <div class="v05-toolbar">
-          <a-space wrap>
-            <a-select :value="workMetric" aria-label="待办阶段" style="width: 180px"
-              :options="workPhaseOptions" @change="selectWorkPhase" />
-            <a-button v-if="canCloseWorkQueue" @click="openWorkMetric('close')">可以结案</a-button>
-            <a-button v-if="canTransferWorkQueue" @click="openWorkMetric('transfer')">转派记录</a-button>
-            <a-button v-if="canOperatorWork" :disabled="!exportCandidates.length" @click="openExportSelection">接单并导出</a-button>
-            <a-button v-if="canOperatorWork" @click="operatorImportOpen = true">导入处理结果</a-button>
-            <a-button :disabled="loading" @click="load">刷新</a-button>
-          </a-space>
-        </div>
-        <a-alert v-if="error" type="error" show-icon :message="error" style="margin-top: 16px" />
-        <a-alert v-if="configError" type="warning" show-icon :message="configError" />
-        <a-alert v-if="workbenchSummary.truncated" type="warning" show-icon
-          :message="`当前显示前 ${workbenchItems.length} 条任务，共 ${workbenchSummary.total} 条；分类数仅统计已加载任务。`" />
-        <a-space v-if="batchRows.length" wrap class="block">
-          <span>已选 {{ batchRows.length }} 条</span>
-          <a-button v-for="action in batchActions" :key="action" @click="openWorkbenchBatch(action)">
-            {{ workbenchActionLabels[action] }}
-          </a-button>
-          <span v-if="!batchActions.length">请选择同一阶段且可执行同一操作的任务</span>
-          <a-button type="link" @click="workSelection = []">清除选择</a-button>
-        </a-space>
-        <div class="v05-work-list">
-          <p v-if="loading" class="v05-card v05-empty" role="status">正在读取 ADM 任务…</p>
-          <p v-else-if="error" class="v05-card v05-empty"><a-button @click="load">重试</a-button></p>
-          <div v-else-if="pagedTasks.length" class="work-task-table">
-            <div class="work-task-row work-task-head">
-              <a-checkbox aria-label="选择当前页任务"
-                :checked="!!pagedTasks.length && pagedTasks.every((task) => workSelection.includes(workTaskKey(task)))"
-                @change="selectWorkbenchPage" />
-              <span>ADM / 内部明细</span><span>任务类型</span><span>当前责任分配</span><span>当前需要处理</span><span>处理截止</span><span>操作</span>
-            </div>
-            <div v-for="task in pagedTasks" :key="workTaskKey(task)" class="work-task-row">
-              <a-checkbox :aria-label="`选择 ${task.lineInternalNo || task.admNo}`"
-                :checked="workSelection.includes(workTaskKey(task))"
-                @change="toggleWorkbenchTask(task)" />
-              <div>
-                <a-button type="link" @click="openTask(task)">{{ task.admNo || task.internalNo }}</a-button>
-                <small>{{ task.lineInternalNo || '主单' }}</small>
-                <a-tag v-if="task.leaderOverdueAt" color="red">组长分派超 3 天</a-tag>
-                <a-tag v-if="task.operatorOverdueAt" color="red">操作员分派超 3 天</a-tag>
-                <a-tag v-if="task.hasTransfer || task.transferId" color="blue">转派</a-tag>
-              </div>
-              <span class="work-task-type">{{ task.role }}任务：{{ task.title }}</span>
-              <span>{{ task.assignment }}</span>
-              <span>{{ task.requiredAction }}</span>
-              <b :class="{ danger: task.overdue }">{{ dateText(task.deadline) }}</b>
-              <a-button
-                v-if="canAcceptTask(task)"
-                type="primary"
-                :loading="acceptingLines.has(Number(task.lineId))"
-                @click="acceptTask(task)"
-              >接单</a-button>
-              <a-button v-else-if="task.kind === 'leaderRecovery'" type="primary" @click="openWorkbenchBatch('recovery', [task])">恢复判断</a-button>
-              <a-button v-else-if="task.kind === 'ownerRecovery'" type="primary" @click="openWorkbenchBatch('startRecovery', [task])">正在恢复</a-button>
-              <a-button v-else-if="task.kind === 'recovered'" type="primary" @click="openTask(task)">录入明细</a-button>
-              <a-button v-else-if="task.kind === 'transferAccept'" type="primary" @click="openWorkbenchBatch('transferAccept', [task])">确认转派</a-button>
-              <a-button v-else-if="task.kind === 'assign' || task.kind === 'assignLeader'" type="primary"
-                @click="openWorkbenchBatch(task.kind, [task])">{{ workbenchActionLabels[task.kind] }}</a-button>
-            </div>
-          </div>
-          <div v-if="workbenchReady && !loading && !error && !visibleTasks.length" class="v05-card v05-empty">
-            {{ workMetric ? '当前筛选下没有待办任务' : '当前账号暂无需要处理的ADM任务' }}
-          </div>
-        </div>
-        <div v-if="workbenchReady && !error && visibleTasks.length" class="v05-pager">
-          <a-pagination v-model:current="workPage" :page-size="workPageSize" :total="visibleTasks.length"
-            :show-size-changer="false" :disabled="loading" :show-total="taskTotalText" />
-        </div>
-      </section>
-
-      <section v-else class="v05-page">
-        <a-alert v-if="error" type="error" show-icon :message="error" style="margin-top: 16px" />
-        <a-alert v-if="configError" type="warning" show-icon :message="configError" />
-        <div class="v05-card">
+      </PageHeader>
+      <a-card title="业务流转" class="adm-flow" aria-label="ADM 业务流转">
+        <ol class="adm-flow-steps">
+          <li v-for="(step, index) in workflowSteps" :key="step">
+            <span class="adm-flow-number" aria-hidden="true">{{ index + 1 }}</span>
+            <strong>{{ step }}</strong>
+          </li>
+        </ol>
+      </a-card>
+      <div class="v05-card adm-ledger-panel">
+        <a-tabs :active-key="isWorkbench ? 'mine' : 'all'" @change="switchScope">
+          <a-tab-pane key="mine" tab="我的待办" />
+          <a-tab-pane key="all" tab="全部记录" />
+        </a-tabs>
+        <section v-if="isWorkbench">
           <div class="v05-toolbar">
             <a-space wrap>
-              <a-input v-model:value="filters.search" allow-clear aria-label="搜索 ADM 台账"
-                placeholder="ADM 单号、内部主单编号、下发方" style="width: min(300px, 65vw)" @press-enter="query" />
-              <a-select v-model:value="filters.status" aria-label="主单状态" style="width: 140px"
-                :options="[{ value: '', label: '全部状态' }, ...(config?.caseStatuses || []).map((status) => ({ value: status, label: label(status) }))]"
-                @change="query" />
-              <a-button type="primary" :loading="loading" @click="query">查询</a-button>
-              <a-button @click="resetFilters">重置</a-button>
-              <a-select :value="metric" aria-label="主单范围" style="width: 150px"
-                :options="masterScopeOptions" @change="selectMetric" />
-              <a-button @click="openGlobalOrders('all')">订单明细</a-button>
+              <a-select :value="workMetric" aria-label="待办阶段" style="width: 180px"
+                :options="workPhaseOptions" @change="selectWorkPhase" />
+              <a-button v-if="canCloseWorkQueue" @click="openWorkMetric('close')">
+                可以结案 {{ workbenchSummary.closableCaseCount ?? '—' }}
+              </a-button>
+              <a-button v-if="canTransferWorkQueue" @click="openWorkMetric('transfer')">
+                转派记录 {{ workbenchSummary.pendingTransferCount ?? '—' }}
+              </a-button>
+              <a-button v-if="canOperatorWork" :disabled="loading || !!error || !exportCandidates.length" @click="openExportSelection">
+                接单并导出 {{ workbenchReady && !error ? exportCandidates.length : '—' }}
+              </a-button>
+              <a-button v-if="canOperatorWork" @click="operatorImportOpen = true">
+                导入处理结果<span v-if="operatorImportPreview?.canCommit"> {{ operatorImportPreview.validRows }}</span>
+              </a-button>
+              <a-button :disabled="loading" @click="load">刷新</a-button>
             </a-space>
           </div>
-          <div class="v05-table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>ADM 单号 / 下发方</th>
-                  <th>金额</th>
-                  <th>处理截止</th>
-                  <th>订单进度</th>
-                  <th>阶段分布</th>
-                  <th>当前状态</th>
-                  <th>结案阻断</th>
-                  <th>风险标签</th>
-                  <th>最近更新</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="record in shownRows" :key="record.id">
-                  <td>
-                    <button class="link" @click="openMasterInfo(record)">{{ record.admNo }}</button
-                    ><small>{{ label(record.issuerType) }} · {{ record.issuerName }}</small
-                    ><small>系统记录：{{ record.internalNo }}</small>
-                    <span :class="['source-badge', sourceTone(record.sourceType)]">{{ sourceText(record.sourceType) }}</span>
-                  </td>
-                  <td>
-                    <b>{{ record.currency }} {{ record.originalAmount }}</b
-                    ><small>折合人民币 ¥ {{ record.cnyAmount }}</small>
-                  </td>
-                  <td>
-                    {{ dateText(record.replyDeadline) }}<small>{{ riskText(record) }}</small>
-                  </td>
-                  <td>
-                    <div class="progress"><i :style="{ width: progressWidth(record) }"></i></div>
-                    <small>{{ Number(record.completedLineCount || 0) }} / {{ activeLineCount(record) }} 已完成</small>
-                  </td>
-                  <td>
-                    <div class="stage-list">
-                      <span v-for="stage in stageSummary(record)" :key="stage.label"
-                        ><i></i>{{ stage.label }}<b>{{ stage.count }}</b></span
+          <a-alert v-if="error" type="error" show-icon :message="error" style="margin-top: 16px" />
+          <a-alert v-if="configError" type="warning" show-icon :message="configError" />
+          <a-alert v-if="workbenchSummary.truncated" type="warning" show-icon
+            :message="`当前显示前 ${workbenchItems.length} 条任务，共 ${workbenchSummary.total} 条；分类数仅统计已加载任务。`" />
+          <a-space v-if="batchRows.length" wrap class="block">
+            <span>已选 {{ batchRows.length }} 条</span>
+            <a-button v-for="action in batchActions" :key="action" @click="openWorkbenchBatch(action)">
+              {{ workbenchActionLabels[action] }}
+            </a-button>
+            <span v-if="!batchActions.length">请选择同一阶段且可执行同一操作的任务</span>
+            <a-button type="link" @click="workSelection = []">清除选择</a-button>
+          </a-space>
+          <div class="v05-work-list">
+            <p v-if="loading" class="v05-card v05-empty" role="status">正在读取 ADM 任务…</p>
+            <p v-else-if="error" class="v05-card v05-empty"><a-button @click="load">重试</a-button></p>
+            <div v-else-if="pagedTasks.length" class="work-task-table">
+              <div class="work-task-row work-task-head">
+                <a-checkbox aria-label="选择当前页任务"
+                  :checked="!!pagedTasks.length && pagedTasks.every((task) => workSelection.includes(workTaskKey(task)))"
+                  @change="selectWorkbenchPage" />
+                <span>ADM 主单</span><span>转派状态</span><span>当前责任分配</span><span>当前需要处理</span><span>处理截止</span><span>操作</span>
+              </div>
+              <div v-for="task in pagedTasks" :key="workTaskKey(task)" class="work-task-row">
+                <a-checkbox :aria-label="`选择 ${task.lineInternalNo || task.admNo}`"
+                  :checked="workSelection.includes(workTaskKey(task))"
+                  @change="toggleWorkbenchTask(task)" />
+                <div>
+                  <a-button type="link" class="adm-compact-identity" :title="taskCaseLabel(task)"
+                    @click="openCasePanel(Number(task.caseId))">{{ taskCaseLabel(task) }}</a-button>
+                  <a-tag v-if="task.leaderOverdueAt" color="red">组长分派超 3 天</a-tag>
+                  <a-tag v-if="task.operatorOverdueAt" color="red">操作员分派超 3 天</a-tag>
+                </div>
+                <span>
+                  <a-tag v-if="['transferAccept', 'masterTransferWait'].includes(task.kind)" color="orange">待确认</a-tag>
+                  <a-tag v-else-if="task.hasTransfer || task.transferId" color="blue">有转派记录</a-tag>
+                  <template v-else>—</template>
+                </span>
+                <span>{{ task.assignment }}</span>
+                <span>{{ task.requiredAction }}
+                  <small v-if="task.recoveryLocators">GDS-PCC-PNR：{{ task.recoveryLocators }}</small>
+                  <small v-if="task.kind === 'recovering'">{{ recoveryCountdown(task.masterRecoveryDueAt) }}</small>
+                </span>
+                <b :class="{ danger: task.overdue }">{{ dateText(task.deadline) }}</b>
+                <div class="work-task-actions">
+                <a-button size="small"
+                  v-if="canAcceptTask(task)"
+                  type="primary"
+                  :loading="acceptingLines.has(Number(task.lineId))"
+                  @click="acceptTask(task)"
+                >接受</a-button>
+                <a-button v-if="canAcceptTask(task)" size="small" danger @click="rejectTaskAssignment(task)">拒绝</a-button>
+                <a-button size="small" v-else-if="task.kind === 'leaderRecovery'" type="primary" @click="openWorkbenchBatch('recovery', [task])">恢复判断</a-button>
+                <a-button size="small" v-else-if="task.kind === 'ownerRecovery'" type="primary" @click="openWorkbenchBatch('startRecovery', [task])">已操作恢复</a-button>
+                <a-button size="small" v-else-if="task.kind === 'recovered'" type="primary" @click="openCasePanel(Number(task.caseId))">补充资料</a-button>
+                <a-button size="small" v-else-if="task.kind === 'transferAccept'" type="primary" @click="openWorkbenchBatch('transferAccept', [task])">确认转派</a-button>
+                <a-button size="small" v-else-if="task.kind === 'assign' || task.kind === 'assignLeader'" type="primary"
+                  @click="openWorkbenchBatch(task.kind, [task])">{{ workbenchActionLabels[task.kind] }}</a-button>
+                <template v-else-if="isOperatorProcessing(task)">
+                  <a-button size="small" v-if="task.recoveryStatus === 'UNDECIDED'" type="primary" @click="openDirectTask(task, 'recovery')">恢复判断</a-button>
+                  <template v-else-if="task.appealStatus === 'UNDECIDED'">
+                    <a-button size="small" type="primary" @click="openDirectTask(task, 'appeal')">申诉</a-button>
+                    <a-button size="small" @click="openDirectTask(task, 'noAppeal')">不申诉</a-button>
+                  </template>
+                  <a-button size="small" v-else-if="task.appealStatus === 'IN_PROGRESS'" type="primary"
+                    @click="openDirectTask(task, 'appealResult')">登记申诉结果</a-button>
+                  <a-button size="small" v-else-if="['SUCCEEDED', 'FAILED', 'NO_APPEAL'].includes(task.appealStatus)" type="primary"
+                    :loading="acceptingLines.has(Number(task.lineId))" @click="submitTaskReview(task)">提交审核</a-button>
+                  <a-button size="small" v-if="['SUPPLEMENT', 'WITHDRAWN'].includes(taskReturnMode(task)) || task.reviewStatus === 'WITHDRAWN'"
+                    @click="openTaskOrder(task)">补充处理资料</a-button>
+                </template>
+                <a-button size="small" v-else-if="task.kind === 'review'" type="primary" @click="openDirectTask(task, 'review')">审核</a-button>
+                <a-button size="small" v-else-if="task.kind === 'collection'" type="primary" @click="openDirectTask(task, 'collection')">登记回款</a-button>
+                <a-button size="small" v-else-if="task.kind === 'diff'" type="primary"
+                  :loading="acceptingLines.has(Number(task.lineId))" @click="checkTaskDifference(task)">匹配差异单</a-button>
+                <a-button size="small" v-if="task.lineId && (Number(task.operatorId) === myId || Number(task.leaderId) === myId || Number(task.coordinatorId) === myId)" @click="causeTask=task">原因与阻塞</a-button>
+                <a-button size="small" v-if="canEditWorkbenchLine(task)" @click="openDirectTask(task, 'edit')">补充资料</a-button>
+                <a-button size="small" v-else-if="task.lineId && !['assign', 'leaderFollowup'].includes(task.kind)"
+                  type="link" @click="openCasePanel(Number(task.caseId))">详情</a-button>
+                <a-button size="small" v-if="task.lineId && canTransferLeader(task)"
+                  @click="openLeaderTransfer(task)">更换组长</a-button>
+                <a-button size="small" v-if="task.lineId && task.materialConfirmed && canTransferOperator(task)"
+                  @click="openOperatorTransfer(task)">派单操作员</a-button>
+                </div>
+              </div>
+            </div>
+            <div v-if="workbenchReady && !loading && !error && !visibleTasks.length" class="v05-card v05-empty">
+              {{ workMetric ? '当前筛选下没有待办任务' : '当前账号暂无需要处理的ADM任务' }}
+            </div>
+          </div>
+          <div v-if="workbenchReady && !error && visibleTasks.length" class="v05-pager">
+            <a-pagination v-model:current="workPage" :page-size="workPageSize" :total="visibleTasks.length"
+              :show-size-changer="false" :disabled="loading" :show-total="taskTotalText" />
+          </div>
+        </section>
+
+        <section v-else>
+          <a-alert v-if="error" type="error" show-icon :message="error" style="margin-top: 16px" />
+          <a-alert v-if="configError" type="warning" show-icon :message="configError" />
+          <div>
+            <div class="v05-toolbar">
+              <a-space wrap>
+                <a-input v-model:value="filters.search" allow-clear aria-label="搜索 ADM 台账"
+                  placeholder="ADM 单号、内部主单编号、下发方" style="width: min(300px, 65vw)" @press-enter="query" />
+                <a-select v-model:value="filters.status" aria-label="主单状态" style="width: 140px"
+                  :options="[{ value: '', label: '全部状态' }, ...(config?.caseStatuses || []).map((status) => ({ value: status, label: label(status) }))]"
+                  @change="query" />
+                <a-button type="primary" :loading="loading" @click="query">查询</a-button>
+                <a-button @click="resetFilters">重置</a-button>
+                <a-select :value="metric" aria-label="主单范围" style="width: 150px"
+                  :options="masterScopeOptions" @change="selectMetric" />
+                <a-button @click="openGlobalOrders('all')">订单明细</a-button>
+              </a-space>
+            </div>
+            <div class="v05-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>ADM 单号 / 下发方</th>
+                    <th>金额</th>
+                    <th>处理截止</th>
+                    <th>订单进度</th>
+                    <th>阶段分布</th>
+                    <th>当前状态</th>
+                    <th>结案阻断</th>
+                    <th>风险标签</th>
+                    <th>最近更新</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="record in shownRows" :key="record.id">
+                    <td>
+                      <button class="link" @click="openCasePanel(Number(record.id))">{{ record.admNo }}</button
+                      ><small>{{ [label(record.issuerType), record.issuerName].filter(Boolean).join(' · ') }}</small
                       >
-                    </div>
-                  </td>
-                  <td>
-                    <span :class="['pill', statusTone(record.caseStatus)]">● {{ label(record.caseStatus) }}</span>
-                  </td>
-                  <td>{{ blockerText(record) }}</td>
-                  <td>
-                    <span :class="['pill', riskTone(record)]">{{ riskText(record) }}</span>
-                  </td>
-                  <td>{{ dateText(record.updatedAt) }}</td>
-                  <td>
-                    <div class="record-actions master-record-actions">
-                      <a-button type="primary" @click="openCase(record)">{{ ledgerDetailText(record) }}</a-button>
-                      <a-dropdown v-if="ledgerStages(record).length > 1" :trigger="['click']">
-                        <a-button>按阶段查看</a-button>
-                        <template #overlay>
-                          <a-menu @click="({ key }: { key: string | number }) => openCase(record, String(key))">
-                            <a-menu-item v-for="stage in ledgerStages(record)" :key="stage.status">
-                              {{ stage.title }}（{{ stage.count }}）
-                            </a-menu-item>
-                          </a-menu>
-                        </template>
-                      </a-dropdown>
-                    </div>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-            <div v-if="loading" class="empty" role="status">正在读取 ADM 台账…</div>
-            <div v-else-if="error" class="empty"><button @click="load">重试读取台账</button></div>
-            <div v-else-if="ledgerReady && !rows.length" class="empty">暂无符合条件的 ADM 主单</div>
+                      <span :class="['source-badge', sourceTone(record.sourceType)]">{{ sourceText(record.sourceType) }}</span>
+                    </td>
+                    <td>
+                      <b>{{ record.currency }} {{ record.originalAmount }}</b
+                      ><small>折合人民币 ¥ {{ record.cnyAmount }}</small>
+                    </td>
+                    <td>
+                      {{ dateText(record.replyDeadline) }}<small>{{ riskText(record) }}</small>
+                    </td>
+                    <td>
+                      <div class="progress"><i :style="{ width: progressWidth(record) }"></i></div>
+                      <small>{{ Number(record.completedLineCount || 0) }} / {{ activeLineCount(record) }} 已完成</small>
+                    </td>
+                    <td>
+                      <div class="stage-list">
+                        <span v-for="stage in stageSummary(record).slice(0, 2)" :key="stage.label"
+                          ><i></i>{{ stage.label }}<b>{{ stage.count }}</b></span
+                        >
+                        <a-popover v-if="stageSummary(record).length > 2" trigger="click" title="阶段分布">
+                          <template #content>
+                            <ul class="adm-stage-breakdown">
+                              <li v-for="stage in stageSummary(record)" :key="stage.label">{{ stage.label }}：{{ stage.count }}</li>
+                            </ul>
+                          </template>
+                          <a-button type="link" size="small" aria-label="查看完整阶段分布">+{{ stageSummary(record).length - 2 }}</a-button>
+                        </a-popover>
+                      </div>
+                    </td>
+                    <td>
+                      <span :class="['pill', statusTone(record.caseStatus)]">● {{ label(record.caseStatus) }}</span>
+                    </td>
+                    <td>{{ blockerText(record) }}</td>
+                    <td>
+                      <span :class="['pill', riskTone(record)]">{{ riskText(record) }}</span>
+                    </td>
+                    <td>{{ dateText(record.updatedAt) }}</td>
+                    <td>
+                      <div class="record-actions master-record-actions">
+                        <a-button v-if="canEditMasterRow(record)" @click="openMasterInfo(record)">编辑主单</a-button>
+                        <a-button type="primary" @click="openCase(record)">{{ ledgerDetailText(record) }}</a-button>
+                        <a-dropdown v-if="ledgerStages(record).length > 1" :trigger="['click']">
+                          <a-button>按阶段查看</a-button>
+                          <template #overlay>
+                            <a-menu @click="({ key }: { key: string | number }) => openCase(record, String(key))">
+                              <a-menu-item v-for="stage in ledgerStages(record)" :key="stage.status">
+                                {{ stage.title }}（{{ stage.count }}）
+                              </a-menu-item>
+                            </a-menu>
+                          </template>
+                        </a-dropdown>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <div v-if="loading" class="empty" role="status">正在读取 ADM 台账…</div>
+              <div v-else-if="error" class="empty"><button @click="load">重试读取台账</button></div>
+              <div v-else-if="ledgerReady && !rows.length" class="empty">暂无符合条件的 ADM 主单</div>
+            </div>
+            <div class="v05-pager">
+              <a-pagination
+                :current="page"
+                :page-size="pageSize"
+                :total="total"
+                :disabled="loading || !!error"
+                :show-total="recordTotalText"
+                :page-size-options="['10', '20', '50', '100']"
+                show-size-changer
+                @change="changeLedgerPage"
+              />
+            </div>
           </div>
-          <div class="v05-pager">
-            <a-pagination
-              :current="page"
-              :page-size="pageSize"
-              :total="total"
-              :disabled="loading || !!error"
-              :show-total="recordTotalText"
-              :page-size-options="['10', '20', '50', '100']"
-              show-size-changer
-              @change="changeLedgerPage"
-            />
-          </div>
-        </div>
-      </section>
+        </section>
+      </div>
     </main>
 
-    <a-modal v-model:open="workbenchBatchOpen" :title="workbenchActionLabels[workbenchBatchAction]"
+    <a-modal v-model:open="workbenchBatchOpen" :title="workbenchBatchAction === 'transfer' ? (workbenchBatchForm.targetRole === 'LEADER' ? '更换组长' : '派单操作员') : workbenchActionLabels[workbenchBatchAction]"
       :confirm-loading="workbenchBatchBusy" :closable="!workbenchBatchBusy"
       :mask-closable="!workbenchBatchBusy" :keyboard="!workbenchBatchBusy"
       :cancel-button-props="{ disabled: workbenchBatchBusy }" @ok="submitWorkbenchBatch">
       <a-form layout="vertical" :disabled="workbenchBatchBusy">
-        <a-form-item v-if="['assign', 'assignLeader', 'transfer'].includes(workbenchBatchAction)" label="目标人员" required>
-          <a-radio-group v-if="workbenchBatchAction === 'transfer' && workbenchBatchRows.every(canTransferLeader)"
-            v-model:value="workbenchBatchForm.targetRole" @change="workbenchBatchForm.targetUserId = undefined">
-            <a-radio-button value="OPERATOR">操作员</a-radio-button>
-            <a-radio-button value="LEADER">组长</a-radio-button>
-          </a-radio-group>
+        <template v-if="workbenchBatchAction === 'assign'">
+          <a-form-item label="分配方式" required>
+            <a-radio-group v-model:value="assignmentMode" @change="changeAssignmentMode()">
+              <a-radio value="whole">整单</a-radio>
+              <a-radio value="split">分单</a-radio>
+            </a-radio-group>
+          </a-form-item>
+          <a-spin v-if="assignmentLoading" />
+          <a-form-item v-else-if="assignmentMode === 'split'" label="选择本次分配的订单明细" required>
+            <a-checkbox-group v-model:value="selectedAssignmentLines" :options="assignmentOptions" />
+          </a-form-item>
+          <a-alert v-if="assignmentMode && !assignmentLoading && assignmentProblem" type="info" show-icon
+            :message="assignmentProblem" class="block" />
+          <a-button v-if="assignmentMode && !assignmentLoading && (assignmentMode === 'split' || assignmentProblem)"
+            class="block" @click="openAssignmentDetails">{{ assignmentMode === 'split' ? '进入 ADM 详情分单' : '进入 ADM 详情补资料' }}</a-button>
+        </template>
+        <a-form-item v-if="['assignLeader', 'transfer'].includes(workbenchBatchAction) ||
+            (workbenchBatchAction === 'assign' && assignmentRows.length && !assignmentProblem && !assignmentLoading)"
+          :label="workbenchBatchAction === 'assign' ? '操作员' : '目标人员'" required>
+
           <a-select v-model:value="workbenchBatchForm.targetUserId" show-search option-filter-prop="label"
             :options="workbenchPeople" placeholder="搜索姓名、部门或账号" />
         </a-form-item>
@@ -215,13 +286,19 @@
             <a-radio value="request">需要恢复，交回 ADM 负责人</a-radio>
           </a-radio-group>
         </a-form-item>
-        <a-form-item v-if="workbenchBatchAction === 'recovery' && workbenchBatchForm.recoveryAction === 'request'"
-          label="GDS-PCC-PNR" required>
-          <a-textarea v-model:value="workbenchBatchForm.locators" placeholder="1G-5S75-13124N,1A-BKK247-123NE" />
-        </a-form-item>
-        <a-alert v-if="workbenchBatchAction === 'startRecovery'" type="info" show-icon
-          :message="workbenchBatchRows[0]?.recoveryLocators || ''"
-          description="在 GDS 操作后确认正在恢复。从确认时起 48 小时后自动交回组长。" />
+        <template v-if="workbenchBatchAction === 'recovery'">
+          <a-form-item v-for="task in workbenchBatchRows" :key="task.caseId"
+            :label="`GDS-PCC-PNR · ${task.admNo || task.internalNo}`" required>
+            <a-textarea v-model:value="workbenchBatchForm.locators[task.caseId]" :maxlength="2000"
+              placeholder="多条用逗号分隔，例如 1G-5S75-13124N,1A-BKK247-123NE" />
+          </a-form-item>
+        </template>
+        <template v-if="workbenchBatchAction === 'startRecovery'">
+          <a-alert v-for="task in workbenchBatchRows" :key="task.caseId" type="info" show-icon class="block"
+            :message="`${task.admNo} · 待恢复 GDS-PCC-PNR`"
+            :description="task.recoveryLocators || '未填写恢复编码，请先核对主单资料'" />
+          <p>请先完成以上全部 PNR 的 GDS 恢复操作，再点击确定。确认后进入正在恢复，并开始计时 48 小时。</p>
+        </template>
         <a-form-item v-if="workbenchBatchAction === 'transferAccept'" label="确认结果">
           <a-radio-group v-model:value="workbenchBatchForm.accepted">
             <a-radio :value="true">接受</a-radio><a-radio :value="false">拒绝</a-radio>
@@ -271,7 +348,7 @@
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'identity'">
             <strong>{{ record.admNo || record.internalNo }}</strong>
-            <div>{{ record.lineInternalNo || record.internalNo }}</div>
+            <div v-if="record.lineInternalNo">{{ admLineDisplay(record.admNo, record.lineInternalNo) }}</div>
           </template>
           <template v-else-if="column.key === 'operators'">
             {{ record.fromOperatorName }} → {{ record.toOperatorName }}
@@ -285,7 +362,7 @@
           <template v-else-if="column.key === 'date'">{{ dateText(record.requestedAt || record.replyDeadline) }}</template>
           <template v-else-if="column.key === 'action'">
             <a-button type="link" @click="openQueueRecord(record)">
-              {{ workQueue === 'close' ? '前往结案' : '查看明细' }}
+              {{ workQueue === 'close' ? '前往结案' : '详情' }}
             </a-button>
           </template>
         </template>
@@ -303,6 +380,7 @@
       </div>
     </a-modal>
 
+    <AdmCauseModal :open="!!causeTask" :case-id="Number(causeTask?.caseId||0)" :line-id="Number(causeTask?.lineId||0)" @close="causeTask=null" />
     <AdmMasterBasicModal :open="masterInfoOpen" :detail="selectedMasterDetail" :editable="selectedMasterEditable" @close="masterInfoOpen = false" @saved="masterInfoSaved" />
 
     <a-modal v-model:open="exportSelectionOpen" title="导出本人待处理订单" width="min(1600px, 96vw)" :footer="null" wrap-class-name="v05-modal operator-export-modal">
@@ -340,7 +418,7 @@
             <tr v-for="item in filteredExportCandidates" :key="item.lineId">
               <td><a-checkbox :checked="selectedExportIds.includes(item.lineId)" @change="toggleExportItem(item.lineId)" /></td>
               <td>{{ exportTaskType(item) }}</td>
-              <td><b>{{ item.admNo || item.internalNo }}</b><small>{{ item.lineInternalNo }}</small></td>
+              <td><b>{{ item.admNo || item.internalNo }}</b><small>{{ admLineDisplay(item.admNo, item.lineInternalNo) }}</small></td>
               <td>{{ item.departmentName }}<small>{{ item.leaderName || '未分配组长' }}</small></td>
               <td>{{ item.operatorName || '未分配' }}</td><td>{{ dateText(item.deadline) }}</td>
             </tr>
@@ -382,7 +460,7 @@
                   <span class="order-cell-label">ADM单号</span>
                   <b class="order-cell-primary">{{ item.admNo || '未填写' }}</b>
                   <span class="order-cell-label">内部明细</span>
-                  <small class="order-cell-code">{{ item.lineInternalNo }}</small>
+                  <small class="order-cell-code">{{ admLineDisplay(item.admNo, item.lineInternalNo) }}</small>
                 </div>
               </td>
               <td class="order-reference-cell">
@@ -407,7 +485,7 @@
               </td>
               <td>{{ lineTask(item.lineStatus) }}</td>
               <td>
-                <button class="primary" @click="openGlobalLine(item.caseId, item.id)">查看详情</button>
+                <button class="primary" @click="openCasePanel(Number(item.caseId))">详情</button>
               </td>
             </tr>
           </tbody>
@@ -463,7 +541,7 @@
           <tbody>
             <tr v-for="item in operatorImportPreview.rows" :key="item.rowNumber">
               <td>{{ item.rowNumber }}</td>
-              <td>{{ item.lineInternalNo }}</td>
+              <td>{{ admLineDisplay(item.admNo, item.lineInternalNo) }}</td>
               <td>{{ item.action }}</td>
               <td>{{ item.status }}</td>
               <td>{{ item.reason }}</td>
@@ -486,9 +564,12 @@
     <a-modal
       v-model:open="createOpen"
       title="新建 ADM 主单"
-      width="1180px"
+      :closable="!saving"
+      :keyboard="!saving"
+      :mask-closable="false"
+      width="min(1040px, 96vw)"
       :footer="null"
-      wrap-class-name="v05-modal"
+      wrap-class-name="v05-modal adm-form-modal"
       ><a-alert
         type="info"
         show-icon
@@ -503,23 +584,40 @@
       >
         <template #action><a-button size="small" @click="retryCreateReferences">重试</a-button></template>
       </a-alert>
-      <div class="v05-form-grid">
+      <a-alert v-if="parseSource" type="info" show-icon message="已带入解析结果及全部原件。请核对并补充台账信息；虚拟票号和未明PNR不用于自动恢复编码。" style="margin-bottom:12px" />
+      <details v-if="parseSource" open style="margin-bottom:16px"><summary>核对解析来件、明细与来源</summary><AdmParsedSource :source="parseSource" />
+        <a :href="`/adm/parsing?task=${parseSource.id}`" target="_blank" rel="noopener">打开解析来件和原件</a>
+      </details>
+      <div class="v05-form-grid adm-grouped-form">
+          <h3>主单信息</h3>
           <label><span class="form-field-label">ADM 单号 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.admNo" /></label
           ><label
-            ><span class="form-field-label">下发方类型 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
+            ><span class="form-field-label">ADM 来源 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
               v-model:value="form.issuerType"
-              :options="issuerOptions"
-              @change="form.issuerName = ''" /></label
+              :options="issuerOptions" /></label
           ><label>
-            <span class="form-field-label">{{ form.issuerType === 'SUPPLIER' ? '供应商名称' : '航司名称' }} <span class="form-required-mark" aria-hidden="true">*</span></span>
-            <a-input aria-required="true" v-model:value="form.issuerName" />
+            供应商名称<a-select v-model:value="form.supplier" label-in-value allow-clear show-search
+              :filter-option="false" :loading="supplierLookup.loading" :options="supplierLookup.options"
+              placeholder="搜索供应商名称或编码" @search="supplierLookup.search" />
+          </label><label>
+            <span class="form-field-label">航司 <span class="form-required-mark" aria-hidden="true">*</span></span>
+            <a-select aria-required="true" v-model:value="form.airline" label-in-value show-search
+              :filter-option="false" :loading="airlineLookup.loading" :options="airlineLookup.options"
+              placeholder="搜索航司名称或代码" @search="airlineLookup.search" />
+          </label><label>票号<a-input v-model:value="form.ticketNo" :maxlength="500" /></label>
+          <label>
+            <span class="form-field-label">业务分类 <span class="form-required-mark" aria-hidden="true">*</span></span>
+            <a-select aria-required="true" v-model:value="form.businessCategory" :options="businessCategoryOptions" />
+          </label><label>
+            <span class="form-field-label">罚单原因类型 <span class="form-required-mark" aria-hidden="true">*</span></span>
+            <a-select aria-required="true" v-model:value="form.penaltyReasonType" placeholder="请选择罚单原因类型"
+              :options="(config?.penaltyReasonTypes || []).map((value) => ({ value, label: value }))" />
           </label>
-          ><label
-            ><span class="form-field-label">关联航司 <span class="form-required-mark" aria-hidden="true">*</span></span>
-              <a-input aria-required="true" v-model:value="form.airlineName" /></label>
+          <h3>金额与汇率</h3>
           <label><span class="form-field-label">原币币种 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true"
               v-model:value="form.currency"
               :options="currencyOptions"
+              show-search option-filter-prop="label"
               :loading="referenceLoading.currency"
               @change="loadExchangeRate" /></label
           ><label><span class="form-field-label">原币总金额 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.originalAmount" /></label
@@ -532,23 +630,24 @@
             >汇率日期 / 来源<a-input
               :value="fxSnapshot ? `${fxSnapshot.sourceUpdatedAt || '即时'} / ${fxSnapshot.actualSource}` : '—'"
               readonly /></label
-          ><label><span class="form-field-label">下发日期 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.issuedDate" type="date" /></label
+          >
+          <h3>时限与责任分配</h3>
+          <label><span class="form-field-label">下发日期 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.issuedDate" type="date" /></label
           ><label><span class="form-field-label">处理截止 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.replyDeadline" type="datetime-local" /></label
           ><label>
-            <span class="form-field-label">归属部门 <span class="form-required-mark" aria-hidden="true">*</span></span>
-            <a-select aria-required="true" v-model:value="form.departmentCode" :options="config?.masterDepartments || []" />
-          </label><label>
             <span class="form-field-label">负责组长 <span class="form-required-mark" aria-hidden="true">*</span></span>
             <a-select aria-required="true" v-model:value="form.leaderId" :options="leaderOptions"
               show-search option-filter-prop="label" placeholder="搜索姓名、部门或账号" />
           </label><label>
-            <span class="form-field-label">差异类型 <span class="form-required-mark" aria-hidden="true">*</span></span>
-            <a-select aria-required="true" v-model:value="form.diffTypeCode" :options="diffTypeOptions"
+            差异类型
+            <a-select v-model:value="form.diffTypeCode" :options="diffTypeOptions" allow-clear
               :loading="referenceLoading.diffType" show-search option-filter-prop="label" />
           </label><label class="wide">
             <span class="form-field-label">细分差异原因 <span class="form-required-mark" aria-hidden="true">*</span></span>
             <a-textarea aria-required="true" v-model:value="form.differenceReason" :rows="2" />
-          </label><label class="wide">备注（选填）<a-textarea v-model:value="form.remark" :rows="2" /></label
+          </label>
+          <h3>备注与附件</h3>
+          <label class="wide">备注（选填）<a-textarea v-model:value="form.remark" :rows="2" /></label
           ><label class="wide"
             >主单公共附件（选填）<input type="file" multiple @change="pickMasterFiles" /><span>{{
               masterFiles.map((file) => file.name).join('、') || '未选择附件'
@@ -556,22 +655,24 @@
           >
         </div>
         <p class="hint"><b>*</b> 为必填项。ADM负责人由系统自动记录；汇率保存为创建时快照。</p>
+        <a-checkbox v-if="parseSource" v-model:checked="parseConfirmed">已核对带入字段、原件、明细及待核对提示，确认登记台账</a-checkbox>
         <a-alert v-if="createError" type="error" show-icon :message="createError" class="block" />
         <div class="v05-modal-actions">
           <a-button :disabled="saving" @click="createOpen = false">取消</a-button>
-          <a-button type="primary" :loading="saving" @click="createCase">保存主单</a-button>
+          <a-button type="primary" :loading="saving" :disabled="!!parseSource && !parseConfirmed" @click="createCase">{{ parseSource ? '确认登记并关联' : '保存主单' }}</a-button>
         </div>
     </a-modal>
+    <AdmParseIntakePicker :open="parsePickerOpen" @close="parsePickerOpen = false" @select="useParseSource" />
     <a-modal
       v-model:open="importOpen"
-      title="跨主单批量导入（19列）"
+      title="批量新增 ADM 主单（15列）"
       :confirm-loading="importBusy"
       :ok-button-props="{ disabled: !preview?.canCommit }"
       @ok="commitImport"
       wrap-class-name="v05-modal"
-      ><p>一行就是一条明细；同一ADM主单的多笔明细请分多行填写，并重复相同ADM单号及一致的主单字段。系统会为每行自动生成不同的内部明细ID。</p>
-      <p class="hint">模板自带两行同主单示例；ADM单号以“【示例】”开头的行会在预检时自动忽略。同号但不同主单请拆成两次上传。</p>
-      <p class="hint">当前19列模板只导入主单和明细，不导入附件；建单后请在ADM详情中分别上传主单公共附件或明细附件。</p>
+      ><p>每行创建一张主单；供应商、航司、组长及币种按正式基础资料校验。先预检，确认无误后提交。</p>
+      <p class="hint">新版模板一行新增一张 ADM 主单，示例行自动忽略；同一文件的 ADM 单号不能重复。导入后由负责组长判断恢复编码。</p>
+      <p class="hint">新版15列模板不要求平台、PNR、归属部门或明细金额；差异类型选填、罚单原因类型必填。附件在建单后从 ADM 详情上传。</p>
       <div class="v05-actions">
         <button @click="downloadTemplate">下载 Excel 模板</button
         ><input type="file" accept=".xlsx" @change="selectImport" /><button
@@ -593,23 +694,54 @@
       </p>
       <a-alert v-if="importError" type="error" show-icon :message="importError"
     /></a-modal>
+    <AdmDetailView v-if="casePanel?.directAction" :key="casePanelKey" :panel="casePanel" :initial-config="config"
+      @close="closeCasePanel" @changed="casePanelChanged = true" />
+    <a-drawer
+      v-else
+      :open="!!casePanel"
+      :title="casePanel?.lineId ? '订单处理详情' : 'ADM 详情'"
+      :width="casePanel?.lineId ? 'min(960px, 100vw)' : 'min(1440px, 100vw)'"
+      :mask-closable="false"
+      @close="closeCasePanel"
+    >
+      <AdmDetailView
+        v-if="casePanel"
+        :key="casePanelKey"
+        :panel="casePanel"
+        @close="closeCasePanel"
+        @changed="casePanelChanged = true"
+        @open-case="openCasePanel"
+      />
+    </a-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { message } from 'ant-design-vue'
+import { Modal, message } from 'ant-design-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useComprehensiveExportStore } from '@/stores/comprehensiveExports'
 import { createOperationIdentifier } from '@/utils/operationIdentifier'
+import PageHeader from '@/components/PageHeader.vue'
+import AdmCauseModal from './AdmCauseModal.vue'
+import AdmParseIntakePicker from './AdmParseIntakePicker.vue'
+import AdmParsedSource from './AdmParsedSource.vue'
+import { parsingApi, type ParseTask } from '../adm-parsing/api'
+import AdmDetailView from './AdmDetailView.vue'
+import { showDifferenceResult } from './differenceResult'
+import { taskStages, matchesTaskStage } from './taskStages'
 import AdmMasterBasicModal from './AdmMasterBasicModal.vue'
 import {
   admApi,
   admPersonOptions,
+  admLineDisplay,
+  amountInCents,
   errorText,
+  formatAdmAirline,
   label,
   type AdmCaseDetail,
+  type AdmCasePanel,
   type AdmCaseRow,
   type AdmConfig,
   type AdmLedgerLine,
@@ -619,6 +751,7 @@ import {
 } from './api'
 import './adm-v05.css'
 
+const causeTask=ref<Fields|null>(null)
 const route = useRoute(),
   router = useRouter(),
   auth = useAuthStore(),
@@ -656,6 +789,28 @@ function loadConfig(refresh = false) {
     (e) => { configError.value = `人员与权限配置加载失败：${errorText(e)}` },
   ).finally(() => { configRequest = undefined })
   return configRequest
+}
+const casePanel = ref<AdmCasePanel | null>(null)
+const casePanelKey = ref(0)
+const casePanelChanged = ref(false)
+function openCasePanel(caseId: number, options: Omit<AdmCasePanel, 'caseId'> = {}) {
+  if (caseId <= 0 || !Number.isFinite(caseId)) return
+  casePanel.value = { caseId, ...options }
+  casePanelKey.value++
+}
+function closeCasePanel() {
+  casePanel.value = null
+  if (resumeAssignment) {
+    resumeAssignment = undefined
+    workbenchBatchOpen.value = true
+    void changeAssignmentMode(false)
+  }
+  if (casePanelChanged.value) {
+    casePanelChanged.value = false
+    void load()
+    if (workQueue.value) void loadWorkQueue()
+    if (globalOrdersOpen.value) void loadGlobalOrders()
+  }
 }
 async function load() {
   const seq = ++request
@@ -704,8 +859,22 @@ function resetFilters() {
   metric.value = ''
   query()
 }
+const countdownNow = ref(Date.now())
+const countdownTimer = setInterval(() => { countdownNow.value = Date.now() }, 1000)
+function recoveryCountdown(value: unknown) {
+  const raw = String(value || '')
+  if (!raw) return '恢复截止时间待同步'
+  const normalized = raw.replace(' ', 'T')
+  const timestamp = Date.parse(/[zZ]$|[+-]\d{2}:?\d{2}$/.test(normalized) ? normalized : normalized + '+08:00')
+  if (!Number.isFinite(timestamp)) return '恢复截止时间待同步'
+  const seconds = Math.ceil((timestamp - countdownNow.value) / 1000)
+  if (seconds <= 0) return '倒计时已结束，等待状态更新'
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor(seconds % 3600 / 60)
+  return `剩余 ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`
+}
 const myId = computed(() => Number(auth.user?.id)),
-  now = () => Date.now(),
+  now = () => countdownNow.value,
   dateText = (v: unknown) => (v ? String(v).replace('T', ' ').slice(0, 16) : '—')
 const sourceText = (value: unknown) => ({
     TEST: '测试数据', LEGACY: '旧系统数据 / 历史只读',
@@ -738,10 +907,10 @@ const tasks = computed<Fields[]>(() =>
       MASTER_TRANSFER_ACCEPT: ['transferAccept', '组长', '确认是否接受组长转派'],
       MASTER_TRANSFER_WAIT: ['masterTransferWait', '组长', '等待目标组长确认转派'],
       LEADER_DECISION: ['leaderRecovery', '组长', '判断是否恢复编码'],
-      OWNER_RECOVERY: ['ownerRecovery', 'ADM负责人', '在 GDS 操作后标记正在恢复'],
+      OWNER_RECOVERY: ['ownerRecovery', 'ADM负责人', '待操作恢复编码，完成后点击已操作恢复'],
       RECOVERING: ['recovering', 'ADM负责人', '等待 48 小时自动恢复'],
       RECOVERED: ['recovered', '组长', '已恢复，录入订单明细'],
-      LEADER_FOLLOWUP: ['leaderFollowup', '组长', '跟进或转派单笔订单'],
+      LEADER_FOLLOWUP: ['leaderFollowup', '组长', '订单办理中'],
     }
     const stage = masterStages[line.taskType]
     if (stage) return {
@@ -767,7 +936,7 @@ const tasks = computed<Fields[]>(() =>
       title: transferTask ? '确认是否接受转派' : (
         {
           PENDING_LEADER: '分配负责组长',
-          PENDING_OPERATOR: '分配操作人员',
+          PENDING_OPERATOR: line.materialConfirmed ? '派单操作员' : '补充资料',
           PENDING_ACCEPT: '确认接单',
           PROCESSING: reviewWithdrawn ? '审核撤回待重提' : returnMode === 'SUPPLEMENT' ? '驳回补充材料' : returnMode === 'REAPPEAL' ? '驳回重新申诉' : '办理订单',
           PENDING_REVIEW: 'ADM负责人审核',
@@ -809,17 +978,12 @@ const workflowSteps = ['新建主单', '恢复判断', '分配与接单', '订�
 const canCloseWorkQueue = computed(() => auth.user?.isAdmin || config.value?.permissions.close)
 const canTransferWorkQueue = computed(() => auth.user?.isAdmin || config.value?.permissions.assignOperator ||
   config.value?.permissions.assign || config.value?.permissions.handle)
-const workPhaseOptions = [
-  { value: '', label: '全部待办阶段' },
-  ...Object.entries({
-    assignLeader: '待分配组长', leaderRecovery: '待恢复判断', ownerRecovery: '待 GDS 操作',
-    recovering: '正在恢复', recovered: '已恢复待录入', assign: '待分配操作员',
-    accept: '待接单', process: '本人待办理', appeal: '申诉中', review: '待审核',
-    diff: '待匹配差异单', collection: '待回款跟进', transferAccept: '待确认转派',
-    masterTransferWait: '等待组长确认转派', masterLeaderFollowup: '组长恢复跟进', leaderFollowup: '组长订单跟进',
-    codeReminder: '编码恢复提醒', soon: '即将超时', late: '已超时',
-  }).map(([value, label]) => ({ value, label })),
-]
+const workPhaseOptions = computed(() => [
+  { value: '', label: `全部待办阶段（${tasks.value.length}）` },
+  ...Object.entries(taskStages).map(([value, label]) => ({ value,
+    label: `${label}（${tasks.value.filter(task => matchesTaskStage(task, value, now())).length}）`,
+  })),
+])
 function selectWorkPhase(value: unknown) {
   workSelection.value = []
   workMetric.value = String(value ?? '')
@@ -829,13 +993,7 @@ function switchScope(value: string | number) {
   if ((value === 'mine') === isWorkbench.value) return
   void router.push({ name: 'adm-cases', query: value === 'mine' ? { scope: 'mine' } : {} })
 }
-const visibleTasks = computed(() => {
-  if (!workMetric.value) return tasks.value
-  if (['soon', 'late'].includes(workMetric.value)) return tasks.value.filter((t) => dueKind(t) === workMetric.value)
-  if (workMetric.value === 'codeReminder') return tasks.value.filter((t) => t.recoveryStatus === 'REMINDER_DUE')
-  if (workMetric.value === 'appeal') return tasks.value.filter((t) => t.appealStatus === 'IN_PROGRESS')
-  return tasks.value.filter((t) => t.kind === workMetric.value)
-})
+const visibleTasks = computed(() => tasks.value.filter(task => matchesTaskStage(task, workMetric.value, now())))
 const workPageSize = 20
 const requestedWorkPage = Number(route.query.page)
 const workPage = ref(Number.isSafeInteger(requestedWorkPage) && requestedWorkPage > 0 ? requestedWorkPage : 1)
@@ -899,29 +1057,21 @@ function closeWorkQueue() {
   queueRequest++
 }
 function openQueueRecord(row: Fields) {
-  if (workQueue.value === 'transfer') openTask({ ...row, kind: 'transferHistory' })
-  else void router.push({
-    path: `/adm/cases/${row.caseId}`,
-    query: { returnPage: String(workPage.value), ...(workMetric.value ? { returnMetric: workMetric.value } : {}) },
-  })
-  closeWorkQueue()
+  openCasePanel(Number(row.caseId))
 }
 function openWorkMetric(key: 'close' | 'transfer') {
   workQueue.value = key
   queueStatus.value = 'pending'
   resetWorkQueuePage()
 }
-function openTask(t: Fields) {
-  void router.push({
-    path: `/adm/cases/${t.caseId}`,
-    query: {
-      lineId: t.lineId,
-      taskAction: t.lineId ? t.kind : undefined,
-      addLine: t.kind === 'recovered' ? '1' : undefined,
-      returnPage: String(workPage.value),
-      ...(workMetric.value ? { returnMetric: workMetric.value } : {}),
-    },
+function openTaskOrder(t: Fields) {
+  openCasePanel(Number(t.caseId), {
+    lineId: Number(t.lineId),
+    taskAction: String(t.kind || ''),
   })
+}
+function openDirectTask(task: Fields, action: NonNullable<AdmCasePanel['directAction']>) {
+  openCasePanel(Number(task.caseId), { lineId: Number(task.lineId), directAction: action })
 }
 const canCreate = computed(() => !!auth.user?.isAdmin || !!config.value?.permissions.create),
   canOperatorWork = computed(() => !!auth.user?.isAdmin || !!config.value?.permissions.handle),
@@ -933,21 +1083,30 @@ const canCreate = computed(() => !!auth.user?.isAdmin || !!config.value?.permiss
     return [...unique.values()]
   })
 const workSelection = ref<string[]>([])
+function taskCaseLabel(task: Fields) {
+  return task.admNo || '—'
+}
 const workTaskKey = (task: Fields) => `${task.caseId}-${task.lineId || 0}-${task.kind}-${task.transferId || 0}`
 const batchRows = computed(() => visibleTasks.value.filter((task) => workSelection.value.includes(workTaskKey(task))))
-const canTransferLeader = (task: Fields) => !['transferAccept', 'masterTransferWait'].includes(task.kind) && Number(task.leaderId) === myId.value &&
+const canTransferLeader = (task: Fields) => ['PENDING_OPERATOR', 'PENDING_ACCEPT', 'PROCESSING'].includes(task.status) && !['transferAccept', 'masterTransferWait'].includes(task.kind) && Number(task.leaderId) === myId.value &&
   (auth.user?.isAdmin || config.value?.permissions.assignOperator)
-const canTransferOperator = (task: Fields) => !!task.operatorId &&
+const canTransferOperator = (task: Fields) => ['PENDING_ACCEPT', 'PROCESSING'].includes(task.status) && !!task.operatorId &&
   (canTransferLeader(task) || (canOperatorWork.value && Number(task.operatorId) === myId.value))
+function canEditWorkbenchLine(task: Fields) {
+  return !!task.lineId && task.kind !== 'transferAccept' && task.reviewStatus !== 'APPROVED' && (
+    (task.status === 'PENDING_OPERATOR' && !task.operatorId && canTransferLeader(task)) ||
+    (Number(task.coordinatorId) === myId.value &&
+      (auth.user?.isAdmin || config.value?.permissions.create || config.value?.permissions.manage || config.value?.permissions.review))
+  )
+}
 const workbenchActionLabels: Record<string, string> = {
-  assign: '分配操作员', assignLeader: '分配组长', accept: '接单', transfer: '转派',
-  transferAccept: '确认转派', recovery: '恢复编码判断', startRecovery: '正在恢复',
+  assign: '派单操作员', assignLeader: '分配组长', accept: '接单', transfer: '更换责任人员',
+  transferAccept: '确认转派', recovery: '恢复编码判断', startRecovery: '确认已操作恢复',
 }
 const batchActions = computed(() => {
   const rows = batchRows.value
   if (!rows.length || !rows.every((task) => task.kind === rows[0].kind)) return []
-  const actions = ['assign', 'assignLeader', 'accept', 'transferAccept'].includes(rows[0].kind) ? [rows[0].kind] : []
-  if (rows.every((task) => task.kind !== 'transferAccept' && (canTransferLeader(task) || canTransferOperator(task)))) actions.push('transfer')
+  const actions = ['assignLeader', 'accept', 'transferAccept'].includes(rows[0].kind) ? [rows[0].kind] : []
   return actions
 })
 function toggleWorkbenchTask(task: Fields) {
@@ -967,18 +1126,88 @@ const workbenchBatchRows = ref<Fields[]>([])
 const workbenchBatchAction = ref('')
 const workbenchBatchError = ref('')
 const workbenchBatchForm = reactive<Fields>({})
+const assignmentMode = ref<'whole' | 'split'>()
+const assignmentDetail = ref<AdmCaseDetail | null>(null)
+const assignmentLoading = ref(false)
+const selectedAssignmentLines = ref<number[]>([])
+let assignmentRequest = 0
+let resumeAssignment: Fields | undefined
+const assignmentLines = computed(() => assignmentDetail.value?.lines.filter(line => line.lineStatus !== 'VOIDED') || [])
+function canAssignLine(line: AdmCaseDetail['lines'][number]) {
+  return line.lineStatus === 'PENDING_OPERATOR' && Number(line.leaderId) === myId.value &&
+    ((assignmentMode.value === 'whole' && assignmentLines.value.length === 1) || !assignmentDetail.value?.case.masterRecoveryStatus ||
+      !!assignmentDetail.value?.operationLogs.some(log => Number(log.lineId) === Number(line.id) &&
+        log.eventType === 'UPDATE_LINE_BASIC_INFO' && log.operationNote === '资料已确认'))
+}
+const assignmentOptions = computed(() => assignmentLines.value.filter(canAssignLine).map(line => ({
+  value: Number(line.id),
+  label: [admLineDisplay(assignmentDetail.value?.case.admNo, line.lineInternalNo), line.otaName, line.pnr, line.originalAmount].filter(Boolean).join(' · '),
+})))
+const assignmentRows = computed(() => assignmentLines.value.filter(line => canAssignLine(line) &&
+  (assignmentMode.value === 'whole' ? assignmentLines.value.length === 1 : selectedAssignmentLines.value.includes(Number(line.id)))))
+const assignmentProblem = computed(() => {
+  const detail = assignmentDetail.value
+  if (!detail) return '请先读取主单明细。'
+  if (assignmentMode.value === 'whole' && assignmentLines.value.length > 1) return '该主单有多笔明细，请选择分单。'
+  if (!assignmentOptions.value.length) return '请先补充资料并点击已补充资料。'
+  const total = assignmentLines.value.reduce((sum, line) => sum + (amountInCents(line.originalAmount) ?? 0n), 0n)
+  if (assignmentMode.value !== 'whole' && total !== amountInCents(detail.case.originalAmount)) return '明细原币合计与主单不一致，请先调整。'
+  return ''
+})
+async function changeAssignmentMode(openSplitDetails = true) {
+  const task = workbenchBatchRows.value[0]
+  if (!task) return
+  const seq = ++assignmentRequest
+  assignmentDetail.value = null
+  selectedAssignmentLines.value = []
+  assignmentLoading.value = true
+  workbenchBatchError.value = ''
+  try {
+    const detail = await admApi.detail(Number(task.caseId))
+    if (seq === assignmentRequest) {
+      assignmentDetail.value = detail
+      if (openSplitDetails && workbenchBatchOpen.value && assignmentMode.value === 'split' && assignmentLines.value.length < 2)
+        openAssignmentDetails()
+    }
+  } catch (e) {
+    if (seq === assignmentRequest) workbenchBatchError.value = errorText(e)
+  } finally {
+    if (seq === assignmentRequest) assignmentLoading.value = false
+  }
+}
+function openAssignmentDetails() {
+  const task = workbenchBatchRows.value[0]
+  if (!task) return
+  resumeAssignment = task
+  workbenchBatchOpen.value = false
+  openCasePanel(Number(task.caseId))
+}
 const workbenchPeople = computed(() => admPersonOptions(
   (workbenchBatchAction.value === 'assignLeader' || workbenchBatchForm.targetRole === 'LEADER'
     ? config.value?.people.leader : config.value?.people.handle) || [],
 ))
+function openLeaderTransfer(task: Fields) {
+  openWorkbenchBatch('transfer', [task])
+  workbenchBatchForm.targetRole = 'LEADER'
+}
+function openOperatorTransfer(task: Fields) {
+  openWorkbenchBatch('transfer', [task])
+  workbenchBatchForm.targetRole = 'OPERATOR'
+}
 function openWorkbenchBatch(action: string, rows = batchRows.value) {
   if (!rows.length) return
   workbenchBatchRows.value = rows
   workbenchBatchAction.value = action
   workbenchBatchError.value = ''
+  assignmentRequest++
+  assignmentMode.value = undefined
+  assignmentDetail.value = null
+  assignmentLoading.value = false
+  selectedAssignmentLines.value = []
   Object.assign(workbenchBatchForm, {
     targetUserId: undefined, targetRole: action === 'transfer' && !rows.every(canTransferOperator) ? 'LEADER' : 'OPERATOR',
-    reason: '', handoverNote: '', recoveryAction: undefined, locators: '', accepted: true,
+    reason: '', handoverNote: '', recoveryAction: undefined,
+    locators: Object.fromEntries(rows.map(task => [task.caseId, task.recoveryLocators || ''])), accepted: true,
   })
   workbenchBatchOpen.value = true
 }
@@ -986,6 +1215,19 @@ async function submitWorkbenchBatch() {
   if (workbenchBatchBusy.value) return
   const action = workbenchBatchAction.value
   const form = { ...workbenchBatchForm }
+  if (action === 'assign' && (!assignmentMode.value || assignmentLoading.value || assignmentProblem.value ||
+      !assignmentRows.value.length || !form.targetUserId)) {
+    workbenchBatchError.value = '请选择分配方式、可分配明细和操作员'
+    return
+  }
+  const rows = action === 'assign'
+    ? assignmentRows.value.map((line): Fields => ({ ...line, caseId: assignmentDetail.value!.case.id, lineId: line.id, kind: 'assign' }))
+    : workbenchBatchRows.value
+  if (action === 'recovery' && (!form.recoveryAction ||
+      workbenchBatchRows.value.some(task => !String(form.locators[task.caseId] || '').trim()))) {
+    workbenchBatchError.value = '请选择是否恢复，并填写每张主单的 GDS-PCC-PNR'
+    return
+  }
   if (action === 'transfer' && form.targetRole === 'OPERATOR' && !workbenchBatchRows.value.every(canTransferOperator)) {
     workbenchBatchError.value = '选中明细中有尚未分配操作员的记录，请转派给组长或重新选择'
     return
@@ -994,10 +1236,10 @@ async function submitWorkbenchBatch() {
   const errors: string[] = []
   workbenchBatchBusy.value = true
   try {
-    for (const task of workbenchBatchRows.value) {
+    for (const task of rows) {
       const caseId = Number(task.caseId), lineId = Number(task.lineId)
       try {
-        if (action === 'assign') await admApi.assignOperator(caseId, lineId, { operatorId: form.targetUserId })
+        if (action === 'assign') await admApi.assignOperator(caseId, lineId, { operatorId: form.targetUserId, assignmentMode: assignmentMode.value })
         if (action === 'assignLeader') await admApi.changeLeader(caseId, lineId, { leaderId: form.targetUserId, reason: form.reason })
         if (action === 'accept') await admApi.accept(caseId, lineId)
         if (action === 'transfer') {
@@ -1009,15 +1251,23 @@ async function submitWorkbenchBatch() {
           else await admApi.masterLeaderTransfer(caseId, { accepted: form.accepted, reason: form.reason })
         }
         if (action === 'recovery' || action === 'startRecovery')
-          await admApi.masterRecovery(caseId, action === 'startRecovery' ? 'start' : form.recoveryAction, form.locators)
+          await admApi.masterRecovery(caseId, action === 'startRecovery' ? 'start' : form.recoveryAction,
+            form.locators[caseId])
       } catch (e) {
         failures.push(task)
         errors.push(`${task.lineInternalNo || task.admNo}：${errorText(e)}`)
       }
     }
-    const success = workbenchBatchRows.value.length - failures.length
+    const success = rows.length - failures.length
     if (success) void message.success(`成功处理 ${success} 条`)
-    workbenchBatchRows.value = failures
+    if (action === 'assign') {
+      selectedAssignmentLines.value = failures.map(task => Number(task.lineId))
+      const succeeded = new Set(rows.filter(task => !failures.includes(task)).map(task => Number(task.lineId)))
+      if (assignmentDetail.value) assignmentDetail.value = {
+        ...assignmentDetail.value, lines: assignmentDetail.value.lines.map(line =>
+          succeeded.has(Number(line.id)) ? { ...line, lineStatus: 'PENDING_ACCEPT' } : line),
+      }
+    } else workbenchBatchRows.value = failures
     workSelection.value = failures.map(workTaskKey)
     workbenchBatchError.value = errors.join('；')
     if (!failures.length) workbenchBatchOpen.value = false
@@ -1027,6 +1277,35 @@ async function submitWorkbenchBatch() {
   }
 }
 const acceptingLines = reactive(new Set<number>())
+function isOperatorProcessing(task: Fields) {
+  return task.status === 'PROCESSING' && canOperatorWork.value && Number(task.operatorId) === myId.value
+}
+async function runWorkbenchLineAction(task: Fields, action: (caseId: number, lineId: number) => Promise<unknown>, success: string, onResult?: (result: Fields) => void) {
+  const lineId = Number(task.lineId)
+  if (!lineId || acceptingLines.has(lineId)) return
+  acceptingLines.add(lineId)
+  try {
+    const result = await action(Number(task.caseId), lineId)
+    if (onResult) onResult(result as Fields)
+    else void message.success(success)
+  } catch (e) {
+    void message.error(errorText(e))
+  } finally {
+    if (isWorkbench.value) await load()
+    acceptingLines.delete(lineId)
+  }
+}
+function submitTaskReview(task: Fields) {
+  return runWorkbenchLineAction(task, admApi.submitReview, '已提交 ADM 负责人审核')
+}
+function checkTaskDifference(task: Fields) {
+  return runWorkbenchLineAction(task, admApi.checkDifference, '', result => showDifferenceResult(result, Number(task.lineId)))
+}
+function rejectTaskAssignment(task: Fields) {
+  Modal.confirm({ title: '拒绝接单？', content: '拒绝后退回负责组长重新派单。', okText: '拒绝接单', cancelText: '取消',
+    onOk: () => runWorkbenchLineAction(task, admApi.rejectAssignment, '已拒绝，退回组长重新派单'),
+  })
+}
 function canAcceptTask(task: Fields) {
   return task.kind === 'accept' && canOperatorWork.value && Number(task.operatorId) === myId.value
 }
@@ -1036,7 +1315,8 @@ async function acceptTask(task: Fields) {
   acceptingLines.add(lineId)
   try {
     await admApi.accept(Number(task.caseId), lineId)
-    void message.success('已接单，可在「本人待办理」继续处理')
+    if (workMetric.value === 'accept') selectWorkPhase('process')
+    void message.success('已接单，可在待办行直接办理')
   } catch (e) {
     void message.error(`接单失败：${errorText(e)}`)
   } finally {
@@ -1215,10 +1495,6 @@ function openGlobalOrders(key: string) {
   globalOrdersOpen.value = true
   void loadGlobalOrders()
 }
-function openGlobalLine(caseId: number, lineId: number) {
-  globalOrdersOpen.value = false
-  void router.push({ path: `/adm/cases/${caseId}`, query: { lineId } })
-}
 function lineStatusTone(status: string) {
   return status === 'COMPLETED'
     ? 'green'
@@ -1315,15 +1591,12 @@ function showMasterReadOnlyNotice(record: AdmCaseRow) {
 function openCase(record: AdmCaseRow, status?: string) {
   const stages = ledgerStages(record)
   const lineStatus = status || (stages.length === 1 ? stages[0].status : undefined)
-  void router.push({ path: `/adm/cases/${record.id}`, query: { lineStatus } })
+  openCasePanel(Number(record.id), { lineStatus })
 }
-function canEditMasterRow(record: AdmCaseRow) {
-  const allowed = !!(
-    config.value?.permissions.create || config.value?.permissions.manage || config.value?.permissions.review
-  )
-  const owner = Number(record.coordinatorId) === Number(auth.user?.id)
-  return allowed && owner && ['DRAFT', 'ACTIVE'].includes(record.caseStatus)
+function canEditMasterRow(_record: AdmCaseRow) {
+  return !!auth.user?.isAdmin || !!config.value?.permissions.editMaster
 }
+
 async function openMasterInfo(record: AdmCaseRow) {
   selectedMasterEditable.value = canEditMasterRow(record)
   if (!selectedMasterEditable.value) showMasterReadOnlyNotice(record)
@@ -1361,8 +1634,57 @@ const referenceLoadedAt: Partial<Record<CreateReferenceKind, number>> = {}
 const referenceRequests: Partial<Record<CreateReferenceKind, Promise<void>>> = {}
 const referenceLoading = reactive<Partial<Record<CreateReferenceKind, boolean>>>({})
 const referenceErrors = reactive<Partial<Record<CreateReferenceKind, string>>>({})
+function createMasterLookup(kind: 'supplier' | 'airline', name: string) {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let request = 0
+  let query = ''
+  const cached = new Map<string, { until: number; options: Array<{ value: string; label: string }> }>()
+  const lookup = reactive({
+    loading: false,
+    error: '',
+    options: [] as Array<{ value: string; label: string }>,
+    search(value: string) {
+      query = value
+      const current = ++request
+      clearTimeout(timer)
+      lookup.error = ''
+      const key = value.trim().toLowerCase()
+      const previous = cached.get(key)
+      if (previous && Date.now() < previous.until) {
+        lookup.options = previous.options
+        lookup.loading = false
+        return
+      }
+      lookup.loading = true
+      lookup.options = []
+      timer = setTimeout(async () => {
+        try {
+          const rows = await admApi.options(kind, value, 100)
+          const options = rows.map(({ code, name, ticketingCode }) => ({
+            value: code, label: kind === 'airline' ? formatAdmAirline(code, ticketingCode) : `${name}（${code}）`,
+          }))
+          if (current === request) {
+            if (cached.size >= 32) cached.clear()
+            cached.set(key, { until: Date.now() + referenceTtl, options })
+            lookup.options = options
+          }
+        } catch (e) {
+          if (current === request) lookup.error = `${name}读取失败：${errorText(e)}`
+        } finally {
+          if (current === request) lookup.loading = false
+        }
+      }, value ? 250 : 0)
+    },
+    retry() { if (lookup.error) lookup.search(query) },
+  })
+  onBeforeUnmount(() => { clearTimeout(timer); request++ })
+  return lookup
+}
+const supplierLookup = createMasterLookup('supplier', '供应商')
+const airlineLookup = createMasterLookup('airline', '航司')
 const referenceError = computed(() => {
-  return [...masterReferenceKinds.map((kind) => referenceErrors[kind]), fxError.value].filter(Boolean).join('；')
+  return [...masterReferenceKinds.map((kind) => referenceErrors[kind]), supplierLookup.error, airlineLookup.error, configError.value, fxError.value]
+    .filter(Boolean).join('；')
 })
 function loadCreateReference(kind: CreateReferenceKind) {
   if (referenceRequests[kind]) return referenceRequests[kind]
@@ -1384,12 +1706,15 @@ function loadCreateReference(kind: CreateReferenceKind) {
   return pending
 }
 function retryCreateReferences() {
+  supplierLookup.retry()
+  airlineLookup.retry()
+  if (configError.value) void loadConfig(true)
   masterReferenceKinds.forEach((kind) => { if (referenceErrors[kind]) void loadCreateReference(kind) })
   if (fxError.value) void loadExchangeRate()
 }
 const issuerOptions = [
-    { value: 'SUPPLIER', label: '供应商' },
     { value: 'AIRLINE', label: '航司' },
+    { value: 'SUPPLIER', label: '供应商' },
   ],
   currencyOptions = computed(() => {
     const rows = masters.currency.length ? masters.currency : [{ code: 'CNY', name: 'CNY' }]
@@ -1397,6 +1722,7 @@ const issuerOptions = [
   }),
   diffTypeOptions = computed(() => masters.diffType.map((i) => ({ value: i.code, label: i.name }))),
   leaderOptions = computed(() => admPersonOptions(config.value?.people.leader || []))
+const businessCategoryOptions = ['票务', '客服', '业务'].map((value) => ({ value, label: value }))
 const masterCnyAmount = computed(() => {
   if (!fxSnapshot.value) return '—'
   const amount = Number(form.originalAmount || 0), rate = Number(fxSnapshot.value.rateValue)
@@ -1405,19 +1731,38 @@ const masterCnyAmount = computed(() => {
 function pickMasterFiles(e: Event) {
   masterFiles.value = Array.from((e.target as HTMLInputElement).files || [])
 }
+const parsePickerOpen = ref(false), parseSource = ref<ParseTask | null>(null), parseConfirmed = ref(false)
+function useParseSource(task: ParseTask) {
+  openCreate()
+  parseSource.value = task
+  parsePickerOpen.value = false
+  const adm = task.candidate?.adm || {}, match = task.airlineMatch
+  Object.assign(form, { admNo: adm.number || '', issuerType: 'AIRLINE', currency: adm.currency || '',
+    originalAmount: adm.amount || '', issuedDate: adm.issuedDate || '', replyDeadline: '',
+    differenceReason: (adm.reason || '').slice(0, 1000),
+    airline: match?.status === 'MATCHED' && match.code ? { value: match.code, label: match.name || match.code } : undefined,
+    ticketNo: (task.candidate?.lines || []).filter(l => l.ticketType === 'real').map(l => l.ticketNumber).filter(Boolean).join('、').slice(0, 500),
+  })
+  void loadExchangeRate()
+}
 function openCreate() {
+  parseSource.value = null
+  parseConfirmed.value = false
   masterFiles.value = []
+  createIdempotencyKey = createOperationIdentifier()
   Object.assign(form, {
     admNo: '',
     issuerType: 'SUPPLIER',
-    issuerName: '',
-    airlineName: '',
+    supplier: undefined,
+    airline: undefined,
+    ticketNo: '',
+    businessCategory: undefined,
+    penaltyReasonType: undefined,
     currency: 'CNY',
     originalAmount: '',
     issuedDate: '',
     replyDeadline: '',
     remark: '',
-    departmentCode: undefined,
     leaderId: undefined,
     diffTypeCode: undefined,
     differenceReason: '',
@@ -1425,10 +1770,13 @@ function openCreate() {
   createError.value = ''
   createOpen.value = true
   void loadConfig(true)
+  supplierLookup.search('')
+  airlineLookup.search('')
   masterReferenceKinds.forEach((kind) => { void loadCreateReference(kind) })
   void loadExchangeRate()
 }
 let fxRequest = 0
+let createIdempotencyKey = ''
 async function loadExchangeRate() {
   const seq = ++fxRequest
   const currency = String(form.currency || '')
@@ -1446,31 +1794,52 @@ async function loadExchangeRate() {
 }
 async function createCase() {
   if (saving.value) return
+  if (!form.penaltyReasonType) {
+    createError.value = '请选择罚单原因类型'
+    return
+  }
   saving.value = true
   createError.value = ''
   try {
-    const r = await admApi.create({ ...form, masterOnly: true }, createOperationIdentifier())
-    const attachmentErrors: string[] = []
-    for (const file of masterFiles.value) {
-      try {
-        await admApi.upload(Number(r.case.id), file, 'ADM_ORIGINAL')
-      } catch (e) {
-        attachmentErrors.push(`${file.name}：${errorText(e)}`)
-      }
+    const { supplier, airline, ...fields } = form
+    const files = [...masterFiles.value]
+    const body = {
+      ...fields, supplierCode: supplier?.value ?? null, airlineCode: airline?.value ?? null, masterOnly: true,
     }
+    if (parseSource.value) {
+      const result = await parsingApi.register(parseSource.value, body, parseConfirmed.value)
+      createOpen.value = false
+      casePanelChanged.value = true
+      openCasePanel(result.registration.caseId)
+      void message.success(`${result.alreadyRegistered ? '来件已登记，打开关联主单' : '台账及原附件已保存并关联'}：${result.registration.internalNo}`)
+      if (files.length) void uploadCreatedCaseFiles(result.registration.caseId, files)
+      return
+    }
+    const r = await admApi.create(body, createIdempotencyKey)
     createOpen.value = false
-    if (attachmentErrors.length) {
-      void message.warning(
-        `主单已保存：${r.case.internalNo}；部分附件上传失败，可进入详情重新上传`,
-      )
-    } else {
-      void message.success(`主单已保存：${r.case.internalNo}`)
-    }
-    await router.push(`/adm/cases/${r.case.id}`)
+    casePanelChanged.value = true
+    openCasePanel(Number(r.case.id))
+    void message.success(`主单已保存：${r.case.internalNo}${files.length ? '，附件正在上传' : ''}`)
+    if (files.length) void uploadCreatedCaseFiles(Number(r.case.id), files)
   } catch (e) {
     createError.value = errorText(e)
   } finally {
     saving.value = false
+  }
+}
+async function uploadCreatedCaseFiles(caseId: number, files: File[]) {
+  const failed: string[] = []
+  for (const file of files) {
+    try {
+      await admApi.upload(caseId, file, 'ADM_ORIGINAL')
+    } catch {
+      failed.push(file.name)
+    }
+  }
+  if (failed.length) {
+    void message.warning(`附件上传失败：${failed.join('、')}。请在主单详情重新上传。`)
+  } else {
+    void message.success('主单附件已上传')
   }
 }
 const importOpen = ref(false),
@@ -1566,6 +1935,7 @@ watch(() => route.name === 'adm-cases' && route.query.create === '1', async (cre
   }
 }, { immediate: true })
 onBeforeUnmount(() => {
+  clearInterval(countdownTimer)
   fxRequest++
   queueRequest++
   request++

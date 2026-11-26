@@ -185,6 +185,16 @@ class Config:
     MAX_CONTENT_LENGTH = RISK_UPLOAD_MAX_BYTES
     JSON_AS_ASCII = False
     # Business schema upgrades are explicit; ADM never creates production tables.
+    ADM_PARSING_ROOT = os.getenv("ADM_PARSING_ROOT", "").strip() or str(Path(__file__).resolve().parents[1] / "var/adm/parsing")
+    ADM_PARSING_STORAGE_MODE = os.getenv("ADM_PARSING_STORAGE_MODE", "mysql")
+    ADM_PARSING_AI_ENABLED = env_bool("ADM_PARSING_AI_ENABLED", False)
+    ADM_PARSING_AI_URL = os.getenv("ADM_PARSING_AI_URL", "")
+    ADM_PARSING_AI_KEY = os.getenv("ADM_PARSING_AI_KEY", "")
+    ADM_PARSING_AI_MODEL = os.getenv("ADM_PARSING_AI_MODEL", "")
+    ADM_PARSING_AI_OUTPUT_FORMAT = os.getenv("ADM_PARSING_AI_OUTPUT_FORMAT", "auto")
+    ADM_PARSING_AI_TIMEOUT = int(os.getenv("ADM_PARSING_AI_TIMEOUT", "90"))
+    ADM_PARSING_AI_MAX_OUTPUT_TOKENS = int(os.getenv("ADM_PARSING_AI_MAX_OUTPUT_TOKENS", "8000"))
+    ADM_PARSING_MAX_INPUT_CHARS = int(os.getenv("ADM_PARSING_MAX_INPUT_CHARS", "60000"))
     ADM_STORAGE_MODE = os.getenv("ADM_STORAGE_MODE", "mysql")
     HR_MAIL_ROOT = os.getenv("HR_MAIL_ROOT", "/app/var/hr-mail")
     HR_MAIL_METHOD = os.getenv("HR_MAIL_METHOD", "")

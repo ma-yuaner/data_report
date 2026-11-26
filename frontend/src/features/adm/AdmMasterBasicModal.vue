@@ -1,25 +1,36 @@
 <template>
-  <a-modal :open="open" width="920px" :footer="null" wrap-class-name="v05-modal adm-basic-info-modal" @cancel="close">
+  <a-modal :open="open" width="min(920px, 96vw)" :footer="null" wrap-class-name="v05-modal adm-basic-info-modal adm-form-modal" @cancel="close">
     <div v-if="detail" class="prototype-info-modal">
       <header class="prototype-info-head">
-        <div><h2>{{ editable ? '编辑 ADM 主单基础信息' : 'ADM 主单基础信息' }}</h2><p>{{ detail.case.admNo }} · 系统记录 {{ detail.case.internalNo }}</p></div>
+        <div><h2>{{ editable ? '编辑 ADM 主单基础信息' : 'ADM 主单基础信息' }}</h2><p>{{ detail.case.admNo }}</p></div>
       </header>
-      <div v-if="editable" class="v05-form-grid prototype-edit-grid">
-        <label>系统主单ID<a-input :value="detail.case.internalNo" readonly /></label>
+      <div v-if="editable" class="v05-form-grid prototype-edit-grid adm-grouped-form">
+        <h3>主单信息</h3>
+
         <label>当前状态<a-input :value="label(detail.case.caseStatus)" readonly /></label>
         <label><span class="form-field-label">ADM单号 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.admNo" /></label>
-        <label><span class="form-field-label">下发方类型 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true" v-model:value="form.issuerType"  :options="detail.case.lineDefaults ? issuerTypes.filter((item) => item.value !== 'PLATFORM') : issuerTypes" @change="issuerChanged" /></label>
-        <label v-if="detail.case.lineDefaults || form.issuerType === 'AIRLINE'" class="wide"><span class="form-field-label">下发方名称 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.issuerName" /></label>
-        <label v-else class="wide"><span class="form-field-label">下发方名称 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true" v-model:value="form.issuerCode" show-search :filter-option="filterOption" :options="issuerOptions" @change="issuerSelected" /></label>
+        <template v-if="intake">
+          <label>ADM 来源<a-input :value="label(detail.case.issuerType)" readonly /></label>
+          <label>供应商名称<a-input :value="intake.supplierName || '—'" readonly /></label>
+          <label>票号<a-input :value="intake.ticketNo || '—'" readonly /></label>
+          <label>业务分类<a-input :value="intake.businessCategory" readonly /></label>
+          <label>罚单原因类型<a-input :value="intake.penaltyReasonType || '—'" readonly /></label>
+        </template>
+        <template v-else>
+          <label><span class="form-field-label">下发方类型 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true" v-model:value="form.issuerType" :options="detail.case.lineDefaults ? issuerTypes.filter((item) => item.value !== 'PLATFORM') : issuerTypes" @change="issuerChanged" /></label>
+          <label v-if="detail.case.lineDefaults || form.issuerType === 'AIRLINE'" class="wide"><span class="form-field-label">下发方名称 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.issuerName" /></label>
+          <label v-else class="wide"><span class="form-field-label">下发方名称 <span class="form-required-mark" aria-hidden="true">*</span></span><a-select aria-required="true" v-model:value="form.issuerCode" show-search :filter-option="filterOption" :options="issuerOptions" @change="issuerSelected" /></label>
+        </template>
         <label>ADM负责人<a-input :value="detail.case.coordinatorName || '—'" readonly /></label>
+        <h3>金额与时限</h3>
         <label>原币币种<a-input :value="detail.case.currency" readonly /></label>
         <label>原币总金额<a-input :value="`${detail.case.currency} ${detail.case.originalAmount}`" readonly /></label>
         <label>人民币总金额<a-input :value="`¥ ${detail.case.cnyAmount}`" readonly /></label>
         <label><span class="form-field-label">下发日期 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.issuedDate" type="date" /></label>
         <label><span class="form-field-label">主单回复截止时间 <span class="form-required-mark" aria-hidden="true">*</span></span><a-input aria-required="true" v-model:value="form.replyDeadline" type="datetime-local" /></label>
         <template v-if="detail.case.lineDefaults">
-          <label>关联航司<a-input :value="detail.case.airlineName" readonly /></label>
-          <label>归属部门<a-input :value="detail.case.lineDefaults.departmentName" readonly /></label>
+          <label>航司<a-input :value="airlineDisplay" readonly /></label>
+          <label v-if="!intake">归属部门<a-input :value="detail.case.lineDefaults.departmentName" readonly /></label>
           <label>负责组长<a-input :value="detail.case.lineDefaults.leaderName" readonly /></label>
           <label>差异类型<a-input :value="detail.case.lineDefaults.diffTypeName" readonly /></label>
           <label class="wide">细分差异原因<a-textarea :value="detail.case.lineDefaults.differenceReason" readonly /></label>
@@ -27,16 +38,23 @@
         <label class="wide">主单备注<a-textarea v-model:value="form.remark" :rows="3" /></label>
       </div>
       <div v-else class="basic-info-grid">
-        <dl><dt>系统主单ID</dt><dd>{{ detail.case.internalNo }}</dd></dl><dl><dt>ADM单号</dt><dd>{{ detail.case.admNo }}</dd></dl>
-        <dl><dt>当前状态</dt><dd>{{ label(detail.case.caseStatus) }}</dd></dl><dl><dt>下发方类型</dt><dd>{{ label(detail.case.issuerType) }}</dd></dl>
-        <dl><dt>下发方名称</dt><dd>{{ detail.case.issuerName }}</dd></dl><dl><dt>ADM负责人</dt><dd>{{ detail.case.coordinatorName || '—' }}</dd></dl>
+        <dl><dt>ADM单号</dt><dd>{{ detail.case.admNo }}</dd></dl>
+        <dl><dt>当前状态</dt><dd>{{ label(detail.case.caseStatus) }}</dd></dl><dl><dt>{{ intake ? 'ADM 来源' : '下发方类型' }}</dt><dd>{{ label(detail.case.issuerType) }}</dd></dl>
+        <template v-if="intake">
+          <dl><dt>供应商名称</dt><dd>{{ intake.supplierName || '—' }}</dd></dl>
+          <dl><dt>票号</dt><dd>{{ intake.ticketNo || '—' }}</dd></dl>
+          <dl><dt>业务分类</dt><dd>{{ intake.businessCategory }}</dd></dl>
+          <dl><dt>罚单原因类型</dt><dd>{{ intake.penaltyReasonType || '—' }}</dd></dl>
+        </template>
+        <dl v-else><dt>下发方名称</dt><dd>{{ detail.case.issuerName }}</dd></dl>
+        <dl><dt>ADM负责人</dt><dd>{{ detail.case.coordinatorName || '—' }}</dd></dl>
         <dl><dt>原币币种</dt><dd>{{ detail.case.currency }}</dd></dl><dl><dt>原币总金额</dt><dd>{{ detail.case.currency }} {{ detail.case.originalAmount }}</dd></dl>
         <dl><dt>人民币总金额</dt><dd>¥ {{ detail.case.cnyAmount }}</dd></dl><dl><dt>下发日期</dt><dd>{{ detail.case.issuedDate || '—' }}</dd></dl>
         <dl><dt>主单回复截止时间</dt><dd>{{ detail.case.replyDeadline || '—' }}</dd></dl><dl><dt>汇率快照</dt><dd>{{ detail.fxSnapshot?.rateValue || '—' }} · {{ detail.fxSnapshot?.sourceUpdatedAt || detail.fxSnapshot?.rateDate || '—' }}</dd></dl>
         <dl><dt>订单完成情况</dt><dd>{{ completed }} / {{ activeLines }}</dd></dl><dl><dt>最近更新</dt><dd>{{ detail.case.updatedAt || '—' }}</dd></dl>
         <template v-if="detail.case.lineDefaults">
-          <dl><dt>关联航司</dt><dd>{{ detail.case.airlineName || '—' }}</dd></dl>
-          <dl><dt>归属部门</dt><dd>{{ detail.case.lineDefaults.departmentName }}</dd></dl>
+          <dl><dt>航司</dt><dd>{{ airlineDisplay }}</dd></dl>
+          <dl v-if="!intake"><dt>归属部门</dt><dd>{{ detail.case.lineDefaults.departmentName }}</dd></dl>
           <dl><dt>负责组长</dt><dd>{{ detail.case.lineDefaults.leaderName }}</dd></dl>
           <dl><dt>差异类型</dt><dd>{{ detail.case.lineDefaults.diffTypeName }}</dd></dl>
           <dl class="wide"><dt>细分差异原因</dt><dd>{{ detail.case.lineDefaults.differenceReason }}</dd></dl>
@@ -54,11 +72,15 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
-import { admApi, errorText, label, type AdmCaseDetail, type Fields, type Option } from './api'
+import { admApi, errorText, formatAdmAirline, label, type AdmCaseDetail, type Fields, type Option } from './api'
 
 const props = defineProps<{ open: boolean; detail: AdmCaseDetail | null; editable: boolean }>()
 const emit = defineEmits<{ close: []; saved: [detail: AdmCaseDetail] }>()
 const saving = ref(false), masters = reactive<{ ota: Option[]; supplier: Option[] }>({ ota: [], supplier: [] }), form = reactive<Fields>({})
+const intake = computed(() => props.detail?.case.lineDefaults?.masterIntake)
+const airlineDisplay = computed(() => intake.value?.airlineCode
+  ? formatAdmAirline(intake.value.airlineCode, intake.value.ticketingCode)
+  : props.detail?.case.airlineName || '—')
 const issuerTypes = [{ value: 'SUPPLIER', label: '供应商' }, { value: 'PLATFORM', label: '平台' }, { value: 'AIRLINE', label: '航司' }]
 const issuerOptions = computed(() => (form.issuerType === 'PLATFORM' ? masters.ota : masters.supplier).map(item => ({ value: item.code, label: `${item.name}（${item.code}）` })))
 const activeLines = computed(() => props.detail?.lines.filter(item => item.lineStatus !== 'VOIDED').length || 0)

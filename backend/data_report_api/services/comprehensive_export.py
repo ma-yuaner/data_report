@@ -71,7 +71,7 @@ TASK_LABELS = {
     HR_MAIL_FILE_KIND: "HR邮件附件",
     ADM_OPERATOR_KIND: "ADM接单处理表",
     ADM_ATTACHMENT_KIND: "ADM附件原件",
-    ADM_IMPORT_TEMPLATE_KIND: "ADM跨主单导入模板",
+    ADM_IMPORT_TEMPLATE_KIND: "ADM主单批量新增模板",
     GDS_ROUTE_KIND: "GDS航线名单",
     RESOURCE_GDS_KIND: "GDS资源治理汇报",
     RESOURCE_OTA_KIND: "OTA渠道质量汇报",
@@ -795,7 +795,7 @@ class ComprehensiveExportService:
                 finally:
                     content.close()
                 self.store.set_total(task_id, 1)
-                self.store.finish(task_id, output_path, "ADM日常建单19列模板.xlsx", 1)
+                self.store.finish(task_id, output_path, "ADM主单批量新增15列模板.xlsx", 1)
             elif task["businessType"] == ADM_OPERATOR_KIND:
                 result = service.claim_and_export(user, {"lineIds": values["lineIds"]})
                 output_path = self.store.files / f"{task_id}.xlsx"

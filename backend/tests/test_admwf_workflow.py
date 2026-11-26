@@ -116,29 +116,14 @@ class AdmWorkflowStateTest(unittest.TestCase):
             expected_collection_amount=None, collected_amount="0",
         ), "COMPLETED")
 
-    def test_difference_query_key_uses_ota_first(self):
-        self.assertEqual(difference_query_key(
-            source_type="LEGACY", ota_order_no="OTA-1", adm_no="ADM-1",
-            line_internal_no="ADM-1-01-001",
-        )["keyType"], "OTA_ORDER_NO")
-
-    def test_legacy_without_ota_uses_original_adm_no(self):
-        result = difference_query_key(
-            source_type="LEGACY", ota_order_no=None, adm_no="ADM-OLD",
-            line_internal_no="ADM-OLD-01-001",
-        )
-        self.assertEqual(result["keyValue"], "ADM-OLD")
-        self.assertEqual(result["matchedStatus"], "MATCHED_LEGACY_ADM_NO")
-
-    def test_new_manual_and_excel_without_ota_use_line_internal_no(self):
-        for source_type in ("MANUAL", "EXCEL"):
-            with self.subTest(source_type=source_type):
-                result = difference_query_key(
-                    source_type=source_type, ota_order_no="", adm_no="ADM-NEW",
-                    line_internal_no="ADM-NEW-01-002",
-                )
-                self.assertEqual(result["keyValue"], "ADM-NEW-01-002")
-                self.assertEqual(result["matchedStatus"], "MATCHED_LINE_INTERNAL_NO")
+    def test_difference_query_key_always_uses_master_number(self):
+        for source in ("LEGACY", "MANUAL", "EXCEL"):
+            for ota in ("OTA-OTHER", "", None):
+                with self.subTest(source=source, ota=ota):
+                    result = difference_query_key(source_type=source, ota_order_no=ota,
+                        adm_no="8969000270", line_internal_no="8969000270-02-001")
+                    self.assertEqual(result["keyValue"], "8969000270")
+                    self.assertEqual(result["keyType"], "ADM_NO")
 
     def test_successful_appeal_does_not_require_diff_or_collection(self):
         self.assertEqual(status_after_approval(
@@ -175,3 +160,109 @@ class AdmWorkflowStateTest(unittest.TestCase):
             {"id": 3, "line_internal_no": "A-003", "line_status": "PROCESSING"},
         ]
         self.assertEqual([item["lineId"] for item in closure_blockers(lines)], [3])
+
+
+class AdmMaterialConfirmationTest(unittest.TestCase):
+    def connection(self, confirmed, amounts):
+        class Cursor:
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def execute(self, sql, params):
+                import sqlite3
+                with sqlite3.connect(":memory:") as db:
+                    db.execute("CREATE TABLE admwf_operation_log(id INTEGER,line_id INTEGER,event_type TEXT,operation_note TEXT)")
+                    db.execute("CREATE TABLE admwf_case_line(case_id INTEGER,line_status TEXT,original_amount DECIMAL)")
+                    db.execute(sql.replace("%s", "?").replace(" FOR UPDATE", ""), params)
+                self.sql = sql
+            def fetchone(self): return {"id": 1} if confirmed else None
+            def fetchall(self): return [{"original_amount": Decimal(v)} for v in amounts]
+        class Connection:
+            def cursor(self): return Cursor()
+        return Connection()
+
+    def test_dispatch_requires_explicit_confirmation(self):
+        with self.assertRaisesRegex(AdmError, "已补充资料"):
+            AdmWorkflowRepository._require_line_ready(self.connection(False, ["100"]),
+                {"id": 1, "master_recovery_status": "RECOVERED", "original_amount": Decimal("100")}, {"id": 2})
+
+    def test_confirmation_allows_optional_fields_when_total_matches(self):
+        AdmWorkflowRepository._require_line_ready(self.connection(True, ["100", "0"]),
+            {"id": 1, "master_recovery_status": "RECOVERED", "original_amount": Decimal("100")}, {"id": 2})
+
+    def test_confirmation_does_not_bypass_total_check(self):
+        with self.assertRaisesRegex(AdmError, "合计"):
+            AdmWorkflowRepository._require_line_ready(self.connection(True, ["99"]),
+                {"id": 1, "master_recovery_status": "RECOVERED", "original_amount": Decimal("100")}, {"id": 2})
+
+
+class AdmMaterialSqlContractTest(unittest.TestCase):
+    def test_detail_confirmation_queries_use_real_log_column(self):
+        import ast
+        import inspect
+        import sqlite3
+        import textwrap
+        db = sqlite3.connect(":memory:")
+        self.addCleanup(db.close)
+        db.executescript("""
+            CREATE TABLE admwf_case_line(id INTEGER,case_id INTEGER,line_no INTEGER);
+            CREATE TABLE admwf_operation_log(id INTEGER,line_id INTEGER,event_type TEXT,operation_note TEXT);
+            INSERT INTO admwf_case_line VALUES(2,1,1);
+            INSERT INTO admwf_operation_log VALUES(1,2,'UPDATE_LINE_BASIC_INFO','资料已确认');
+        """)
+        for method in [AdmWorkflowRepository.get_case, AdmWorkflowRepository.get_case_summary]:
+            tree = ast.parse(textwrap.dedent(inspect.getsource(method)))
+            query = next(node.value for node in ast.walk(tree)
+                if isinstance(node, ast.Constant) and isinstance(node.value, str)
+                and node.value.startswith("SELECT l.*") and "material_confirmed" in node.value)
+            with self.subTest(method=method.__name__):
+                self.assertEqual(db.execute(query.replace("%s", "?"), (1,)).fetchone()[-1], 1)
+
+
+class AdmMasterRecoveryRoutingTest(unittest.TestCase):
+    def repository(self, state="LEADER_DECISION", locators=None):
+        from contextlib import nullcontext
+        from data_report_api.services.admwf.policy import business_now
+        case = {"id": 1, "case_status": "ACTIVE", "master_recovery_status": state,
+                "coordinator_id": 9, "line_defaults_json": {"leaderId": 2},
+                "created_at": business_now(), "leader_first_action_at": business_now(),
+                "recovery_locators": locators}
+        class Cursor:
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def execute(self, sql, params):
+                if sql.startswith("UPDATE admwf_case SET master_recovery_status"):
+                    case["master_recovery_status"] = params[0]
+                    case["recovery_locators"] = params[1] or case["recovery_locators"]
+                    case["master_recovery_due_at"] = params[2]
+            def fetchone(self): return case
+        class Connection:
+            def cursor(self): return Cursor()
+        repo = AdmWorkflowRepository({})
+        repo.transaction = lambda: nullcontext(Connection())
+        repo._next_event_no = lambda *args: 1
+        repo.append_operation_log = lambda *args, **kwargs: None
+        repo.get_case = lambda *args, **kwargs: {"case": case}
+        repo.add_line = lambda *args, **kwargs: {"case": case, "lineAdded": True}
+        return repo
+
+    def test_needed_carries_locators_to_owner_before_countdown(self):
+        repo = self.repository()
+        result = repo.master_recovery(1, "request", {"id": 2, "name": "leader"}, locators="1G-5S75-ABC123,1A-BKK247-DEF456")
+        self.assertEqual(result["case"]["master_recovery_status"], "OWNER_RECOVERY")
+        self.assertEqual(result["case"]["recovery_locators"], "1G-5S75-ABC123,1A-BKK247-DEF456")
+        self.assertIsNone(result["case"]["master_recovery_due_at"])
+
+    def test_skip_adds_order_without_owner_recovery(self):
+        result = self.repository().master_recovery(1, "skip", {"id": 2, "name": "leader"}, locators="1G-5S75-ABC123", line={"pnr": "ABC123"})
+        self.assertEqual(result["case"]["master_recovery_status"], "NOT_REQUIRED")
+        self.assertTrue(result["lineAdded"])
+        self.assertIsNone(result["case"]["master_recovery_due_at"])
+
+    def test_owner_starts_only_with_saved_locators(self):
+        repo = self.repository("OWNER_RECOVERY", "1G-5S75-ABC123")
+        result = repo.master_recovery(1, "start", {"id": 9, "name": "owner"})
+        self.assertEqual(result["case"]["master_recovery_status"], "RECOVERING")
+        self.assertEqual(result["case"]["recovery_locators"], "1G-5S75-ABC123")
+        self.assertIsNotNone(result["case"]["master_recovery_due_at"])
+        with self.assertRaisesRegex(AdmError, "缺少"):
+            self.repository("OWNER_RECOVERY").master_recovery(1, "start", {"id": 9, "name": "owner"})
