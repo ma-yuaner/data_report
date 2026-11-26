@@ -194,6 +194,10 @@ export const annotationApi = {
   dataset: async (id: string, datasetId: string) =>
     (await http.get<ApiEnvelope<DatasetDetail>>(projectPath(id) + '/datasets/' + encodeURIComponent(datasetId))).data
       .data,
+  fewShot: async (id: string, datasetId: string) =>
+    (await http.get<Blob>(projectPath(id) + '/datasets/' + encodeURIComponent(datasetId) + '/few-shot', {
+      responseType: 'blob',
+    })).data,
   compareAdm: async (id: string, datasetId: string) =>
     (
       await http.get<ApiEnvelope<{ samples: Comparison[] }>>(

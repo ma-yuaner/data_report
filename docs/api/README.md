@@ -37,6 +37,7 @@
 | `GET` | `/api/v1/annotations/projects/<project_id>/datasets` | [annotation_datasets](../../backend/data_report_api/api/annotations.py) |
 | `POST` | `/api/v1/annotations/projects/<project_id>/datasets` | [annotation_publish](../../backend/data_report_api/api/annotations.py) |
 | `GET` | `/api/v1/annotations/projects/<project_id>/datasets/<dataset_id>` | [annotation_dataset](../../backend/data_report_api/api/annotations.py) |
+| `GET` | `/api/v1/annotations/projects/<project_id>/datasets/<dataset_id>/few-shot` | [annotation_few_shot](../../backend/data_report_api/api/annotations.py)，下载 UTF-8 JSONL，仅项目负责人和复核人可用 |
 | `GET` | `/api/v1/annotations/projects/<project_id>/datasets/<dataset_id>/compare-adm` | [annotation_compare_adm](../../backend/data_report_api/api/annotations.py) |
 | `POST` | `/api/v1/annotations/projects/<project_id>/import-adm` | [annotation_import_adm](../../backend/data_report_api/api/annotations.py) |
 | `GET` | `/api/v1/annotations/projects/<project_id>/samples` | [annotation_samples](../../backend/data_report_api/api/annotations.py) |

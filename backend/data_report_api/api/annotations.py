@@ -118,6 +118,16 @@ def register_routes(api):
     def annotation_dataset(service, project_id, dataset_id):
         return ok(service.dataset(project_id, dataset_id))
 
+    @api.get("/v1/annotations/projects/<project_id>/datasets/<dataset_id>/few-shot")
+    @handled
+    def annotation_few_shot(service, project_id, dataset_id):
+        response = send_file(
+            service.few_shot(project_id, dataset_id), as_attachment=True,
+            download_name=f"few-shot-{dataset_id}.jsonl", mimetype="application/x-ndjson", max_age=0,
+        )
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
+
     @api.get("/v1/annotations/projects/<project_id>/datasets/<dataset_id>/compare-adm")
     @handled
     def annotation_compare_adm(service, project_id, dataset_id):

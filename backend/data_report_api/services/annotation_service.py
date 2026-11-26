@@ -1,6 +1,7 @@
 """General data annotation workflow, isolated from operational ADM records."""
 import json
 import re
+from io import BytesIO
 from uuid import uuid4
 
 from .adm_parsing.service import ParsingService
@@ -572,11 +573,56 @@ class AnnotationService:
     def dataset(self, ident, release_id):
         with self.store.transaction() as conn:
             self.project_access(conn, ident, {"manager", "reviewer"})
-            row = self.store.one(conn, "SELECT payload FROM annotation_dataset WHERE id=? AND project_id=?",
-                                 (release_id, ident))
-            if not row:
-                problem("已发布数据集不存在", 404)
-            return json.loads(row["payload"])
+            return self.read_dataset(conn, ident, release_id)
+
+    def read_dataset(self, conn, ident, release_id):
+        row = self.store.one(conn, "SELECT payload FROM annotation_dataset WHERE id=? AND project_id=?",
+                             (release_id, ident))
+        if not row:
+            problem("已发布数据集不存在", 404)
+        return json.loads(row["payload"])
+
+    def few_shot(self, ident, release_id):
+        content = BytesIO()
+        with self.store.transaction() as conn:
+            self.project_access(conn, ident, {"manager", "reviewer"})
+            release = self.read_dataset(conn, ident, release_id)
+            for sample in release["samples"]:
+                row = self.store.sample(conn, sample["id"])
+                if not row or row["project_id"] != ident:
+                    problem("发布样本缺少原文，无法导出完整 Few-shot", 409, "ANNOTATION_SOURCE_MISSING")
+                # Segments are fixed on import. All annotations come from the published snapshot.
+                files = {file["id"]: {"name": file["name"], "segments": []} for file in sample["files"]}
+                for segment in json.loads(row["segments"]):
+                    source = files.get(segment["fileId"])
+                    if source is not None:
+                        source["segments"].append({"location": segment["locator"], "text": segment["text"]})
+                if not files or any(not file["segments"] for file in files.values()):
+                    problem("发布样本缺少原文，无法导出完整 Few-shot", 409, "ANNOTATION_SOURCE_MISSING")
+
+                labels = {label["id"]: label for label in sample["labels"]}
+                fields = {}
+                for mark in sample["marks"]:
+                    fields.setdefault(mark["labelId"], []).append(mark["quote"])
+                example = {
+                    "input": {
+                        "documents": list(files.values()),
+                        "labels": [{key: label[key] for key in ("name", "description", "scope")}
+                                   for label in labels.values()],
+                    },
+                    "output": {
+                        "title": sample["title"],
+                        "platform": sample["platform"],
+                        "fields": {labels[key]["name"]: list(dict.fromkeys(values)) for key, values in fields.items()},
+                        "documentLabels": [labels[key]["name"] for key in sample["fileLabels"]],
+                    },
+                }
+                line = (encode(example) + "\n").encode("utf-8")
+                if content.tell() + len(line) > 20 * 1024 * 1024:
+                    problem("Few-shot 文件超过 20 MB，请将样本分成较小的发布版本", 413, "ANNOTATION_SIZE")
+                content.write(line)
+        content.seek(0)
+        return content
 
     def compare_adm(self, ident, release_id):
         dataset = self.dataset(ident, release_id)

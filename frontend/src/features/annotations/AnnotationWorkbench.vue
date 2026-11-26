@@ -419,6 +419,8 @@
       <div class="toolbar version-tools">
         <a-button v-if="project?.role === 'manager'" type="primary" @click="openDialog('publish')">发布样本集</a-button>
       </div>
+      <p v-if="datasets.length" class="muted">Few-shot（JSONL）每行一份已复核样本，包含原件提取文本和人工标注。</p>
+      <a-alert v-if="exportError" type="error" show-icon :message="exportError" />
       <a-spin :spinning="datasetLoading">
         <a-empty v-if="!datasets.length" description="尚未发布样本版本" />
         <div v-for="item in datasets" :key="item.id" class="dataset-row">
@@ -430,7 +432,18 @@
             <a-button v-if="project?.kind === 'adm' && hasAdm" size="small" @click="compareDataset(item)"
               >对照 ADM 结果</a-button
             >
-            <a-button size="small" :loading="downloading === item.id" @click="exportDataset(item)">导出 JSON</a-button>
+            <a-button
+              size="small"
+              :loading="downloading === item.id + ':json'"
+              :disabled="!!downloading"
+              @click="exportDataset(item, 'json')"
+            >导出 JSON</a-button>
+            <a-button
+              size="small"
+              :loading="downloading === item.id + ':jsonl'"
+              :disabled="!!downloading"
+              @click="exportDataset(item, 'jsonl')"
+            >导出 Few-shot</a-button>
           </div>
         </div>
       </a-spin>
@@ -584,6 +597,7 @@ const publishLoading = ref(false)
 const publishPage = ref(1)
 const publishTotal = ref(0)
 const downloading = ref('')
+const exportError = ref('')
 const comparisonOpen = ref(false)
 const comparisonLoading = ref(false)
 const comparisonError = ref('')
@@ -1218,6 +1232,7 @@ async function openFromSummary(id: string) {
 
 async function showDatasets() {
   const id = projectId.value
+  exportError.value = ''
   datasetsOpen.value = true
   datasetLoading.value = true
   try {
@@ -1244,20 +1259,25 @@ async function loadPublishPage(next: number) {
   }
 }
 
-async function exportDataset(item: Dataset) {
-  downloading.value = item.id
+async function exportDataset(item: Dataset, format: 'json' | 'jsonl') {
+  if (downloading.value) return
+  const id = projectId.value
+  downloading.value = item.id + ':' + format
+  exportError.value = ''
   try {
-    const payload = await annotationApi.dataset(projectId.value, item.id)
-    const url = URL.createObjectURL(
-      new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' }),
-    )
+    const blob = format === 'jsonl'
+      ? await annotationApi.fewShot(id, item.id)
+      : new Blob([JSON.stringify(await annotationApi.dataset(id, item.id), null, 2)], {
+          type: 'application/json;charset=utf-8',
+        })
+    const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
     anchor.href = url
-    anchor.download = '标注样本集-' + item.id + '.json'
+    anchor.download = format === 'jsonl' ? 'few-shot-' + item.id + '.jsonl' : '标注样本集-' + item.id + '.json'
     anchor.click()
     window.setTimeout(() => URL.revokeObjectURL(url), 5000)
   } catch (reason) {
-    error.value = describe(reason)
+    if (id === projectId.value) exportError.value = describe(reason)
   } finally {
     downloading.value = ''
   }
@@ -1593,6 +1613,7 @@ kbd {
 }
 .dataset-row {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 10px;
   padding: 10px 0;
