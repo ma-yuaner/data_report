@@ -1,5 +1,5 @@
 {
-  "commit": "ceebbc84ebd2775d5ae3267362bfc10d916e5005",
+  "commit": "1e9d57745a019829a115ea519f1bb5f32c7e7da0",
   "files": {
     "backend/.dockerignore": "347d5a129fd71a0cc9942ce1c9b1479856421019704bc493cda6ed63afdf2692",
     "backend/Dockerfile": "9b8cf8d5e63309b131503de114dafd7b22e56a77341e4cc53d0827c7f3377e3f",
@@ -13,7 +13,7 @@
     "backend/data_report_api/api/admwf.py": "86d6e3d88191e0e1332d12523485e924a033e63c82c0d11e7f8dad0b13214049",
     "backend/data_report_api/api/airline_rebates.py": "e725755217da39eb125ba245b7b67d4a24e9fca2fde155f2d8db820460d71fd7",
     "backend/data_report_api/api/analysis.py": "1094e514972f6542a051abcc29506909f9e135ce86a6534905799358e90d4d1e",
-    "backend/data_report_api/api/annotations.py": "a7dc4c623c2cedb6c487b340cad7ccdc99fe7420e7a8502bc7f1e190c224a87d",
+    "backend/data_report_api/api/annotations.py": "6e751ad6a62920e84f39d08db646ddcf7f0a1701a3bf6f27725304f38f532a90",
     "backend/data_report_api/api/asset_inventory.py": "d4eec34d3e6932a95785d8a51cb34cad8a14e4e70a0608f7c975ef7f47f45717",
     "backend/data_report_api/api/change_sla.py": "5f64d811705cb652168a8ff98c007e51cdda7c30ce5fafa9ee33bbde7e883aba",
     "backend/data_report_api/api/common.py": "044a342a2660738cb71dc70902497a668a0a4f283d0b5d999bbfe40474410ba6",
@@ -73,7 +73,7 @@
     "backend/data_report_api/services/airline_rebates/store.py": "7a8d4f509bfa3eae8811d0348ae0c2005410dd8caed134ed3d8ee5d1cfa86e31",
     "backend/data_report_api/services/annotation_adm_compare.py": "4dca7e22d704dcef5897054b75d9f1cea5e1e59b63d6ae7485a4e10cd2ad77b3",
     "backend/data_report_api/services/annotation_evidence.py": "b3918b4c5eb1c65415c5c636e2ab1d7a6b85c18142c92b0cf19e9265fc5f0d07",
-    "backend/data_report_api/services/annotation_service.py": "8ae047bcb2aaf7feb9f2b565b45eb5a2fc46ad05290ca98d186c701af9534d30",
+    "backend/data_report_api/services/annotation_service.py": "ac9e63bfdfef59aa69c6a413d60a90f0f1939f5d96371c13f6e2a43d6aa9ef98",
     "backend/data_report_api/services/annotation_store.py": "0d7cfb91f72473f276546809b1035208998ede46f0999bc4728eff2b3cc5c6dd",
     "backend/data_report_api/services/asset_catalog.py": "9fb5aea0b2ae7bc52092ed43f654feff2e8fad67654a29bb7016ecc1c535ff09",
     "backend/data_report_api/services/asset_inventory.py": "9f0f01538b3c73ad4d0bfa1acb73419fd736a413e1fa106e82a74f0456d52eb8",
@@ -242,6 +242,7 @@
     "Comprehensive issue detail: the existing authenticated GET sorts by segment profit before pagination with allowlisted directions; startup, auth, worker, notification and write paths are unchanged.",
     "Airline-rebate: authenticated management-only task filing and snapshots, explicit ADM provider reuse, scheduled trial skip for model policies, and synthetic regression. No startup job, migration or automatic model call added.",
     "Airline rebate: versioned multi-scheme drafts and continuation page checks; deterministic HKG26003 rates; authenticated confirmation and snapshots only. Existing jobs and model transport are reused; no startup task or database migration.",
-    "Airline rebate: reduce model input and output for verified HKG26003 and retain safe provider failure diagnostics. No new startup work, retry automation, migration or network destination."
+    "Airline rebate: reduce model input and output for verified HKG26003 and retain safe provider failure diagnostics. No new startup work, retry automation, migration or network destination.",
+    "Annotation few-shot export reads immutable published labels and stored source text under existing manager/reviewer access. No application writes, startup changes, schema changes, or model calls."
   ]
 }
