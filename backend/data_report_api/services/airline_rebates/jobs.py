@@ -120,6 +120,7 @@ def retry(db, row):
         history = job.setdefault("attempts", [])
         history.append({key: job[key] for key in ("executionId", "stage", "error", "finishedAt") if key in job})
         job["executionId"] = uuid4().hex
+        job.pop("modelReceipt", None)
     job.pop("error", None)
     job.update(status="pending", stage="queued")
     _write(db, profile)
@@ -167,7 +168,9 @@ def _process(directory, config, logger, profile, raw):
             if stage == "reference" else "政策解析阶段执行失败，原件已保留。"
         )
         if "token" in job:
-            _checkpoint(directory, profile, stage, status="failed", error=message, finishedAt=stamp())
+            receipt = error.receipt if isinstance(error, ExtractionError) else None
+            diagnostics = {"modelReceipt": receipt} if receipt else {}
+            _checkpoint(directory, profile, stage, status="failed", error=message, finishedAt=stamp(), **diagnostics)
 
 
 def drain(directory, config, logger):

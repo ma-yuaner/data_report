@@ -21,7 +21,7 @@ from .policy import parse_policy
 
 LEGACY_VERSION = "rebate-policy-1"
 VERSION = "rebate-policy-2"
-PROMPT_VERSION = "rebate-policy-3"
+PROMPT_VERSION = "rebate-policy-4"
 KINDS = ("scope", "measurement", "reward", "exclusion", "exception", "tier", "information", "settlement")
 OPERATORS = ("eq", "in", "not_in", "between", "gte", "gt", "lte", "lt", "applies", "unrestricted")
 NULLABLE = {"type": ["string", "null"]}
@@ -31,6 +31,10 @@ _pdf_render = Lock()
 
 class ExtractionError(ValueError):
     """A safe error for the submission record."""
+
+    def __init__(self, message, *, receipt=None):
+        super().__init__(message)
+        self.receipt = receipt
 
 
 def record(fields):
@@ -88,12 +92,20 @@ def page_inputs(raw, config):
         pages = []
         text_size = image_size = layout_size = 0
         document = None
+        verified_rate_table = False
         try:
             for index, page in enumerate(reader.pages):
                 try:
                     text = page.extract_text() or ""
                 except (PdfReadError, ValueError, TypeError):
                     text = ""
+                if index == 0 and len(reader.pages) == 3 and is_hkg_source(text):
+                    try:
+                        parse_policy(BytesIO(raw))
+                    except (ValueError, PdfReadError):
+                        pass
+                    else:
+                        verified_rate_table = True
                 text_size += len(text)
                 if text_size > 100_000:
                     raise ExtractionError("PDF 正文超过单次解析上限，请拆分材料")
@@ -101,7 +113,11 @@ def page_inputs(raw, config):
                 visual = meaningful < 25 or bool(len(page.images)) or "\ufffd" in text or bool(re.search(
                     r"%|％|费率|档位|\brate\b|\btier\b| {3,}", text, re.I
                 ))
+                if verified_rate_table:
+                    visual = meaningful < 25 or "\ufffd" in text
                 item = {"page": index + 1, "text": text if meaningful >= 25 else "", "image": None}
+                if index == 0 and verified_rate_table:
+                    item["verifiedRateTable"] = True
                 if visual and item["text"]:
                     try:
                         layout = page.extract_text(extraction_mode="layout") or ""
@@ -188,7 +204,8 @@ def call_model(config, pages):
         "政策日期用ISO格式；未知留空。逐条提取适用、计档、奖励、排除、例外和档位，"
         "不得因无对应数据列或有歧义而省略。value保留业务条件；concept只填简短业务含义，禁止给SQL和物理字段。"
         "金额及费率用十进制字符串，百分数按4.5表示4.5%。跨表证据分别写；证据页码是字符串，"
-        "quote须逐字来自原件，region可描述图片中的位置，仅作待核候选。"
+        "quote逐字引用能够核对条款或表格单元格的最短片段。分开引用表头与数据行，避免重复整页。"
+        "region可描述图片中的位置，仅作待核候选。"
         "奖励表按表头逐列、数据逐行核对。每个独立费率单元格输出一条tier，包括合并单元格适用的全部范围。"
         "即使数字相同，各档位、舱位、航线或始发类别也不能去重；label与value写明这些条件。"
         "费率列名称与费率值同时绑定证据；layout辅助判读列，quote用页面原文片段。"
@@ -197,6 +214,12 @@ def call_model(config, pages):
         "另提取日期口径、结算依据、取整规则，保留计量不计奖及所有例外。"
         "未知档位边界的含端取unknown。不得根据常识补造。"
     )
+    if pages and pages[0].get("verifiedRateTable"):
+        system += (
+            "本次HKG26003第2页费率矩阵已由程序按原件核对，系统会在校验阶段补入36格。"
+            "只登记一套奖励方案，tablePages包含第2页，不输出kind为tier的费率格。"
+            "仍完整提取计量口径、航线定义、排除、例外、奖励公式、结算与评估条款。"
+        )
     if mode == "json_object":
         system += f"严格按照以下JSON Schema填齐键名与类型：{json.dumps(SCHEMA, ensure_ascii=False)}"
     content = []
@@ -226,21 +249,44 @@ def call_model(config, pages):
             raise ExtractionError("模型返回超出上限，请拆分合同后提交")
         response = strict_loads(raw)
         choice = response["choices"][0]
-        if choice.get("finish_reason") != "stop" or choice["message"].get("tool_calls"):
-            raise ExtractionError("模型未完整返回政策，请拆分材料后重新提交")
-        candidate = choice["message"]["content"]
-        if not isinstance(candidate, str):
-            raise ExtractionError("模型未返回可校验的 JSON 正文")
-        return candidate, {
+        reason = choice.get("finish_reason")
+        known_reasons = ("stop", "length", "content_filter", "tool_calls")
+        receipt = {
             "model": str(response.get("model") or model)[:120],
             "providerRequestId": str(request_id or response.get("id") or "")[:160],
             "responseSha256": sha256(raw).hexdigest(),
             "promptVersion": PROMPT_VERSION,
+            "finishReason": reason if reason in known_reasons else "unknown",
         }
+        usage = response.get("usage")
+        if isinstance(usage, dict):
+            receipt.update({
+                label: usage[key]
+                for key, label in (("prompt_tokens", "inputTokens"), ("completion_tokens", "outputTokens"))
+                if type(usage.get(key)) is int and usage[key] >= 0
+            })
+        if reason == "length":
+            raise ExtractionError("千问达到输出长度上限，未返回完整政策", receipt=receipt)
+        if reason == "content_filter":
+            raise ExtractionError("千问因内容过滤提前停止，请核对供应商回执", receipt=receipt)
+        if reason == "tool_calls" or choice["message"].get("tool_calls"):
+            raise ExtractionError("千问返回了意外的工具调用，未保存为政策", receipt=receipt)
+        if reason != "stop":
+            raise ExtractionError("千问返回未知结束状态，未保存为政策", receipt=receipt)
+        candidate = choice["message"]["content"]
+        if not isinstance(candidate, str):
+            raise ExtractionError("模型未返回可校验的 JSON 正文", receipt=receipt)
+        return candidate, receipt
     except HTTPError as error:
         raise ExtractionError(f"政策模型返回 HTTP {error.code}，可在核对配置后显式重试") from None
-    except (TimeoutError, URLError, OSError):
-        raise ExtractionError("政策模型连接失败或超时，本次未自动重发") from None
+    except TimeoutError:
+        raise ExtractionError("等待千问响应超时，本次未自动重发") from None
+    except URLError as error:
+        if isinstance(error.reason, TimeoutError):
+            raise ExtractionError("连接千问超时，本次未自动重发") from None
+        raise ExtractionError("连接千问失败，本次未自动重发") from None
+    except OSError:
+        raise ExtractionError("千问连接中断，本次未自动重发") from None
     except (KeyError, TypeError, IndexError, ValueError) as error:
         if isinstance(error, ExtractionError):
             raise
@@ -362,10 +408,13 @@ def validate_scheme_coverage(draft, page_count):
 HKG_ROUTE_COLUMNS = ("国际远程航线", "国际非远程航线", "地区非指定航线", "地区指定航线", "异地始发")
 
 
+def is_hkg_source(text):
+    return normalize(text).upper().startswith("HKG26003")
+
+
 def verify_hkg_rate_table(draft, raw, page_texts):
     number = draft["contract"]["number"] or ""
-    first_page = normalize(page_texts[0]) if page_texts else ""
-    if number.strip().upper() != "HKG26003" and not first_page.upper().startswith("HKG26003"):
+    if number.strip().upper() != "HKG26003" and not (page_texts and is_hkg_source(page_texts[0])):
         return draft
 
     try:

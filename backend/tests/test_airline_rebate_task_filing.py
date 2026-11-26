@@ -199,3 +199,27 @@ def test_scheme_coverage_rejects_incomplete_tables(bad_case, message):
         rule["kind"] = "scope"
     with pytest.raises(extraction.ExtractionError, match=message):
         extraction.validate_scheme_coverage(draft, 2)
+
+
+@pytest.mark.parametrize("reason, message", [
+    ("length", "达到输出长度上限"),
+    ("content_filter", "因内容过滤提前停止"),
+    ("tool_calls", "意外的工具调用"),
+])
+def test_incomplete_model_response_preserves_diagnostics(reason, message):
+    response = BytesIO(json.dumps({
+        "id": "response-id", "model": "test-qwen",
+        "choices": [{"finish_reason": reason, "message": {"content": None}}],
+        "usage": {"prompt_tokens": 123, "completion_tokens": 456},
+    }).encode())
+    response.headers = {}
+    config = {"TESTING": True, "AIRLINE_REBATE_MODEL_ENABLED": True,
+              "AIRLINE_REBATE_MODEL_URL": "http://localhost/chat",
+              "AIRLINE_REBATE_MODEL_NAME": "test-qwen", "AIRLINE_REBATE_MODEL_KEY": "test-only"}
+    with patch.object(extraction, "build_opener") as opener:
+        opener.return_value.open.return_value = response
+        with pytest.raises(extraction.ExtractionError, match=message) as raised:
+            extraction.call_model(config, [{"page": 1, "text": "Synthetic", "image": None}])
+    assert raised.value.receipt["finishReason"] == reason
+    assert raised.value.receipt["providerRequestId"] == "response-id"
+    assert raised.value.receipt["outputTokens"] == 456
