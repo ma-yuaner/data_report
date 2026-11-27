@@ -2232,11 +2232,38 @@ class SmartPlacementService:
         )
 
     def recall_policy(self, user: dict[str, Any], task_id: int, values: dict[str, Any]) -> dict[str, Any]:
+        return self._recall_policies(user, [(task_id, values.get("versionNo"))], values)[0]
+
+    def batch_recall_policies(self, user: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
+        targets = values.get("targets")
+        if not isinstance(targets, list) or not 1 <= len(targets) <= 100:
+            raise ValueError("请选择1至100条收回任务")
+        versions = {}
+        for target in targets:
+            if not isinstance(target, dict):
+                raise ValueError("批量收回任务编号不正确或重复")
+            task_id = target.get("id")
+            if type(task_id) is not int or task_id <= 0 or task_id in versions:
+                raise ValueError("批量收回任务编号不正确或重复")
+            versions[task_id] = target.get("versionNo")
+        action = values.get("action")
+        if action not in ("approve", "reject", "confirm"):
+            raise ValueError("不支持的批量收回操作")
+        expected_status = values.get("status")
+        valid_statuses = ("PENDING_RECALL",) if action == "confirm" else RECALL_REVIEW_STAGES
+        if not isinstance(expected_status, str) or expected_status not in valid_statuses:
+            raise ValueError("请选择同一阶段且可执行该操作的收回任务")
+        results = self._recall_policies(user, sorted(versions.items()), values, expected_status=expected_status)
+        return {"count": len(results), "status": results[0]["status"]}
+
+    def _recall_policies(
+        self, user: dict[str, Any], targets: list[tuple[int, Any]], values: dict[str, Any],
+        *, expected_status: str | None = None,
+    ) -> list[dict[str, Any]]:
         action = values.get("action")
         if action not in ("request", "approve", "reject", "confirm"):
             raise ValueError("不支持的政策收回操作")
-        version = values.get("versionNo")
-        if type(version) is not int or version < 0:
+        if any(type(version) is not int or version < 0 for _, version in targets):
             raise ValueError("请刷新投放政策列表后重试")
         actor = _actor(user)
         if action == "request":
@@ -2249,49 +2276,54 @@ class SmartPlacementService:
         connection = cursor = None
         try:
             connection = self.source.connect(); connection.begin(); cursor = connection.cursor()
-            task = self._task_for_update(cursor, task_id)
-            assignee = int(task.get("current_assignee_id") or 0)
-            if action == "confirm" and actor[0] != assignee:
-                raise PermissionError("只有原认领人可以确认收回")
-            if action == "request" and not _is_admin(user) and actor[0] != assignee:
-                raise PermissionError("只有原认领人可以申请收回该政策")
-            if task["version_no"] != version:
-                raise ValueError("任务已变更，请刷新列表后重试")
-            old_status = task["status"]
-            closed_at = task.get("closed_at")
-            if action == "request":
-                if old_status != "MONITORING" or not assignee:
-                    raise ValueError("只有已有认领人的监控中政策可以申请收回")
-                new_status, log_action = "PENDING_RECALL_REVIEW", "RECALL_REQUEST"
-            elif action in ("approve", "reject"):
-                if old_status not in RECALL_REVIEW_STAGES:
-                    raise ValueError("该政策当前没有待审核的收回申请")
-                permission, review_stage, approved_status = RECALL_REVIEW_STAGES[old_status]
-                _require_permission(user, permission, "当前账号没有此阶段的收回审核权限")
-                approved = action == "approve"
-                new_status = approved_status if approved else "MONITORING"
-                log_action = f"{review_stage}_{'APPROVE' if approved else 'REJECT'}"
-                cursor.execute(
-                    f"""INSERT INTO {self._table(REVIEW_TABLE)}
-                        (task_id,review_stage,review_result,review_comment,reviewer_id,reviewer_name,reviewer_role_snapshot,created_at)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
-                    (task_id, review_stage, "APPROVED" if approved else "REJECTED", note or None, actor[0], actor[1], actor[2], now),
-                )
-            else:
-                if old_status != "PENDING_RECALL":
-                    raise ValueError("该政策当前不在待收回状态")
-                self._disable_task_monitoring(cursor, task_id, actor, now)
-                new_status, log_action, closed_at = "RECALLED", "RECALL_CONFIRM", now
+            results = []
+            for task_id, version in targets:
+                task = self._task_for_update(cursor, task_id)
+                assignee = int(task.get("current_assignee_id") or 0)
+                if action == "confirm" and actor[0] != assignee:
+                    raise PermissionError("只有原认领人可以确认收回")
+                if action == "request" and not _is_admin(user) and actor[0] != assignee:
+                    raise PermissionError("只有原认领人可以申请收回该政策")
+                if task["version_no"] != version:
+                    raise ValueError("任务已变更，请刷新列表后重试")
+                old_status = task["status"]
+                if expected_status is not None and old_status != expected_status:
+                    raise ValueError("任务阶段已变更，请刷新列表后重试")
+                closed_at = task.get("closed_at")
+                if action == "request":
+                    if old_status != "MONITORING" or not assignee:
+                        raise ValueError("只有已有认领人的监控中政策可以申请收回")
+                    new_status, log_action = "PENDING_RECALL_REVIEW", "RECALL_REQUEST"
+                elif action in ("approve", "reject"):
+                    if old_status not in RECALL_REVIEW_STAGES:
+                        raise ValueError("该政策当前没有待审核的收回申请")
+                    permission, review_stage, approved_status = RECALL_REVIEW_STAGES[old_status]
+                    _require_permission(user, permission, "当前账号没有此阶段的收回审核权限")
+                    approved = action == "approve"
+                    new_status = approved_status if approved else "MONITORING"
+                    log_action = f"{review_stage}_{'APPROVE' if approved else 'REJECT'}"
+                    cursor.execute(
+                        f"""INSERT INTO {self._table(REVIEW_TABLE)}
+                            (task_id,review_stage,review_result,review_comment,reviewer_id,reviewer_name,reviewer_role_snapshot,created_at)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        (task_id, review_stage, "APPROVED" if approved else "REJECTED", note or None, actor[0], actor[1], actor[2], now),
+                    )
+                else:
+                    if old_status != "PENDING_RECALL":
+                        raise ValueError("该政策当前不在待收回状态")
+                    self._disable_task_monitoring(cursor, task_id, actor, now)
+                    new_status, log_action, closed_at = "RECALLED", "RECALL_CONFIRM", now
 
-            cursor.execute(
-                f"""UPDATE {self._table(TASK_TABLE)} SET status=%s,closed_at=%s,
-                    updated_by_id=%s,updated_by_name=%s,version_no=version_no+1,updated_at=%s WHERE id=%s""",
-                (new_status, closed_at, actor[0], actor[1], now, task_id),
-            )
-            self._log(cursor, task_id=task_id, action=log_action, actor=actor,
-                      from_status=old_status, to_status=new_status, note=note or None)
+                cursor.execute(
+                    f"""UPDATE {self._table(TASK_TABLE)} SET status=%s,closed_at=%s,
+                        updated_by_id=%s,updated_by_name=%s,version_no=version_no+1,updated_at=%s WHERE id=%s""",
+                    (new_status, closed_at, actor[0], actor[1], now, task_id),
+                )
+                self._log(cursor, task_id=task_id, action=log_action, actor=actor,
+                          from_status=old_status, to_status=new_status, note=note or None)
+                results.append({"id": task_id, "status": new_status})
             connection.commit()
-            return {"id": task_id, "status": new_status}
+            return results
         except (ValueError, PermissionError):
             if connection is not None: connection.rollback()
             raise

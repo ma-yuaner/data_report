@@ -48,12 +48,16 @@
         </div>
       </div>
       <div v-if="selectedReviewRows.length" class="batch-action-bar">
-        <div><strong>已选择 {{ selectedReviewRows.length }} 项</strong><span>批量审核只允许选择同一审核阶段，结果及调整内容会统一应用。</span></div>
+        <div><strong>已选择 {{ selectedReviewRows.length }} 项</strong><span>请选择同一类型、同一阶段的任务，审核结果会统一应用。</span></div>
         <a-space><a-button @click="clearReviewSelection">清空选择</a-button><a-button type="primary" @click="openBatchReview">批量审核</a-button></a-space>
       </div>
       <div v-if="selectedPolicyRows.length" class="batch-action-bar">
         <div><strong>已选择 {{ selectedPolicyRows.length }} 条已投放政策</strong><span>选择需要修改的字段，逐条预览后整批确认；不自动下发外部系统。</span></div>
         <a-space><a-button @click="clearReviewSelection">清空选择</a-button><a-button type="primary" @click="openPolicyChange(selectedPolicyRows)">批量修改</a-button></a-space>
+      </div>
+      <div v-if="selectedRecallRows.length" class="batch-action-bar">
+        <div><strong>已选择 {{ selectedRecallRows.length }} 条待收回政策</strong><span>请确认所选政策已在外部收回。</span></div>
+        <a-space><a-button @click="clearReviewSelection">清空选择</a-button><a-button type="primary" @click="openBatchRecallConfirm">批量确认收回</a-button></a-space>
       </div>
       <a-table :loading="loading" :columns="columns" :data-source="data?.rows || []" row-key="id" :row-selection="reviewRowSelection" :pagination="pagination" :scroll="{ x: 1500 }" :sticky="{ offsetHeader: 64 }" @change="changePage">
         <template #bodyCell="{ column, record }">
@@ -269,9 +273,14 @@
 
     <a-modal :open="!!recallDialog" :title="recallTitle" :footer="null" :mask-closable="false" :closable="!recallSaving" @cancel="closeRecall">
       <template v-if="recallDialog">
-        <p>{{ recallDialog.row.opportunityName }}（{{ recallDialog.row.taskNo }}）</p>
+        <p v-if="recallDialog.rows.length > 1">本次共{{ recallDialog.mode === 'confirm' ? '确认收回' : '审核' }} {{ recallDialog.rows.length }} 项</p>
+        <p v-else>{{ recallDialog.rows[0].opportunityName }}（{{ recallDialog.rows[0].taskNo }}）</p>
         <a-spin :spinning="recallLoading">
-          <p v-if="recallDialog.mode !== 'request'"><strong>收回理由：</strong>{{ recallReason }}</p>
+          <div v-if="recallDialog.mode !== 'request'" style="max-height: 240px; overflow-y: auto">
+            <p v-for="(reason, index) in recallReasons" :key="recallDialog.rows[index].id">
+              <strong>{{ recallDialog.rows.length > 1 ? recallDialog.rows[index].taskNo : '收回理由' }}：</strong>{{ reason }}
+            </p>
+          </div>
           <PlacementField v-if="recallDialog.mode === 'request'" label="收回理由" required><a-textarea v-model:value="recallNote" :rows="4" :maxlength="1000" show-count /></PlacementField>
           <PlacementField v-if="recallDialog.mode === 'review'" label="审核意见" hint="驳回时必填"><a-textarea v-model:value="recallNote" :rows="3" :maxlength="1000" show-count /></PlacementField>
           <p v-if="recallDialog.mode === 'confirm'">请确认已收回外部政策。确认后停止本系统的后续订单匹配，并记录确认人及时间。</p>
@@ -279,10 +288,10 @@
         <div class="dialog-actions">
           <a-button :disabled="recallSaving" @click="closeRecall">取消</a-button>
           <template v-if="recallDialog.mode === 'review'">
-            <a-button danger :disabled="recallLoading || recallSaving || !recallReason" @click="submitRecall('reject')">驳回</a-button>
-            <a-button type="primary" :disabled="recallLoading || !recallReason" :loading="recallSaving" @click="submitRecall('approve')">审核通过</a-button>
+            <a-button danger :disabled="recallLoading || recallSaving || !recallReasons.length" @click="submitRecall('reject')">驳回</a-button>
+            <a-button type="primary" :disabled="recallLoading || !recallReasons.length" :loading="recallSaving" @click="submitRecall('approve')">审核通过</a-button>
           </template>
-          <a-button v-else type="primary" :loading="recallSaving" :disabled="recallLoading || (recallDialog.mode === 'confirm' && !recallReason)" @click="submitRecall(recallDialog.mode)">{{ recallDialog.mode === 'request' ? '提交审核' : '已确认收回' }}</a-button>
+          <a-button v-else type="primary" :loading="recallSaving" :disabled="recallLoading || (recallDialog.mode === 'confirm' && !recallReasons.length)" @click="submitRecall(recallDialog.mode)">{{ recallDialog.mode === 'request' ? '提交审核' : '已确认收回' }}</a-button>
         </div>
       </template>
     </a-modal>
@@ -473,7 +482,7 @@ import { usePlacementDimensions } from '@/composables/usePlacementDimensions'
 import OpportunityImportDialog from '@/components/OpportunityImportDialog.vue'
 import PlacementRouteDiagnosis from '@/components/PlacementRouteDiagnosis.vue'
 import {
-  batchReviewPlacementTasks, cancelPlacementTask, claimPlacementTask, createPlacementEffectReview, createPlacementTask, deletePlacementTask, executePlacementTask, fetchPlacementTask, fetchPlacementTaskMonitoring,
+  batchPlacementRecalls, batchReviewPlacementTasks, cancelPlacementTask, claimPlacementTask, createPlacementEffectReview, createPlacementTask, deletePlacementTask, executePlacementTask, fetchPlacementTask, fetchPlacementTaskMonitoring,
   fetchPlacementDimensions, fetchPlacementTasks, recallPlacementPolicy, reviewPlacementTask, updatePlacementTask,
   stopPlacementMonitoring, withdrawPlacementTask,
   type PlacementDimensionOptions, type PlacementPriority, type PlacementRecallAction,
@@ -515,12 +524,18 @@ const approvedExecutionForm = ref<Record<string, any>>({})
 const editingVersion = ref<number>()
 const detail = ref<PlacementTaskDetail>()
 type RecallMode = 'request' | 'review' | 'confirm'
-const recallDialog = ref<{ row: PlacementTaskRow; mode: RecallMode }>()
+const recallDialog = ref<{ rows: PlacementTaskRow[]; mode: RecallMode }>()
 const recallNote = ref('')
-const recallReason = ref('')
+const recallReasons = ref<string[]>([])
 const recallLoading = ref(false)
 const recallSaving = ref(false)
-const recallTitle = computed(() => ({ request: '收回政策', review: recallDialog.value?.row.status === 'PENDING_RECALL_REVIEW' ? '收回申请 · 数据审核' : '收回申请 · 政策审核', confirm: '确认政策已收回' })[recallDialog.value?.mode || 'request'])
+const recallTitle = computed(() => {
+  const dialog = recallDialog.value
+  if (dialog?.mode === 'confirm') return dialog.rows.length > 1 ? '批量确认政策已收回' : '确认政策已收回'
+  if (dialog?.mode !== 'review') return '收回政策'
+  const stage = dialog.rows[0].status === 'PENDING_RECALL_REVIEW' ? '数据审核' : '政策审核'
+  return `${dialog.rows.length > 1 ? '批量审核收回' : '收回申请'} · ${stage}`
+})
 const monitoring = ref<PlacementTaskMonitoring>()
 const activeTask = ref<PlacementTaskRow>()
 const selectedReviewTaskIds = ref<number[]>([])
@@ -627,17 +642,32 @@ const columns = [
   { title: '预估价值', key: 'estimate', width: 150 }, { title: '优先级', key: 'priority', width: 90 }, { title: '状态', key: 'status', width: 120 },
   { title: '负责人', key: 'owner', width: 110 }, { title: '截止时间', key: 'due', width: 155 }, { title: '操作', key: 'action', width: 350, fixed: 'right' as const },
 ]
-const selectedReviewRows = computed(() => (data.value?.rows || []).filter(row => selectedReviewTaskIds.value.includes(row.id) && isReviewable(row)))
+const selectedReviewRows = computed(() => (data.value?.rows || []).filter(row => selectedReviewTaskIds.value.includes(row.id) && (isReviewable(row) || canReviewRecall(row))))
 const selectedPolicyRows = computed(() => (data.value?.rows || []).filter(row => selectedReviewTaskIds.value.includes(row.id) && canChangePolicy(row)))
+const selectedRecallRows = computed(() => (data.value?.rows || []).filter(row => selectedReviewTaskIds.value.includes(row.id) && canBatchConfirmRecall(row)))
 const batchReviewMode = computed(() => batchReviewRows.value.length > 0)
-const reviewRowSelection = computed(() => canReviewData.value || canReviewPolicy.value || canExecuteTasks.value ? {
+const reviewRowSelection = computed(() => canReviewData.value || canReviewPolicy.value || canExecuteTasks.value || canClaimTasks.value ? {
   selectedRowKeys: selectedReviewTaskIds.value,
+  hideSelectAll: workScope.value !== 'recall' && new Set((data.value?.rows || []).map(row =>
+    canBatchConfirmRecall(row) ? 'confirm' : canChangePolicy(row) ? 'change' : isReviewable(row) || canReviewRecall(row) ? row.status : '',
+  ).filter(Boolean)).size > 1,
   onChange: (keys: (string | number)[]) => {
-    const selected = (data.value?.rows || []).filter(row => keys.map(Number).includes(row.id))
+    const ids = keys.map(Number)
+    const selected = (data.value?.rows || []).filter(row => ids.includes(row.id))
+    if (selected.some(canBatchConfirmRecall) && !selected.every(canBatchConfirmRecall)) { message.warning('待收回政策请单独勾选'); return }
     if (selected.some(row => row.status === 'MONITORING') && selected.some(row => row.status !== 'MONITORING')) { message.warning('审核任务与已投放政策请分开勾选'); return }
-    selectedReviewTaskIds.value = keys.map(Number)
+    selectedReviewTaskIds.value = ids
   },
-  getCheckboxProps: (record: PlacementTaskRow) => ({ disabled: selectedPolicyRows.value.length ? !canChangePolicy(record) : selectedReviewRows.value.length ? !isReviewable(record) : !isReviewable(record) && !canChangePolicy(record), name: record.taskNo }),
+  getCheckboxProps: (record: PlacementTaskRow) => {
+    const reviewable = isReviewable(record) || canReviewRecall(record)
+    const confirmable = canBatchConfirmRecall(record)
+    const changeable = canChangePolicy(record)
+    const disabled = selectedRecallRows.value.length ? !confirmable
+      : selectedPolicyRows.value.length ? !changeable
+      : selectedReviewRows.value.length ? !reviewable
+      : !reviewable && !changeable && !confirmable
+    return { disabled, name: record.taskNo }
+  },
 } : undefined)
 const pagination = computed(() => ({ current: page.value, pageSize: pageSize.value, total: data.value?.total || 0, showSizeChanger: true, showTotal: (total: number) => `共 ${number(total)} 项` }))
 const formatter = new Intl.NumberFormat('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -1037,19 +1067,28 @@ const canReviewRecall = (row: PlacementTaskRow) => row.status === 'PENDING_RECAL
   ? canReviewData.value
   : row.status === 'PENDING_RECALL_POLICY_REVIEW' && canReviewPolicy.value
 const canConfirmRecall = (row: PlacementTaskRow) => (canClaimTasks.value || canExecuteTasks.value) && row.status === 'PENDING_RECALL' && row.currentAssigneeId === authStore.user?.id
+const canBatchConfirmRecall = (row: PlacementTaskRow) => (workScope.value === 'all' || workScope.value === 'recall') && canConfirmRecall(row)
 async function openRecall(row: PlacementTaskRow, mode: RecallMode) {
-  const dialog = { row, mode }
-  recallDialog.value = dialog
+  await openRecallDialog([row], mode)
+}
+async function openRecallDialog(rows: PlacementTaskRow[], mode: RecallMode) {
+  recallDialog.value = { rows, mode }
   recallNote.value = ''
-  recallReason.value = ''
+  recallReasons.value = []
   recallLoading.value = mode !== 'request'
   if (mode === 'request') return
   const opened = recallDialog.value
   try {
-    const taskDetail = await fetchPlacementTask(row.id)
+    const reasons = await Promise.all(rows.map(async row => {
+      const taskDetail = await fetchPlacementTask(row.id)
+      return taskDetail.logs.find(log => log.actionCode === 'RECALL_REQUEST')?.operationNote || ''
+    }))
     if (recallDialog.value !== opened) return
-    recallReason.value = taskDetail.logs.find(log => log.actionCode === 'RECALL_REQUEST')?.operationNote || ''
-    if (!recallReason.value) message.error('未读取到收回理由，请刷新列表后重试')
+    if (reasons.some(reason => !reason)) {
+      message.error('未读取到收回理由，请刷新列表后重试')
+      return
+    }
+    recallReasons.value = reasons
   } catch (failure) {
     if (recallDialog.value === opened) message.error(failure instanceof Error ? failure.message : '读取收回申请失败')
   } finally {
@@ -1060,8 +1099,10 @@ function closeRecall() {
   if (!recallSaving.value) recallDialog.value = undefined
 }
 async function submitRecall(action: PlacementRecallAction) {
-  const row = recallDialog.value?.row
-  if (!row || recallSaving.value || recallLoading.value) return
+  const dialog = recallDialog.value
+  if (!dialog || recallSaving.value || recallLoading.value) return
+  const { rows } = dialog
+  const row = rows[0]
   const note = recallNote.value.trim()
   if ((action === 'request' || action === 'reject') && !note) {
     message.warning(action === 'request' ? '请填写收回理由' : '请填写驳回意见')
@@ -1069,12 +1110,17 @@ async function submitRecall(action: PlacementRecallAction) {
   }
   recallSaving.value = true
   try {
-    const result = await recallPlacementPolicy(row.id, action, note, row.versionNo)
+    const batch = rows.length > 1 && action !== 'request'
+    const result = batch
+      ? await batchPlacementRecalls(rows, action, note)
+      : await recallPlacementPolicy(row.id, action, note, row.versionNo)
     recallDialog.value = undefined
+    if (batch) clearReviewSelection()
     message.success(({ request: '收回申请已提交数据审核', approve: result.status === 'PENDING_RECALL_POLICY_REVIEW' ? '数据审核通过，已流转到政策审核' : '政策审核通过，等待原认领人确认收回', reject: '收回申请已驳回', confirm: '政策已确认收回' })[action])
-    const nextPage = data.value?.rows.length === 1 && page.value > 1 && workScope.value !== 'all' ? page.value - 1 : page.value
+    const nextPage = data.value?.rows.length === rows.length && page.value > 1 && workScope.value !== 'all' ? page.value - 1 : page.value
     await load(nextPage)
-    if (detailOpen.value && detail.value?.task.id === row.id) await openDetail(row)
+    const detailRow = rows.find(item => item.id === detail.value?.task.id)
+    if (detailOpen.value && detailRow) await openDetail(detailRow)
   } catch (failure) {
     message.error(failure instanceof Error ? failure.message : '收回操作失败')
   } finally {
@@ -1089,12 +1135,23 @@ function openReview(row: PlacementTaskRow) {
   reviewOpen.value = true
 }
 function clearReviewSelection() { selectedReviewTaskIds.value = [] }
+function openBatchRecallConfirm() {
+  const rows = selectedRecallRows.value
+  if (!rows.length) return
+  if (rows.length > 100) { message.warning('单次最多确认收回100条政策'); return }
+  void openRecallDialog(rows, 'confirm')
+}
 function openBatchReview() {
   const rows = selectedReviewRows.value
   if (!rows.length) { message.warning('请先选择需要审核的任务'); return }
   const statuses = new Set(rows.map(row => row.status))
   if (statuses.size !== 1) { message.warning('一次只能批量审核同一审核阶段的任务'); return }
   const status = rows[0]?.status
+  if (canReviewRecall(rows[0])) {
+    if (rows.length > 100) { message.warning('单次最多批量审核100条任务'); return }
+    void openRecallDialog(rows, 'review')
+    return
+  }
   if (status !== 'PENDING_DATA_REVIEW' && status !== 'PENDING_POLICY_REVIEW') { message.warning('所选任务当前不可审核'); return }
   activeTask.value = undefined
   batchReviewRows.value = [...rows]

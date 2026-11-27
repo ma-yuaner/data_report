@@ -167,6 +167,17 @@ def register_routes(api: Blueprint) -> None:
         except SmartPlacementUnavailable as error:
             return jsonify({"success": False, "message": str(error), "data": None}), 503
 
+    @api.post("/v1/smart-placement/tasks/recall/batch")
+    def batch_recall_smart_placement_tasks():
+        try:
+            return ok(SmartPlacementService(current_app.config).batch_recall_policies(g.current_user, json_body()))
+        except PermissionError as error:
+            return jsonify({"success": False, "message": str(error), "data": None}), 403
+        except ValueError as error:
+            return jsonify({"success": False, "message": str(error), "data": None}), 400
+        except SmartPlacementUnavailable as error:
+            return jsonify({"success": False, "message": str(error), "data": None}), 503
+
     @api.post("/v1/smart-placement/tasks/<int:task_id>/reviews")
     def review_smart_placement_task(task_id: int):
         try:

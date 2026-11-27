@@ -308,6 +308,16 @@ export async function recallPlacementPolicy(id: number, action: PlacementRecallA
   if (!response.data.success) throw new Error(response.data.message)
   return response.data.data
 }
+export async function batchPlacementRecalls(rows: PlacementTaskRow[], action: Exclude<PlacementRecallAction, 'request'>, reason: string) {
+  const response = await http.post<ApiEnvelope<{ count: number; status: PlacementTaskStatus }>>('/v1/smart-placement/tasks/recall/batch', {
+    targets: rows.map(({ id, versionNo }) => ({ id, versionNo })),
+    status: rows[0].status,
+    action,
+    reason,
+  })
+  if (!response.data.success) throw new Error(response.data.message)
+  return response.data.data
+}
 export async function fetchPlacementDimensions() {
   const response = await http.get<ApiEnvelope<PlacementDimensionOptions>>('/v1/smart-placement/dimensions')
   if (!response.data.success) throw new Error(response.data.message)
