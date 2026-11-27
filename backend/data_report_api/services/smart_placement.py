@@ -73,8 +73,8 @@ PERMISSION_ORDER_ATTENTION = "smart_placement.orders.attention"
 PERMISSION_STOP = "smart_placement.stop"
 PERMISSION_EFFECT_REVIEW = "smart_placement.effect_review"
 RECALL_REVIEW_STAGES = {
-    "PENDING_RECALL_REVIEW": ("DATA_MANAGER", PERMISSION_REVIEW_DATA, "RECALL_DATA", "PENDING_RECALL_POLICY_REVIEW"),
-    "PENDING_RECALL_POLICY_REVIEW": ("POLICY_MANAGER", PERMISSION_REVIEW_POLICY, "RECALL_POLICY", "PENDING_RECALL"),
+    "PENDING_RECALL_REVIEW": (PERMISSION_REVIEW_DATA, "RECALL_DATA", "PENDING_RECALL_POLICY_REVIEW"),
+    "PENDING_RECALL_POLICY_REVIEW": (PERMISSION_REVIEW_POLICY, "RECALL_POLICY", "PENDING_RECALL"),
 }
 
 
@@ -670,22 +670,6 @@ class SmartPlacementService:
             raise ValueError("投放任务不存在")
         return row
 
-    def _recall_reviewer(self, task_id_sql: str, stage: str) -> str:
-        return (
-            f"(SELECT rv.reviewer_id FROM {self._table(REVIEW_TABLE)} rv WHERE rv.task_id={task_id_sql} "
-            f"AND rv.review_stage='{stage}' AND rv.review_result='APPROVED' ORDER BY rv.id DESC LIMIT 1)"
-        )
-
-    def _recall_review_conditions(self, user, alias):
-        conditions = []
-        params = []
-        for status, (stage, permission, _, _) in RECALL_REVIEW_STAGES.items():
-            if _has_permission(user, permission):
-                reviewer = self._recall_reviewer(f"{alias}.id", stage)
-                conditions.append(f"({alias}.status='{status}' AND {reviewer}=%s)")
-                params.append(int(user.get("id") or 0))
-        return conditions, params
-
     def _visibility_condition(self, user: dict[str, Any], alias: str = "t") -> tuple[str, list[Any]]:
         if _is_admin(user):
             return "1=1", []
@@ -715,17 +699,14 @@ class SmartPlacementService:
             clauses.append(f"{alias}.status IN ('PENDING_DATA_REVIEW','PENDING_POLICY_REVIEW','CLAIMABLE')")
         if workflow_scope and PERMISSION_REVIEW_DATA in permissions:
             clauses.append(
-                f"({alias}.status='PENDING_DATA_REVIEW' OR EXISTS (SELECT 1 FROM {self._table(REVIEW_TABLE)} rv WHERE rv.task_id={alias}.id AND rv.review_stage='DATA_MANAGER' AND rv.reviewer_id=%s))"
+                f"({alias}.status IN ('PENDING_DATA_REVIEW','PENDING_RECALL_REVIEW') OR EXISTS (SELECT 1 FROM {self._table(REVIEW_TABLE)} rv WHERE rv.task_id={alias}.id AND rv.review_stage='DATA_MANAGER' AND rv.reviewer_id=%s))"
             )
             params.append(actor_id)
         if workflow_scope and PERMISSION_REVIEW_POLICY in permissions:
             clauses.append(
-                f"({alias}.status='PENDING_POLICY_REVIEW' OR EXISTS (SELECT 1 FROM {self._table(REVIEW_TABLE)} rv WHERE rv.task_id={alias}.id AND rv.review_stage='POLICY_MANAGER' AND rv.reviewer_id=%s))"
+                f"({alias}.status IN ('PENDING_POLICY_REVIEW','PENDING_RECALL_POLICY_REVIEW') OR EXISTS (SELECT 1 FROM {self._table(REVIEW_TABLE)} rv WHERE rv.task_id={alias}.id AND rv.review_stage='POLICY_MANAGER' AND rv.reviewer_id=%s))"
             )
             params.append(actor_id)
-        recall_conditions, recall_params = self._recall_review_conditions(user, alias)
-        clauses.extend(recall_conditions)
-        params.extend(recall_params)
         if scope_type == "MANAGED":
             clauses.append(
                 f"EXISTS (SELECT 1 FROM {self._table(MANAGER_RELATION_TABLE)} mr "
@@ -793,8 +774,6 @@ class SmartPlacementService:
         params: list[Any] = list(visibility_params)
         if status == "ENDED":
             where.append("t.status IN ('ENDED','RECALLED')")
-        elif status == "PENDING_RECALL_REVIEW":
-            where.append("t.status IN ('PENDING_RECALL_REVIEW','PENDING_RECALL_POLICY_REVIEW')")
         elif status:
             where.append("t.status=%s"); params.append(status)
         if keyword:
@@ -809,16 +788,10 @@ class SmartPlacementService:
             where.append("t.current_assignee_name=%s"); params.append(_text(owner, "负责人", 100))
         if scope == "review":
             review_conditions: list[str] = []
-            if _is_admin(user) or _has_permission(user, PERMISSION_REVIEW_DATA):
-                review_conditions.append("t.status='PENDING_DATA_REVIEW'")
-            if _is_admin(user) or _has_permission(user, PERMISSION_REVIEW_POLICY):
-                review_conditions.append("t.status='PENDING_POLICY_REVIEW'")
-            if _is_admin(user):
-                review_conditions.extend(f"t.status='{status}'" for status in RECALL_REVIEW_STAGES)
-            else:
-                recall_conditions, recall_params = self._recall_review_conditions(user, "t")
-                review_conditions.extend(recall_conditions)
-                params.extend(recall_params)
+            if _has_permission(user, PERMISSION_REVIEW_DATA):
+                review_conditions.append("t.status IN ('PENDING_DATA_REVIEW','PENDING_RECALL_REVIEW')")
+            if _has_permission(user, PERMISSION_REVIEW_POLICY):
+                review_conditions.append("t.status IN ('PENDING_POLICY_REVIEW','PENDING_RECALL_POLICY_REVIEW')")
             where.append(f"({' OR '.join(review_conditions)})" if review_conditions else "1=0")
         elif scope == "claim":
             where.append("t.status='CLAIMABLE'" if _has_permission(user, PERMISSION_CLAIM) else "1=0")
@@ -891,10 +864,7 @@ class SmartPlacementService:
                        estimated_month_profit_cny, priority, status,
                        current_assignee_id, current_assignee_name, expected_complete_at,
                        created_by_id, created_by_name,
-                       created_at, updated_at, version_no,
-                       CASE WHEN t.status='PENDING_RECALL_REVIEW' THEN {self._recall_reviewer('t.id', 'DATA_MANAGER')}
-                            WHEN t.status='PENDING_RECALL_POLICY_REVIEW' THEN {self._recall_reviewer('t.id', 'POLICY_MANAGER')}
-                       END AS recall_reviewer_id
+                       created_at, updated_at, version_no
                 FROM {self._table(TASK_TABLE)} t
                 WHERE {condition}
                 ORDER BY FIELD(priority,'HIGH','MEDIUM','LOW'),
@@ -2292,23 +2262,12 @@ class SmartPlacementService:
             if action == "request":
                 if old_status != "MONITORING" or not assignee:
                     raise ValueError("只有已有认领人的监控中政策可以申请收回")
-                cursor.execute(
-                    f"SELECT {self._recall_reviewer('%s', 'DATA_MANAGER')} AS data_reviewer, "
-                    f"{self._recall_reviewer('%s', 'POLICY_MANAGER')} AS policy_reviewer",
-                    (task_id, task_id),
-                )
-                reviewers = _dict_row(cursor, cursor.fetchone()) or {}
-                if not reviewers.get("data_reviewer") or not reviewers.get("policy_reviewer"):
-                    raise ValueError("该政策缺少原数据或政策审核人，无法发起收回")
                 new_status, log_action = "PENDING_RECALL_REVIEW", "RECALL_REQUEST"
             elif action in ("approve", "reject"):
                 if old_status not in RECALL_REVIEW_STAGES:
                     raise ValueError("该政策当前没有待审核的收回申请")
-                stage, permission, review_stage, approved_status = RECALL_REVIEW_STAGES[old_status]
+                permission, review_stage, approved_status = RECALL_REVIEW_STAGES[old_status]
                 _require_permission(user, permission, "当前账号没有此阶段的收回审核权限")
-                cursor.execute(f"SELECT {self._recall_reviewer('%s', stage)} AS reviewer_id", (task_id,))
-                if int((_dict_row(cursor, cursor.fetchone()) or {}).get("reviewer_id") or 0) != actor[0]:
-                    raise PermissionError("只有原投放流程中对应阶段的审核人可以审核")
                 approved = action == "approve"
                 new_status = approved_status if approved else "MONITORING"
                 log_action = f"{review_stage}_{'APPROVE' if approved else 'REJECT'}"

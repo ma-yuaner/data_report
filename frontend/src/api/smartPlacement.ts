@@ -43,7 +43,6 @@ export interface PlacementTaskRow {
   createdAt: string
   updatedAt: string
   versionNo: number
-  recallReviewerId?: number | null
 }
 
 export type PlacementTask = PlacementTaskRow & Record<string, string | number | boolean | null>

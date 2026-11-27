@@ -87,11 +87,11 @@
               <a-button v-if="canWithdraw(record)" type="link" size="small" @click="confirmWithdraw(record)">撤回修改</a-button>
               <a-button v-if="isReviewable(record)" type="link" size="small" @click="openReview(record)">审核</a-button>
               <a-button v-if="workScope === 'all' && canChangePolicy(record) && record.currentAssigneeId" type="link" danger size="small" @click="openRecall(record, 'request')">收回政策</a-button>
-              <a-button v-if="workScope === 'review' && canReviewRecall(record)" type="link" size="small" @click="openRecall(record, 'review')">审核收回</a-button>
+              <a-button v-if="canReviewRecall(record)" type="link" size="small" @click="openRecall(record, 'review')">审核收回</a-button>
               <a-button v-if="workScope === 'recall' && canConfirmRecall(record)" type="link" size="small" @click="openRecall(record, 'confirm')">已确认收回</a-button>
               <a-button v-if="canClaim(record)" type="link" size="small" @click="openClaim(record)">认领</a-button>
               <a-button v-if="canExecute(record)" type="link" size="small" @click="openExecution(record)">登记投放</a-button>
-              <a-button v-if="record.status === 'MONITORING'" type="link" size="small" @click="router.push('/smart-analysis/placement/orders')">查看收单</a-button>
+              <a-button v-if="orderHistoryStatuses.has(record.status)" type="link" size="small" @click="router.push('/smart-analysis/placement/orders')">查看收单</a-button>
               <a-button v-if="canCancel(record)" type="link" danger size="small" @click="openCancel(record)">作废</a-button>
               <a-button v-if="canDelete(record)" type="link" danger size="small" @click="confirmDelete(record)">{{ record.status === 'DRAFT' ? '删除草稿' : '删除归档' }}</a-button>
             </a-space>
@@ -536,8 +536,8 @@ const stopReason = ref('')
 const effectReviewForm = ref({ result: 'CONTINUE', conclusion: '', nextAction: '' })
 
 const statusMeta: Record<PlacementTaskStatus, { label: string; color: string }> = {
-  DRAFT: { label: '草稿', color: 'default' }, PENDING_DATA_REVIEW: { label: '待数据审核', color: 'orange' },
-  PENDING_POLICY_REVIEW: { label: '待政策审核', color: 'gold' }, CLAIMABLE: { label: '待认领', color: 'blue' },
+  DRAFT: { label: '草稿', color: 'default' }, PENDING_DATA_REVIEW: { label: '投放待数据审核', color: 'orange' },
+  PENDING_POLICY_REVIEW: { label: '投放待政策审核', color: 'gold' }, CLAIMABLE: { label: '待认领', color: 'blue' },
   IN_PROGRESS: { label: '执行中', color: 'processing' }, MONITORING: { label: '监控中', color: 'green' },
   FAILED: { label: '投放失败', color: 'red' }, REJECTED: { label: '已驳回', color: 'red' },
   CLOSED: { label: '已关闭', color: 'default' }, ENDED: { label: '已结束', color: 'default' },
@@ -550,8 +550,8 @@ const priorityMeta: Record<PlacementPriority, { label: string; color: string }> 
 const priorityDisplay = (value: unknown) => priorityMeta[String(value) as PlacementPriority] || { label: String(value || '—'), color: 'default' }
 const statusDisplay = (value: unknown) => statusMeta[String(value) as PlacementTaskStatus] || { label: String(value || '—'), color: 'default' }
 const allStatusFilterOptions = [{ label: '全部状态', value: '' }, ...Object.entries(statusMeta)
-  .filter(([value]) => value !== 'RECALLED' && value !== 'PENDING_RECALL_POLICY_REVIEW')
-  .map(([value, meta]) => ({ label: value === 'PENDING_RECALL_REVIEW' ? '收回待审核' : meta.label, value }))]
+  .filter(([value]) => value !== 'RECALLED')
+  .map(([value, meta]) => ({ label: meta.label, value }))]
 const priorityOptions = Object.entries(priorityMeta).map(([value, meta]) => ({ value, label: meta.label }))
 const sourceOptions = [{ value: 'AUTO_ANALYSIS', label: '数据分析规则识别' }, { value: 'MANUAL', label: '人工发现' }, { value: 'MEETING', label: '会议要求' }]
 const journeyOptions = [{ value: 'ONE_WAY', label: '单程' }, { value: 'ROUND_TRIP', label: '往返' }, { value: 'MULTI_CITY', label: '多程' }]
@@ -577,9 +577,14 @@ const statusFilterOptions = computed(() => {
   if (workScope.value !== 'review') return allStatusFilterOptions
   return [
     { label: '全部审核状态', value: '' },
-    ...(canReviewData.value ? [{ label: statusMeta.PENDING_DATA_REVIEW.label, value: 'PENDING_DATA_REVIEW' }] : []),
-    ...(canReviewPolicy.value ? [{ label: statusMeta.PENDING_POLICY_REVIEW.label, value: 'PENDING_POLICY_REVIEW' }] : []),
-    { label: '收回待审核', value: 'PENDING_RECALL_REVIEW' },
+    ...(canReviewData.value ? [
+      { label: statusMeta.PENDING_DATA_REVIEW.label, value: 'PENDING_DATA_REVIEW' },
+      { label: statusMeta.PENDING_RECALL_REVIEW.label, value: 'PENDING_RECALL_REVIEW' },
+    ] : []),
+    ...(canReviewPolicy.value ? [
+      { label: statusMeta.PENDING_POLICY_REVIEW.label, value: 'PENDING_POLICY_REVIEW' },
+      { label: statusMeta.PENDING_RECALL_POLICY_REVIEW.label, value: 'PENDING_RECALL_POLICY_REVIEW' },
+    ] : []),
   ]
 })
 const canClaimTasks = computed(() => hasPermission('smart_placement.claim'))
@@ -1025,9 +1030,12 @@ async function submitEffectReview() {
 const isReviewable = (row: PlacementTaskRow) => row.status === 'PENDING_DATA_REVIEW' ? canReviewData.value : row.status === 'PENDING_POLICY_REVIEW' ? canReviewPolicy.value : false
 const canClaim = (row: PlacementTaskRow) => canClaimTasks.value && row.status === 'CLAIMABLE'
 const canExecute = (row: PlacementTaskRow) => canExecuteTasks.value && row.status === 'IN_PROGRESS' && (Boolean(authStore.user?.isAdmin) || row.currentAssigneeId === authStore.user?.id)
-const canReviewRecall = (row: PlacementTaskRow) => row.recallReviewerId === authStore.user?.id && (
-  row.status === 'PENDING_RECALL_REVIEW' ? canReviewData.value : row.status === 'PENDING_RECALL_POLICY_REVIEW' && canReviewPolicy.value
-)
+const orderHistoryStatuses = new Set<PlacementTaskStatus>([
+  'MONITORING', 'PENDING_RECALL_REVIEW', 'PENDING_RECALL_POLICY_REVIEW', 'PENDING_RECALL', 'RECALLED', 'ENDED',
+])
+const canReviewRecall = (row: PlacementTaskRow) => row.status === 'PENDING_RECALL_REVIEW'
+  ? canReviewData.value
+  : row.status === 'PENDING_RECALL_POLICY_REVIEW' && canReviewPolicy.value
 const canConfirmRecall = (row: PlacementTaskRow) => (canClaimTasks.value || canExecuteTasks.value) && row.status === 'PENDING_RECALL' && row.currentAssigneeId === authStore.user?.id
 async function openRecall(row: PlacementTaskRow, mode: RecallMode) {
   const dialog = { row, mode }
