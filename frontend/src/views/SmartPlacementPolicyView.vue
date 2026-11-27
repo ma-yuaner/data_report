@@ -101,7 +101,7 @@
             </a-space>
           </template>
         </template>
-        <template #emptyText><a-empty :description="error || (workScope === 'recall' ? '当前条件下没有需要你确认收回的政策。收回申请通过审核后，会出现在原认领人的待收回列表。' : '当前条件没有投放任务')" /></template>
+        <template #emptyText><a-empty :description="error || (workScope === 'recall' ? recallEmptyText : '当前条件没有投放任务')" /></template>
       </a-table>
     </a-card>
 
@@ -578,6 +578,9 @@ const executionResultOptions = [{ value: 'SUCCESS', label: '投放成功' }, { v
 const failureTypeOptions = [{ value: 'NO_RESOURCE', label: '无可用资源' }, { value: 'PRICE_UNFEASIBLE', label: '价格不可行' }, { value: 'SYSTEM_ERROR', label: '系统故障' }, { value: 'EXTERNAL_REJECTED', label: '外部系统拒绝' }, { value: 'OTHER', label: '其他原因' }]
 const effectReviewOptions = [{ value: 'CONTINUE', label: '继续投放' }, { value: 'ADJUST', label: '调整后重新审核' }, { value: 'STOP', label: '停止投放' }, { value: 'COMPLETED', label: '完成复盘' }]
 const hasPermission = (code: string) => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.permissions?.includes(code))
+const recallEmptyText = computed(() => authStore.user?.isAdmin
+  ? '当前条件下没有待收回的政策。'
+  : '当前条件下没有需要你确认收回的政策。收回申请通过审核后，会出现在原认领人的待收回列表。')
 const canCreate = computed(() => hasPermission('smart_placement.create'))
 const canEditTasks = computed(() => hasPermission('smart_placement.edit'))
 const canDeleteTasks = computed(() => hasPermission('smart_placement.delete'))

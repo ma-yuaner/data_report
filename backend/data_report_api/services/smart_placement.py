@@ -802,7 +802,9 @@ class SmartPlacementService:
             where.append("(t.current_assignee_id=%s OR t.created_by_id=%s)")
             params.extend([actor_id, actor_id])
         elif scope == "recall":
-            if _has_permission(user, PERMISSION_CLAIM) or _has_permission(user, PERMISSION_EXECUTE):
+            if _is_admin(user):
+                where.append("t.status='PENDING_RECALL'")
+            elif _has_permission(user, PERMISSION_CLAIM) or _has_permission(user, PERMISSION_EXECUTE):
                 where.append("t.status='PENDING_RECALL' AND t.current_assignee_id=%s")
                 params.append(int(user.get("id") or 0))
             else:
@@ -827,6 +829,9 @@ class SmartPlacementService:
                     )
                     params.append(actor_id)
                 condition += f" AND ({' OR '.join(pending)})" if pending else " AND 1=0"
+            if scope == "recall" and _is_admin(user):
+                condition += " AND t.current_assignee_id=%s"
+                params.append(actor_id)
             cursor.execute(f"SELECT COUNT(*) FROM {self._table(TASK_TABLE)} t WHERE {condition}", tuple(params))
             counts[scope] = int(cursor.fetchone()[0])
         return counts
