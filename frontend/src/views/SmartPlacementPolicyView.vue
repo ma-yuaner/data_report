@@ -1,11 +1,11 @@
 <template>
   <div class="page-wrap smart-placement-page">
-    <PageHeader eyebrow="SMART PLACEMENT" title="投放政策" description="从机会分析、双重审核、政策认领和投放登记，到订单匹配与来单跟进的完整闭环" />
+    <PageHeader eyebrow="SMART PLACEMENT" title="投放政策" description="提交投放机会、认领并登记政策，跟进订单匹配和政策收回" />
     <a-alert v-if="error" type="error" show-icon class="page-alert" :message="error" />
     <a-alert v-else-if="roleWarning" type="warning" show-icon class="page-alert" message="当前账号尚未配置智能投放岗位" :description="roleWarning" />
 
     <section class="placement-hero">
-      <div><h2>投放政策协作中心</h2><p>数据部发现值得投放的机会，完成两级审核后进入认领池；政策人员认领并登记投放结果，系统持续匹配订单并触发来单提醒。</p></div>
+      <div><h2>投放政策协作中心</h2><p>数据部发现值得投放的机会，提交后进入认领池；政策人员认领并登记投放结果，系统持续匹配订单并触发来单提醒。</p></div>
       <a-space v-if="canCreate" wrap class="hero-action-group">
         <a-button class="hero-action" @click="importOpen = true">批量导入</a-button>
         <a-button class="hero-action" data-telemetry-code="placement-task-create" data-telemetry-name="新建投放机会" @click="openCreate">＋ 新建分析机会</a-button>
@@ -16,14 +16,14 @@
     <a-tab-pane key="policies" tab="政策列表">
     <section class="summary-grid">
       <article v-for="item in summaryCards" :key="item.key" class="summary-card">
-        <span>{{ item.label }}</span><strong :class="item.tone">{{ number(summaryCount(item.key)) }}</strong><small>{{ item.note }}</small>
+        <span>{{ item.label }}</span><strong :class="item.tone">{{ number(data?.summary?.[item.key]) }}</strong><small>{{ item.note }}</small>
       </article>
     </section>
 
     <a-card :bordered="false" class="panel-card flow-card">
       <template #title><div class="panel-title"><div><strong>业务流转</strong><small>每个节点均保留操作人、时间和意见，形成可追溯闭环</small></div><a-tag color="blue">流程示意</a-tag></div></template>
       <div class="workflow-chain">
-        <div v-for="(step, index) in flowSteps" :key="step.title" class="workflow-node" :class="{ done: index < 3, current: index === 3 }">
+        <div v-for="(step, index) in flowSteps" :key="step.title" class="workflow-node" :class="{ done: index === 0, current: index === 1 }">
           <div class="workflow-index">{{ index + 1 }}</div>
           <div><strong>{{ step.title }}</strong><small>{{ step.description }}</small></div>
         </div>
@@ -47,19 +47,15 @@
         <a-button v-if="authStore.canExportPlacementPolicies" :loading="exporting" :disabled="loading || !data?.total" @click="exportPolicies"><DownloadOutlined />导出</a-button>
         </div>
       </div>
-      <div v-if="selectedReviewRows.length" class="batch-action-bar">
-        <div><strong>已选择 {{ selectedReviewRows.length }} 项</strong><span>请选择同一类型、同一阶段的任务，审核结果会统一应用。</span></div>
-        <a-space><a-button @click="clearReviewSelection">清空选择</a-button><a-button type="primary" @click="openBatchReview">批量审核</a-button></a-space>
-      </div>
       <div v-if="selectedPolicyRows.length" class="batch-action-bar">
         <div><strong>已选择 {{ selectedPolicyRows.length }} 条已投放政策</strong><span>选择需要修改的字段，逐条预览后整批确认；不自动下发外部系统。</span></div>
-        <a-space><a-button @click="clearReviewSelection">清空选择</a-button><a-button type="primary" @click="openPolicyChange(selectedPolicyRows)">批量修改</a-button></a-space>
+        <a-space><a-button @click="clearTaskSelection">清空选择</a-button><a-button type="primary" @click="openPolicyChange(selectedPolicyRows)">批量修改</a-button></a-space>
       </div>
       <div v-if="selectedRecallRows.length" class="batch-action-bar">
         <div><strong>已选择 {{ selectedRecallRows.length }} 条待收回政策</strong><span>请确认所选政策已在外部收回。</span></div>
-        <a-space><a-button @click="clearReviewSelection">清空选择</a-button><a-button type="primary" @click="openBatchRecallConfirm">批量确认收回</a-button></a-space>
+        <a-space><a-button @click="clearTaskSelection">清空选择</a-button><a-button type="primary" @click="openBatchRecallConfirm">批量确认收回</a-button></a-space>
       </div>
-      <a-table :loading="loading" :columns="columns" :data-source="data?.rows || []" row-key="id" :row-selection="reviewRowSelection" :pagination="pagination" :scroll="{ x: 1500 }" :sticky="{ offsetHeader: 64 }" @change="changePage">
+      <a-table :loading="loading" :columns="columns" :data-source="data?.rows || []" row-key="id" :row-selection="policyRowSelection" :pagination="pagination" :scroll="{ x: 1500 }" :sticky="{ offsetHeader: 64 }" @change="changePage">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'opportunity'">
             <button class="task-link" type="button" @click="openDetail(record)"><strong>{{ record.opportunityName }}</strong><small>{{ record.taskNo }}</small></button>
@@ -89,9 +85,7 @@
               <a-button v-if="canEdit(record)" type="link" size="small" @click="openEdit(record)">编辑</a-button>
               <a-button v-if="canChangePolicy(record)" type="link" size="small" @click="openPolicyChange([record])">修改已投放</a-button>
               <a-button v-if="canWithdraw(record)" type="link" size="small" @click="confirmWithdraw(record)">撤回修改</a-button>
-              <a-button v-if="isReviewable(record)" type="link" size="small" @click="openReview(record)">审核</a-button>
               <a-button v-if="workScope === 'all' && canChangePolicy(record) && record.currentAssigneeId" type="link" danger size="small" @click="openRecall(record, 'request')">收回政策</a-button>
-              <a-button v-if="canReviewRecall(record)" type="link" size="small" @click="openRecall(record, 'review')">审核收回</a-button>
               <a-button v-if="workScope === 'recall' && canConfirmRecall(record)" type="link" size="small" @click="openRecall(record, 'confirm')">已确认收回</a-button>
               <a-button v-if="canClaim(record)" type="link" size="small" @click="openClaim(record)">认领</a-button>
               <a-button v-if="canExecute(record)" type="link" size="small" @click="openExecution(record)">登记投放</a-button>
@@ -121,7 +115,7 @@
       :mask-closable="false"
     >
       <template #title>
-        <div class="opportunity-modal-title"><strong>{{ editingTaskId ? '编辑投放机会' : '新建投放机会' }}</strong><span>{{ approvedEditing ? '修改后直接生效，不重新审核；保留原审核记录和修改前后内容。' : '由数据分析人员录入业务条件和数据依据，提交后进入数据部经理审核。' }}</span></div>
+        <div class="opportunity-modal-title"><strong>{{ editingTaskId ? '编辑投放机会' : '新建投放机会' }}</strong><span>{{ approvedEditing ? '修改后直接生效，并记录修改前后的内容。' : '由数据分析人员录入业务条件和数据依据，提交后进入待认领。' }}</span></div>
       </template>
       <div class="form-intro">
         <div class="intro-mark">01</div>
@@ -134,7 +128,7 @@
         <section class="form-section">
           <header class="section-heading"><span>1</span><div><h3>分析来源</h3><p>说明机会从哪里发现，以及本次分析使用的历史周期。</p></div><em>5 个字段</em></header>
           <div class="form-grid three">
-            <PlacementField class="span-2" label="机会名称" required hint="用于任务池与审核列表识别，例如：携程东南亚航线低价机会"><a-input v-model:value="taskForm.opportunityName" placeholder="请输入机会名称" /></PlacementField>
+            <PlacementField class="span-2" label="机会名称" required hint="用于任务列表识别，例如：携程东南亚航线低价机会"><a-input v-model:value="taskForm.opportunityName" placeholder="请输入机会名称" /></PlacementField>
             <PlacementField label="机会来源" required hint="选择本次机会的发现渠道"><a-select v-model:value="taskForm.opportunitySource" :options="sourceOptions" /></PlacementField>
             <PlacementField label="分析规则编号" hint="由规则识别时填写；人工创建可以留空"><a-input v-model:value="taskForm.analysisRuleCode" placeholder="请输入规则编号" /></PlacementField>
             <PlacementField label="分析开始日期" required hint="历史样本统计的起始日期"><a-date-picker v-model:value="taskForm.analysisStartDate" :locale="dateLocale" class="date-control" value-format="YYYY-MM-DD" placeholder="请选择分析开始日期" /></PlacementField>
@@ -205,38 +199,16 @@
         </section>
         <PlacementField v-if="approvedEditing" label="修改原因" required hint="保存后直接生效，请说明本次调整原因；外部平台政策需按实际情况维护。"><a-textarea v-model:value="approvedChangeReason" :maxlength="1000" :rows="3" /></PlacementField>
         <div class="modal-actions">
-          <span v-if="approvedEditing">保存后直接生效，任务状态及审核记录保持不变</span>
-          <span v-else>保存草稿不会进入审核流程；提交后进入数据部经理审核</span>
-          <div><a-button :disabled="saving" @click="createOpen=false">取消</a-button><a-button v-if="approvedEditing" type="primary" :loading="saving" @click="saveTask(false)">保存并生效</a-button><template v-else><a-button :loading="saving" @click="saveTask(false)">保存草稿</a-button><a-button type="primary" :loading="saving" @click="saveTask(true)">提交数据审核</a-button></template></div>
+          <span v-if="approvedEditing">保存后直接生效，保留任务当前状态</span>
+          <span v-else>提交后进入待认领</span>
+          <div><a-button :disabled="saving" @click="createOpen=false">取消</a-button><a-button v-if="approvedEditing" type="primary" :loading="saving" @click="saveTask(false)">保存并生效</a-button><template v-else><a-button :loading="saving" @click="saveTask(false)">保存草稿</a-button><a-button type="primary" :loading="saving" @click="saveTask(true)">提交投放</a-button></template></div>
         </div>
       </a-form>
     </a-modal>
 
-    <a-modal v-model:open="reviewOpen" :title="`${batchReviewMode ? '批量' : ''}${reviewStage === 'DATA_MANAGER' ? '数据部经理审核' : '政策经理审核'}`" width="min(900px, 95vw)" wrap-class-name="placement-action-modal" :footer="null" :mask-closable="false">
-      <div v-if="batchReviewMode" class="action-context batch-review-context">
-        <div><strong>本次共审核 {{ batchReviewRows.length }} 项</strong><span>{{ reviewStage === 'DATA_MANAGER' ? '待数据审核' : '待政策审核' }}</span></div>
-        <p>{{ batchReviewRows.slice(0, 3).map(item => item.taskNo).join('、') }}<template v-if="batchReviewRows.length > 3"> 等 {{ batchReviewRows.length }} 项</template></p>
-      </div>
-      <div v-else class="action-context">
-        <div><strong>{{ activeTask?.opportunityName }}</strong><span>{{ activeTask?.taskNo }}</span></div>
-        <p>{{ activeTask?.platformName }} · {{ activeTask?.airlineCode }} · {{ routeName(activeTask) }}</p>
-      </div>
-      <div class="form-grid two review-form-grid">
-        <PlacementField label="审核结果" required hint="退回后创建人可编辑并重新提交"><a-select v-model:value="reviewForm.result" :options="reviewResultOptions" /></PlacementField>
-        <PlacementField v-if="reviewStage === 'POLICY_MANAGER'" label="政策可执行性" required hint="不可执行时不能选择审核通过"><a-select v-model:value="reviewForm.policyExecutableLevel" :options="executableOptions" /></PlacementField>
-        <PlacementField v-if="reviewStage === 'POLICY_MANAGER'" label="风险等级" required hint="评估本次政策执行风险"><a-select v-model:value="reviewForm.riskLevel" :options="priorityOptions" /></PlacementField>
-        <PlacementField label="调整后优先级" hint="留空表示保持原优先级"><a-select v-model:value="reviewForm.adjustedPriority" :options="priorityOptions" allow-clear placeholder="保持不变" /></PlacementField>
-        <PlacementField label="调整后完成时间" hint="留空表示保持原截止时间"><a-date-picker v-model:value="reviewForm.adjustedCompleteAt" :locale="dateLocale" show-time value-format="YYYY-MM-DD HH:mm:ss" placeholder="请选择调整后完成时间" /></PlacementField>
-        <PlacementField v-if="reviewStage === 'POLICY_MANAGER'" class="span-2" label="风险控制要求" hint="填写价格、库存、航司或履约限制"><a-textarea v-model:value="reviewForm.riskControlRequirement" :rows="2" /></PlacementField>
-        <PlacementField v-if="reviewStage === 'POLICY_MANAGER'" class="span-2" label="可认领范围" hint="填写可认领人员或小组；首版不做岗位权限过滤"><a-input v-model:value="reviewForm.claimScope" /></PlacementField>
-        <PlacementField class="span-2" label="审核意见" :required="reviewForm.result !== 'APPROVED'" hint="退回或驳回时必须说明原因和修改要求"><a-textarea v-model:value="reviewForm.comment" :rows="3" /></PlacementField>
-      </div>
-      <div class="dialog-actions"><a-button @click="reviewOpen=false">取消</a-button><a-button type="primary" :loading="saving" @click="submitReview">提交审核结果</a-button></div>
-    </a-modal>
-
     <a-modal v-model:open="cancelOpen" title="作废投放任务" width="min(620px, 94vw)" wrap-class-name="placement-action-modal" :footer="null" :mask-closable="false">
-      <div class="action-context"><div><strong>{{ activeTask?.opportunityName }}</strong><span>{{ activeTask?.taskNo }}</span></div><p>作废后任务进入“已关闭”，不再参与审核、认领或投放，但原始内容和操作记录会继续保留。</p></div>
-      <a-alert class="modal-alert" type="warning" show-icon message="该操作不会物理删除业务记录" description="仅允许作废待审核或待认领任务；已认领和已投放任务需要走停止或关闭流程。" />
+      <div class="action-context"><div><strong>{{ activeTask?.opportunityName }}</strong><span>{{ activeTask?.taskNo }}</span></div><p>作废后任务进入“已关闭”，不再参与认领或投放，但原始内容和操作记录会继续保留。</p></div>
+      <a-alert class="modal-alert" type="warning" show-icon message="该操作不会物理删除业务记录" description="仅允许作废待认领任务；已认领和已投放任务需要走停止或关闭流程。" />
       <PlacementField label="作废原因" required hint="说明重复录入、业务取消或数据失效等原因，便于后续审计"><a-textarea v-model:value="cancelReason" :rows="4" :maxlength="1000" show-count placeholder="请输入作废原因" /></PlacementField>
       <div class="dialog-actions"><a-button @click="cancelOpen=false">取消</a-button><a-button danger type="primary" :loading="saving" @click="submitCancel">确认作废</a-button></div>
     </a-modal>
@@ -266,14 +238,14 @@
       <div class="form-grid one">
         <PlacementField label="复盘结论" required><a-select v-model:value="effectReviewForm.result" :options="effectReviewOptions" /></PlacementField>
         <PlacementField label="结论说明" required hint="说明继续、调整或停止的业务依据"><a-textarea v-model:value="effectReviewForm.conclusion" :rows="4" :maxlength="10000" /></PlacementField>
-        <PlacementField label="下一步动作" hint="例如调整阈值、重新审核或关闭政策"><a-textarea v-model:value="effectReviewForm.nextAction" :rows="3" :maxlength="10000" /></PlacementField>
+        <PlacementField label="下一步动作" hint="例如调整阈值或关闭政策"><a-textarea v-model:value="effectReviewForm.nextAction" :rows="3" :maxlength="10000" /></PlacementField>
       </div>
       <div class="dialog-actions"><a-button @click="effectReviewOpen=false">取消</a-button><a-button type="primary" :loading="saving" @click="submitEffectReview">保存复盘</a-button></div>
     </a-modal>
 
     <a-modal :open="!!recallDialog" :title="recallTitle" :footer="null" :mask-closable="false" :closable="!recallSaving" @cancel="closeRecall">
       <template v-if="recallDialog">
-        <p v-if="recallDialog.rows.length > 1">本次共{{ recallDialog.mode === 'confirm' ? '确认收回' : '审核' }} {{ recallDialog.rows.length }} 项</p>
+        <p v-if="recallDialog.rows.length > 1">本次共确认收回 {{ recallDialog.rows.length }} 项</p>
         <p v-else>{{ recallDialog.rows[0].opportunityName }}（{{ recallDialog.rows[0].taskNo }}）</p>
         <a-spin :spinning="recallLoading">
           <div v-if="recallDialog.mode !== 'request'" style="max-height: 240px; overflow-y: auto">
@@ -282,16 +254,11 @@
             </p>
           </div>
           <PlacementField v-if="recallDialog.mode === 'request'" label="收回理由" required><a-textarea v-model:value="recallNote" :rows="4" :maxlength="1000" show-count /></PlacementField>
-          <PlacementField v-if="recallDialog.mode === 'review'" label="审核意见" hint="驳回时必填"><a-textarea v-model:value="recallNote" :rows="3" :maxlength="1000" show-count /></PlacementField>
           <p v-if="recallDialog.mode === 'confirm'">请确认已收回外部政策。确认后停止本系统的后续订单匹配，并记录确认人及时间。</p>
         </a-spin>
         <div class="dialog-actions">
           <a-button :disabled="recallSaving" @click="closeRecall">取消</a-button>
-          <template v-if="recallDialog.mode === 'review'">
-            <a-button danger :disabled="recallLoading || recallSaving || !recallReasons.length" @click="submitRecall('reject')">驳回</a-button>
-            <a-button type="primary" :disabled="recallLoading || !recallReasons.length" :loading="recallSaving" @click="submitRecall('approve')">审核通过</a-button>
-          </template>
-          <a-button v-else type="primary" :loading="recallSaving" :disabled="recallLoading || (recallDialog.mode === 'confirm' && !recallReasons.length)" @click="submitRecall(recallDialog.mode)">{{ recallDialog.mode === 'request' ? '提交审核' : '已确认收回' }}</a-button>
+          <a-button type="primary" :loading="recallSaving" :disabled="recallLoading || (recallDialog.mode === 'confirm' && !recallReasons.length)" @click="submitRecall(recallDialog.mode)">{{ recallDialog.mode === 'request' ? '提交收回申请' : '已确认收回' }}</a-button>
         </div>
       </template>
     </a-modal>
@@ -355,18 +322,6 @@
                   <a-descriptions-item label="排除舱位">{{ valueOrDash(detail.task.excludeCabins, '无') }}</a-descriptions-item>
                 </a-descriptions>
               </section>
-            </a-tab-pane>
-            <a-tab-pane key="reviews" :tab="`审核记录（${detail.reviews.length}）`">
-              <a-empty v-if="!detail.reviews.length" description="暂无审核记录" />
-              <div v-else class="record-list">
-                <article v-for="review in detail.reviews" :key="review.id" class="record-card">
-                  <header><div><strong>{{ reviewStageLabel(review.reviewStage) }}</strong><span>{{ review.reviewerName }} · {{ displayTime(review.createdAt) }}</span></div><a-tag :color="reviewResultMeta(review.reviewResult).color">{{ review.reviewStage.startsWith('RECALL_') && review.reviewResult === 'REJECTED' ? '驳回收回' : reviewResultMeta(review.reviewResult).label }}</a-tag></header>
-                  <div class="record-grid">
-                    <span v-if="review.reviewStage === 'POLICY_MANAGER'">可执行性：{{ executableLabel(review.policyExecutableLevel) }}</span><span v-if="review.reviewStage === 'POLICY_MANAGER'">风险等级：{{ priorityDisplay(review.riskLevel).label }}</span><span v-if="review.adjustedPriority">调整优先级：{{ priorityDisplay(review.adjustedPriority).label }}</span>
-                  </div>
-                  <p v-if="review.riskControlRequirement"><b>风险控制：</b>{{ review.riskControlRequirement }}</p><p v-if="review.claimScope"><b>认领范围：</b>{{ review.claimScope }}</p><p><b>审核意见：</b>{{ valueOrDash(review.reviewComment, '无补充意见') }}</p>
-                </article>
-              </div>
             </a-tab-pane>
             <a-tab-pane key="executions" :tab="`投放记录（${detail.executions.length}）`">
               <a-empty v-if="!detail.executions.length" description="暂无投放执行记录" />
@@ -482,8 +437,8 @@ import { usePlacementDimensions } from '@/composables/usePlacementDimensions'
 import OpportunityImportDialog from '@/components/OpportunityImportDialog.vue'
 import PlacementRouteDiagnosis from '@/components/PlacementRouteDiagnosis.vue'
 import {
-  batchPlacementRecalls, batchReviewPlacementTasks, cancelPlacementTask, claimPlacementTask, createPlacementEffectReview, createPlacementTask, deletePlacementTask, executePlacementTask, fetchPlacementTask, fetchPlacementTaskMonitoring,
-  fetchPlacementDimensions, fetchPlacementTasks, recallPlacementPolicy, reviewPlacementTask, updatePlacementTask,
+  batchPlacementRecalls, cancelPlacementTask, claimPlacementTask, createPlacementEffectReview, createPlacementTask, deletePlacementTask, executePlacementTask, fetchPlacementTask, fetchPlacementTaskMonitoring,
+  fetchPlacementDimensions, fetchPlacementTasks, recallPlacementPolicy, updatePlacementTask,
   stopPlacementMonitoring, withdrawPlacementTask,
   type PlacementDimensionOptions, type PlacementPriority, type PlacementRecallAction,
   type PlacementTaskDetail, type PlacementTaskInput, type PlacementTaskList, type PlacementTaskMonitoring,
@@ -507,7 +462,6 @@ const page = ref(1)
 const pageSize = ref(30)
 const createOpen = ref(false)
 const importOpen = ref(false)
-const reviewOpen = ref(false)
 const claimOpen = ref(false)
 const executionOpen = ref(false)
 const cancelOpen = ref(false)
@@ -523,27 +477,20 @@ const approvedExecutionId = ref<number>()
 const approvedExecutionForm = ref<Record<string, any>>({})
 const editingVersion = ref<number>()
 const detail = ref<PlacementTaskDetail>()
-type RecallMode = 'request' | 'review' | 'confirm'
+type RecallMode = PlacementRecallAction
 const recallDialog = ref<{ rows: PlacementTaskRow[]; mode: RecallMode }>()
 const recallNote = ref('')
 const recallReasons = ref<string[]>([])
 const recallLoading = ref(false)
 const recallSaving = ref(false)
-const recallTitle = computed(() => {
-  const dialog = recallDialog.value
-  if (dialog?.mode === 'confirm') return dialog.rows.length > 1 ? '批量确认政策已收回' : '确认政策已收回'
-  if (dialog?.mode !== 'review') return '收回政策'
-  const stage = dialog.rows[0].status === 'PENDING_RECALL_REVIEW' ? '数据审核' : '政策审核'
-  return `${dialog.rows.length > 1 ? '批量审核收回' : '收回申请'} · ${stage}`
-})
+const recallTitle = computed(() => recallDialog.value?.mode === 'confirm'
+  ? (recallDialog.value.rows.length > 1 ? '批量确认政策已收回' : '确认政策已收回')
+  : '收回政策')
 const monitoring = ref<PlacementTaskMonitoring>()
 const activeTask = ref<PlacementTaskRow>()
-const selectedReviewTaskIds = ref<number[]>([])
+const selectedTaskIds = ref<number[]>([])
 const policyChangeOpen = ref(false)
 const policyChangeRows = ref<PlacementTaskRow[]>([])
-const batchReviewRows = ref<PlacementTaskRow[]>([])
-const reviewStage = ref<'DATA_MANAGER' | 'POLICY_MANAGER'>('DATA_MANAGER')
-const reviewForm = ref({ result: 'APPROVED', comment: '', policyExecutableLevel: 'EXECUTABLE', riskLevel: 'MEDIUM', riskControlRequirement: '', claimScope: '', adjustedPriority: '', adjustedCompleteAt: '' })
 const claimForm = ref({ plannedCompleteAt: '', note: '' })
 const executionForm = ref<Record<string, any>>({ result: 'SUCCESS', retryRequired: false })
 const cancelReason = ref('')
@@ -565,45 +512,29 @@ const priorityMeta: Record<PlacementPriority, { label: string; color: string }> 
 const priorityDisplay = (value: unknown) => priorityMeta[String(value) as PlacementPriority] || { label: String(value || '—'), color: 'default' }
 const statusDisplay = (value: unknown) => statusMeta[String(value) as PlacementTaskStatus] || { label: String(value || '—'), color: 'default' }
 const allStatusFilterOptions = [{ label: '全部状态', value: '' }, ...Object.entries(statusMeta)
-  .filter(([value]) => value !== 'RECALLED')
+  .filter(([value]) => !['RECALLED', 'PENDING_DATA_REVIEW', 'PENDING_POLICY_REVIEW', 'PENDING_RECALL_REVIEW', 'PENDING_RECALL_POLICY_REVIEW'].includes(value))
   .map(([value, meta]) => ({ label: meta.label, value }))]
 const priorityOptions = Object.entries(priorityMeta).map(([value, meta]) => ({ value, label: meta.label }))
 const sourceOptions = [{ value: 'AUTO_ANALYSIS', label: '数据分析规则识别' }, { value: 'MANUAL', label: '人工发现' }, { value: 'MEETING', label: '会议要求' }]
 const journeyOptions = [{ value: 'ONE_WAY', label: '单程' }, { value: 'ROUND_TRIP', label: '往返' }, { value: 'MULTI_CITY', label: '多程' }]
 const segmentTypeOptions = [{ value: '直达', label: '直达' }, { value: '中转', label: '中转' }]
 const orderSourceOptions = [{ value: '平台手工订单', label: '平台手工订单' }, { value: '直连订单', label: '直连订单' }]
-const reviewResultOptions = [{ value: 'APPROVED', label: '通过' }, { value: 'RETURNED', label: '退回修改' }, { value: 'REJECTED', label: '驳回终止' }]
-const executableOptions = [{ value: 'EXECUTABLE', label: '可执行' }, { value: 'CONDITIONAL', label: '有条件执行' }, { value: 'NOT_EXECUTABLE', label: '不可执行' }]
 const executionResultOptions = [{ value: 'SUCCESS', label: '投放成功' }, { value: 'FAILED', label: '投放失败' }]
 const failureTypeOptions = [{ value: 'NO_RESOURCE', label: '无可用资源' }, { value: 'PRICE_UNFEASIBLE', label: '价格不可行' }, { value: 'SYSTEM_ERROR', label: '系统故障' }, { value: 'EXTERNAL_REJECTED', label: '外部系统拒绝' }, { value: 'OTHER', label: '其他原因' }]
-const effectReviewOptions = [{ value: 'CONTINUE', label: '继续投放' }, { value: 'ADJUST', label: '调整后重新审核' }, { value: 'STOP', label: '停止投放' }, { value: 'COMPLETED', label: '完成复盘' }]
+const effectReviewOptions = [{ value: 'CONTINUE', label: '继续投放' }, { value: 'ADJUST', label: '调整投放' }, { value: 'STOP', label: '停止投放' }, { value: 'COMPLETED', label: '完成复盘' }]
 const hasPermission = (code: string) => Boolean(authStore.user?.isAdmin) || Boolean(authStore.user?.permissions?.includes(code))
 const recallEmptyText = computed(() => authStore.user?.isAdmin
   ? '当前条件下没有待收回的政策。'
-  : '当前条件下没有需要你确认收回的政策。收回申请通过审核后，会出现在原认领人的待收回列表。')
+  : '当前条件下没有需要你确认收回的政策。提交收回申请后，会出现在原认领人的待收回列表。')
 const canCreate = computed(() => hasPermission('smart_placement.create'))
 const canEditTasks = computed(() => hasPermission('smart_placement.edit'))
 const canDeleteTasks = computed(() => hasPermission('smart_placement.delete'))
 const canWithdrawTasks = computed(() => hasPermission('smart_placement.withdraw'))
 const canCancelTasks = computed(() => hasPermission('smart_placement.cancel'))
-const canReviewData = computed(() => hasPermission('smart_placement.review_data'))
-const canReviewPolicy = computed(() => hasPermission('smart_placement.review_policy'))
 const fixedStatusByScope: Record<string, PlacementTaskStatus | undefined> = { claim: 'CLAIMABLE', recall: 'PENDING_RECALL' }
 const statusFilterOptions = computed(() => {
   const fixed = fixedStatusByScope[workScope.value]
-  if (fixed) return [{ label: statusMeta[fixed].label, value: fixed }]
-  if (workScope.value !== 'review') return allStatusFilterOptions
-  return [
-    { label: '全部审核状态', value: '' },
-    ...(canReviewData.value ? [
-      { label: statusMeta.PENDING_DATA_REVIEW.label, value: 'PENDING_DATA_REVIEW' },
-      { label: statusMeta.PENDING_RECALL_REVIEW.label, value: 'PENDING_RECALL_REVIEW' },
-    ] : []),
-    ...(canReviewPolicy.value ? [
-      { label: statusMeta.PENDING_POLICY_REVIEW.label, value: 'PENDING_POLICY_REVIEW' },
-      { label: statusMeta.PENDING_RECALL_POLICY_REVIEW.label, value: 'PENDING_RECALL_POLICY_REVIEW' },
-    ] : []),
-  ]
+  return fixed ? [{ label: statusMeta[fixed].label, value: fixed }] : allStatusFilterOptions
 })
 const canClaimTasks = computed(() => hasPermission('smart_placement.claim'))
 const canExecuteTasks = computed(() => hasPermission('smart_placement.execute'))
@@ -617,27 +548,25 @@ const roleWarning = computed(() => {
 })
 const workScopeOptions = computed(() => {
   const options = [{ value: 'all', label: authStore.user?.isAdmin ? '全部任务' : '与我相关' }]
-  if (canReviewData.value || canReviewPolicy.value) options.push({ value: 'review', label: '待我审核' })
   if (canClaimTasks.value) options.push({ value: 'claim', label: '可认领' })
   if (canCreate.value || canEditTasks.value || canDeleteTasks.value || canWithdrawTasks.value || canExecuteTasks.value || data.value?.hasAssignedRecall) options.push({ value: 'mine', label: '我的任务' })
   if (canClaimTasks.value || canExecuteTasks.value) options.push({ value: 'recall', label: '待收回' })
   return options
 })
-const flowSteps = [{ title: '分析入池', description: '保存并提交' }, { title: '数据审核', description: '确认口径价值' }, { title: '政策审核', description: '确认可执行性' }, { title: '政策认领', description: '明确负责人' }, { title: '完成投放', description: '登记政策 ID' }, { title: '订单匹配', description: '命中新订单' }, { title: '来单关注', description: '跟进处理' }]
-const detailFlowSteps = flowSteps.slice(0, 6).map(step => ({ title: step.title }))
+const flowSteps = [{ title: '分析入池', description: '保存并提交' }, { title: '政策认领', description: '明确负责人' }, { title: '完成投放', description: '登记政策 ID' }, { title: '订单匹配', description: '命中新订单' }, { title: '来单关注', description: '跟进处理' }]
+const detailFlowSteps = flowSteps.slice(0, 4).map(step => ({ title: step.title }))
 const summaryCards: { key: PlacementTaskStatus; label: string; note: string; tone: string }[] = [
-  { key: 'PENDING_DATA_REVIEW', label: '待数据经理审核', note: '含投放审核和收回审核', tone: 'orange' },
-  { key: 'PENDING_POLICY_REVIEW', label: '待政策经理审核', note: '含投放审核和收回审核', tone: 'orange' },
-  { key: 'CLAIMABLE', label: '可认领', note: '审核通过待领取', tone: 'blue' },
+  { key: 'CLAIMABLE', label: '可认领', note: '已提交待领取', tone: 'blue' },
   { key: 'IN_PROGRESS', label: '执行中', note: '已认领未完成投放', tone: 'blue' },
   { key: 'MONITORING', label: '监控中', note: '已登记政策并匹配订单', tone: 'green' },
   { key: 'FAILED', label: '投放失败', note: '等待重试或关闭', tone: 'red' },
 ]
-function summaryCount(status: PlacementTaskStatus) {
-  const summary = data.value?.summary
-  const recallCount = status === 'PENDING_DATA_REVIEW' ? summary?.PENDING_RECALL_REVIEW
-    : status === 'PENDING_POLICY_REVIEW' ? summary?.PENDING_RECALL_POLICY_REVIEW : 0
-  return (summary?.[status] || 0) + (recallCount || 0)
+function taskStepIndex(status: PlacementTaskStatus) {
+  return ({
+    DRAFT: 0, PENDING_DATA_REVIEW: 0, PENDING_POLICY_REVIEW: 0, CLAIMABLE: 1, IN_PROGRESS: 2,
+    MONITORING: 3, FAILED: 2, REJECTED: 0, CLOSED: 1, ENDED: 3,
+    PENDING_RECALL_REVIEW: 3, PENDING_RECALL_POLICY_REVIEW: 3, PENDING_RECALL: 3, RECALLED: 3,
+  })[status]
 }
 const columns = [
   { title: '投放机会', key: 'opportunity', width: 240, fixed: 'left' as const }, { title: '平台 / 站点', key: 'scope', width: 180 },
@@ -645,30 +574,25 @@ const columns = [
   { title: '预估价值', key: 'estimate', width: 150 }, { title: '优先级', key: 'priority', width: 90 }, { title: '状态', key: 'status', width: 120 },
   { title: '负责人', key: 'owner', width: 110 }, { title: '截止时间', key: 'due', width: 155 }, { title: '操作', key: 'action', width: 350, fixed: 'right' as const },
 ]
-const selectedReviewRows = computed(() => (data.value?.rows || []).filter(row => selectedReviewTaskIds.value.includes(row.id) && (isReviewable(row) || canReviewRecall(row))))
-const selectedPolicyRows = computed(() => (data.value?.rows || []).filter(row => selectedReviewTaskIds.value.includes(row.id) && canChangePolicy(row)))
-const selectedRecallRows = computed(() => (data.value?.rows || []).filter(row => selectedReviewTaskIds.value.includes(row.id) && canBatchConfirmRecall(row)))
-const batchReviewMode = computed(() => batchReviewRows.value.length > 0)
-const reviewRowSelection = computed(() => canReviewData.value || canReviewPolicy.value || canExecuteTasks.value || canClaimTasks.value ? {
-  selectedRowKeys: selectedReviewTaskIds.value,
+const selectedPolicyRows = computed(() => (data.value?.rows || []).filter(row => selectedTaskIds.value.includes(row.id) && canChangePolicy(row)))
+const selectedRecallRows = computed(() => (data.value?.rows || []).filter(row => selectedTaskIds.value.includes(row.id) && canBatchConfirmRecall(row)))
+const policyRowSelection = computed(() => canExecuteTasks.value || canClaimTasks.value ? {
+  selectedRowKeys: selectedTaskIds.value,
   hideSelectAll: workScope.value !== 'recall' && new Set((data.value?.rows || []).map(row =>
-    canBatchConfirmRecall(row) ? 'confirm' : canChangePolicy(row) ? 'change' : isReviewable(row) || canReviewRecall(row) ? row.status : '',
+    canBatchConfirmRecall(row) ? 'confirm' : canChangePolicy(row) ? 'change' : '',
   ).filter(Boolean)).size > 1,
   onChange: (keys: (string | number)[]) => {
     const ids = keys.map(Number)
     const selected = (data.value?.rows || []).filter(row => ids.includes(row.id))
     if (selected.some(canBatchConfirmRecall) && !selected.every(canBatchConfirmRecall)) { message.warning('待收回政策请单独勾选'); return }
-    if (selected.some(row => row.status === 'MONITORING') && selected.some(row => row.status !== 'MONITORING')) { message.warning('审核任务与已投放政策请分开勾选'); return }
-    selectedReviewTaskIds.value = ids
+    selectedTaskIds.value = ids
   },
   getCheckboxProps: (record: PlacementTaskRow) => {
-    const reviewable = isReviewable(record) || canReviewRecall(record)
     const confirmable = canBatchConfirmRecall(record)
     const changeable = canChangePolicy(record)
     const disabled = selectedRecallRows.value.length ? !confirmable
       : selectedPolicyRows.value.length ? !changeable
-      : selectedReviewRows.value.length ? !reviewable
-      : !reviewable && !changeable && !confirmable
+      : !changeable && !confirmable
     return { disabled, name: record.taskNo }
   },
 } : undefined)
@@ -703,8 +627,6 @@ const sourceLabel = (value: unknown) => sourceOptions.find(item => item.value ==
 const journeyLabel = (value: unknown) => journeyOptions.find(item => item.value === value)?.label || valueOrDash(value, '不限')
 const segmentTypeLabel = (value: unknown) => segmentTypeOptions.find(item => item.value === value)?.label || valueOrDash(value, '不限')
 const journeySegmentLabel = (record?: Partial<PlacementTaskRow>) => `${journeyLabel(record?.journeyType)} - ${segmentTypeLabel(record?.segmentType)}`
-const executableLabel = (value: unknown) => executableOptions.find(item => item.value === value)?.label || valueOrDash(value)
-const reviewStageLabel = (value: unknown) => ({ DATA_MANAGER: '数据部经理审核', POLICY_MANAGER: '政策经理审核', RECALL_DATA: '收回数据审核', RECALL_POLICY: '收回政策审核' }[String(value)] || valueOrDash(value))
 const yesNo = (value: unknown) => value === true || value === 1 || value === '1' ? '是' : '否'
 const reviewResultMap: Record<string, { label: string; color: string }> = {
   APPROVED: { label: '通过', color: 'green' }, RETURNED: { label: '退回修改', color: 'orange' }, REJECTED: { label: '驳回终止', color: 'red' },
@@ -713,14 +635,14 @@ const actionLabelMap: Record<string, string> = {
   ROUTE_FOLLOWUP: '航线/平台跟进',
   ASSESSMENT_EXCLUDE: '标记异常（不计考核）', ASSESSMENT_RESTORE: '恢复正常（计入考核）',
   POLICY_CHANGE_REQUESTED: '待人工外部执行（仅请求）', POLICY_CHANGE_APPLIED: '已线下处理·补登记实际配置',
-  APPROVED_EDIT: '已审核机会修改（直接生效）',
+  APPROVED_EDIT: '投放机会修改（直接生效）',
+  REVIEW_BYPASSED: '取消审核并流转',
   RECALL_REQUEST: '发起收回申请', RECALL_APPROVE: '审核通过收回', RECALL_REJECT: '驳回收回申请', RECALL_CONFIRM: '确认已收回',
   RECALL_DATA_APPROVE: '收回数据审核通过', RECALL_DATA_REJECT: '收回数据审核驳回',
   RECALL_POLICY_APPROVE: '收回政策审核通过', RECALL_POLICY_REJECT: '收回政策审核驳回',
   EFFECT_REVIEW: '登记效果复盘',
-  CREATE: '保存草稿', UPDATE: '更新草稿', DELETE: '删除任务', WITHDRAW: '撤回修改', CANCEL: '作废任务', SUBMIT: '提交审核', RESUBMIT: '重新提交', REVIEW: '审核', CLAIM: '认领', EXECUTE: '登记投放', ATTENTION: '订单关注', STOP_MONITORING: '停止监控', STOP_MONITORING_CENTER: '从监控中心停止',
+  CREATE: '保存草稿', UPDATE: '更新草稿', DELETE: '删除任务', WITHDRAW: '撤回修改', CANCEL: '作废任务', SUBMIT: '提交投放', RESUBMIT: '重新提交', REVIEW: '审核', CLAIM: '认领', EXECUTE: '登记投放', ATTENTION: '订单关注', STOP_MONITORING: '停止监控', STOP_MONITORING_CENTER: '从监控中心停止',
 }
-const reviewResultMeta = (value: unknown) => reviewResultMap[String(value)] || { label: valueOrDash(value), color: 'default' }
 const actionLabel = (value: unknown) => actionLabelMap[String(value)] || valueOrDash(value)
 const operationNote = (value: string) => reviewResultMap[value]?.label || executionResultOptions.find(item => item.value === value)?.label || value
 const approvedFieldLabels: Record<string, string> = { externalPolicyId: '外部政策ID', externalPolicyName: '外部政策名称', actualPlacementAt: '实际投放时间', effectiveStartAt: '政策生效时间', effectiveEndAt: '政策失效时间', placementChannel: '投放渠道', proofUrl: '投放凭证地址', executionNote: '执行说明', failureType: '失败类型', failureReason: '失败原因', nextHandleAt: '下次处理时间',"opportunityName": "机会名称", "opportunitySource": "机会来源", "analysisRuleCode": "分析规则编号", "analysisStartDate": "分析开始日期", "analysisEndDate": "分析结束日期", "platformCode": "平台编码", "platformName": "平台名称", "siteCode": "站点编码", "siteName": "站点名称", "airlineCode": "航司", "departureCode": "出发代码", "arrivalCode": "到达代码", "departureType": "出发类型", "arrivalType": "到达类型", "journeyType": "航程类型", "segmentType": "航段类型", "flightNos": "航班号", "includeCabins": "包含舱位", "excludeCabins": "排除舱位", "productType": "产品类型", "orderSource": "订单来源", "orderStartDate": "销售开始日期", "orderEndDate": "销售结束日期", "advanceSaleDays": "提前销售天数", "travelStartDate": "旅行开始日期", "travelEndDate": "旅行结束日期", "placementMethod": "建议投放方式", "lossThresholdMin": "亏损阈值下限", "lossThresholdMax": "亏损阈值上限", "longTermFlag": "长期有效", "suggestedEffectiveStart": "建议生效时间", "suggestedEffectiveEnd": "建议失效时间", "historicalTicketCount": "历史票数", "historicalProfitCny": "历史利润", "estimatedMonthTicketCount": "预估月票数", "estimatedMonthProfitCny": "预估月利润", "analysisConclusion": "分析结论", "riskNote": "风险提示", "priority": "优先级", "expectedCompleteAt": "期望完成时间", "routeText": "历史航线文本"}
@@ -737,7 +659,6 @@ function policyChangeLog(raw: unknown) {
 }
 const effectReviewLabel = (value: unknown) => effectReviewOptions.find(item => item.value === value)?.label || valueOrDash(value)
 const lossThreshold = (minimum: unknown, maximum: unknown) => minimum === null || minimum === undefined || minimum === '' || maximum === null || maximum === undefined || maximum === '' ? '—' : `${moneyValue(minimum)} 至 ${moneyValue(maximum)}`
-function taskStepIndex(status: PlacementTaskStatus) { return ({ DRAFT: 0, PENDING_DATA_REVIEW: 1, PENDING_POLICY_REVIEW: 2, CLAIMABLE: 3, IN_PROGRESS: 4, MONITORING: 5, FAILED: 4, REJECTED: 1, CLOSED: 4, ENDED: 5, PENDING_RECALL_REVIEW: 5, PENDING_RECALL_POLICY_REVIEW: 5, PENDING_RECALL: 5, RECALLED: 5 })[status] }
 function businessToday() { return new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' }) }
 function plusDays(day: string, amount: number) { const value = new Date(`${day}T00:00:00+08:00`); value.setDate(value.getDate() + amount); return value.toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' }) }
 function blankTask(): PlacementTaskInput {
@@ -801,7 +722,7 @@ async function load(targetPage = page.value, query = appliedFilters.value) {
     error.value = failure instanceof Error ? failure.message : '投放任务查询失败'
   } finally {
     if (requestId === latestPolicyQuery) {
-      selectedReviewTaskIds.value = []
+      selectedTaskIds.value = []
       loading.value = false
     }
   }
@@ -819,7 +740,6 @@ async function exportPolicies() {
   }
 }
 function preferredScope() {
-  if (!authStore.user?.isAdmin && (canReviewData.value || canReviewPolicy.value)) return 'review'
   if (!authStore.user?.isAdmin && canClaimTasks.value) return 'claim'
   if (!authStore.user?.isAdmin && canCreate.value) return 'mine'
   return 'all'
@@ -943,8 +863,8 @@ function validateTaskForm(values: PlacementTaskInput, submit: boolean) {
   ]
   if (submit) {
     const absent = submissionRequired.find(([key]) => values[key] === undefined || values[key] === null || values[key] === '')
-    if (absent) return `提交审核前请填写${absent[1]}`
-    if (!values.longTerm && !values.suggestedEffectiveEnd) return '提交审核前请填写建议失效时间，或开启长期有效'
+    if (absent) return `提交投放前请填写${absent[1]}`
+    if (!values.longTerm && !values.suggestedEffectiveEnd) return '提交投放前请填写建议失效时间，或开启长期有效'
   }
   if (values.analysisEndDate < values.analysisStartDate) return '分析结束日期不能早于开始日期'
   if (values.orderStartDate && values.orderEndDate && values.orderEndDate < values.orderStartDate) return '销售结束日期不能早于开始日期'
@@ -962,7 +882,7 @@ function validateTaskForm(values: PlacementTaskInput, submit: boolean) {
 }
 async function saveTask(submit: boolean) {
   if (saving.value) return
-  if (approvedEditing.value && submit) { message.warning('已审核编辑直接保存生效，无需提交审核'); return }
+  if (approvedEditing.value && submit) { message.warning('请直接保存修改'); return }
   const values = {
     ...taskForm.value,
     flightNos: normalizeList(taskForm.value.flightNos),
@@ -981,7 +901,7 @@ async function saveTask(submit: boolean) {
   try {
     const payload = { ...values, submit, ...(approvedEditing.value ? { approvedEdit: true, changeReason: approvedChangeReason.value.trim(), versionNo: editingVersion.value, ...(approvedExecutionId.value ? { executionEdit: { id: approvedExecutionId.value, values: approvedExecutionForm.value } } : {}) } : {}) }
     const result = editingTaskId.value ? await updatePlacementTask(editingTaskId.value, payload) : await createPlacementTask(payload)
-    message.success(approvedEditing.value ? `任务${result.taskNo}修改已生效` : submit ? `任务${result.taskNo}已提交审核` : `草稿${result.taskNo}已保存`)
+    message.success(approvedEditing.value ? `任务${result.taskNo}修改已生效` : submit ? `任务${result.taskNo}已提交，等待认领` : `草稿${result.taskNo}已保存`)
     createOpen.value = false; approvedEditing.value = false; approvedChangeReason.value = ''; approvedExecutionId.value = undefined; approvedExecutionForm.value = {}; editingVersion.value = undefined; editingTaskId.value = undefined; await load(1)
   }
   catch (failure) { message.error(failure instanceof Error ? failure.message : '保存失败') }
@@ -996,12 +916,12 @@ async function policyChangeSaved() {
   if (detailOpen.value && detail.value && policyChangeRows.value.some(row => row.id === detail.value?.task.id)) await openDetail(detail.value.task)
 }
 const canDelete = (row: PlacementTaskRow) => canDeleteTasks.value && ['DRAFT', 'REJECTED'].includes(row.status) && (Boolean(authStore.user?.isAdmin) || row.createdById === authStore.user?.id)
-const canWithdraw = (row: PlacementTaskRow) => canWithdrawTasks.value && row.status === 'PENDING_DATA_REVIEW' && (Boolean(authStore.user?.isAdmin) || row.createdById === authStore.user?.id)
-const canCancel = (row: PlacementTaskRow) => canCancelTasks.value && ['PENDING_DATA_REVIEW', 'PENDING_POLICY_REVIEW', 'CLAIMABLE'].includes(row.status)
+const canWithdraw = (row: PlacementTaskRow) => canWithdrawTasks.value && row.status === 'CLAIMABLE' && (Boolean(authStore.user?.isAdmin) || row.createdById === authStore.user?.id)
+const canCancel = (row: PlacementTaskRow) => canCancelTasks.value && row.status === 'CLAIMABLE'
 function confirmWithdraw(row: PlacementTaskRow) {
   Modal.confirm({
     title: '撤回后继续修改？',
-    content: `任务“${row.opportunityName}”（${row.taskNo}）将回到草稿；修改完成后需要重新提交数据审核。`,
+    content: `任务“${row.opportunityName}”（${row.taskNo}）将回到草稿；修改完成后可重新提交认领。`,
     okText: '确认撤回',
     cancelText: '暂不撤回',
     async onOk() {
@@ -1060,15 +980,11 @@ async function submitEffectReview() {
   } catch (failure) { message.error(failure instanceof Error ? failure.message : '效果复盘保存失败') }
   finally { saving.value = false }
 }
-const isReviewable = (row: PlacementTaskRow) => row.status === 'PENDING_DATA_REVIEW' ? canReviewData.value : row.status === 'PENDING_POLICY_REVIEW' ? canReviewPolicy.value : false
 const canClaim = (row: PlacementTaskRow) => canClaimTasks.value && row.status === 'CLAIMABLE'
 const canExecute = (row: PlacementTaskRow) => canExecuteTasks.value && row.status === 'IN_PROGRESS' && (Boolean(authStore.user?.isAdmin) || row.currentAssigneeId === authStore.user?.id)
 const orderHistoryStatuses = new Set<PlacementTaskStatus>([
   'MONITORING', 'PENDING_RECALL_REVIEW', 'PENDING_RECALL_POLICY_REVIEW', 'PENDING_RECALL', 'RECALLED', 'ENDED',
 ])
-const canReviewRecall = (row: PlacementTaskRow) => row.status === 'PENDING_RECALL_REVIEW'
-  ? canReviewData.value
-  : row.status === 'PENDING_RECALL_POLICY_REVIEW' && canReviewPolicy.value
 const canConfirmRecall = (row: PlacementTaskRow) => (canClaimTasks.value || canExecuteTasks.value) && row.status === 'PENDING_RECALL' && row.currentAssigneeId === authStore.user?.id
 const canBatchConfirmRecall = (row: PlacementTaskRow) => (workScope.value === 'all' || workScope.value === 'recall') && canConfirmRecall(row)
 async function openRecall(row: PlacementTaskRow, mode: RecallMode) {
@@ -1084,13 +1000,9 @@ async function openRecallDialog(rows: PlacementTaskRow[], mode: RecallMode) {
   try {
     const reasons = await Promise.all(rows.map(async row => {
       const taskDetail = await fetchPlacementTask(row.id)
-      return taskDetail.logs.find(log => log.actionCode === 'RECALL_REQUEST')?.operationNote || ''
+      return taskDetail.logs.find(log => log.actionCode === 'RECALL_REQUEST')?.operationNote || '历史记录未填写'
     }))
     if (recallDialog.value !== opened) return
-    if (reasons.some(reason => !reason)) {
-      message.error('未读取到收回理由，请刷新列表后重试')
-      return
-    }
     recallReasons.value = reasons
   } catch (failure) {
     if (recallDialog.value === opened) message.error(failure instanceof Error ? failure.message : '读取收回申请失败')
@@ -1107,19 +1019,18 @@ async function submitRecall(action: PlacementRecallAction) {
   const { rows } = dialog
   const row = rows[0]
   const note = recallNote.value.trim()
-  if ((action === 'request' || action === 'reject') && !note) {
-    message.warning(action === 'request' ? '请填写收回理由' : '请填写驳回意见')
+  if (action === 'request' && !note) {
+    message.warning('请填写收回理由')
     return
   }
   recallSaving.value = true
   try {
     const batch = rows.length > 1 && action !== 'request'
-    const result = batch
-      ? await batchPlacementRecalls(rows, action, note)
-      : await recallPlacementPolicy(row.id, action, note, row.versionNo)
+    if (batch) await batchPlacementRecalls(rows, action, note)
+    else await recallPlacementPolicy(row.id, action, note, row.versionNo)
     recallDialog.value = undefined
-    if (batch) clearReviewSelection()
-    message.success(({ request: '收回申请已提交数据审核', approve: result.status === 'PENDING_RECALL_POLICY_REVIEW' ? '数据审核通过，已流转到政策审核' : '政策审核通过，等待原认领人确认收回', reject: '收回申请已驳回', confirm: '政策已确认收回' })[action])
+    if (batch) clearTaskSelection()
+    message.success(action === 'request' ? '收回申请已提交，等待原认领人确认' : '政策已确认收回')
     const nextPage = data.value?.rows.length === rows.length && page.value > 1 && workScope.value !== 'all' ? page.value - 1 : page.value
     await load(nextPage)
     const detailRow = rows.find(item => item.id === detail.value?.task.id)
@@ -1130,55 +1041,12 @@ async function submitRecall(action: PlacementRecallAction) {
     recallSaving.value = false
   }
 }
-function openReview(row: PlacementTaskRow) {
-  activeTask.value = row
-  batchReviewRows.value = []
-  reviewStage.value = row.status === 'PENDING_DATA_REVIEW' ? 'DATA_MANAGER' : 'POLICY_MANAGER'
-  reviewForm.value = { result: 'APPROVED', comment: '', policyExecutableLevel: 'EXECUTABLE', riskLevel: 'MEDIUM', riskControlRequirement: '', claimScope: '', adjustedPriority: '', adjustedCompleteAt: '' }
-  reviewOpen.value = true
-}
-function clearReviewSelection() { selectedReviewTaskIds.value = [] }
+function clearTaskSelection() { selectedTaskIds.value = [] }
 function openBatchRecallConfirm() {
   const rows = selectedRecallRows.value
   if (!rows.length) return
   if (rows.length > 100) { message.warning('单次最多确认收回100条政策'); return }
   void openRecallDialog(rows, 'confirm')
-}
-function openBatchReview() {
-  const rows = selectedReviewRows.value
-  if (!rows.length) { message.warning('请先选择需要审核的任务'); return }
-  const statuses = new Set(rows.map(row => row.status))
-  if (statuses.size !== 1) { message.warning('一次只能批量审核同一审核阶段的任务'); return }
-  const status = rows[0]?.status
-  if (canReviewRecall(rows[0])) {
-    if (rows.length > 100) { message.warning('单次最多批量审核100条任务'); return }
-    void openRecallDialog(rows, 'review')
-    return
-  }
-  if (status !== 'PENDING_DATA_REVIEW' && status !== 'PENDING_POLICY_REVIEW') { message.warning('所选任务当前不可审核'); return }
-  activeTask.value = undefined
-  batchReviewRows.value = [...rows]
-  reviewStage.value = status === 'PENDING_DATA_REVIEW' ? 'DATA_MANAGER' : 'POLICY_MANAGER'
-  reviewForm.value = { result: 'APPROVED', comment: '', policyExecutableLevel: 'EXECUTABLE', riskLevel: 'MEDIUM', riskControlRequirement: '', claimScope: '', adjustedPriority: '', adjustedCompleteAt: '' }
-  reviewOpen.value = true
-}
-async function submitReview() {
-  if (!activeTask.value && !batchReviewRows.value.length) return
-  if (reviewForm.value.result !== 'APPROVED' && !reviewForm.value.comment.trim()) { message.warning('退回或驳回时必须填写审核意见'); return }
-  if (reviewStage.value === 'POLICY_MANAGER' && reviewForm.value.result === 'APPROVED' && reviewForm.value.policyExecutableLevel === 'NOT_EXECUTABLE') { message.warning('政策不可执行时不能选择审核通过'); return }
-  saving.value = true
-  try {
-    const payload = { stage: reviewStage.value, ...reviewForm.value }
-    if (batchReviewRows.value.length) {
-      const result = await batchReviewPlacementTasks(batchReviewRows.value.map(row => row.id), payload)
-      message.success(`已完成 ${result.count} 项批量审核`)
-    } else if (activeTask.value) {
-      await reviewPlacementTask(activeTask.value.id, payload)
-      message.success('审核结果已提交')
-    }
-    reviewOpen.value = false; batchReviewRows.value = []; await load()
-  }
-  catch (failure) { message.error(failure instanceof Error ? failure.message : '审核失败') } finally { saving.value = false }
 }
 function openClaim(row: PlacementTaskRow) { activeTask.value = row; claimForm.value = { plannedCompleteAt: row.expectedCompleteAt, note: '' }; claimOpen.value = true }
 async function submitClaim() {
@@ -1258,7 +1126,7 @@ onMounted(() => {
 .page-alert { margin-bottom: 14px; border-radius: 10px; }
 .placement-hero { position: relative; display: flex; min-height: 124px; align-items: center; justify-content: space-between; gap: 24px; overflow: hidden; margin-bottom: 16px; padding: 24px 28px; border-radius: 16px; color: #fff; background: linear-gradient(110deg,#2049a6 0%,#1768bd 55%,#0f8d9c 100%); box-shadow: 0 10px 30px rgba(27,41,70,.08); }
 .placement-hero::after { position: absolute; top: -115px; right: -70px; width: 320px; height: 320px; border: 40px solid rgba(255,255,255,.08); border-radius: 50%; content: ''; }.placement-hero h2 { position: relative; z-index: 1; margin: 0 0 6px; color: #fff; font-size: 20px; }.placement-hero p { position: relative; z-index: 1; max-width: 760px; margin: 0; color: #d8e9ff; }.hero-action { position: relative; z-index: 1; flex: none; border: 0; color: #1a55a4; font-weight: 700; }
-.summary-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
 .summary-card { padding: 17px 18px; border: 1px solid #e8edf4; border-radius: 12px; background: #fff; box-shadow: 0 4px 15px rgba(30,52,89,.04); }.summary-card span,.summary-card small { display: block; color: #697386; font-size: 12px; }.summary-card span { font-size: 12px; }.summary-card strong { display: block; margin: 7px 0 3px; color: #26344b; font-size: 25px; letter-spacing: -.5px; }.summary-card strong.orange { color: #ea580c; }.summary-card strong.blue { color: #2563eb; }.summary-card strong.green { color: #059669; }.summary-card strong.red { color: #dc2626; }
 .panel-card { margin-bottom: 16px; border: 1px solid #e8edf4 !important; border-radius: 13px; box-shadow: 0 5px 20px rgba(25,43,74,.045); }.flow-card :deep(.ant-card-head) { min-height: 62px; padding: 0 20px; border-bottom-color: #e8edf4; }.flow-card :deep(.ant-card-body) { padding: 24px 16px 20px; }
 .panel-card:not(.flow-card) :deep(.ant-card-body) { padding: 14px 18px 0; }.panel-card :deep(.ant-table-thead > tr > th) { color: #667085; background: #f8fafc; font-size: 12px; }.panel-card :deep(.ant-table-tbody > tr > td) { padding-top: 12px; padding-bottom: 12px; }
@@ -1278,7 +1146,7 @@ onMounted(() => {
 .filter-bar { grid-template-columns: minmax(180px, 1fr) 130px 135px 115px repeat(3, auto); align-items: end; }
 .work-tabs { flex-wrap: wrap; row-gap: 12px; }
 .work-tab-badge :deep(.ant-badge-count) { inset-inline-end: 3px; transform: translateY(-58%); z-index: 1; }
-@media (max-width: 1180px) { .summary-grid { grid-template-columns: repeat(3,1fr); }.filter-bar { grid-template-columns: repeat(3,1fr); }.workflow-chain { grid-template-columns: repeat(4,1fr); gap: 24px 0; }.workflow-node::after { display: none; } }
+@media (max-width: 1180px) { .summary-grid { grid-template-columns: repeat(2,1fr); }.filter-bar { grid-template-columns: repeat(3,1fr); } }
 @media (max-width: 820px) { .form-grid,.form-grid.three { grid-template-columns: repeat(2,minmax(0,1fr)); }.span-3 { grid-column: span 2; }.grid-placeholder { display: none; } }
-@media (max-width: 600px) { .summary-grid,.form-grid,.form-grid.three,.review-checks,.record-grid,.monitoring-grid,.effect-grid,.monitoring-condition-list { grid-template-columns: 1fr; }.span-2,.span-3 { grid-column: auto; }.filter-bar { grid-template-columns: 1fr 1fr; }.placement-hero { align-items: flex-start; flex-direction: column; }.flow-card { overflow-x: auto; }.workflow-chain { min-width: 760px; grid-template-columns: repeat(7,1fr); }.form-section { padding: 15px 14px; }.form-intro { align-items: flex-start; }.field-legend { display: none; }.modal-actions { align-items: stretch; flex-direction: column; margin-right: -14px; margin-left: -14px; padding-right: 14px; padding-left: 14px; }.modal-actions > div { display: grid; grid-template-columns: repeat(3,1fr); }.detail-hero { flex-direction: column; }.detail-hero-meta { justify-items: start; }.monitoring-condition-list article { grid-template-columns: 76px 64px minmax(0,1fr) auto; } }
+@media (max-width: 600px) { .summary-grid,.form-grid,.form-grid.three,.record-grid,.monitoring-grid,.effect-grid,.monitoring-condition-list { grid-template-columns: 1fr; }.span-2,.span-3 { grid-column: auto; }.filter-bar { grid-template-columns: 1fr 1fr; }.placement-hero { align-items: flex-start; flex-direction: column; }.flow-card { overflow-x: auto; }.workflow-chain { min-width: 550px; }.form-section { padding: 15px 14px; }.form-intro { align-items: flex-start; }.field-legend { display: none; }.modal-actions { align-items: stretch; flex-direction: column; margin-right: -14px; margin-left: -14px; padding-right: 14px; padding-left: 14px; }.modal-actions > div { display: grid; grid-template-columns: repeat(3,1fr); }.detail-hero { flex-direction: column; }.detail-hero-meta { justify-items: start; }.monitoring-condition-list article { grid-template-columns: 76px 64px minmax(0,1fr) auto; } }
 </style>

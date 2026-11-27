@@ -13,13 +13,13 @@
         <span>导入方式：</span>
         <a-radio-group v-model:value="submit" :disabled="busy || !!result" @change="invalidate">
           <a-radio :value="false">保存为草稿</a-radio>
-          <a-radio :value="true">提交数据审核</a-radio>
+          <a-radio :value="true">提交投放</a-radio>
         </a-radio-group>
       </div>
       <a-alert v-if="error" type="error" show-icon :message="error" />
       <a-alert v-if="result" type="success" show-icon :message="result.alreadyImported ? `该批次已导入，共${result.count}条，本次未重复新建` : `已成功新建${result.count}条分析机会`" description="请在任务列表查看。后续仍按现有流程操作。" />
       <template v-else-if="preview">
-        <a-alert :type="preview.errors.length ? 'error' : 'success'" show-icon :message="`共${preview.total}条，${preview.errors.length}条错误`" :description="preview.errors.length ? '整批尚未写入，请按行号修改文件后重新校验。' : `将${preview.submit ? '新建并进入数据经理审核' : '新建为草稿'}；请核对预览，再确认导入。预览30分钟内有效。`" />
+        <a-alert :type="preview.errors.length ? 'error' : 'success'" show-icon :message="`共${preview.total}条，${preview.errors.length}条错误`" :description="preview.errors.length ? '整批尚未写入，请按行号修改文件后重新校验。' : `将${preview.submit ? '新建并进入待认领' : '新建为草稿'}；请核对预览，再确认导入。预览30分钟内有效。`" />
         <a-table v-if="preview.errors.length" size="small" row-key="line" :columns="errorColumns" :data-source="preview.errors" :pagination="false" :scroll="{ y: 160 }" />
         <a-table size="small" row-key="line" :columns="columns" :data-source="preview.rows" :pagination="{ pageSize: 10, showSizeChanger: false }" :scroll="{ x: 1150, y: 280 }">
           <template #expandedRowRender="{ record }">
@@ -66,7 +66,7 @@ const columns = [
   { title: '到达类型', dataIndex: 'arrivalType', width: 100 }, { title: '到达代码', dataIndex: 'arrivalCode', width: 100 },
   { title: '建议投放方式', dataIndex: 'placementMethod', width: 240 },
 ]
-const statusLabels: Record<string, string> = { DRAFT: '草稿', PENDING_DATA_REVIEW: '待数据审核' }
+const statusLabels: Record<string, string> = { DRAFT: '草稿', CLAIMABLE: '待认领' }
 const resultColumns = [{ title: '任务编号', dataIndex: 'taskNo' }, { title: '当前状态', dataIndex: 'status', customRender: ({ text }: { text: string }) => statusLabels[text] || text }]
 const display = (value: unknown) => value === true ? '是' : value === false ? '否' : value === undefined || value === '' ? '不限／未填写' : String(value)
 const failure = (reason: unknown) => reason instanceof Error ? reason.message : '操作失败，请稍后重试'

@@ -1,7 +1,7 @@
 import { http, type ApiEnvelope } from './http'
 
 export type PlacementTaskStatus = 'DRAFT' | 'PENDING_DATA_REVIEW' | 'PENDING_POLICY_REVIEW' | 'CLAIMABLE' | 'IN_PROGRESS' | 'MONITORING' | 'FAILED' | 'REJECTED' | 'CLOSED' | 'ENDED' | 'PENDING_RECALL_REVIEW' | 'PENDING_RECALL_POLICY_REVIEW' | 'PENDING_RECALL' | 'RECALLED'
-export type PlacementRecallAction = 'request' | 'approve' | 'reject' | 'confirm'
+export type PlacementRecallAction = 'request' | 'confirm'
 export type PlacementPriority = 'HIGH' | 'MEDIUM' | 'LOW'
 export type PlacementLocationType = 'AIRPORT' | 'CITY' | 'COUNTRY' | 'LEGACY'
 
@@ -361,18 +361,6 @@ export async function withdrawPlacementTask(id: number) {
 
 export async function cancelPlacementTask(id: number, reason: string) {
   const response = await http.post<ApiEnvelope<{ id: number; taskNo: string; status: PlacementTaskStatus }>>(`/v1/smart-placement/tasks/${id}/cancel`, { reason })
-  if (!response.data.success) throw new Error(response.data.message)
-  return response.data.data
-}
-
-export async function reviewPlacementTask(id: number, values: Record<string, unknown>) {
-  const response = await http.post<ApiEnvelope<{ id: number; status: PlacementTaskStatus }>>(`/v1/smart-placement/tasks/${id}/reviews`, values)
-  if (!response.data.success) throw new Error(response.data.message)
-  return response.data.data
-}
-
-export async function batchReviewPlacementTasks(taskIds: number[], values: Record<string, unknown>) {
-  const response = await http.post<ApiEnvelope<{ count: number; taskIds: number[]; status: PlacementTaskStatus }>>('/v1/smart-placement/tasks/reviews/batch', { ...values, taskIds })
   if (!response.data.success) throw new Error(response.data.message)
   return response.data.data
 }

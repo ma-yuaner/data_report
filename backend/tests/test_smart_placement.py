@@ -68,7 +68,7 @@ def test_create_task_persists_separate_scope_and_excluded_cabins():
     )
 
     assert result["id"] == 17
-    assert result["status"] == "PENDING_DATA_REVIEW"
+    assert result["status"] == "CLAIMABLE"
     insert_query, insert_params = cursor.execute.call_args_list[0].args
     assert "platform_code,platform_name" in insert_query
     assert "departure_code,arrival_code" in insert_query
@@ -118,7 +118,7 @@ def test_create_long_term_task_allows_empty_end_time():
         task_payload(longTerm=True, suggestedEffectiveEnd=""),
     )
 
-    assert result["status"] == "PENDING_DATA_REVIEW"
+    assert result["status"] == "CLAIMABLE"
     insert_params = cursor.execute.call_args_list[0].args[1]
     assert None in insert_params
     connection.commit.assert_called_once()
@@ -142,19 +142,6 @@ def test_loss_thresholds_allow_empty_pair_and_reject_partial_pair():
         smart_placement_module._loss_thresholds({"lossThresholdMin": 0})
 
 
-def test_review_requires_matching_business_role_before_database_access():
-    service, _connection, _cursor = service_with_cursor()
-
-    with pytest.raises(PermissionError, match="没有数据审核权限"):
-        service.review_task(
-            {"id": 3, "display_name": "政策员", "is_admin": False},
-            17,
-            {"stage": "DATA_MANAGER", "result": "APPROVED"},
-        )
-
-    service.source.connect.assert_not_called()
-
-
 def test_update_draft_can_resubmit_by_creator():
     service, connection, cursor = service_with_cursor()
     cursor.fetchone.return_value = {
@@ -171,14 +158,14 @@ def test_update_draft_can_resubmit_by_creator():
         task_payload(),
     )
 
-    assert result == {"id": 17, "taskNo": "SP202610100001", "status": "PENDING_DATA_REVIEW"}
+    assert result == {"id": 17, "taskNo": "SP202610100001", "status": "CLAIMABLE"}
     update_query, update_params = cursor.execute.call_args_list[1].args
     assert "status=%s" in update_query
-    assert "PENDING_DATA_REVIEW" in update_params
+    assert "CLAIMABLE" in update_params
     connection.commit.assert_called_once()
 
 
-def test_policy_manager_return_resubmits_directly_to_policy_review():
+def test_returned_draft_resubmits_to_claimable():
     service, connection, cursor = service_with_cursor()
     cursor.fetchone.return_value = {
         "id": 17,
@@ -195,10 +182,10 @@ def test_policy_manager_return_resubmits_directly_to_policy_review():
         task_payload(),
     )
 
-    assert result["status"] == "PENDING_POLICY_REVIEW"
+    assert result["status"] == "CLAIMABLE"
     update_query, update_params = cursor.execute.call_args_list[1].args
     assert "resume_review_stage=%s" in update_query
-    assert "PENDING_POLICY_REVIEW" in update_params
+    assert "CLAIMABLE" in update_params
     connection.commit.assert_called_once()
 
 
@@ -278,12 +265,12 @@ def test_delete_running_task_is_rejected():
     connection.rollback.assert_called_once()
 
 
-def test_creator_can_withdraw_pending_data_review_back_to_draft():
+def test_creator_can_withdraw_claimable_task_back_to_draft():
     service, connection, cursor = service_with_cursor()
     cursor.fetchone.return_value = {
         "id": 17,
         "task_no": "SP202610100001",
-        "status": "PENDING_DATA_REVIEW",
+        "status": "CLAIMABLE",
         "created_by_id": 3,
     }
 
@@ -295,23 +282,23 @@ def test_creator_can_withdraw_pending_data_review_back_to_draft():
     assert result == {"id": 17, "taskNo": "SP202610100001", "status": "DRAFT"}
     update_query, update_params = cursor.execute.call_args_list[1].args
     assert "status='DRAFT'" in update_query
-    assert "resume_review_stage='DATA_MANAGER'" in update_query
+    assert "resume_review_stage=NULL" in update_query
     assert update_params[-1] == 17
     _log_query, log_params = cursor.execute.call_args_list[2].args
     assert "WITHDRAW" in log_params
     connection.commit.assert_called_once()
 
 
-def test_creator_cannot_withdraw_after_data_review_started_next_stage():
+def test_creator_cannot_withdraw_after_claim():
     service, connection, cursor = service_with_cursor()
     cursor.fetchone.return_value = {
         "id": 17,
         "task_no": "SP202610100001",
-        "status": "PENDING_POLICY_REVIEW",
+        "status": "IN_PROGRESS",
         "created_by_id": 3,
     }
 
-    with pytest.raises(ValueError, match="待数据审核任务"):
+    with pytest.raises(ValueError, match="待认领任务"):
         service.withdraw_task(
             {"id": 3, "display_name": "数据分析员", "permissions": ["smart_placement.withdraw"]},
             17,
@@ -354,7 +341,7 @@ def test_cancel_rejects_claimed_or_monitoring_task():
         "created_by_id": 3,
     }
 
-    with pytest.raises(ValueError, match="待审核或待认领"):
+    with pytest.raises(ValueError, match="待认领任务"):
         service.cancel_task(
             {"id": 6, "display_name": "数据运营经理", "permissions": ["smart_placement.cancel"]},
             17,
@@ -372,76 +359,6 @@ def test_cancel_requires_reason_before_database_access():
             {"id": 6, "display_name": "数据运营经理", "permissions": ["smart_placement.cancel"]},
             17,
             {"reason": ""},
-        )
-
-    service.source.connect.assert_not_called()
-
-
-def test_data_review_approval_does_not_require_confirmation_checkboxes():
-    service, connection, cursor = service_with_cursor()
-    cursor.fetchone.return_value = {
-        "id": 17, "task_no": "SP202610100017", "status": "PENDING_DATA_REVIEW",
-    }
-
-    result = service.review_task(
-        {"id": 1, "display_name": "管理员", "is_admin": True},
-        17,
-        {"stage": "DATA_MANAGER", "result": "APPROVED"},
-    )
-
-    assert result == {"id": 17, "status": "PENDING_POLICY_REVIEW"}
-    insert_params = cursor.execute.call_args_list[1].args[1]
-    assert insert_params[4:7] == (None, None, None)
-    connection.commit.assert_called_once()
-
-
-def test_batch_review_is_atomic_and_applies_same_result_to_all_tasks():
-    service, connection, cursor = service_with_cursor()
-    cursor.fetchone.side_effect = [
-        {"id": 17, "task_no": "SP17", "status": "PENDING_DATA_REVIEW"},
-        {"id": 18, "task_no": "SP18", "status": "PENDING_DATA_REVIEW"},
-    ]
-
-    result = service.batch_review_tasks(
-        {"id": 1, "display_name": "管理员", "is_admin": True},
-        {"taskIds": [17, 18], "stage": "DATA_MANAGER", "result": "APPROVED", "adjustedPriority": "HIGH"},
-    )
-
-    assert result == {"count": 2, "taskIds": [17, 18], "status": "PENDING_POLICY_REVIEW"}
-    assert cursor.execute.call_count == 8
-    connection.commit.assert_called_once()
-
-
-def test_batch_review_rolls_back_when_one_task_is_not_in_expected_stage():
-    service, connection, cursor = service_with_cursor()
-    cursor.fetchone.side_effect = [
-        {"id": 17, "task_no": "SP17", "status": "PENDING_DATA_REVIEW"},
-        {"id": 18, "task_no": "SP18", "status": "PENDING_POLICY_REVIEW"},
-    ]
-
-    with pytest.raises(ValueError, match="SP18"):
-        service.batch_review_tasks(
-            {"id": 1, "display_name": "管理员", "is_admin": True},
-            {"taskIds": [17, 18], "stage": "DATA_MANAGER", "result": "APPROVED"},
-        )
-
-    connection.rollback.assert_called_once()
-    connection.commit.assert_not_called()
-
-
-def test_policy_review_cannot_approve_non_executable_task():
-    service, _connection, _cursor = service_with_cursor()
-
-    with pytest.raises(ValueError, match="不能选择审核通过"):
-        service.review_task(
-            {"id": 1, "display_name": "管理员", "is_admin": True},
-            17,
-            {
-                "stage": "POLICY_MANAGER",
-                "result": "APPROVED",
-                "policyExecutableLevel": "NOT_EXECUTABLE",
-                "riskLevel": "HIGH",
-            },
         )
 
     service.source.connect.assert_not_called()

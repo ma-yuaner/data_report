@@ -46,12 +46,6 @@ TASK_STATUSES = frozenset({
     "PENDING_RECALL_REVIEW", "PENDING_RECALL_POLICY_REVIEW", "PENDING_RECALL", "RECALLED",
 })
 PRIORITIES = frozenset({"HIGH", "MEDIUM", "LOW"})
-REVIEW_STAGES = {
-    "DATA_MANAGER": ("PENDING_DATA_REVIEW", "PENDING_POLICY_REVIEW", "data_reviewed_at"),
-    "POLICY_MANAGER": ("PENDING_POLICY_REVIEW", "CLAIMABLE", "policy_reviewed_at"),
-}
-REVIEW_RESULTS = frozenset({"APPROVED", "RETURNED", "REJECTED"})
-POLICY_EXECUTABLE_LEVELS = frozenset({"EXECUTABLE", "CONDITIONAL", "NOT_EXECUTABLE"})
 ATTENTION_STATUSES = frozenset({"IN_PROGRESS", "COMPLETED", "NO_ACTION"})
 ORDER_SOURCE_VALUES = ("平台手工订单", "直连订单")
 ORDER_SOURCES = frozenset(ORDER_SOURCE_VALUES)
@@ -72,10 +66,6 @@ PERMISSION_EXECUTE = "smart_placement.execute"
 PERMISSION_ORDER_ATTENTION = "smart_placement.orders.attention"
 PERMISSION_STOP = "smart_placement.stop"
 PERMISSION_EFFECT_REVIEW = "smart_placement.effect_review"
-RECALL_REVIEW_STAGES = {
-    "PENDING_RECALL_REVIEW": (PERMISSION_REVIEW_DATA, "RECALL_DATA", "PENDING_RECALL_POLICY_REVIEW"),
-    "PENDING_RECALL_POLICY_REVIEW": (PERMISSION_REVIEW_POLICY, "RECALL_POLICY", "PENDING_RECALL"),
-}
 
 
 class SmartPlacementUnavailable(RuntimeError):
@@ -829,9 +819,6 @@ class SmartPlacementService:
                     )
                     params.append(actor_id)
                 condition += f" AND ({' OR '.join(pending)})" if pending else " AND 1=0"
-            if scope == "recall" and _is_admin(user):
-                condition += " AND t.current_assignee_id=%s"
-                params.append(actor_id)
             cursor.execute(f"SELECT COUNT(*) FROM {self._table(TASK_TABLE)} t WHERE {condition}", tuple(params))
             counts[scope] = int(cursor.fetchone()[0])
         return counts
@@ -1171,7 +1158,7 @@ class SmartPlacementService:
             if connection is not None: connection.close()
 
     def _insert_new_task(self, cursor, *, fields, actor, submit, now, task_no):
-        status = "PENDING_DATA_REVIEW" if submit else "DRAFT"
+        status = "CLAIMABLE" if submit else "DRAFT"
         columns = ["task_no", *fields.keys(), "status", "submitted_at", "created_by_id", "created_by_name",
             "updated_by_id", "updated_by_name", "created_at", "updated_at"]
         params = [task_no, *fields.values(), status, now if submit else None,
@@ -1181,7 +1168,7 @@ class SmartPlacementService:
         cursor.execute(f"INSERT INTO {self._table(TASK_TABLE)} ({','.join(columns)}) VALUES ({placeholders})", tuple(params))
         task_id = int(cursor.lastrowid)
         self._log(cursor, task_id=task_id, action="SUBMIT" if submit else "CREATE", actor=actor,
-            to_status=status, note="提交数据经理审核" if submit else "保存草稿")
+            to_status=status, note="提交投放，等待认领" if submit else "保存草稿")
         return {"id": task_id, "taskNo": task_no, "status": status}
 
     def create_import_tasks(self, user, rows, batch_key, *, submit=False):
@@ -1286,11 +1273,7 @@ class SmartPlacementService:
             if actor[0] not in editable_people and actor[2] != "ADMIN":
                 raise PermissionError("只能由创建人、当前负责人或管理员编辑该任务")
             self._validate_locations(cursor, fields, now)
-            resume_stage = str(task.get("resume_review_stage") or "DATA_MANAGER")
-            next_status = (
-                "PENDING_POLICY_REVIEW" if submit and resume_stage == "POLICY_MANAGER"
-                else "PENDING_DATA_REVIEW" if submit else "DRAFT"
-            )
+            next_status = "CLAIMABLE" if submit else "DRAFT"
             assignments = ",".join(f"{name}=%s" for name in fields)
             cursor.execute(
                 f"""UPDATE {self._table(TASK_TABLE)} SET {assignments}, status=%s,
@@ -1301,7 +1284,7 @@ class SmartPlacementService:
             self._log(
                 cursor, task_id=task_id, action="RESUBMIT" if submit else "UPDATE",
                 actor=actor, from_status="DRAFT", to_status=next_status,
-                note=("修改后重新提交政策经理审核" if resume_stage == "POLICY_MANAGER" else "修改后重新提交数据经理审核") if submit else "更新草稿",
+                note="重新提交投放，等待认领" if submit else "更新草稿",
             )
             connection.commit()
             return {"id": task_id, "taskNo": task["task_no"], "status": next_status}
@@ -1320,11 +1303,11 @@ class SmartPlacementService:
 
     def update_approved_task(self, user: dict[str, Any], task_id: int, values: dict[str, Any]) -> dict[str, Any]:
         """Privileged amendment: preserve approval/workflow, atomically publish current rules."""
-        _require_permission(user, PERMISSION_EDIT_APPROVED, "当前账号没有已审核投放编辑权限")
+        _require_permission(user, PERMISSION_EDIT_APPROVED, "当前账号没有投放任务直接编辑权限")
         actor = _actor(user)
         reason = _text(values.get("changeReason"), "修改原因", 1000, required=True)
         if values.get("submit") is not False:
-            raise ValueError("已审核编辑直接生效，不支持重新提交审核")
+            raise ValueError("请直接保存投放任务修改")
         if type(values.get("versionNo")) is not int:
             raise ValueError("缺少有效的任务版本，请刷新后重试")
         fields = _task_fields(values, submit=True)
@@ -1338,7 +1321,7 @@ class SmartPlacementService:
             if not task:
                 raise PermissionError("任务不存在或不在当前账号的数据范围内")
             if task["status"] not in APPROVED_EDIT_STATUSES:
-                raise ValueError("该任务尚未全部审核通过或已作废，不能使用已审核编辑")
+                raise ValueError("该任务当前状态不支持直接编辑")
             if int(task["version_no"]) != values["versionNo"]:
                 raise PlacementChangeConflict("任务已被其他人修改，请刷新后重新编辑")
             self._validate_locations(cursor, fields, now)
@@ -1423,7 +1406,7 @@ class SmartPlacementService:
         except Exception as error:
             if connection is not None: connection.rollback()
             LOGGER.exception("Approved placement amendment failed")
-            raise SmartPlacementUnavailable("已审核投放修改失败，整笔未保存，请核对后重试") from error
+            raise SmartPlacementUnavailable("投放任务修改失败，整笔未保存，请核对后重试") from error
         finally:
             if cursor is not None: cursor.close()
             if connection is not None: connection.close()
@@ -1603,19 +1586,19 @@ class SmartPlacementService:
         try:
             connection = self.source.connect(); connection.begin(); cursor = connection.cursor()
             task = self._task_for_update(cursor, task_id)
-            if task["status"] != "PENDING_DATA_REVIEW":
-                raise ValueError("只有尚未处理的待数据审核任务可以撤回")
+            if task["status"] != "CLAIMABLE":
+                raise ValueError("只有尚未认领的待认领任务可以撤回")
             if int(task.get("created_by_id") or 0) != actor[0] and actor[2] != "ADMIN":
                 raise PermissionError("只能由创建人或管理员撤回该任务")
             cursor.execute(
                 f"""UPDATE {self._table(TASK_TABLE)} SET status='DRAFT', submitted_at=NULL,
-                        resume_review_stage='DATA_MANAGER', updated_by_id=%s, updated_by_name=%s,
+                        resume_review_stage=NULL, updated_by_id=%s, updated_by_name=%s,
                         version_no=version_no+1, updated_at=%s WHERE id=%s""",
                 (actor[0], actor[1], now, task_id),
             )
             self._log(
                 cursor, task_id=task_id, action="WITHDRAW", actor=actor,
-                from_status="PENDING_DATA_REVIEW", to_status="DRAFT",
+                from_status="CLAIMABLE", to_status="DRAFT",
                 note="创建人撤回并继续修改",
             )
             connection.commit()
@@ -1642,8 +1625,8 @@ class SmartPlacementService:
         try:
             connection = self.source.connect(); connection.begin(); cursor = connection.cursor()
             task = self._task_for_update(cursor, task_id)
-            if task["status"] not in {"PENDING_DATA_REVIEW", "PENDING_POLICY_REVIEW", "CLAIMABLE"}:
-                raise ValueError("只有待审核或待认领任务可以作废")
+            if task["status"] != "CLAIMABLE":
+                raise ValueError("只有待认领任务可以作废")
             cursor.execute(
                 f"""UPDATE {self._table(TASK_TABLE)} SET status='CLOSED', closed_at=%s,
                         resume_review_stage=NULL, updated_by_id=%s, updated_by_name=%s,
@@ -1668,147 +1651,6 @@ class SmartPlacementService:
         finally:
             if cursor is not None: cursor.close()
             if connection is not None: connection.close()
-
-    def _review_request(self, user: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
-        stage = _text(values.get("stage"), "审核环节", 32, required=True).upper()
-        if stage not in REVIEW_STAGES:
-            raise ValueError("审核环节不支持")
-        _require_permission(
-            user,
-            PERMISSION_REVIEW_DATA if stage == "DATA_MANAGER" else PERMISSION_REVIEW_POLICY,
-            "当前账号没有数据审核权限" if stage == "DATA_MANAGER" else "当前账号没有政策审核权限",
-        )
-        actor = _actor(user)
-        result = _text(values.get("result"), "审核结果", 16, required=True).upper()
-        if result not in REVIEW_RESULTS:
-            raise ValueError("审核结果不支持")
-        comment = _text(values.get("comment"), "审核意见", 10_000, required=result != "APPROVED")
-        policy_executable = _text(values.get("policyExecutableLevel"), "政策可执行性", 32).upper()
-        risk_level = _text(values.get("riskLevel"), "风险等级", 16).upper()
-        if stage == "POLICY_MANAGER":
-            if not policy_executable or policy_executable not in POLICY_EXECUTABLE_LEVELS:
-                raise ValueError("请选择有效的政策可执行性")
-            if not risk_level or risk_level not in PRIORITIES:
-                raise ValueError("请选择风险等级")
-            if result == "APPROVED" and policy_executable == "NOT_EXECUTABLE":
-                raise ValueError("政策不可执行时不能选择审核通过")
-        priority = _text(values.get("adjustedPriority"), "调整优先级", 16).upper()
-        if priority and priority not in PRIORITIES:
-            raise ValueError("调整优先级不支持")
-        expected_status, approved_status, reviewed_column = REVIEW_STAGES[stage]
-        next_status = approved_status if result == "APPROVED" else "DRAFT" if result == "RETURNED" else "REJECTED"
-        return {
-            "stage": stage,
-            "result": result,
-            "comment": comment,
-            "policy_executable": policy_executable,
-            "risk_level": risk_level,
-            "priority": priority,
-            "adjusted_complete_at": _datetime_value(values.get("adjustedCompleteAt"), "调整完成时间"),
-            "risk_control_requirement": _text(values.get("riskControlRequirement"), "风控要求", 10_000),
-            "claim_scope": _text(values.get("claimScope"), "认领范围", 500),
-            "expected_status": expected_status,
-            "reviewed_column": reviewed_column,
-            "next_status": next_status,
-        }
-
-    def _apply_review(self, cursor, *, task_id: int, request: dict[str, Any], actor: tuple[int, str, str], now: datetime) -> dict[str, Any]:
-        task = self._task_for_update(cursor, task_id)
-        if task["status"] != request["expected_status"]:
-            raise ValueError(f"任务{task.get('task_no') or task_id}当前状态为{task['status']}，不能执行该审核")
-        stage = request["stage"]
-        cursor.execute(
-            f"""
-            INSERT INTO {self._table(REVIEW_TABLE)} (
-                task_id, review_stage, review_result, review_comment,
-                data_metric_confirmed, sample_sufficient, estimated_value_confirmed,
-                policy_executable_level, risk_level, risk_control_requirement,
-                claim_scope, adjusted_priority, adjusted_complete_at,
-                reviewer_id, reviewer_name, reviewer_role_snapshot, created_at
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            """,
-            (
-                task_id, stage, request["result"], request["comment"] or None,
-                None, None, None,
-                request["policy_executable"] or None if stage == "POLICY_MANAGER" else None,
-                request["risk_level"] or None if stage == "POLICY_MANAGER" else None,
-                request["risk_control_requirement"] or None if stage == "POLICY_MANAGER" else None,
-                request["claim_scope"] or None if stage == "POLICY_MANAGER" else None,
-                request["priority"] or None, request["adjusted_complete_at"],
-                actor[0], actor[1], stage, now,
-            ),
-        )
-        cursor.execute(
-            f"""
-            UPDATE {self._table(TASK_TABLE)}
-            SET status=%s, {request['reviewed_column']}=%s,
-                resume_review_stage=%s,
-                priority=COALESCE(%s, priority), expected_complete_at=COALESCE(%s, expected_complete_at),
-                closed_at=%s, updated_by_id=%s, updated_by_name=%s,
-                version_no=version_no+1, updated_at=%s
-            WHERE id=%s
-            """,
-            (
-                request["next_status"], now,
-                stage if request["result"] == "RETURNED" else None,
-                request["priority"] or None, request["adjusted_complete_at"],
-                now if request["next_status"] == "REJECTED" else None,
-                actor[0], actor[1], now, task_id,
-            ),
-        )
-        self._log(
-            cursor, task_id=task_id, action="REVIEW", actor=actor,
-            from_status=request["expected_status"], to_status=request["next_status"],
-            note=request["comment"] or request["result"],
-            detail={"stage": stage, "result": request["result"]},
-        )
-        return {"id": task_id, "status": request["next_status"]}
-
-    def _review_tasks(self, user: dict[str, Any], task_ids: list[int], values: dict[str, Any]) -> list[dict[str, Any]]:
-        request = self._review_request(user, values)
-        actor = _actor(user)
-        now = _now()
-        connection = cursor = None
-        try:
-            connection = self.source.connect(); connection.begin(); cursor = connection.cursor()
-            results = [self._apply_review(cursor, task_id=task_id, request=request, actor=actor, now=now) for task_id in task_ids]
-            connection.commit()
-            return results
-        except ValueError:
-            if connection is not None: connection.rollback()
-            raise
-        except Exception as error:
-            if connection is not None: connection.rollback()
-            LOGGER.exception("Smart placement review failed")
-            if _is_missing_table(error):
-                raise SmartPlacementUnavailable("智能投放表尚未创建，请先执行smart-placement-schema.sql") from error
-            raise SmartPlacementUnavailable("智能投放审核提交失败") from error
-        finally:
-            if cursor is not None: cursor.close()
-            if connection is not None: connection.close()
-
-    def review_task(self, user: dict[str, Any], task_id: int, values: dict[str, Any]) -> dict[str, Any]:
-        return self._review_tasks(user, [task_id], values)[0]
-
-    def batch_review_tasks(self, user: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
-        raw_ids = values.get("taskIds")
-        if not isinstance(raw_ids, list) or not raw_ids:
-            raise ValueError("请选择需要批量审核的任务")
-        task_ids: list[int] = []
-        for raw_id in raw_ids:
-            try:
-                task_id = int(raw_id)
-            except (TypeError, ValueError) as error:
-                raise ValueError("批量审核任务编号不正确") from error
-            if task_id <= 0:
-                raise ValueError("批量审核任务编号不正确")
-            if task_id not in task_ids:
-                task_ids.append(task_id)
-        if len(task_ids) > 100:
-            raise ValueError("单次最多批量审核100条任务")
-        task_ids.sort()
-        results = self._review_tasks(user, task_ids, values)
-        return {"count": len(results), "taskIds": task_ids, "status": results[0]["status"]}
 
     def claim_task(self, user: dict[str, Any], task_id: int, values: dict[str, Any]) -> dict[str, Any]:
         _require_permission(user, PERMISSION_CLAIM, "当前账号没有投放任务认领权限")
@@ -2251,22 +2093,16 @@ class SmartPlacementService:
             if type(task_id) is not int or task_id <= 0 or task_id in versions:
                 raise ValueError("批量收回任务编号不正确或重复")
             versions[task_id] = target.get("versionNo")
-        action = values.get("action")
-        if action not in ("approve", "reject", "confirm"):
-            raise ValueError("不支持的批量收回操作")
-        expected_status = values.get("status")
-        valid_statuses = ("PENDING_RECALL",) if action == "confirm" else RECALL_REVIEW_STAGES
-        if not isinstance(expected_status, str) or expected_status not in valid_statuses:
-            raise ValueError("请选择同一阶段且可执行该操作的收回任务")
-        results = self._recall_policies(user, sorted(versions.items()), values, expected_status=expected_status)
+        if values.get("action") != "confirm" or values.get("status") != "PENDING_RECALL":
+            raise ValueError("请选择待收回的任务")
+        results = self._recall_policies(user, sorted(versions.items()), values)
         return {"count": len(results), "status": results[0]["status"]}
 
     def _recall_policies(
         self, user: dict[str, Any], targets: list[tuple[int, Any]], values: dict[str, Any],
-        *, expected_status: str | None = None,
     ) -> list[dict[str, Any]]:
         action = values.get("action")
-        if action not in ("request", "approve", "reject", "confirm"):
+        if action not in ("request", "confirm"):
             raise ValueError("不支持的政策收回操作")
         if any(type(version) is not int or version < 0 for _, version in targets):
             raise ValueError("请刷新投放政策列表后重试")
@@ -2276,8 +2112,7 @@ class SmartPlacementService:
         elif action == "confirm" and not (_has_permission(user, PERMISSION_CLAIM) or _has_permission(user, PERMISSION_EXECUTE)):
             raise PermissionError("当前账号没有确认收回权限")
         now = _now()
-        note = _text(values.get("reason"), "收回理由" if action == "request" else "审核意见", 1000,
-                     required=action in ("request", "reject"))
+        note = _text(values.get("reason"), "收回理由", 1000, required=action == "request")
         connection = cursor = None
         try:
             connection = self.source.connect(); connection.begin(); cursor = connection.cursor()
@@ -2292,27 +2127,11 @@ class SmartPlacementService:
                 if task["version_no"] != version:
                     raise ValueError("任务已变更，请刷新列表后重试")
                 old_status = task["status"]
-                if expected_status is not None and old_status != expected_status:
-                    raise ValueError("任务阶段已变更，请刷新列表后重试")
                 closed_at = task.get("closed_at")
                 if action == "request":
                     if old_status != "MONITORING" or not assignee:
                         raise ValueError("只有已有认领人的监控中政策可以申请收回")
-                    new_status, log_action = "PENDING_RECALL_REVIEW", "RECALL_REQUEST"
-                elif action in ("approve", "reject"):
-                    if old_status not in RECALL_REVIEW_STAGES:
-                        raise ValueError("该政策当前没有待审核的收回申请")
-                    permission, review_stage, approved_status = RECALL_REVIEW_STAGES[old_status]
-                    _require_permission(user, permission, "当前账号没有此阶段的收回审核权限")
-                    approved = action == "approve"
-                    new_status = approved_status if approved else "MONITORING"
-                    log_action = f"{review_stage}_{'APPROVE' if approved else 'REJECT'}"
-                    cursor.execute(
-                        f"""INSERT INTO {self._table(REVIEW_TABLE)}
-                            (task_id,review_stage,review_result,review_comment,reviewer_id,reviewer_name,reviewer_role_snapshot,created_at)
-                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
-                        (task_id, review_stage, "APPROVED" if approved else "REJECTED", note or None, actor[0], actor[1], actor[2], now),
-                    )
+                    new_status, log_action = "PENDING_RECALL", "RECALL_REQUEST"
                 else:
                     if old_status != "PENDING_RECALL":
                         raise ValueError("该政策当前不在待收回状态")

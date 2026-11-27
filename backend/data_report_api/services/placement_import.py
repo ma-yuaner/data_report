@@ -25,7 +25,7 @@ MAX_BYTES = 2 * 1024 * 1024
 COLUMNS = [
     ('机会名称', 'opportunityName', '必填，最多200字'),
     ('机会来源', 'opportunitySource', '人工发现/会议要求/数据分析规则识别；留空为人工发现'),
-    ('分析规则编号', 'analysisRuleCode', '规则识别并提交审核时必填'),
+    ('分析规则编号', 'analysisRuleCode', '规则识别并提交投放时必填'),
     ('分析开始日期', 'analysisStartDate', '必填，YYYY-MM-DD'),
     ('分析结束日期', 'analysisEndDate', '必填，YYYY-MM-DD'),
     ('平台编码', 'platformCode', '选填，填写业务真实编码'),
@@ -52,12 +52,12 @@ COLUMNS = [
     ('亏损阈值下限', 'lossThresholdMin', 'CNY，非负，与上限同时填或同时留空'),
     ('亏损阈值上限', 'lossThresholdMax', 'CNY，非负'),
     ('长期有效', 'longTerm', '是/否，留空为否'),
-    ('建议生效时间', 'suggestedEffectiveStart', 'YYYY-MM-DD HH:mm:ss，提交审核必填'),
-    ('建议失效时间', 'suggestedEffectiveEnd', '同上，非长期有效且提交审核时必填'),
-    ('历史票数', 'historicalTicketCount', '非负整数，提交审核必填'),
-    ('历史利润', 'historicalProfitCny', 'CNY数值，提交审核必填'),
-    ('预估月票数', 'estimatedMonthTicketCount', '非负整数，提交审核必填'),
-    ('预估月利润', 'estimatedMonthProfitCny', 'CNY数值，提交审核必填'),
+    ('建议生效时间', 'suggestedEffectiveStart', 'YYYY-MM-DD HH:mm:ss，提交投放必填'),
+    ('建议失效时间', 'suggestedEffectiveEnd', '同上，非长期有效且提交投放时必填'),
+    ('历史票数', 'historicalTicketCount', '非负整数，提交投放必填'),
+    ('历史利润', 'historicalProfitCny', 'CNY数值，提交投放必填'),
+    ('预估月票数', 'estimatedMonthTicketCount', '非负整数，提交投放必填'),
+    ('预估月利润', 'estimatedMonthProfitCny', 'CNY数值，提交投放必填'),
     ('分析结论', 'analysisConclusion', '必填，最多10000字'),
     ('风险提示', 'riskNote', '选填，最多10000字'),
     ('优先级', 'priority', '高/中/低，留空为中'),
@@ -155,7 +155,7 @@ def template_bytes():
     notes.append(['批量新建分析机会', '仅填写“机会导入”工作表；第1行表头不可改名；第2行黄色为完整示例，正式导入前必须替换或删除，否则会作为真实机会导入。'])
     notes.append(['多选分隔符', '航班号、包含舱位、排除舱位、订单来源均使用英文逗号（,），例如Y,B,M、平台手工订单,直连订单；不要使用竖线（|）。'])
     notes.append(['单值字段', '平台、航司、出发代码、到达代码每格只填一个值；多个组合请分行填写。示例为虚构数据，需替换为真实业务编码、日期和分析。'])
-    notes.append(['操作边界', '仅新建草稿或提交数据审核；不支持导入任务ID、状态、审核、负责人或投放登记。'])
+    notes.append(['操作边界', '仅新建草稿或提交待认领；不支持导入任务ID、状态、审核、负责人或投放登记。'])
     notes.append(['限制', '每次最多200行、2MB；不接受公式、合并单元格或宏；校验失败整批不写入。'])
     notes.append(['重复确认', '同账号、同内容、同导入方式重复确认返回原任务，不覆盖已有内容。'])
     notes.append(['时间', '按业务时区填写；日期YYYY-MM-DD，时间YYYY-MM-DD HH:mm:ss。'])
