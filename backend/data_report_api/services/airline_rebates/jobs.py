@@ -7,7 +7,10 @@ import time
 from uuid import uuid4
 
 from .calculation import fetch_policy_reference
-from .extraction import ExtractionError, call_model, model_settings, page_inputs, validated_draft
+from .extraction import (
+    PROMPT_VERSION, ExtractionError, call_model, model_settings, page_inputs,
+    validate_scheme_coverage, validated_draft, verify_hkg_rate_table,
+)
 from .store import connect, encode
 
 LEASE_SECONDS = 900
@@ -117,6 +120,7 @@ def retry(db, row):
         history = job.setdefault("attempts", [])
         history.append({key: job[key] for key in ("executionId", "stage", "error", "finishedAt") if key in job})
         job["executionId"] = uuid4().hex
+        job.pop("modelReceipt", None)
     job.pop("error", None)
     job.update(status="pending", stage="queued")
     _write(db, profile)
@@ -140,7 +144,11 @@ def _process(directory, config, logger, profile, raw):
                                modelFinishedAt=stamp(), pageTexts=[p["text"] for p in pages]):
                 return
         if stage == "validating":
-            draft = validated_draft(job["candidate"], job["pageTexts"])
+            page_texts = job["pageTexts"]
+            allow_legacy = job.get("modelReceipt", {}).get("promptVersion") != PROMPT_VERSION
+            draft = validated_draft(job["candidate"], page_texts, allow_legacy=allow_legacy)
+            draft = verify_hkg_rate_table(draft, raw, page_texts)
+            validate_scheme_coverage(draft, len(page_texts))
             contract = draft["contract"]
             profile.update(policy=draft, airline=contract["airline"] or "",
                            period=" 至 ".join(value for value in (contract["start"], contract["end"]) if value))
@@ -160,7 +168,9 @@ def _process(directory, config, logger, profile, raw):
             if stage == "reference" else "政策解析阶段执行失败，原件已保留。"
         )
         if "token" in job:
-            _checkpoint(directory, profile, stage, status="failed", error=message, finishedAt=stamp())
+            receipt = error.receipt if isinstance(error, ExtractionError) else None
+            diagnostics = {"modelReceipt": receipt} if receipt else {}
+            _checkpoint(directory, profile, stage, status="failed", error=message, finishedAt=stamp(), **diagnostics)
 
 
 def drain(directory, config, logger):

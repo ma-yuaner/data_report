@@ -1,14 +1,25 @@
 """Server-owned shape, money and source validation. Model flags are not trusted."""
 import json
 import re
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
-VERSION = "adm-extraction/1.2"
-ADM_FIELDS = ("number", "airlineCode", "issuedDate", "amount", "currency", "reason", "dueDate", "reportingDate")
+VERSION = "adm-extraction/1.3"
+ADM_LIST_FIELDS = ("noticeTypes", "attachmentReferences")
+ADM_FIELDS = ("number", "airlineCode", "issuedDate", "amount", "currency", "reason", "dueDate", "reportingDate", *ADM_LIST_FIELDS)
 LINE_FIELDS = ("lineId", "transactionNumber", "pnrs", "ticketNumber", "ticketType", "flight", "flightDate", "origin", "destination", "gds", "pcc", "amount", "currency", "airlinePnrs", "gdsPnrs", "transactionDate", "action", "amountPurpose", "commissionRate", "commissionAmount", "commissionCurrency", "amountText")
 CURRENCIES = set("CNY HKD USD EUR GBP JPY SGD AUD CAD KRW THB TWD MYR IDR AED".split())
 MONEY = re.compile(r"(?:0|[1-9]\d{0,14})(?:\.\d{1,4})?\Z")
+GDS_PNR_ROLE_LABEL = r"GDS_RLOC|Booking Ref|GDS.{0,12}(?:PNR|record)|GDS编码"
+ARC_MEMO = re.compile(r"^\s*Memo[ \t]*:[ \t]*([0-9]{10})[ \t]*$", re.I | re.M)
+ARC_CARRIER = re.compile(r"^[ \t]*Carrier[ \t]*:[ \t]*([0-9]{3})[ \t]*$", re.I | re.M)
+ARC_ISSUED = re.compile(r"^[ \t]*Issued[ \t]*:[ \t]*(\d{1,2}/\d{1,2}/\d{4})[ \t]*$", re.I | re.M)
+
+
+def arc_field_values(sources, quotes, pattern):
+    """Bind an ARC label and its value to the same verified source segment."""
+    return {value for segment_id, quote in quotes if segment_id in sources
+            for value in pattern.findall(quote) if value in pattern.findall(sources[segment_id])}
 
 
 def virtual_ticket_text(text):
@@ -31,7 +42,9 @@ def strict_loads(raw):
 
 
 def template():
-    return {"schemaVersion": VERSION, "adm": dict.fromkeys(ADM_FIELDS), "lines": [], "evidence": [], "conflicts": []}
+    adm = dict.fromkeys(ADM_FIELDS)
+    adm.update({key: [] for key in ADM_LIST_FIELDS})
+    return {"schemaVersion": VERSION, "adm": adm, "lines": [], "evidence": [], "conflicts": []}
 
 
 def output_schema():
@@ -52,6 +65,7 @@ def output_schema():
     line["amountPurpose"] = {"type": ["string", "null"],
                              "enum": [None, "admCharge", "unitPenalty", "ticketTotal", "other", "unknown"]}
     adm = dict.fromkeys(ADM_FIELDS, nullable)
+    adm.update({key: array(string) for key in ADM_LIST_FIELDS})
     return record({
         "schemaVersion": {"type": "string", "enum": [VERSION]},
         "adm": record(adm),
@@ -97,6 +111,15 @@ def validate(value, segments):
         for key in names:
             v, p = record.get(key), path + "/" + key
             paths[p] = v
+            if key in ADM_LIST_FIELDS:
+                if not isinstance(v, list) or len(v) > 100 or any(
+                    not isinstance(item, str) or not item.strip() or len(item) > 500 for item in v
+                ):
+                    issue("INVALID_ANNOTATED_LIST", p, "须为非空文本组成的数组，未知用空数组")
+                if isinstance(v, list):
+                    for index, item in enumerate(v[:100]):
+                        paths[f"{p}/{index}"] = item
+                continue
             if key in {"pnrs", "airlinePnrs", "gdsPnrs", "ticketType"}:
                 if isinstance(v, list):
                     for index, item in enumerate(v):
@@ -166,6 +189,12 @@ def validate(value, segments):
               f"{len(missing_rows)}条已识别附件交易未完整提取或缺同源引用，原文段落：{', '.join(missing_rows[:10])}")
     evidence = value.get("evidence") if isinstance(value.get("evidence"), list) else []
     sources = {s["id"]: s for s in segments}
+    arc_sources = {
+        s["id"]: s["text"] for s in segments
+        if "arc memo manager" in s["text"].casefold()
+        and isinstance(adm, dict) and ARC_MEMO.findall(s["text"]) == [adm.get("number")]
+    }
+    arc_quotes = {}
     proven = set()
     proven_quotes = {}
     normal = lambda s: re.sub(r"\s+", "", str(s)).replace(",", "").casefold()
@@ -188,6 +217,8 @@ def validate(value, segments):
         else:
             proven.add(path)
             proven_quotes.setdefault(path, []).append(quote)
+            if segment_id in arc_sources:
+                arc_quotes.setdefault(path, []).append((segment_id, quote))
     for path in list(proven):
         match = re.fullmatch(r"(/lines/[0-9]+/(?:pnrs|airlinePnrs|gdsPnrs))/[0-9]+", path)
         if match:
@@ -196,11 +227,29 @@ def validate(value, segments):
             proven_quotes.setdefault(parent, []).extend(proven_quotes[path])
     if isinstance(adm, dict) and adm.get("airlineCode"):
         quote = " ".join(proven_quotes.get("/adm/airlineCode", []))
-        if "/adm/airlineCode" not in proven or normal(adm["airlineCode"]) not in normal(quote) or not re.search(r"(?:Airline\s+Code(?:\s*/\s*Name)?|航司编码)\s*[:：]?\s*" + re.escape(str(adm["airlineCode"])) + r"(?![A-Z0-9])", quote, re.I):
-            issue("AIRLINE_CODE_EVIDENCE", "/adm/airlineCode", "航司编码须引用原件Airline Code及编码原文")
+        if arc_sources:
+            carrier = arc_field_values(arc_sources, arc_quotes.get("/adm/airlineCode", []), ARC_CARRIER)
+            code_proven = isinstance(adm["airlineCode"], str) and carrier == {adm["airlineCode"]}
+        else:
+            code_proven = (
+                normal(adm["airlineCode"]) in normal(quote)
+                and re.search(r"(?:Airline\s+Code(?:\s*/\s*Name)?|航司编码)\s*[:：]?\s*"
+                              + re.escape(str(adm["airlineCode"])) + r"(?![A-Z0-9])", quote, re.I)
+            )
+        if not code_proven:
+            issue("AIRLINE_CODE_EVIDENCE", "/adm/airlineCode", "航司编码须引用原件 Airline Code 或 ARC 主单 Carrier 标签及编码")
     for key in ("number", "amount", "currency"):
         if "/adm/" + key not in proven:
             issue("REQUIRED_EVIDENCE", "/adm/" + key, "必填字段须引用有效原文")
+    for key in ADM_LIST_FIELDS:
+        items = adm.get(key) if isinstance(adm, dict) else None
+        if isinstance(items, list):
+            parent = f"/adm/{key}"
+            for i, item in enumerate(items[:100]):
+                path = f"{parent}/{i}"
+                quotes = proven_quotes.get(path, [])
+                if isinstance(item, str) and not any(normal(item) in normal(quote) for quote in quotes):
+                    issue("ANNOTATED_FIELD_EVIDENCE", path, "可选字段须逐项引用原文")
     for i, line in enumerate(lines[:2000]):
         if not isinstance(line, dict):
             continue
@@ -251,6 +300,18 @@ def validate(value, segments):
                 if any(labeled_date.search(source["text"]) for source in segments):
                     issue("SOURCE_DATE_OMITTED", "/adm/" + key, "原文有对应日期标签及数字日期，但结果为空，请核对原件", "warning")
             elif isinstance(val, str) and val:
+                if key == "issuedDate" and arc_sources:
+                    issued = arc_field_values(arc_sources, arc_quotes.get("/adm/issuedDate", []), ARC_ISSUED)
+                    if not issued:
+                        issue("DATE_ROLE_EVIDENCE", "/adm/issuedDate", "ARC 开具日期须引用主单 Issued 标签及日期")
+                    else:
+                        try:
+                            dates = {datetime.strptime(value, "%m/%d/%Y").date().isoformat() for value in issued}
+                        except ValueError:
+                            dates = set()
+                        if dates != {val}:
+                            issue("DATE_VALUE_EVIDENCE", "/adm/issuedDate", "ARC 开具日期与 Issued 原文不符")
+                    continue
                 qs = proven_quotes.get("/adm/" + key, [])
                 if not qs or not any(re.search(labels, q, re.I) for q in qs):
                     issue("DATE_ROLE_EVIDENCE", "/adm/" + key, "日期必须引用对应日期标签原文，不能用报表日或航班日替代")
@@ -297,7 +358,7 @@ def validate(value, segments):
         ticket = line.get("ticketNumber")
         if ticket is not None and (not isinstance(ticket, str) or not re.fullmatch(r"\d{13}", ticket)):
             issue("TICKET_FORMAT", path + "/ticketNumber", "票号须为13位数字，缺失不可补造")
-        for key, label in (("airlinePnrs", r"(?<![A-Z_])RLOC(?![A-Z_])|airline.{0,12}(?:PNR|record)|航司.*(?:PNR|编码)"), ("gdsPnrs", r"GDS_RLOC|Booking Ref|GDS.{0,12}(?:PNR|record)|GDS编码")):
+        for key, label in (("airlinePnrs", r"(?<![A-Z_])RLOC(?![A-Z_])|airline.{0,12}(?:PNR|record)|航司.*(?:PNR|编码)"), ("gdsPnrs", GDS_PNR_ROLE_LABEL)):
             if line.get(key) and not re.search(label, " ".join(proven_quotes.get(path + "/" + key, [])), re.I):
                 issue("PNR_ROLE_EVIDENCE", path + "/" + key, "已分类编码须引用对应列名或来源标识；无法确定请放入来源未明PNR")
         if line.get("pnrs"):

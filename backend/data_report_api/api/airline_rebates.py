@@ -110,11 +110,13 @@ def policy_for_review(row):
 
 def model_rule_cards(draft):
     names = {"scope": "适用范围", "measurement": "计档条件", "reward": "奖励条件", "exclusion": "排除条件",
-             "exception": "例外条款", "tier": "奖励档位", "information": "其他条款"}
+             "exception": "例外条款", "tier": "奖励档位", "information": "其他条款", "settlement": "结算条件"}
+    schemes = {scheme["id"]: scheme["name"] for scheme in draft.get("schemes", [])}
     cards = []
     for rule in draft["rules"]:
-        evidence = next((item for item in rule["evidence"] if item["verified"]), None)
-        source = evidence or next((item for item in rule["evidence"] if item["page"]), None)
+        ordered_evidence = sorted(rule["evidence"], key=lambda item: item.get("role") == "header")
+        evidence = next((item for item in ordered_evidence if item["verified"]), None)
+        source = evidence or next((item for item in ordered_evidence if item["page"]), None)
         tier = rule["tier"]
         details = []
         if rule["kind"] == "tier":
@@ -127,8 +129,11 @@ def model_rule_cards(draft):
             details.extend(item for item in (tier["currency"], tier["basis"]) if item)
             if tier["ratePercent"] is not None:
                 details.append(tier["ratePercent"] + "%")
+        kind = names[rule["kind"]]
+        scheme = schemes.get(rule.get("schemeId"))
+        title = f"{scheme} · {kind}" if scheme else f"合同通用 · {kind}" if schemes else kind
         cards.append({
-            "id": "model-" + rule["id"], "name": names[rule["kind"]],
+            "id": "model-" + rule["id"], "name": title,
             "sourcePage": f"第 {source['page']} 页" if source else None,
             "conditions": [{
                 "id": rule["id"], "fieldLabel": rule["label"], "operator": rule["operator"],
@@ -255,6 +260,7 @@ def save_mapping_profile(db, row, profile):
 
 def task_data(db, row):
     result = json.loads(row["profile"])
+    result.pop("policyVersion", None)
     if row["current_run"]:
         summary = json.loads(find(db, "rebate_runs", row["current_run"])["summary"])
         result.update({key: summary[key] for key in ("target", "actual", "completionRate", "dataAsOf")})
@@ -271,6 +277,8 @@ def run_trial(directory, identifier, refresh_interval=0):
         policy_row = find(db, "rebate_policies", task["policy_id"])
         profile = json.loads(policy_row["profile"])
         if profile.get("source") == "model":
+            if refresh_interval:
+                return None
             raise PilotError("通用政策暂无已验证的试算适配", 422)
         if blocked_trial_rules(profile):
             raise PilotError("试算依赖的字段待核实，请在政策审阅中处理", 422)
@@ -534,6 +542,13 @@ def register_routes(api):
             row = find(db, "rebate_policies", identifier)
             if policy_data(row)["status"] != "ready":
                 raise PilotError("请等待解析和参考记录准备完成", 409)
+            profile = json.loads(row["profile"])
+            draft = profile.get("policy", {})
+            number = draft.get("contract", {}).get("number") or ""
+            if (not row["confirmed_at"] and profile.get("source") == "model"
+                    and number.strip().upper() == "HKG26003"
+                    and draft.get("rateTableVerification", {}).get("verifiedCells") != 36):
+                raise PilotError("此初稿缺少费率表完整性核对，请重新提交原合同后确认", 409)
             db.execute("UPDATE rebate_policies SET confirmed_by=?, confirmed_at=? WHERE id=? AND confirmed_at IS NULL",
                        (user_label(), now(), identifier))
             return ok(policy_data(find(db, "rebate_policies", identifier)))
@@ -559,11 +574,20 @@ def register_routes(api):
             existing = db.execute("SELECT * FROM rebate_tasks WHERE policy_id=?", (policy["id"],)).fetchone()
             if existing:
                 return ok(task_data(db, existing))
-            if not trial_ready(policy):
+            model_policy = policy.get("source") == "model"
+            if not model_policy and not trial_ready(policy):
                 raise PilotError("请先核实试算字段并通过 Hive 明细校验", 422)
             item = {"id": uuid4().hex, "name": name, "airline": policy["airline"], "period": policy["period"],
                     "owner": owner, "currency": "HKD", "policyName": policy["name"], "editable": False,
                     "target": None, "actual": None, "completionRate": None, "dataAsOf": None}
+            if model_policy:
+                item.update(policyId=policy["id"], currency=policy["policy"]["contract"]["currency"] or "",
+                            trialAvailable=False, policyVersion={
+                                "version": 1, "reason": "由人工确认的政策解析结果建档",
+                                "savedAt": policy_row["confirmed_at"], "rules": rule_cards(policy_for_review(policy_row)),
+                                "contract": policy["policy"]["contract"],
+                                "schemes": policy["policy"].get("schemes", []),
+                            })
             db.execute(
                 "INSERT OR IGNORE INTO rebate_tasks(id, policy_id, profile) "
                 "SELECT ?, id, ? FROM rebate_policies WHERE id=? AND profile=?",
@@ -594,6 +618,9 @@ def register_routes(api):
     def rebate_versions(directory, identifier):
         with connect(directory) as db:
             task = find(db, "rebate_tasks", identifier)
+            version = json.loads(task["profile"]).get("policyVersion")
+            if version:
+                return ok([version])
             policy = find(db, "rebate_policies", task["policy_id"])
             return ok([{"version": 1, "reason": "由人工确认的 HKG26003 解析结果建档",
                         "savedAt": policy["confirmed_at"], "rules": rule_cards(policy_for_review(policy))}])

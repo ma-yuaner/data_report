@@ -65,6 +65,10 @@ def require_any(user, *permissions):
     raise AdmError("当前账号没有执行该ADM操作的功能权限", 403, "ADM_FORBIDDEN")
 
 
+def valid_recovery_locator(value):
+    return bool(re.fullmatch(r"[A-Z0-9]{2}-[A-Z0-9]{3,8}-[A-Z0-9]{5,8}", value))
+
+
 class AdmWorkflowService:
     def __init__(self, config, repository=None, catalog=None):
         self.config = config
@@ -329,6 +333,23 @@ class AdmWorkflowService:
                 "diffTypeCode": diff_type["code"], "diffTypeName": diff_type["name"],
                 "differenceReason": text(body.get("differenceReason"), "细分差异原因", 1000),
             }
+            candidates = body.get("recoveryCandidates", [])
+            if not isinstance(candidates, list) or len(candidates) > 100:
+                raise AdmError("恢复编码候选须为列表，最多100条")
+            if candidates:
+                normalized = {}
+                for candidate in candidates:
+                    if not isinstance(candidate, dict):
+                        raise AdmError("恢复编码候选格式无效")
+                    code = "-".join(text(candidate.get(key), key, 8).upper()
+                                    for key in ("gds", "pcc", "pnr"))
+                    if not valid_recovery_locator(code):
+                        raise AdmError("请逐条填写有效的 GDS、PCC 和 PNR")
+                    source_line = candidate.get("sourceLine")
+                    if source_line is not None and (type(source_line) is not int or source_line < 1):
+                        raise AdmError("恢复编码候选的来源行无效")
+                    normalized.setdefault(code, {"code": code, "sourceLine": source_line, "confirmed": False})
+                data["lineDefaults"]["recoveryCandidates"] = list(normalized.values())
             if master_intake is not None:
                 data["lineDefaults"].update(departmentCode="", departmentName="", masterIntake=master_intake)
             else:
@@ -556,26 +577,34 @@ class AdmWorkflowService:
         actor = self._actor(user)
         locators = None
         line = None
+        confirmed = None
         if action in {"request", "skip"}:
-            raw = text(body.get("locators"), "GDS-PCC-PNR", 2000)
-            entries = [item.strip().upper() for item in raw.replace("，", ",").split(",")]
-            if not all(re.fullmatch(r"[A-Z0-9]{2}-[A-Z0-9]{3,8}-[A-Z0-9]{5,8}", item) for item in entries):
+            raw = text(body.get("locators"), "GDS-PCC-PNR", 2000, required=action == "request")
+            entries = [item.strip().upper() for item in raw.replace("，", ",").split(",")] if raw else []
+            if not all(valid_recovery_locator(item) for item in entries):
                 raise AdmError("请按 GDS-PCC-PNR 格式填写，多条用逗号分隔，例如 1G-5S75-13124N")
-            locators = ",".join(entries)
+            locators = ",".join(dict.fromkeys(entries)) or None
+            if action == "request":
+                confirmed = body.get("confirmedLocators")
         if action == "skip":
             stored = self.repository.get_case(int(case_id))
             if not stored or not stored["case"].get("lineDefaults") or not stored.get("fxSnapshot"):
                 raise AdmError("主单资料或冻结汇率不存在")
             case = stored["case"]
+            if case["lineDefaults"].get("recoveryCandidates"):
+                if entries:
+                    raise AdmError("无需恢复时不提交待恢复编码")
+            elif not entries:
+                raise AdmError("请填写 GDS-PCC-PNR")
             intake = case["lineDefaults"].get("masterIntake") or {}
             legacy_defaults = not intake
-            pnr = entries[0].rsplit("-", 1)[1]
+            pnr = entries[0].rsplit("-", 1)[1] if entries else None
             line = normalize_line({**case["lineDefaults"], "originalAmount": "0", "pnr": pnr,
                                    "airlineCode": intake.get("airlineCode"), "airlineName": case.get("airline_name"),
                                    "supplierCode": intake.get("supplierCode"), "supplierName": intake.get("supplierName")},
                                   stored["fxSnapshot"]["rate_value"],
                                   department_required=legacy_defaults, diff_type_required=legacy_defaults)
-        return _json_value(self.repository.master_recovery(int(case_id), action, actor, locators=locators, line=line))
+        return _json_value(self.repository.master_recovery(int(case_id), action, actor, locators=locators, line=line, confirmed=confirmed))
 
     def add_line(self, user, case_id, body):
         body = body or {}

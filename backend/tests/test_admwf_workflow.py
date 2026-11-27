@@ -219,17 +219,22 @@ class AdmMaterialSqlContractTest(unittest.TestCase):
 
 
 class AdmMasterRecoveryRoutingTest(unittest.TestCase):
-    def repository(self, state="LEADER_DECISION", locators=None):
+    def repository(self, state="LEADER_DECISION", locators=None, candidates=None):
+        import json
         from contextlib import nullcontext
         from data_report_api.services.admwf.policy import business_now
         case = {"id": 1, "case_status": "ACTIVE", "master_recovery_status": state,
                 "coordinator_id": 9, "line_defaults_json": {"leaderId": 2},
                 "created_at": business_now(), "leader_first_action_at": business_now(),
                 "recovery_locators": locators}
+        if candidates is not None:
+            case["line_defaults_json"]["recoveryCandidates"] = candidates
         class Cursor:
             def __enter__(self): return self
             def __exit__(self, *args): pass
             def execute(self, sql, params):
+                if sql.startswith("UPDATE admwf_case SET line_defaults_json"):
+                    case["line_defaults_json"] = json.loads(params[0])
                 if sql.startswith("UPDATE admwf_case SET master_recovery_status"):
                     case["master_recovery_status"] = params[0]
                     case["recovery_locators"] = params[1] or case["recovery_locators"]
@@ -251,6 +256,22 @@ class AdmMasterRecoveryRoutingTest(unittest.TestCase):
         self.assertEqual(result["case"]["master_recovery_status"], "OWNER_RECOVERY")
         self.assertEqual(result["case"]["recovery_locators"], "1G-5S75-ABC123,1A-BKK247-DEF456")
         self.assertIsNone(result["case"]["master_recovery_due_at"])
+
+    def test_saved_candidates_require_confirmation_and_only_forward_selected_codes(self):
+        first, second = "1E-TEST1-ABC123", "1E-TEST2-DEF456"
+        rows = [{"code": code, "sourceLine": i, "confirmed": False}
+                for i, code in enumerate((first, second), 2)]
+        repo = self.repository(candidates=rows)
+        actor = {"id": 2, "name": "leader"}
+        for code, confirmations in ((first, None), ("1E-TEST1-NEW123", ["1E-TEST1-NEW123"])):
+            with self.subTest(code=code, confirmations=confirmations):
+                with self.assertRaisesRegex(AdmError, "逐条核对"):
+                    repo.master_recovery(1, "request", actor, locators=code, confirmed=confirmations)
+                self.assertEqual(repo.get_case(1)["case"]["master_recovery_status"], "LEADER_DECISION")
+        result = repo.master_recovery(1, "request", actor, locators=first, confirmed=[first])
+        self.assertEqual(result["case"]["recovery_locators"], first)
+        self.assertEqual([row["confirmed"] for row in result["case"]["line_defaults_json"]["recoveryCandidates"]],
+                         [True, False])
 
     def test_skip_adds_order_without_owner_recovery(self):
         result = self.repository().master_recovery(1, "skip", {"id": 2, "name": "leader"}, locators="1G-5S75-ABC123", line={"pnr": "ABC123"})

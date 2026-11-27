@@ -7,6 +7,12 @@
     >
       <a-button @click="rulesOpen = true">字段与校验规则</a-button>
       <a-button :loading="loading" @click="refresh">刷新</a-button>
+      <a-button
+        v-if="selected && (auth.user?.isAdmin || auth.user?.menuCodes?.includes('annotation.center'))"
+        @click="router.push({ name: 'annotations', query: { admTask: selected.id } })"
+      >
+        用于样本标注
+      </a-button>
       <a-button type="primary" :disabled="!status?.canUpload" @click="openUpload">上传文件</a-button>
     </PageHeader>
     <a-alert
@@ -206,6 +212,18 @@
                   ><b>{{ selected.candidate.adm?.[field.key] ?? '未提取到' }}</b
                   ><small>{{ selected.candidate.adm?.[field.key] == null ? '未提供' : '来源' }}</small>
                 </button>
+                <div v-for="field in optionalLists" :key="field.key" class="parsing-airline">
+                  <span>{{ field.label }}</span>
+                  <span v-if="!selected.candidate.adm?.[field.key]?.length">未提取到</span>
+                  <button
+                    v-for="(item, index) in selected.candidate.adm?.[field.key]"
+                    :key="index"
+                    class="parsing-source"
+                    @click="locate(`/adm/${field.key}/${index}`)"
+                  >
+                    {{ item }}
+                  </button>
+                </div>
                 <div class="parsing-airline">
                   <span>系统航司</span
                   ><b v-if="selected.airlineMatch?.status === 'MATCHED'"
@@ -225,7 +243,7 @@
                   </button>
                 </div>
               </template>
-              <p v-if="selected.candidate && selected.candidate.schemaVersion !== 'adm-extraction/1.2'">
+              <p v-if="selected.candidate && status?.schemaVersion && selected.candidate.schemaVersion !== status.schemaVersion">
                 此为旧版结果，点击“重新校验并保存”应用新口径，不调用模型。
               </p>
               <p class="parsing-muted">解析结果用于人工核对，不自动新建ADM或恢复PNR。</p>
@@ -430,8 +448,10 @@ import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '@/components/PageHeader.vue'
 import FormDialog from '@/components/FormDialog.vue'
 import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
+import { useAuthStore } from '@/stores/auth'
 import { parsingApi, type ParseTask, type ParseStatus } from './api'
 const router = useRouter()
+const auth = useAuthStore()
 const status = ref<ParseStatus>(),
   items = ref<ParseTask[]>([]),
   selected = ref<ParseTask>(),
@@ -483,6 +503,10 @@ const fields = [
   { key: 'dueDate', label: '截止日期' },
   { key: 'reason', label: '下发原因' },
 ]
+const optionalLists = [
+  { key: 'noticeTypes', label: '罚单类型' },
+  { key: 'attachmentReferences', label: '原文附件清单' },
+] as const
 const pnrFields = [
   { key: 'airlinePnrs', label: '航司PNR' },
   { key: 'gdsPnrs', label: 'GDS编码' },

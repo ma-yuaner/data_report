@@ -146,7 +146,7 @@ let drawerRequest: AbortController | undefined
 const currentVersion = computed(() => versions.value[0])
 const viewedVersion = computed(() => versions.value.find(item => item.version === selectedVersion.value))
 const previousVersion = computed(() => versions.value.find(item => item.version < (viewedVersion.value?.version ?? 0)))
-const readyPolicies = computed(() => policies.value.filter(item => item.status === 'ready' && item.confirmed && item.trialReady))
+const readyPolicies = computed(() => policies.value.filter(item => item.status === 'ready' && item.confirmed && (item.source === 'model' || item.trialReady)))
 const ruleGroups = computed(() => drawer.value === 'policy' ? policyRules.value : drawer.value === 'edit' ? draft.value : viewedVersion.value?.rules ?? [])
 const drawerTitle = computed(() => {
   if (drawer.value === 'policy') return '解析结果 · ' + (activePolicy.value?.name ?? '')
@@ -704,16 +704,19 @@ function backToProgress() {
             <div class="muted">档位 {{ record.tier || '—' }}</div>
           </template>
           <template v-else-if="column.key === 'asOf'">
-            <a-tag :color="record.refreshStatus ? statusColors[record.refreshStatus as keyof typeof statusColors] : 'default'">
-              {{ record.refreshStatus ? statusText[record.refreshStatus as keyof typeof statusText] : '状态未知' }}
-            </a-tag>
-            <div class="muted">最晚计划起飞日 {{ record.dataAsOf || '—' }}</div>
-            <div class="muted">快照更新 {{ formatDateTimeDisplay(record.refreshedAt) }}</div>
-            <div v-if="record.refreshMode" class="muted">{{ refreshModes[record.refreshMode as keyof typeof refreshModes] }}</div>
-            <div v-if="record.refreshStatus === 'failed'" class="muted">{{ record.refreshedAt || record.actual != null ? '当前展示最近成功快照' : '暂无成功快照' }}</div>
+            <a-tag v-if="record.trialAvailable === false">计算规则待接入</a-tag>
+            <template v-else>
+              <a-tag :color="record.refreshStatus ? statusColors[record.refreshStatus as keyof typeof statusColors] : 'default'">
+                {{ record.refreshStatus ? statusText[record.refreshStatus as keyof typeof statusText] : '状态未知' }}
+              </a-tag>
+              <div class="muted">最晚计划起飞日 {{ record.dataAsOf || '—' }}</div>
+              <div class="muted">快照更新 {{ formatDateTimeDisplay(record.refreshedAt) }}</div>
+              <div v-if="record.refreshMode" class="muted">{{ refreshModes[record.refreshMode as keyof typeof refreshModes] }}</div>
+              <div v-if="record.refreshStatus === 'failed'" class="muted">{{ record.refreshedAt || record.actual != null ? '当前展示最近成功快照' : '暂无成功快照' }}</div>
+            </template>
           </template>
           <a-space v-else-if="column.key === 'action'" :size="4" wrap>
-            <a-button type="link" size="small" @click="openTask(record, 'analysis')">分析此项</a-button>
+            <a-button v-if="record.trialAvailable !== false" type="link" size="small" @click="openTask(record, 'analysis')">分析此项</a-button>
             <a-button v-if="auth.user?.isAdmin" type="link" size="small" danger @click="confirmDelete('task', record)">删除</a-button>
             <a-button v-if="canManage && record.editable !== false" type="link" size="small" @click="openTask(record, 'edit')">编辑规则</a-button>
           </a-space>
@@ -751,8 +754,8 @@ function backToProgress() {
           <a-space v-if="drawer === 'policy' && activePolicy" wrap class="section">
             <a-tag>{{ activePolicy.confirmed ? '已确认' : '解析初版' }}</a-tag>{{ activePolicy.airline || '—' }} · {{ activePolicy.period || '—' }}
             <a-button :href="'/api/v1/airline-rebates/policies/' + encodeURIComponent(activePolicy.id) + '/original'">下载原件</a-button>
-            <a-button v-if="canManage && activePolicy.confirmed && activePolicy.trialReady && !drawerBusy && !drawerError" type="primary"
-              @click="router.push({ name: 'airline-rebate-tasks', query: { policy: activePolicy.id } })">建试算任务</a-button>
+            <a-button v-if="canManage && activePolicy.confirmed && (activePolicy.source === 'model' || activePolicy.trialReady) && !drawerBusy && !drawerError" type="primary"
+              @click="router.push({ name: 'airline-rebate-tasks', query: { policy: activePolicy.id } })">创建任务</a-button>
           </a-space>
           <a-descriptions v-if="drawer === 'policy' && activePolicy?.contract" size="small" :column="2" class="section">
             <a-descriptions-item v-if="activePolicy.contract.name" label="合同名称">{{ activePolicy.contract.name }}</a-descriptions-item>
@@ -774,6 +777,17 @@ function backToProgress() {
               :options="versions.map(item => ({ value: item.version, label: 'V' + item.version + (item === currentVersion ? ' · 当前' : ' · 历史') }))" />
             <a-tag v-else-if="currentVersion">基于 V{{ currentVersion.version }} 编辑</a-tag>
           </a-space>
+          <a-space v-if="drawer === 'details' && task?.policyId" wrap class="section">
+            <a-tag>计算规则待接入</a-tag>
+            <a-button :href="'/api/v1/airline-rebates/policies/' + encodeURIComponent(task.policyId) + '/original'">下载合同原件</a-button>
+          </a-space>
+          <a-descriptions v-if="drawer === 'details' && viewedVersion?.contract" size="small" :column="2" class="section">
+            <a-descriptions-item label="合同编号">{{ viewedVersion.contract.number || '—' }}</a-descriptions-item>
+            <a-descriptions-item label="合同名称">{{ viewedVersion.contract.name || '—' }}</a-descriptions-item>
+            <a-descriptions-item label="有效期">{{ task?.period || '—' }}</a-descriptions-item>
+            <a-descriptions-item label="政策币种">{{ viewedVersion.contract.currency || '—' }}</a-descriptions-item>
+            <a-descriptions-item label="适用范围" :span="2">{{ viewedVersion.contract.scope || '—' }}</a-descriptions-item>
+          </a-descriptions>
           <p v-if="drawer === 'details' && viewedVersion" class="muted section">{{ formatDateTimeDisplay(viewedVersion.savedAt) }} {{ viewedVersion.reason }}</p>
           <a-empty v-if="!drawerBusy && !drawerError && !ruleGroups.length" description="暂无规则" />
           <section v-if="drawer !== 'edit' && rateMatrix.length" class="section rule-group">

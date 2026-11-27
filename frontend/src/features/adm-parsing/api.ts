@@ -34,7 +34,16 @@ export type ParseTask = {
   segments?: { id: string; fileId: string; locator: string; text: string }[]
   candidate?: {
     schemaVersion: string
-    adm: Record<string, string | null>
+    adm: Record<string, string | string[] | null | undefined> & {
+      number?: string | null
+      airlineCode?: string | null
+      currency?: string | null
+      amount?: string | null
+      issuedDate?: string | null
+      reason?: string | null
+      noticeTypes?: string[]
+      attachmentReferences?: string[]
+    }
     lines: Record<string, unknown>[]
     evidence: { path: string; segmentId: string; quote: string }[]
     conflicts: unknown[]

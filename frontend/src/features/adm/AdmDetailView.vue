@@ -50,6 +50,14 @@
               </a-button>
             </div>
           </section>
+          <section v-if="record.case.lineDefaults?.recoveryCandidates?.length" class="v05-card" style="margin:12px 0">
+            <h3>已保存的 GDS-PCC-PNR</h3>
+            <div v-for="row in record.case.lineDefaults.recoveryCandidates" :key="row.code">
+              <code>{{ row.code }}</code>
+              <a-tag :color="row.confirmed ? 'green' : 'gold'">{{ row.confirmed ? '已确认' : '待核对' }}</a-tag>
+              <span v-if="row.sourceLine">解析明细 {{ row.sourceLine }}</span>
+            </div>
+          </section>
           <section v-if="record.case.lineDefaults?.parsingSource" class="v05-card" style="margin:12px 0">
             <h3>解析来件登记来源</h3>
             <p>登记于 {{ record.case.lineDefaults.parsingSource.registeredAt }} · 解析版本 {{ record.case.lineDefaults.parsingSource.version }}。以下保留登记时的结果；正式台账以主单信息为准。</p>

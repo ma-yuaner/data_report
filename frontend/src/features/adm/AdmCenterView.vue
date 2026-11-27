@@ -255,7 +255,8 @@
     <a-modal v-model:open="workbenchBatchOpen" :title="workbenchBatchAction === 'transfer' ? (workbenchBatchForm.targetRole === 'LEADER' ? '更换组长' : '派单操作员') : workbenchActionLabels[workbenchBatchAction]"
       :confirm-loading="workbenchBatchBusy" :closable="!workbenchBatchBusy"
       :mask-closable="!workbenchBatchBusy" :keyboard="!workbenchBatchBusy"
-      :cancel-button-props="{ disabled: workbenchBatchBusy }" @ok="submitWorkbenchBatch">
+      :cancel-button-props="{ disabled: workbenchBatchBusy }"
+      :ok-button-props="{ disabled: workbenchBatchAction === 'recovery' && !recoveryDecisionReady }" @ok="submitWorkbenchBatch">
       <a-form layout="vertical" :disabled="workbenchBatchBusy">
         <template v-if="workbenchBatchAction === 'assign'">
           <a-form-item label="分配方式" required>
@@ -288,8 +289,29 @@
         </a-form-item>
         <template v-if="workbenchBatchAction === 'recovery'">
           <a-form-item v-for="task in workbenchBatchRows" :key="task.caseId"
-            :label="`GDS-PCC-PNR · ${task.admNo || task.internalNo}`" required>
-            <a-textarea v-model:value="workbenchBatchForm.locators[task.caseId]" :maxlength="2000"
+            :label="`GDS-PCC-PNR · ${task.admNo || task.internalNo}`">
+            <template v-if="task.recoveryCandidates?.length">
+              <p v-if="workbenchBatchForm.recoveryAction === 'skip'" class="hint">已保存的编码继续保留。</p>
+              <template v-else>
+                <p class="hint">对照原文逐条确认，再选择纳入本次恢复的编码。</p>
+                <a :href="`/adm/parsing?task=${task.recoverySourceTaskId}`" v-if="task.recoverySourceTaskId"
+                  target="_blank" rel="noopener">查看解析来件和原文</a>
+                <a-checkbox-group v-model:value="workbenchBatchForm.confirmedLocators[task.caseId]" style="display: grid; gap: 6px">
+                  <a-space v-for="row in task.recoveryCandidates" :key="row.code" wrap>
+                    <a-checkbox :value="row.code" :disabled="!workbenchBatchForm.reviewedLocators[task.caseId]?.includes(row.code)">
+                      {{ row.code }}
+                    </a-checkbox>
+                    <a-tag v-if="workbenchBatchForm.reviewedLocators[task.caseId]?.includes(row.code)" color="green">已确认</a-tag>
+                    <template v-else>
+                      <a-tag color="gold">待核对</a-tag>
+                      <a-button size="small" @click="confirmRecoveryCandidate(task.caseId, row.code)">确认此条</a-button>
+                    </template>
+                    <span v-if="row.sourceLine">解析明细 {{ row.sourceLine }}</span>
+                  </a-space>
+                </a-checkbox-group>
+              </template>
+            </template>
+            <a-textarea v-else v-model:value="workbenchBatchForm.locators[task.caseId]" :maxlength="2000"
               placeholder="多条用逗号分隔，例如 1G-5S75-13124N,1A-BKK247-123NE" />
           </a-form-item>
         </template>
@@ -646,6 +668,20 @@
             <span class="form-field-label">细分差异原因 <span class="form-required-mark" aria-hidden="true">*</span></span>
             <a-textarea aria-required="true" v-model:value="form.differenceReason" :rows="2" />
           </label>
+          <h3>GDS-PCC-PNR</h3>
+          <div class="wide">
+            <p class="hint">编码随主单保存，来源未明的 PNR 可先保留为待核对，恢复时逐条确认。</p>
+            <a-space v-for="(row, index) in recoveryDraft" :key="index" wrap style="display: flex; margin-bottom: 8px">
+              <a-input v-model:value="row.gds" placeholder="GDS" aria-label="GDS" :maxlength="2" style="width: 76px" />
+              <a-input v-model:value="row.pcc" placeholder="PCC" aria-label="PCC" :maxlength="8" style="width: 105px" />
+              <a-input v-model:value="row.pnr" placeholder="PNR" aria-label="PNR" :maxlength="8" style="width: 105px" />
+              <a-tag color="gold">待核对</a-tag>
+              <span v-if="row.sourceLine">解析明细 {{ row.sourceLine }}</span>
+              <a-button size="small" @click="recoveryDraft.splice(index, 1)">移除</a-button>
+            </a-space>
+            <a-button :disabled="recoveryDraft.length >= 100"
+              @click="recoveryDraft.push({ gds: '', pcc: '', pnr: '' })">添加编码</a-button>
+          </div>
           <h3>备注与附件</h3>
           <label class="wide">备注（选填）<a-textarea v-model:value="form.remark" :rows="2" /></label
           ><label class="wide"
@@ -1126,6 +1162,14 @@ const workbenchBatchRows = ref<Fields[]>([])
 const workbenchBatchAction = ref('')
 const workbenchBatchError = ref('')
 const workbenchBatchForm = reactive<Fields>({})
+const recoveryDecisionReady = computed(() => !!workbenchBatchForm.recoveryAction &&
+  workbenchBatchRows.value.every(task => task.recoveryCandidates?.length
+    ? workbenchBatchForm.recoveryAction === 'skip' || !!workbenchBatchForm.confirmedLocators[task.caseId]?.length
+    : !!String(workbenchBatchForm.locators[task.caseId] || '').trim()))
+function confirmRecoveryCandidate(caseId: number, code: string) {
+  workbenchBatchForm.reviewedLocators[caseId].push(code)
+  workbenchBatchForm.confirmedLocators[caseId].push(code)
+}
 const assignmentMode = ref<'whole' | 'split'>()
 const assignmentDetail = ref<AdmCaseDetail | null>(null)
 const assignmentLoading = ref(false)
@@ -1204,10 +1248,14 @@ function openWorkbenchBatch(action: string, rows = batchRows.value) {
   assignmentDetail.value = null
   assignmentLoading.value = false
   selectedAssignmentLines.value = []
+  const confirmedLocators = () => Object.fromEntries(rows.map(task => [task.caseId,
+    ((task.recoveryCandidates || []) as { code: string; confirmed: boolean }[]).filter(row => row.confirmed).map(row => row.code)]))
   Object.assign(workbenchBatchForm, {
     targetUserId: undefined, targetRole: action === 'transfer' && !rows.every(canTransferOperator) ? 'LEADER' : 'OPERATOR',
     reason: '', handoverNote: '', recoveryAction: undefined,
-    locators: Object.fromEntries(rows.map(task => [task.caseId, task.recoveryLocators || ''])), accepted: true,
+    locators: Object.fromEntries(rows.map(task => [task.caseId, task.recoveryLocators || ''])),
+    confirmedLocators: confirmedLocators(), reviewedLocators: confirmedLocators(),
+    accepted: true,
   })
   workbenchBatchOpen.value = true
 }
@@ -1223,9 +1271,8 @@ async function submitWorkbenchBatch() {
   const rows = action === 'assign'
     ? assignmentRows.value.map((line): Fields => ({ ...line, caseId: assignmentDetail.value!.case.id, lineId: line.id, kind: 'assign' }))
     : workbenchBatchRows.value
-  if (action === 'recovery' && (!form.recoveryAction ||
-      workbenchBatchRows.value.some(task => !String(form.locators[task.caseId] || '').trim()))) {
-    workbenchBatchError.value = '请选择是否恢复，并填写每张主单的 GDS-PCC-PNR'
+  if (action === 'recovery' && !recoveryDecisionReady.value) {
+    workbenchBatchError.value = '请选择是否恢复，并核对确认本次采用的 GDS-PCC-PNR'
     return
   }
   if (action === 'transfer' && form.targetRole === 'OPERATOR' && !workbenchBatchRows.value.every(canTransferOperator)) {
@@ -1250,9 +1297,13 @@ async function submitWorkbenchBatch() {
           if (task.lineId) await admApi.decideTransfer(caseId, lineId, Number(task.transferId), form.accepted, form.reason)
           else await admApi.masterLeaderTransfer(caseId, { accepted: form.accepted, reason: form.reason })
         }
-        if (action === 'recovery' || action === 'startRecovery')
-          await admApi.masterRecovery(caseId, action === 'startRecovery' ? 'start' : form.recoveryAction,
-            form.locators[caseId])
+        if (action === 'recovery' || action === 'startRecovery') {
+          const decision = action === 'startRecovery' ? 'start' : form.recoveryAction
+          const confirmed = decision === 'request' && task.recoveryCandidates?.length
+            ? form.confirmedLocators[caseId] as string[] : undefined
+          await admApi.masterRecovery(caseId, decision,
+            task.recoveryCandidates?.length ? confirmed?.join(',') : form.locators[caseId], confirmed)
+        }
       } catch (e) {
         failures.push(task)
         errors.push(`${task.lineInternalNo || task.admNo}：${errorText(e)}`)
@@ -1732,11 +1783,22 @@ function pickMasterFiles(e: Event) {
   masterFiles.value = Array.from((e.target as HTMLInputElement).files || [])
 }
 const parsePickerOpen = ref(false), parseSource = ref<ParseTask | null>(null), parseConfirmed = ref(false)
+type RecoveryDraftRow = { gds: string; pcc: string; pnr: string; sourceLine?: number }
+const recoveryDraft = ref<RecoveryDraftRow[]>([])
 function useParseSource(task: ParseTask) {
   openCreate()
   parseSource.value = task
   parsePickerOpen.value = false
   const adm = task.candidate?.adm || {}, match = task.airlineMatch
+  recoveryDraft.value = (task.candidate?.lines || []).flatMap((line, index) => {
+    if (typeof line.gds !== 'string' || typeof line.pcc !== 'string') return []
+    const gds = line.gds.trim().toUpperCase(), pcc = line.pcc.trim().toUpperCase()
+    return [...new Set([...(Array.isArray(line.gdsPnrs) ? line.gdsPnrs : []),
+      ...(Array.isArray(line.pnrs) ? line.pnrs : [])])]
+      .filter((pnr): pnr is string => typeof pnr === 'string' && /^[A-Z0-9]{5,8}$/.test(pnr))
+      .filter(() => /^[A-Z0-9]{2}$/.test(gds) && /^[A-Z0-9]{3,8}$/.test(pcc))
+      .map(pnr => ({ gds, pcc, pnr, sourceLine: index + 1 }))
+  })
   Object.assign(form, { admNo: adm.number || '', issuerType: 'AIRLINE', currency: adm.currency || '',
     originalAmount: adm.amount || '', issuedDate: adm.issuedDate || '', replyDeadline: '',
     differenceReason: (adm.reason || '').slice(0, 1000),
@@ -1749,6 +1811,7 @@ function openCreate() {
   parseSource.value = null
   parseConfirmed.value = false
   masterFiles.value = []
+  recoveryDraft.value = []
   createIdempotencyKey = createOperationIdentifier()
   Object.assign(form, {
     admNo: '',
@@ -1805,6 +1868,7 @@ async function createCase() {
     const files = [...masterFiles.value]
     const body = {
       ...fields, supplierCode: supplier?.value ?? null, airlineCode: airline?.value ?? null, masterOnly: true,
+      recoveryCandidates: recoveryDraft.value.map(row => ({ ...row })),
     }
     if (parseSource.value) {
       const result = await parsingApi.register(parseSource.value, body, parseConfirmed.value)

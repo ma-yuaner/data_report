@@ -118,8 +118,8 @@ export const admApi = {
   importCommit: (batchNo: string) => data<Fields>(http.post(`${base}/imports/${encodeURIComponent(batchNo)}/commit`, {})),
   masterLeaderTransfer: (caseId: number, body: Fields) =>
     data<AdmCaseDetail>(http.post(`${casePath(caseId)}/master-leader-transfer`, body)),
-  masterRecovery: (caseId: number, action: string, value?: string) =>
-    data<AdmCaseDetail>(http.post(`${casePath(caseId)}/master-recovery`, { action, locators: value })),
+  masterRecovery: (caseId: number, action: string, value?: string, confirmedLocators?: string[]) =>
+    data<AdmCaseDetail>(http.post(`${casePath(caseId)}/master-recovery`, { action, locators: value, confirmedLocators })),
   assignOperator: (caseId: number, lineId: number, body: Fields) => data<Fields>(http.post(`${linePath(caseId, lineId)}/assign-operator`, body)),
   changeLeader: (caseId: number, lineId: number, body: Fields) => data<Fields>(http.post(`${linePath(caseId, lineId)}/change-leader`, body)),
   rejectAssignment: (caseId: number, lineId: number) => data<Fields>(http.post(`${linePath(caseId, lineId)}/reject`, {})),

@@ -2225,7 +2225,7 @@ class AdmWorkflowRepository:
             )
             return self.get_case(case_id, connection=connection)
 
-    def master_recovery(self, case_id, action, actor, *, locators=None, line=None):
+    def master_recovery(self, case_id, action, actor, *, locators=None, line=None, confirmed=None):
         transitions = {
             "skip": ("LEADER_DECISION", "NOT_REQUIRED"),
             "request": ("LEADER_DECISION", "OWNER_RECOVERY"),
@@ -2243,10 +2243,21 @@ class AdmWorkflowRepository:
             owner_id = case["coordinator_id"] if action == "start" else defaults.get("leaderId")
             if owner_id != actor["id"]:
                 raise AdmError("只有当前阶段的责任人可以办理", 403, "ADM_FORBIDDEN")
-            now = business_now()
-            due = now + timedelta(days=2) if action == "start" else None
             if case.get("pending_leader_transfer_json"):
                 raise AdmError("请先处理待确认的组长转派", 409, "ADM_ACTION_BLOCKED")
+            candidates = defaults.get("recoveryCandidates", [])
+            if action == "request" and candidates:
+                selected = locators.split(",") if locators else []
+                known = {row["code"] for row in candidates}
+                if not selected or not isinstance(confirmed, list) or confirmed != selected or any(code not in known for code in selected):
+                    raise AdmError("请逐条核对并确认本次采用的恢复编码")
+                for row in candidates:
+                    if row["code"] in selected:
+                        row["confirmed"] = True
+                cursor.execute("UPDATE admwf_case SET line_defaults_json=%s WHERE id=%s",
+                               (json.dumps(defaults, ensure_ascii=False), case_id))
+            now = business_now()
+            due = now + timedelta(days=2) if action == "start" else None
             cursor.execute(
                 "UPDATE admwf_case SET master_recovery_status=%s,recovery_locators=COALESCE(%s,recovery_locators),"
                 "master_recovery_due_at=%s,leader_overdue_at=COALESCE(leader_overdue_at,%s),"
@@ -2345,6 +2356,8 @@ class AdmWorkflowRepository:
             cursor.execute(
                 "SELECT c.id AS case_id,c.adm_no,c.internal_no,c.coordinator_id,c.coordinator_name,c.reply_deadline,c.recovery_locators,"
                 "c.master_recovery_due_at,c.leader_overdue_at,"
+                "JSON_EXTRACT(c.line_defaults_json,'$.recoveryCandidates') AS recovery_candidates_json,"
+                "JSON_UNQUOTE(JSON_EXTRACT(c.line_defaults_json,'$.parsingSource.taskId')) AS recovery_source_task_id,"
                 "JSON_UNQUOTE(JSON_EXTRACT(c.pending_leader_transfer_json,'$.fromName')) AS from_operator_name,"
                 "JSON_UNQUOTE(JSON_EXTRACT(c.pending_leader_transfer_json,'$.toName')) AS to_operator_name,"
                 "JSON_EXTRACT(c.pending_leader_transfer_json,'$.toId') AS master_transfer_target_id,"
@@ -2357,6 +2370,9 @@ class AdmWorkflowRepository:
             )
             items = cursor.fetchall()
             for item in items:
+                candidate_json = item.pop("recovery_candidates_json", None)
+                if candidate_json and item["task_type"] == "LEADER_DECISION":
+                    item["recovery_candidates"] = json.loads(candidate_json) if isinstance(candidate_json, (str, bytes)) else candidate_json
                 target_id = item.pop("master_transfer_target_id", None)
                 if target_id is not None:
                     item["task_type"] = "MASTER_TRANSFER_ACCEPT" if int(target_id) == actor_id else "MASTER_TRANSFER_WAIT"
