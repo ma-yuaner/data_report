@@ -17,6 +17,9 @@ def explicit_erp_settings() -> bool:
 
 
 class Config:
+    PROFIT_VOLUME_MYSQL_ENABLED = env_bool("PROFIT_VOLUME_MYSQL_ENABLED", False)
+    PROFIT_VOLUME_MYSQL_DATABASE = os.getenv("PROFIT_VOLUME_MYSQL_DATABASE", "").strip()
+    PROFIT_VOLUME_ALL_USERS = os.getenv("PROFIT_VOLUME_ALL_USERS", "")
     AIRLINE_REBATE_PILOT_ROOT = os.getenv("AIRLINE_REBATE_PILOT_ROOT", "").strip()
     AIRLINE_REBATE_MODEL_ENABLED = env_bool("AIRLINE_REBATE_MODEL_ENABLED", False)
     AIRLINE_REBATE_MODEL_URL = os.getenv("AIRLINE_REBATE_MODEL_URL", "")
@@ -281,6 +284,7 @@ class Config:
 
 
 class TestConfig(Config):
+    PROFIT_VOLUME_MYSQL_ENABLED = False
     TESTING = True
     DEBUG = False
     DATA_MODE = "mock"

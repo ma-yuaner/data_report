@@ -12,10 +12,22 @@ from ..services.risk_monthly_analysis import RiskMonthlyAnalysisService
 from ..services.risk_business_analysis import RiskBusinessAnalysisService
 from ..services.issue_profit_analysis import IssueProfitAnalysisService
 from ..services.profit_problem_center import ProfitProblemCenterService
+from ..services.profit_volume import ProfitVolumeService
 from .common import json_body, ok
 
 
 def register_routes(api: Blueprint) -> None:
+    @api.get("/v1/analysis/issue-profit/profit-volume", defaults={"detail": False})
+    @api.get("/v1/analysis/issue-profit/profit-volume/details", defaults={"detail": True})
+    def comprehensive_profit_volume(detail: bool):
+        try:
+            source = current_app.extensions.get("profit_volume_source")
+            return ok(ProfitVolumeService(source).query(request.args, g.current_user, detail=detail))
+        except PermissionError:
+            return jsonify({"success": False, "message": "无权查看此出票范围。", "data": None}), 403
+        except ValueError as error:
+            return jsonify({"success": False, "message": str(error), "data": None}), 400
+
     @api.get("/v1/analysis/comprehensive")
     def comprehensive_analysis():
         try:

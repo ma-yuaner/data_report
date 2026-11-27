@@ -157,6 +157,13 @@ def required_menu_code(path: str) -> str | None:
 def create_app(config: type[Config] = Config, auth_store=None) -> Flask:
     app = Flask(__name__)
     app.config.from_object(config)
+    if app.config.get("PROFIT_VOLUME_MYSQL_ENABLED") and app.config["AUTH_ENABLED"]:
+        from .services.profit_volume_mysql import ProfitVolumeMySQLSource
+
+        users = app.config.get("PROFIT_VOLUME_ALL_USERS", "").split(",")
+        app.extensions["profit_volume_source"] = ProfitVolumeMySQLSource(
+            app.config, (user.strip() for user in users if user.strip())
+        )
     app.register_blueprint(api, url_prefix="/api")
     app.register_blueprint(auth_api, url_prefix="/api")
 

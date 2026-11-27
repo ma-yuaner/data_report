@@ -23,6 +23,12 @@
       <span class="filter-tip">与经营总览保持同一出票过滤口径</span>
     </div>
 
+    <a-space class="section-gap">
+      <a-button :type="profitVolume ? 'default' : 'primary'" @click="profitVolume = false">出票经营</a-button>
+      <a-button :type="profitVolume ? 'primary' : 'default'" @click="profitVolume = true">盈/冲</a-button>
+    </a-space>
+    <IssueProfitVolume v-if="profitVolume" :key="appliedPeriod.revision" :start-date="appliedPeriod.start" :end-date="appliedPeriod.end" />
+    <template v-else>
     <a-alert v-if="error" type="error" show-icon :message="error" class="section-gap" />
 
     <a-spin :spinning="loading">
@@ -83,6 +89,7 @@
         <a-alert type="error" show-icon :message="data.error ?? '请检查数据源连接和字段配置'" />
       </a-empty>
     </a-spin>
+    </template>
   </div>
 </template>
 
@@ -94,6 +101,7 @@ import { getIssueProfitAnalysis, type FieldCompletenessItem, type IssueProfitAna
 import BaseChart from '@/components/BaseChart.vue'
 import DataStateBar from '@/components/DataStateBar.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import IssueProfitVolume from '@/features/profit-volume/IssueProfitVolume.vue'
 
 type DimensionKey = 'platform' | 'airline' | 'supplier' | 'organization'
 
@@ -107,6 +115,8 @@ const formatDate = (value: Date) => {
 const now = new Date()
 const startDate = ref(formatDate(now))
 const endDate = ref(formatDate(now))
+const profitVolume = ref(false)
+const appliedPeriod = ref({ start: startDate.value, end: endDate.value, revision: 0 })
 const periodPreset = ref('today')
 const data = ref<IssueProfitAnalysisData>()
 const loading = ref(false)
@@ -202,6 +212,7 @@ const applyPreset = (value: string | number) => {
 const markCustom = () => { periodPreset.value = 'custom' }
 
 const loadData = async () => {
+  appliedPeriod.value = { start: startDate.value, end: endDate.value, revision: appliedPeriod.value.revision + 1 }
   loading.value = true
   error.value = ''
   try { data.value = await getIssueProfitAnalysis({ startDate: startDate.value, endDate: endDate.value }) }
