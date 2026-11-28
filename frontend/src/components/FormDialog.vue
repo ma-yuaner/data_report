@@ -3,8 +3,8 @@
     :open="open"
     :title="title"
     :width="width"
-    wrap-class-name="shared-form-dialog"
-    :body-style="{ maxHeight: 'calc(100dvh - 200px)', overflowY: 'auto', overscrollBehavior: 'contain' }"
+    :wrap-class-name="compact ? 'shared-form-dialog shared-form-dialog--compact' : 'shared-form-dialog'"
+    :body-style="{ maxHeight: compact ? undefined : 'calc(100dvh - 200px)', overflowY: 'auto', overscrollBehavior: 'contain' }"
     :confirm-loading="busy"
     :ok-button-props="{ disabled: submitDisabled || busy }"
     :cancel-button-props="{ disabled: busy }"
@@ -28,6 +28,7 @@ const props = withDefaults(defineProps<{
   title: string
   width?: number
   busy?: boolean
+  compact?: boolean
   dirty?: boolean
   error?: string
   submitDisabled?: boolean
@@ -55,4 +56,16 @@ function cancel() {
 .shared-form-dialog .ant-modal-body { padding-right: 4px; scrollbar-gutter: stable; }
 .shared-form-dialog .ant-modal-footer { margin-top: 16px; padding-top: 12px; border-top: 1px solid #edf0f5; }
 @media (max-height: 560px) { .shared-form-dialog .ant-modal { top: 8px; padding-bottom: 8px; } }
+.shared-form-dialog--compact .ant-modal-content {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 48px);
+}
+.shared-form-dialog--compact .ant-modal-body { min-height: 0; }
+.shared-form-dialog--compact .ant-modal-header,
+.shared-form-dialog--compact .ant-modal-footer { flex: none; }
+@media (max-height: 560px) {
+  .shared-form-dialog--compact .ant-modal-content { max-height: calc(100dvh - 16px); padding: 10px 16px; }
+  .shared-form-dialog--compact .ant-modal-footer { margin-top: 8px; padding-top: 6px; }
+}
 </style>

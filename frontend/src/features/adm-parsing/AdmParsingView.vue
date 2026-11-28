@@ -106,10 +106,10 @@
             <a-button v-if="selected.intakeBlock" @click="openUpload('replace')">替换整组材料</a-button>
             <a-button v-else-if="selected.supplier" @click="openUpload('append')">追加附件</a-button>
             <a-button
-              v-if="selected.candidate && !selected.intakeBlock && !selected.supplementPending && selected.saveStatus === 'SAVED'"
+              v-if="selected.review && !selected.intakeBlock && !selected.supplementPending && selected.saveStatus === 'SAVED'"
               type="primary"
               @click="openReview('result')"
-            >{{ selected.review ? '查看或修正核对结果' : '核对并确认待登记' }}</a-button>
+            >查看或修正核对结果</a-button>
           </template>
           <span v-if="selected.elapsedSeconds !== undefined" class="parsing-muted"
             >解析耗时 {{ selected.elapsedSeconds }} 秒</span
@@ -146,6 +146,16 @@
           </a-alert>
           <a-alert v-else-if="selected.supplementPending" type="warning" show-icon message="已补件，待重新解析。旧解析结果仅供查阅。" />
           <a-alert v-else-if="selected.review && !selected.registration" type="success" show-icon :message="'已核对 · 待登记 ' + selected.review.at" />
+          <a-alert
+            v-else-if="selected.candidate && !selected.registration && !busy && selected.saveStatus === 'SAVED'"
+            type="info"
+            show-icon
+            :message="selected.isUploader ? '请对照原文核对关键字段，确认后进入待登记。' : '待上传人核对原文并确认，确认后进入待登记。'"
+          >
+            <template v-if="selected.isUploader && status?.canUpload" #action>
+              <a-button type="primary" size="small" @click="openReview('result')">核对并确认待登记</a-button>
+            </template>
+          </a-alert>
           <a-alert
             v-if="selected.error && !selected.candidate"
             type="error"
@@ -440,27 +450,31 @@
       v-model:open="uploadOpen"
       :title="materialMode === 'append' ? '追加附件' : materialMode === 'replace' ? '替换整组材料' : '上传 ADM 解析材料'"
       :busy="uploading"
-      :dirty="files.length > 0"
+      compact
+      :dirty="files.length > 0 || supplierCode !== dialogSupplier"
+      :submit-disabled="!files.length || (materialMode !== 'append' && (!supplierCode || primaryIndex === undefined))"
       :error="uploadError"
       ok-text="上传并保存"
       @submit="upload"
     >
-      <a-form-item v-if="materialMode !== 'append'" label="出单来源" required>
-        <a-select v-model:value="supplierCode" show-search :filter-option="false" :options="suppliers" @search="searchSuppliers" />
+      <a-form-item v-if="materialMode !== 'append'" class="parsing-upload-field" label="出单来源" required>
+        <a-select v-model:value="supplierCode" placeholder="从供应商档案选择" show-search :filter-option="false" :options="suppliers" @search="searchSuppliers" />
       </a-form-item>
       <label class="parsing-upload"
         >选择文件<input :key="inputKey" type="file" multiple accept=".pdf,.xlsx,.txt,.csv,.docx" @change="choose"
       /></label>
-      <p>每件1–10份，单份20MB、合计50MB。支持PDF、XLSX、TXT、CSV、DOCX；同一ADM的材料放在同一来件。</p>
-      <ul>
+      <ul v-if="files.length">
         <li v-for="(f, i) in files" :key="i">{{ f.name }}（{{ Math.ceil(f.size / 1024) }} KB）</li>
       </ul>
-      <a-form-item v-if="materialMode !== 'append'" label="主 PDF" required>
-        <a-select v-model:value="primaryIndex" :options="primaryOptions" />
+      <a-form-item v-if="materialMode !== 'append'" class="parsing-upload-field" label="主 PDF" required>
+        <a-select v-model:value="primaryIndex" :disabled="!primaryOptions.length" placeholder="选择文件后指定主 PDF" :options="primaryOptions" />
       </a-form-item>
+      <p class="parsing-muted">同一 ADM 的文件一起传。每件 1–10 份，单份不超过 20 MB，合计不超过 50 MB。支持 PDF、XLSX、TXT、CSV、DOCX。</p>
       <a-alert type="info" :message="materialMode === 'append' ? '补件核对后手动启动整组重新解析。' : '收件核对和查重通过后自动排队解析。'" />
     </FormDialog>
-    <FormDialog v-model:open="reviewOpen" :title="reviewMode === 'intake' ? '核对收件' : '确认解析结果'" :busy="acting" :dirty="true"
+    <FormDialog v-model:open="reviewOpen" :title="reviewMode === 'intake' ? '核对收件' : '确认解析结果'" :busy="acting" compact
+      :dirty="reviewChecked || supplierCode !== dialogSupplier || intakeNumber !== (selected?.intakeNumber || '') || Object.values(draft).some(field => field.value !== field.original || field.segmentId !== field.originalSegmentId || field.quote !== field.originalQuote)"
+      :submit-disabled="!reviewChecked || !supplierCode"
       :error="reviewError" ok-text="确认" @submit="submitReview">
       <a-form-item v-if="reviewMode === 'intake' || !selected?.supplier" label="出单来源" required>
         <a-select v-model:value="supplierCode" show-search :filter-option="false" :options="suppliers" @search="searchSuppliers" />
@@ -511,6 +525,7 @@ const router = useRouter()
 const auth = useAuthStore()
 const materialMode = ref<'new' | 'append' | 'replace'>('new')
 const supplierCode = ref<string>()
+const dialogSupplier = ref<string>()
 const suppliers = ref<{ value: string; label: string }[]>([])
 const primaryIndex = ref<number>()
 const intakeNumber = ref('')
@@ -518,7 +533,7 @@ const reviewOpen = ref(false)
 const reviewMode = ref<'intake' | 'result'>('result')
 const reviewError = ref('')
 const reviewChecked = ref(false)
-const draft = ref<Record<string, { value: string; original: string; segmentId?: string; quote: string; existingEvidence: boolean }>>({})
+const draft = ref<Record<string, { value: string; original: string; segmentId?: string; originalSegmentId?: string; quote: string; originalQuote: string; existingEvidence: boolean }>>({})
 const status = ref<ParseStatus>(),
   items = ref<ParseTask[]>([]),
   selected = ref<ParseTask>(),
@@ -798,6 +813,7 @@ async function refresh() {
 function openUpload(mode: 'new' | 'append' | 'replace' = 'new') {
   materialMode.value = mode
   supplierCode.value = mode === 'new' ? undefined : selected.value?.supplier?.code
+  dialogSupplier.value = supplierCode.value
   primaryIndex.value = undefined
   files.value = []
   uploadError.value = ''
@@ -849,12 +865,14 @@ function openReview(mode: 'intake' | 'result') {
   reviewError.value = ''
   reviewChecked.value = false
   supplierCode.value = task.supplier?.code
+  dialogSupplier.value = supplierCode.value
   intakeNumber.value = task.intakeNumber || ''
   draft.value = Object.fromEntries(reviewFields.map((field) => {
     const value = String(task.candidate?.adm?.[field.key] || '')
     const path = `/adm/${field.key}`
     const cite = task.candidate?.evidence.find((item) => item.path === path)
-    return [field.key, { value, original: value, segmentId: cite?.segmentId, quote: cite?.quote || '',
+    return [field.key, { value, original: value, segmentId: cite?.segmentId, originalSegmentId: cite?.segmentId,
+      quote: cite?.quote || '', originalQuote: cite?.quote || '',
       existingEvidence: Boolean(cite) && !task.issues?.some((issue) => issue.level === 'error' && issue.path === path) }]
   }))
   reviewOpen.value = true
@@ -1261,6 +1279,9 @@ onBeforeUnmount(() => {
   padding: 12px;
   background: var(--platform-selected, #eaf3fc);
   color: #1656a0;
+}
+@media (max-height: 560px) {
+  .parsing-upload-field { margin-bottom: 8px; }
 }
 .parsing-upload {
   display: grid;
