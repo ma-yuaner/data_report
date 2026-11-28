@@ -6,6 +6,15 @@ export type ParseTask = {
   title: string
   version: number
   canDelete?: boolean
+  isUploader?: boolean
+  alreadyReceived?: boolean
+  supplier?: { code: string; name: string }
+  intakeNumber?: string
+  intakeBlock?: string
+  duplicateIntakeId?: string
+  supplementPending?: boolean
+  review?: { at: string; changes: { field: string; original: unknown; value: string }[] }
+  locatorGroups?: { gds: string | null; pcc: string | null; pnr: string; role: string; evidence: { path: string; segmentId: string; quote: string }[] }[]
   registration?: { caseId: number; internalNo: string; sourceVersion: number; at: string; by: string }
   state: string
   saveStatus: string
@@ -80,11 +89,23 @@ export const parsingApi = {
     data<{ items: ParseTask[]; total: number }>(http.get(`${base}/tasks`, { params: { page, pageSize: 20, state } })),
   detail: (id: string) => data<ParseTask>(http.get(`${base}/tasks/${id}`)),
   delete: (task: ParseTask) => data<null>(http.delete(`${base}/tasks/${task.id}`, { data: { version: task.version } })),
-  upload: (files: File[], key: string) => {
+  upload: (files: File[], key: string, supplierCode: string, primaryIndex: number, task?: ParseTask, replace = false) => {
     const body = new FormData()
     files.forEach((file) => body.append('files', file))
-    return data<ParseTask>(http.post(`${base}/tasks`, body, { headers: { 'Idempotency-Key': key }, timeout: 120000 }))
+    body.append('supplierCode', supplierCode)
+    body.append('primaryIndex', String(primaryIndex))
+    if (task) {
+      body.append('version', String(task.version))
+      body.append('replace', String(replace))
+    }
+    return data<ParseTask>(http.post(task ? `${base}/tasks/${task.id}/materials` : `${base}/tasks`, body, {
+      headers: { 'Idempotency-Key': key }, timeout: 120000,
+    }))
   },
+  resolve: (task: ParseTask, supplierCode: string, number: string) =>
+    data<ParseTask>(http.post(`${base}/tasks/${task.id}/resolve-intake`, { version: task.version, supplierCode, number })),
+  confirm: (task: ParseTask, supplierCode: string, edits: Record<string, { value: string; segmentId: string; quote: string }>) =>
+    data<ParseTask>(http.post(`${base}/tasks/${task.id}/confirm`, { version: task.version, supplierCode, edits })),
   parse: (task: ParseTask) => data<ParseTask>(http.post(`${base}/tasks/${task.id}/parse`, { version: task.version })),
   revalidate: (task: ParseTask) =>
     data<ParseTask>(http.post(`${base}/tasks/${task.id}/revalidate`, { version: task.version })),

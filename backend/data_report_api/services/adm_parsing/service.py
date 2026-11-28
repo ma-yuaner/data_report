@@ -19,6 +19,7 @@ from .table_sources import fee_details
 from .documents import EXTENSIONS, extract
 from .model import PROMPT_VERSION, ParsingModel
 from .store import ParsingStore
+from .review import apply_confirmation, locator_groups
 
 _lock = threading.Lock()
 _workers = set()
@@ -26,6 +27,10 @@ _workers = set()
 
 def stamp():
     return business_now().isoformat(sep=" ", timespec="seconds")
+
+
+DOCUMENT_NUMBER = re.compile(r"^[ \t]*(?:Document Number|ADM Number|Memo\s*:|ADM编号\s*[:：]?)[ \t]*(?:\r?\n[ \t]*)?([0-9]{10})(?![0-9])", re.I | re.M)
+ISSUER = re.compile(r"^[ \t]*(?:Issued By|Issuing Supplier|出单来源|出单供应商)[ \t]*[:：][ \t]*([^\r\n]+)", re.I | re.M)
 
 
 class ParsingService:
@@ -92,16 +97,22 @@ class ParsingService:
         result = copy.deepcopy(task)
         if detail:
             result["classification"] = suggest(result.get("candidate"))
+            if isinstance(result.get("candidate"), dict):
+                result["locatorGroups"] = locator_groups(result["candidate"], result["segments"], result["issues"])
         if task.get("startedAt"):
             end = business_now() if task["state"] in {"QUEUED", "RUNNING"} else datetime.fromisoformat(task.get("finishedAt") or task["updatedAt"])
             result["elapsedSeconds"] = max(0, int((end - datetime.fromisoformat(task["startedAt"])).total_seconds()))
         result.pop("requestHash", None)
+        result.pop("bundleHash", None)
+        result.pop("intakeIdentity", None)
         result.pop("attemptId", None)
         for file in result["files"]:
             file.pop("storageKey", None)
         if not detail:
-            for key in ("segments", "candidate", "issues", "history", "originalCandidate", "revalidationHistory", "adjustments", "relatedDocuments", "attachmentFees"):
+            for key in ("segments", "intakeSegments", "candidate", "issues", "history", "originalCandidate", "revalidationHistory", "adjustments", "relatedDocuments", "attachmentFees", "supersededFiles"):
                 result.pop(key, None)
+        result.pop("intakeSegments", None)
+        result.pop("supersededFiles", None)
         return result
 
     def detail(self, user, task_id):
@@ -120,6 +131,7 @@ class ParsingService:
             self.store.save(task, old)
         return {
             **self._public(task, True),
+            "isUploader": task["ownerId"] == str(user["id"]),
             "canDelete": (has(user, "adm.create") or has(user, "adm.manage"))
             and not task.get("registration") and task["state"] not in {"QUEUED", "RUNNING"},
         }
@@ -149,13 +161,86 @@ class ParsingService:
                 items[i] = pending
         return {"items": [self._public(t) for t in items], "total": total, "page": page, "pageSize": size}
 
-    def upload(self, user, uploads, key):
+    def _supplier(self, code):
+        if not isinstance(code, str) or not code.strip() or len(code) > 100:
+            raise AdmError("请从供应商档案选择出单来源", 422, "PARSE_SUPPLIER_REQUIRED")
+        return AdmCatalog(self.config).optional_master("supplier", code.strip())
+
+    @staticmethod
+    def _bundle(files):
+        return hashlib.sha256(json.dumps(sorted(f["sha256"] for f in files)).encode()).hexdigest()
+
+    def _identify(self, task, number=None):
+        task.pop("intakeBlock", None)
+        task.pop("duplicateIntakeId", None)
+        task.pop("intakeIdentity", None)
+        supplier = task["supplier"]
+        primary = task["primaryFileId"]
+        numbers = set()
+        main_numbers = set()
+        known_issuers = {supplier["name"].strip().casefold(), supplier["code"].casefold()}
+        for segment in task["segments"]:
+            found = set(DOCUMENT_NUMBER.findall(segment["text"]))
+            numbers.update(found)
+            if segment["fileId"] == primary:
+                main_numbers.update(found)
+            if any(value.strip().casefold() not in known_issuers for value in ISSUER.findall(segment["text"])):
+                task["intakeBlock"] = "原文明示的出单来源与所选来源不一致，请核对并修正"
+        if number and not re.fullmatch(r"[0-9]{10}", number):
+            raise AdmError("ADM号须为10位数字", 422, "PARSE_NUMBER")
+        number = next(iter(main_numbers)) if len(main_numbers) == 1 else number
+        if len(numbers) > 1 or number and numbers - {number}:
+            task["intakeBlock"] = "整组材料出现不同ADM号，请核对或替换材料"
+        elif not number:
+            task["intakeBlock"] = task.get("intakeBlock") or "主PDF单号未识别，请对照原件补录；原件不清晰时请补齐材料"
+        if task.get("intakeBlock"):
+            return
+        task["intakeNumber"] = number
+        identity = json.dumps([supplier["code"].casefold(), number], ensure_ascii=False)
+        matches = [item for item in self.store.matching_intakes("identity", identity) if item["id"] != task["id"]]
+        if matches:
+            task["intakeBlock"] = "同来源同号已有来件，文件不同，请核实是补件还是更正"
+            if matches[0]["ownerId"] == task["ownerId"]:
+                task["duplicateIntakeId"] = matches[0]["id"]
+            return
+        task["intakeIdentity"] = identity
+
+    def _confirm_intake_identity(self, task, supplier_code, number_edit):
+        if not task.get("supplier"):
+            task["supplier"] = self._supplier(supplier_code)
+            task["primaryFileId"] = next((f["id"] for f in task["files"] if f["name"].lower().endswith(".pdf")), task["files"][0]["id"])
+        number = number_edit.get("value") if isinstance(number_edit, dict) else task["candidate"]["adm"].get("number")
+        if task.get("intakeNumber") and number != task["intakeNumber"]:
+            raise AdmError("核对后的ADM号须与收件单号一致", 422, "PARSE_REVIEW_NUMBER")
+        self._identify(task, number)
+        if task.get("intakeBlock"):
+            raise AdmError(task["intakeBlock"], 409, "PARSE_INTAKE_BLOCK")
+        if task["intakeNumber"] != number:
+            raise AdmError("核对后的ADM号须与主材料原文一致", 422, "PARSE_REVIEW_NUMBER")
+        task.setdefault("bundleHash", self._bundle(task["files"]))
+
+    def upload(self, user, uploads, key, supplier_code=None, primary_index=None, task_id=None, version=None, replace=False):
         actor = self.actor(user, True)
         if not re.fullmatch(r"[A-Za-z0-9_-]{16,100}", str(key or "")):
             raise AdmError("缺少有效上传请求标识", 422, "PARSE_REQUEST_KEY")
         if not 1 <= len(uploads) <= 10:
             raise AdmError("每件请选择1至10份材料", 422, "PARSE_FILE_COUNT")
-        task_id, files, total = uuid.uuid4().hex, [], 0
+        existing = self._get(user, task_id, True) if task_id else None
+        if existing:
+            if existing["ownerId"] != actor:
+                raise AdmError("请由上传人修改材料", 403, "PARSE_REVIEW_OWNER")
+            if existing["version"] != version or existing.get("registration") or existing["state"] in {"QUEUED", "RUNNING"}:
+                raise AdmError("来件已更新、正在解析或已登记", 409, "PARSE_VERSION_CONFLICT")
+            if replace and not existing.get("intakeBlock"):
+                raise AdmError("只有待核对来件可以替换整组材料", 409, "PARSE_MATERIAL_REPLACE")
+        supplier = self._supplier(supplier_code) if not existing or replace else existing.get("supplier")
+        if not supplier:
+            raise AdmError("请先确认出单来源", 422, "PARSE_SUPPLIER_REQUIRED")
+        if not existing or replace:
+            if type(primary_index) is not int or not 0 <= primary_index < len(uploads) or not uploads[primary_index].filename.lower().endswith(".pdf"):
+                raise AdmError("请选择本次上传的主PDF", 422, "PARSE_PRIMARY_PDF")
+        task_id, files, total = task_id or uuid.uuid4().hex, [], 0
+        saving = False
         self.root.mkdir(parents=True, exist_ok=True)
         try:
             for upload in uploads:
@@ -180,20 +265,107 @@ class ParsingService:
                 if not size:
                     raise AdmError("不能上传空文件", 422, "PARSE_FILE_EMPTY")
                 files[-1].update(size=size, sha256=digest.hexdigest())
-            fingerprint = hashlib.sha256(json.dumps([(f["name"], f["sha256"]) for f in files], ensure_ascii=False).encode()).hexdigest()
+            bundle = files if not existing or replace else existing["files"] + files
+            if len(bundle) > 10 or sum(f["size"] for f in bundle) > 50 * 1024 * 1024:
+                raise AdmError("补件后的整组最多10份材料、合计50MB", 413, "PARSE_FILE_LIMIT")
+            primary = files[primary_index]["id"] if not existing or replace else existing["primaryFileId"]
+            bundle_hash = self._bundle(bundle)
+            fingerprint = hashlib.sha256(json.dumps([bundle_hash, supplier["code"], next(f["sha256"] for f in bundle if f["id"] == primary)]).encode()).hexdigest()
             task = {"id": task_id, "ownerId": actor, "title": files[0]["name"], "version": 1, "state": "UPLOADED", "createdAt": stamp(), "updatedAt": stamp(),
                     "files": files, "requestHash": fingerprint, "segments": [], "candidate": None, "issues": [], "history": [], "attempts": 0, "error": None, "saveStatus": "SAVED"}
-            result = self.store.create(task, key, fingerprint)
+            if existing:
+                task = existing
+                self._archive_review(task)
+                task.update(state="UPLOADED", version=version + 1, updatedAt=stamp(), supplementPending=True)
+                if replace:
+                    task.setdefault("supersededFiles", []).extend(task["files"])
+                    task.pop("intakeNumber", None)
+            task.update(files=bundle, supplier=supplier, primaryFileId=primary, bundleHash=bundle_hash,
+                        title=next(f["name"] for f in bundle if f["id"] == primary))
+            try:
+                task["intakeSegments"] = extract(bundle, self.root, int(self.config.get("ADM_PARSING_MAX_INPUT_CHARS", 60000)))
+                task.pop("intakeReadError", None)
+            except AdmError as error:
+                task["intakeSegments"] = []
+                task["intakeReadError"] = error.message
+            with self.store.intake_lock():
+                duplicates = [
+                    item for item in self.store.matching_intakes("bundle", bundle_hash)
+                    if item["id"] != task_id and item.get("supplier", {}).get("code") == supplier["code"]
+                ]
+                if duplicates:
+                    if existing:
+                        raise AdmError("该组材料已在其他来件中，请先核对两件关系", 409, "PARSE_ALREADY_RECEIVED")
+                    duplicate = duplicates[0]
+                    if duplicate["ownerId"] != actor and not has(user, "adm.manage"):
+                        raise AdmError("整组材料已收件，请联系ADM管理员核对", 409, "PARSE_ALREADY_RECEIVED")
+                    result = {**duplicate, "alreadyReceived": True}
+                else:
+                    self._refresh_intake(task)
+                    saving = True
+                    if existing:
+                        self.store.save(task, version)
+                        result = task
+                    else:
+                        result = self.store.create(task, key, fingerprint)
             if result["state"] == "DELETED":
                 raise AdmError("该上传请求对应的来件已删除，请重新打开上传窗口", 409, "PARSE_DELETED")
             if result["id"] != task_id:
                 for f in files:
                     self._path(f["storageKey"]).unlink(missing_ok=True)
+            if result["state"] == "QUEUED":
+                self.wake()
             return self._public(result, True)
-        except Exception:
-            for f in files:
-                self._path(f["storageKey"]).unlink(missing_ok=True)
+        except Exception as error:
+            # A connection loss during COMMIT can leave a committed task.
+            # Keep its staged originals when the write outcome is unknown.
+            if not saving or isinstance(error, AdmError) and error.code in {"PARSE_VERSION_CONFLICT", "PARSE_IDEMPOTENCY"}:
+                for f in files:
+                    self._path(f["storageKey"]).unlink(missing_ok=True)
             raise
+
+    @staticmethod
+    def _archive_review(task):
+        review = task.pop("review", None)
+        if review:
+            task.setdefault("reviewHistory", []).append(review)
+
+    def _refresh_intake(self, task, number=None):
+        # The existing model candidate keeps its own source locators until the next parse.
+        original = task["segments"]
+        task["segments"] = task["intakeSegments"]
+        try:
+            self._identify(task, number or task.get("intakeNumber"))
+        finally:
+            task["segments"] = original
+        if task.get("intakeReadError"):
+            task["intakeBlock"] = task["intakeReadError"]
+            task.pop("intakeIdentity", None)
+        if task.get("intakeBlock"):
+            task["state"] = "UPLOADED"
+        elif not task.get("supplementPending"):
+            task.update(state="QUEUED", stage="QUEUED")
+        if not task["attempts"]:
+            task["segments"] = task["intakeSegments"]
+
+    def resolve_intake(self, user, task_id, body):
+        task = self._get(user, task_id, True)
+        version = body.get("version")
+        if task["ownerId"] != str(user["id"]) or not task.get("intakeBlock") or task["version"] != version:
+            raise AdmError("请由上传人使用当前来件版本核对", 409, "PARSE_VERSION_CONFLICT")
+        with self.store.intake_lock():
+            task["supplier"] = self._supplier(body.get("supplierCode"))
+            number = body.get("number")
+            if number and not isinstance(number, str):
+                raise AdmError("ADM号无效", 422, "PARSE_NUMBER")
+            self._refresh_intake(task, number)
+            if number and task.get("intakeNumber") == number and not task.get("intakeBlock"):
+                task["manualIntakeNumber"] = {"value": number, "by": str(user["id"]), "at": stamp()}
+            task.update(version=version + 1, updatedAt=stamp())
+            self.store.save(task, version)
+        if task["state"] == "QUEUED":
+            self.wake()
+        return self._public(task, True)
 
     def enqueue(self, user, task_id, version):
         task = self._get(user, task_id, True)
@@ -203,6 +375,10 @@ class ParsingService:
             raise AdmError("任务版本已改变，请刷新后再试", 409, "PARSE_VERSION_CONFLICT")
         if task["state"] in {"QUEUED", "RUNNING"}:
             return self._public(task, True)
+        if task.get("intakeBlock"):
+            raise AdmError(task["intakeBlock"], 409, "PARSE_INTAKE_BLOCK")
+        if task.get("supplementPending") and task["ownerId"] != str(user["id"]):
+            raise AdmError("请由上传人核对新材料后启动解析", 403, "PARSE_REVIEW_OWNER")
         if task["attempts"] >= 10:
             raise AdmError("单件已达10次解析上限，请检查材料与配置", 429, "PARSE_ATTEMPT_LIMIT")
         if task["attempts"]:
@@ -210,6 +386,8 @@ class ParsingService:
             task["history"][-1].update({key: task.get(key) for key in (
                 "model", "responseModel", "promptVersion", "validationVersion", "outputFormat", "schemaMatched",
             )})
+        self._archive_review(task)
+        task.pop("supplementPending", None)
         task.update(stage="QUEUED", startedAt=None, finishedAt=None, originalCandidate=None, adjustments=[], airlineMatch=None, relatedDocuments=[], attachmentFees=[], state="QUEUED", version=version+1, updatedAt=stamp(), candidate=None, issues=[], error=None, usage=None, saveStatus="SAVED")
         task.update(outputFormat=None, schemaMatched=None, responseModel=None)
         self.store.save(task, version)
@@ -269,6 +447,9 @@ class ParsingService:
         task["attachmentFees"] = fee_details(task["candidate"], task["segments"])
         task["validationVersion"] = VALIDATION_VERSION
         task["issues"] = validate(task["candidate"], task["segments"])
+        self._match_airline(task)
+
+    def _match_airline(self, task):
         candidate = task["candidate"]
         adm = candidate.get("adm") if isinstance(candidate, dict) else None
         code = adm.get("airlineCode") if isinstance(adm, dict) else None
@@ -298,6 +479,28 @@ class ParsingService:
                     task["issues"].append({"code": "AIRLINE_" + matched["status"], "path": "/adm/airlineCode", "message": message, "level": "warning"})
         task["airlineMatch"] = matched
 
+    def confirm(self, user, task_id, body):
+        task = self._get(user, task_id, True)
+        if task["ownerId"] != str(user["id"]):
+            raise AdmError("请由上传人核对并确认来件", 403, "PARSE_REVIEW_OWNER")
+        version = body.get("version")
+        if type(version) is not int or version != task["version"]:
+            raise AdmError("解析结果已更新，请刷新后核对", 409, "PARSE_VERSION_CONFLICT")
+        if (task.get("registration") or task.get("intakeBlock") or task.get("supplementPending")
+                or task["state"] not in {"FAILED", "SUCCEEDED"} or task.get("saveStatus") != "SAVED"
+                or not isinstance(task.get("candidate"), dict) or not isinstance(task["candidate"].get("adm"), dict)):
+            raise AdmError("请先完成当前材料的解析", 409, "PARSE_NOT_READY")
+        edits = body.get("edits", {})
+        apply_confirmation(task, edits, str(user["id"]), stamp())
+        self._match_airline(task)
+        if task["airlineMatch"]["status"] != "MATCHED":
+            raise AdmError("请核对原文航司编码并匹配启用航司", 422, "PARSE_REVIEW_AIRLINE")
+        task.update(state="SUCCEEDED", error=None, version=version + 1, updatedAt=stamp())
+        with self.store.intake_lock():
+            self._confirm_intake_identity(task, body.get("supplierCode"), edits.get("number"))
+            self.store.save(task, version)
+        return self._public(task, True)
+
     def revalidate(self, user, task_id, version):
         task = self._get(user, task_id, True)
         if task.get("registration"):
@@ -306,11 +509,14 @@ class ParsingService:
             raise AdmError("任务版本已改变，请刷新后再试", 409, "PARSE_VERSION_CONFLICT")
         if task["state"] in {"QUEUED", "RUNNING"}:
             raise AdmError("任务尚在处理，请等待完成后重新校验", 409, "PARSE_BUSY")
+        if task.get("intakeBlock") or task.get("supplementPending") or task.get("review"):
+            raise AdmError("当前来件状态不能重新校验旧解析结果", 409, "PARSE_NOT_READY")
         if not isinstance(task.get("candidate"), dict) or not task.get("segments"):
             raise AdmError("没有已保存的模型结果及原文，无法重新校验", 422, "PARSE_NO_CANDIDATE")
         task.setdefault("revalidationHistory", []).append({"at": stamp(), "actorId": str(user["id"]), "version": version, "candidate": copy.deepcopy(task["candidate"]), "issues": copy.deepcopy(task["issues"]), "state": task["state"], "validationVersion": task.get("validationVersion")})
         task.setdefault("finishedAt", task["updatedAt"])
         self._evaluate(task)
+        task.pop("review", None)
         failed = any(i["level"] == "error" for i in task["issues"])
         task.update(state="FAILED" if failed else "SUCCEEDED", stage="FINISHED", version=version+1,
                     updatedAt=stamp(), revalidatedAt=stamp(), revalidatedById=str(user["id"]), saveStatus="SAVED",

@@ -13,7 +13,7 @@
       >
         用于样本标注
       </a-button>
-      <a-button type="primary" :disabled="!status?.canUpload" @click="openUpload">上传文件</a-button>
+      <a-button type="primary" :disabled="!status?.canUpload" @click="openUpload()">上传文件</a-button>
     </PageHeader>
     <a-alert
       v-if="status?.localTesting"
@@ -86,7 +86,7 @@
             >重试保存</a-button
           >
           <a-button
-            v-else-if="selected.candidate && !selected.registration"
+            v-else-if="selected.candidate && !selected.registration && !selected.intakeBlock && !selected.supplementPending && !selected.review"
             type="primary"
             :loading="acting"
             :disabled="!status?.canUpload || busy"
@@ -94,18 +94,28 @@
             >重新校验并保存（不调用模型）</a-button
           >
           <a-button
-            v-else-if="!selected.registration"
+            v-else-if="!selected.registration && !selected.intakeBlock && !selected.review"
             type="primary"
             :loading="acting"
             :disabled="!status?.canUpload || busy"
             @click="startParse"
-            >{{ selected.attempts ? '重试模型解析' : '开始解析' }}</a-button
+            >{{ selected.supplementPending ? '核对材料后重新解析' : selected.attempts ? '重试模型解析' : '开始解析' }}</a-button
           >
+          <template v-if="selected.isUploader && !selected.registration && !busy && status?.canUpload">
+            <a-button v-if="selected.intakeBlock" @click="openReview('intake')">核对收件</a-button>
+            <a-button v-if="selected.intakeBlock" @click="openUpload('replace')">替换整组材料</a-button>
+            <a-button v-else-if="selected.supplier" @click="openUpload('append')">追加附件</a-button>
+            <a-button
+              v-if="selected.candidate && !selected.intakeBlock && !selected.supplementPending && selected.saveStatus === 'SAVED'"
+              type="primary"
+              @click="openReview('result')"
+            >{{ selected.review ? '查看或修正核对结果' : '核对并确认待登记' }}</a-button>
+          </template>
           <span v-if="selected.elapsedSeconds !== undefined" class="parsing-muted"
             >解析耗时 {{ selected.elapsedSeconds }} 秒</span
           >
           <details
-            v-if="selected.candidate && !selected.registration && !busy && selected.saveStatus !== 'FAILED'"
+            v-if="selected.candidate && !selected.registration && !selected.intakeBlock && !selected.supplementPending && !selected.review && !busy && selected.saveStatus !== 'FAILED'"
             class="parsing-extra-actions"
           >
             <summary>其他操作</summary>
@@ -129,6 +139,13 @@
       <section class="parsing-pane parsing-result">
         <h2>核对结果</h2>
         <div v-if="selected" class="parsing-content">
+          <a-alert v-if="selected.intakeBlock" type="warning" show-icon :message="'待核对 · ' + selected.intakeBlock">
+            <template v-if="selected.duplicateIntakeId" #action>
+              <a-button size="small" @click="select(selected.duplicateIntakeId!)">查看已有来件</a-button>
+            </template>
+          </a-alert>
+          <a-alert v-else-if="selected.supplementPending" type="warning" show-icon message="已补件，待重新解析。旧解析结果仅供查阅。" />
+          <a-alert v-else-if="selected.review && !selected.registration" type="success" show-icon :message="'已核对 · 待登记 ' + selected.review.at" />
           <a-alert
             v-if="selected.error && !selected.candidate"
             type="error"
@@ -247,6 +264,18 @@
                 此为旧版结果，点击“重新校验并保存”应用新口径，不调用模型。
               </p>
               <p class="parsing-muted">解析结果用于人工核对，不自动新建ADM或恢复PNR。</p>
+            </a-tab-pane>
+            <a-tab-pane key="locators" tab="订座编码（合并）">
+              <a-empty v-if="!selected.locatorGroups?.length" description="暂无具备原文依据的订座编码" />
+              <a-descriptions v-else bordered size="small" :column="1">
+                <a-descriptions-item v-for="(group, index) in selected.locatorGroups" :key="index" label="GDS / PCC / PNR">
+                  {{ group.gds || 'GDS待核对' }} / {{ group.pcc || 'PCC待核对' }} / {{ group.pnr }}
+                  <a-tag>{{ group.role === 'UNKNOWN' ? '归属待核对' : group.role === 'AIRLINE' ? '航司PNR' : 'GDS PNR' }}</a-tag>
+                  <div v-for="(ref, position) in group.evidence" :key="position">
+                    <a-button type="link" size="small" @click="locateSegment(ref.segmentId, ref.quote)">查看原文 {{ position + 1 }}</a-button>
+                  </div>
+                </a-descriptions-item>
+              </a-descriptions>
             </a-tab-pane>
             <a-tab-pane key="lines" :tab="'交易明细 ' + displayLines.length">
               <a-empty v-if="!displayLines.length" description="暂无交易明细" />
@@ -409,13 +438,16 @@
     </div>
     <FormDialog
       v-model:open="uploadOpen"
-      title="上传 ADM 解析材料"
+      :title="materialMode === 'append' ? '追加附件' : materialMode === 'replace' ? '替换整组材料' : '上传 ADM 解析材料'"
       :busy="uploading"
       :dirty="files.length > 0"
       :error="uploadError"
       ok-text="上传并保存"
       @submit="upload"
     >
+      <a-form-item v-if="materialMode !== 'append'" label="出单来源" required>
+        <a-select v-model:value="supplierCode" show-search :filter-option="false" :options="suppliers" @search="searchSuppliers" />
+      </a-form-item>
       <label class="parsing-upload"
         >选择文件<input :key="inputKey" type="file" multiple accept=".pdf,.xlsx,.txt,.csv,.docx" @change="choose"
       /></label>
@@ -423,7 +455,31 @@
       <ul>
         <li v-for="(f, i) in files" :key="i">{{ f.name }}（{{ Math.ceil(f.size / 1024) }} KB）</li>
       </ul>
-      <a-alert type="info" message="上传先保存原件，随后点击开始解析。API配置缺失不会阻止保存材料。" />
+      <a-form-item v-if="materialMode !== 'append'" label="主 PDF" required>
+        <a-select v-model:value="primaryIndex" :options="primaryOptions" />
+      </a-form-item>
+      <a-alert type="info" :message="materialMode === 'append' ? '补件核对后手动启动整组重新解析。' : '收件核对和查重通过后自动排队解析。'" />
+    </FormDialog>
+    <FormDialog v-model:open="reviewOpen" :title="reviewMode === 'intake' ? '核对收件' : '确认解析结果'" :busy="acting" :dirty="true"
+      :error="reviewError" ok-text="确认" @submit="submitReview">
+      <a-form-item v-if="reviewMode === 'intake' || !selected?.supplier" label="出单来源" required>
+        <a-select v-model:value="supplierCode" show-search :filter-option="false" :options="suppliers" @search="searchSuppliers" />
+      </a-form-item>
+      <a-form-item v-if="reviewMode === 'intake'" label="原件 ADM 号">
+        <a-input v-model:value="intakeNumber" placeholder="识别不到时，对照主 PDF 补录" />
+      </a-form-item>
+      <template v-else>
+        <p>逐项对照原件。修改时填写对应原文段落和摘录。</p>
+        <a-form-item v-for="field in reviewFields" :key="field.key" :label="field.label" required>
+          <a-input v-model:value="draft[field.key].value" />
+          <template v-if="draft[field.key].value !== draft[field.key].original || !draft[field.key].existingEvidence">
+            <a-select v-model:value="draft[field.key].segmentId" placeholder="选择原文段落" :options="segmentOptions" />
+            <a-textarea v-model:value="draft[field.key].quote" :rows="2" placeholder="填写对应原文摘录" />
+          </template>
+          <small v-else>{{ draft[field.key].quote }}</small>
+        </a-form-item>
+      </template>
+      <a-checkbox v-model:checked="reviewChecked">我已对照原件核对以上内容</a-checkbox>
     </FormDialog>
     <a-drawer v-model:open="rulesOpen" title="固定 JSON 与成功失败规则" width="min(760px, 95vw)"
       ><p>必填：ADM编号、正式金额、币种，且需引用实际上传原文。未知值用null，金额为非负十进制字符串，允许0，不换汇。</p>
@@ -449,9 +505,20 @@ import PageHeader from '@/components/PageHeader.vue'
 import FormDialog from '@/components/FormDialog.vue'
 import { formatDateTimeDisplay } from '@/utils/dateTimeDisplay'
 import { useAuthStore } from '@/stores/auth'
+import { admApi } from '@/features/adm/api'
 import { parsingApi, type ParseTask, type ParseStatus } from './api'
 const router = useRouter()
 const auth = useAuthStore()
+const materialMode = ref<'new' | 'append' | 'replace'>('new')
+const supplierCode = ref<string>()
+const suppliers = ref<{ value: string; label: string }[]>([])
+const primaryIndex = ref<number>()
+const intakeNumber = ref('')
+const reviewOpen = ref(false)
+const reviewMode = ref<'intake' | 'result'>('result')
+const reviewError = ref('')
+const reviewChecked = ref(false)
+const draft = ref<Record<string, { value: string; original: string; segmentId?: string; quote: string; existingEvidence: boolean }>>({})
 const status = ref<ParseStatus>(),
   items = ref<ParseTask[]>([]),
   selected = ref<ParseTask>(),
@@ -503,6 +570,31 @@ const fields = [
   { key: 'dueDate', label: '截止日期' },
   { key: 'reason', label: '下发原因' },
 ]
+const reviewFields = fields.slice(0, 5)
+const primaryOptions = computed(() => files.value.flatMap((file, index) => /\.pdf$/i.test(file.name) ? [{ value: index, label: file.name }] : []))
+const segmentOptions = computed(() => (selected.value?.segments || []).map((segment) => ({
+  value: segment.id,
+  label: `${selected.value?.files.find((file) => file.id === segment.fileId)?.name || ''} · ${segment.locator}`,
+})))
+let supplierSearchVersion = 0
+async function searchSuppliers(search = '') {
+  const version = ++supplierSearchVersion
+  try {
+    const rows = await admApi.options('supplier', search, 50)
+    if (version !== supplierSearchVersion) return
+    const options = rows.map((row) => ({ value: String(row.code), label: row.name }))
+    const current = selected.value?.supplier
+    if (current && supplierCode.value === current.code && !options.some((option) => option.value === current.code)) {
+      options.unshift({ value: current.code, label: current.name })
+    }
+    suppliers.value = options
+  } catch (e) {
+    if (version === supplierSearchVersion) {
+      if (reviewOpen.value) reviewError.value = message(e)
+      else uploadError.value = message(e)
+    }
+  }
+}
 const optionalLists = [
   { key: 'noticeTypes', label: '罚单类型' },
   { key: 'attachmentReferences', label: '原文附件清单' },
@@ -703,18 +795,27 @@ async function refresh() {
     error.value = message(e)
   }
 }
-function openUpload() {
+function openUpload(mode: 'new' | 'append' | 'replace' = 'new') {
+  materialMode.value = mode
+  supplierCode.value = mode === 'new' ? undefined : selected.value?.supplier?.code
+  primaryIndex.value = undefined
   files.value = []
   uploadError.value = ''
   inputKey.value++
   requestKey = `admparse_${Date.now()}_${Math.random().toString(36).slice(2)}_${Math.random().toString(36).slice(2)}`
   uploadOpen.value = true
+  if (mode !== 'append') void searchSuppliers()
 }
 function choose(event: Event) {
   files.value = Array.from((event.target as HTMLInputElement).files || [])
+  primaryIndex.value = primaryOptions.value.length === 1 ? primaryOptions.value[0].value : undefined
 }
 async function upload() {
   if (uploading.value) return
+  if (materialMode.value !== 'append' && (!supplierCode.value || primaryIndex.value === undefined)) {
+    uploadError.value = '请选择出单来源和主 PDF'
+    return
+  }
   if (
     !files.value.length ||
     files.value.length > 10 ||
@@ -727,9 +828,10 @@ async function upload() {
   uploading.value = true
   uploadError.value = ''
   try {
-    const task = await parsingApi.upload(files.value, requestKey)
+    const task = await parsingApi.upload(files.value, requestKey, supplierCode.value || '', primaryIndex.value ?? -1,
+      materialMode.value === 'new' ? undefined : selected.value, materialMode.value === 'replace')
     uploadOpen.value = false
-    notice.value = '原件及任务已保存，点击开始解析读取内容。'
+    notice.value = task.alreadyReceived ? '已收件，已打开原来件。' : '材料已保存，请查看来件状态。'
     filter.value = ''
     page.value = 1
     await loadList()
@@ -738,6 +840,51 @@ async function upload() {
     uploadError.value = message(e)
   } finally {
     uploading.value = false
+  }
+}
+function openReview(mode: 'intake' | 'result') {
+  const task = selected.value
+  if (!task) return
+  reviewMode.value = mode
+  reviewError.value = ''
+  reviewChecked.value = false
+  supplierCode.value = task.supplier?.code
+  intakeNumber.value = task.intakeNumber || ''
+  draft.value = Object.fromEntries(reviewFields.map((field) => {
+    const value = String(task.candidate?.adm?.[field.key] || '')
+    const path = `/adm/${field.key}`
+    const cite = task.candidate?.evidence.find((item) => item.path === path)
+    return [field.key, { value, original: value, segmentId: cite?.segmentId, quote: cite?.quote || '',
+      existingEvidence: Boolean(cite) && !task.issues?.some((issue) => issue.level === 'error' && issue.path === path) }]
+  }))
+  reviewOpen.value = true
+  if (mode === 'intake' || !task.supplier) void searchSuppliers()
+}
+async function submitReview() {
+  const task = selected.value
+  if (!task || acting.value) return
+  if (!reviewChecked.value) {
+    reviewError.value = '请先对照原件核对并勾选确认'
+    return
+  }
+  acting.value = true
+  reviewError.value = ''
+  try {
+    if (reviewMode.value === 'intake') {
+      await parsingApi.resolve(task, supplierCode.value || '', intakeNumber.value.trim())
+    } else {
+      const edits = Object.fromEntries(Object.entries(draft.value)
+        .filter(([, field]) => field.value !== field.original || !field.existingEvidence)
+        .map(([key, field]) => [key, { value: field.value, segmentId: field.segmentId || '', quote: field.quote }]))
+      await parsingApi.confirm(task, supplierCode.value || '', edits)
+    }
+    reviewOpen.value = false
+    await loadList()
+    await select(task.id, false)
+  } catch (e) {
+    reviewError.value = message(e)
+  } finally {
+    acting.value = false
   }
 }
 async function startParse() {

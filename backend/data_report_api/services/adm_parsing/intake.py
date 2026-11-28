@@ -15,7 +15,8 @@ def pending(service, user, search="", page=1):
     if type(page) is not int or not 1 <= page <= 10000 or len(search) > 100:
         raise AdmError("待登记查询参数无效", 422, "PARSE_QUERY")
     store = service.store
-    where = "state='SUCCEEDED' AND JSON_EXTRACT(payload,'$.registration.caseId') IS NULL"
+    where = ("state='SUCCEEDED' AND JSON_EXTRACT(payload,'$.registration.caseId') IS NULL "
+             "AND JSON_EXTRACT(payload,'$.review.at') IS NOT NULL")
     params = []
     if not has(user, "adm.manage"):
         where += " AND owner_id=?"
@@ -63,8 +64,9 @@ def register(service, user, task_id, body):
             return {"registration": task["registration"], "alreadyRegistered": True}
         if type(body.get("version")) is not int or body["version"] != task["version"]:
             raise AdmError("解析结果已更新，请重新选择来件核对", 409, "PARSE_VERSION_CONFLICT")
-        if task["state"] != "SUCCEEDED" or task.get("saveStatus") != "SAVED" or any(i["level"] == "error" for i in task.get("issues", [])):
-            raise AdmError("请先完成解析校验并保存，再登记台账", 409, "PARSE_NOT_READY")
+        if (task["state"] != "SUCCEEDED" or task.get("saveStatus") != "SAVED" or not task.get("review")
+                or task.get("intakeBlock") or task.get("supplementPending")):
+            raise AdmError("请先由上传人在解析工作台核对原文并确认，再登记台账", 409, "PARSE_NOT_READY")
         if body.get("confirmed") is not True:
             raise AdmError("请核对带入字段、原件和待核对提示后确认登记", 422, "PARSE_CONFIRM_REQUIRED")
         form = body.get("form")
@@ -77,7 +79,8 @@ def register(service, user, task_id, body):
                   "candidate": copy.deepcopy(task["candidate"]), "issues": copy.deepcopy(task.get("issues", [])),
                   "segments": copy.deepcopy(task.get("segments", [])),
                   "relatedDocuments": task.get("relatedDocuments", []), "attachmentFees": task.get("attachmentFees", []),
-                  "files": service._public(task)["files"], "airlineMatch": task.get("airlineMatch")}
+                  "files": service._public(task)["files"], "airlineMatch": task.get("airlineMatch"),
+                  "review": task["review"], "supplier": task["supplier"]}
         data["lineDefaults"]["parsingSource"] = source
         fingerprint = hashlib.sha256(json.dumps(sorted(f["sha256"] for f in task["files"])).encode()).hexdigest()
         try:

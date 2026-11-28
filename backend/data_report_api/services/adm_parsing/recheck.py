@@ -7,7 +7,7 @@ from decimal import Decimal
 from .contract import ADM_LIST_FIELDS, ARC_MEMO, CURRENCIES, GDS_PNR_ROLE_LABEL, LINE_FIELDS, MONEY, VERSION, virtual_ticket_text
 from .table_sources import bind_sources
 
-VALIDATION_VERSION = "adm-validation/2.7"
+VALIDATION_VERSION = "adm-validation/2.8"
 REMOVED = {"/adm/issuer", "/adm/supplierName", "/adm/airline"}
 CELL_GAP = r"[^\S\r\n]+"
 AMOUNT_CELL = MONEY.pattern.removesuffix(r"\Z")
@@ -359,19 +359,27 @@ def bind_bsp_churn_rows(result, segments, changes):
                 evidence.append({"path": path, "segmentId": part["id"], "quote": row[0].strip()})
                 changes.append({"code": "BSP_CHURN_PNR_ROW_EVIDENCE", "path": path, "segmentId": part["id"],
                                 "message": "按唯一重订明细行补充 PNR 原文引用；保留原归属"})
-        for key, value, quote in (("gds", system[1], system[0].strip()), ("pcc", row["pcc"], row[0].strip())):
-            path = f"/lines/{i}/{key}"
-            current = line.get(key)
-            if current not in (None, value):
-                continue
-            if any(isinstance(item, dict) and item.get("path") == path and item.get("segmentId") == part["id"]
-                   and isinstance(item.get("quote"), str) and normal(value) in normal(item["quote"])
-                   and normal(item["quote"]) in normal(quote) for item in evidence):
-                continue
-            line[key] = value
-            evidence.append({"path": path, "segmentId": part["id"], "quote": quote})
-            changes.append({"code": "BSP_CHURN_ROW_SOURCE", "path": path, "segmentId": part["id"],
-                            "message": "按唯一 PNR 行补引用：GDS 来自同段表级标签，PCC 来自对应行"})
+        # The platform at table scope is context until per-row inheritance is agreed.
+        gds_path = f"/lines/{i}/gds"
+        if line.get("gds") == system[1] and not any(
+            isinstance(item, dict) and item.get("path") == gds_path
+            and item.get("segmentId") == part["id"] and isinstance(item.get("quote"), str)
+            and normal(system[1]) in normal(item["quote"]) and normal(item["quote"]) in normal(row[0])
+            for item in evidence
+        ):
+            line["gds"] = None
+            evidence[:] = [item for item in evidence if not isinstance(item, dict) or item.get("path") != gds_path]
+        path, value, quote = f"/lines/{i}/pcc", row["pcc"], row[0].strip()
+        if line.get("pcc") not in (None, value):
+            continue
+        if any(isinstance(item, dict) and item.get("path") == path and item.get("segmentId") == part["id"]
+               and isinstance(item.get("quote"), str) and normal(value) in normal(item["quote"])
+               and normal(item["quote"]) in normal(quote) for item in evidence):
+            continue
+        line["pcc"] = value
+        evidence.append({"path": path, "segmentId": part["id"], "quote": quote})
+        changes.append({"code": "BSP_CHURN_ROW_SOURCE", "path": path, "segmentId": part["id"],
+                        "message": "按唯一 PNR 行补充 PCC 原文引用"})
 
 
 def supplement_bsp_summary(result, segments, changes):

@@ -13,7 +13,7 @@ def response(function):
     @wraps(function)
     def wrapped(*args, **kwargs):
         try:
-            maximum = 51 * 1024 * 1024 if function.__name__ == "adm_parsing_upload" else 16 * 1024
+            maximum = 51 * 1024 * 1024 if function.__name__ in {"adm_parsing_upload", "adm_parsing_materials"} else 64 * 1024
             if request.method in {"POST", "DELETE"}:
                 request.max_content_length = maximum
                 if request.content_length and request.content_length > maximum:
@@ -59,7 +59,25 @@ def register_routes(api):
     @api.post("/v1/adm/parsing/tasks")
     @response
     def adm_parsing_upload(service, user):
-        return ok(service.upload(user, request.files.getlist("files"), request.headers.get("Idempotency-Key")), "材料已上传并保存")
+        return ok(service.upload(user, request.files.getlist("files"), request.headers.get("Idempotency-Key"),
+                                 request.form.get("supplierCode"), request.form.get("primaryIndex", type=int)), "收件结果已保存")
+
+    @api.post("/v1/adm/parsing/tasks/<task_id>/materials")
+    @response
+    def adm_parsing_materials(service, user, task_id):
+        return ok(service.upload(user, request.files.getlist("files"), request.headers.get("Idempotency-Key"),
+                                 request.form.get("supplierCode"), request.form.get("primaryIndex", type=int),
+                                 task_id, request.form.get("version", type=int), request.form.get("replace") == "true"))
+
+    @api.post("/v1/adm/parsing/tasks/<task_id>/resolve-intake")
+    @response
+    def adm_parsing_resolve(service, user, task_id):
+        return ok(service.resolve_intake(user, task_id, json_body()))
+
+    @api.post("/v1/adm/parsing/tasks/<task_id>/confirm")
+    @response
+    def adm_parsing_confirm(service, user, task_id):
+        return ok(service.confirm(user, task_id, json_body()), "原文核对已确认")
 
     @api.get("/v1/adm/parsing/tasks/<task_id>")
     @response

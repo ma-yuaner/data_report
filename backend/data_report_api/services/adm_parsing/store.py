@@ -1,11 +1,14 @@
 """Version-checked intake persistence. Production DDL is applied separately."""
 import json
 import sqlite3
+from threading import Lock
 from contextlib import contextmanager
 from pathlib import Path
 
 from ..admwf.policy import AdmError
 from ..admwf.repository import AdmWorkflowRepository
+
+_sqlite_intake_lock = Lock()
 
 SQLITE_SCHEMA = """CREATE TABLE IF NOT EXISTS adm_parse_task (
  id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, version_no INTEGER NOT NULL,
@@ -48,6 +51,32 @@ class ParsingStore:
         cursor = conn.cursor()
         cursor.execute(sql if self.sqlite else sql.replace("?", "%s"), params)
         return cursor
+
+    @contextmanager
+    def intake_lock(self):
+        if self.sqlite:
+            with _sqlite_intake_lock:
+                yield
+            return
+        with self.db() as conn:
+            name = "data_report_adm_parse_intake"
+            row = self.query(conn, "SELECT GET_LOCK(?, 10) AS acquired", (name,)).fetchone()
+            if not row or row["acquired"] != 1:
+                raise AdmError("ADM收件处理中，请稍后重试", 409, "PARSE_INTAKE_BUSY")
+            try:
+                yield
+            finally:
+                self.query(conn, "SELECT RELEASE_LOCK(?)", (name,))
+
+    def matching_intakes(self, field, value):
+        paths = {"bundle": "$.bundleHash", "identity": "$.intakeIdentity"}
+        expression = f"JSON_EXTRACT(payload,'{paths[field]}')"
+        if not self.sqlite:
+            expression = f"JSON_UNQUOTE({expression})"
+        with self.db() as conn:
+            rows = self.query(conn, f"SELECT payload FROM adm_parse_task WHERE state<>'DELETED' AND {expression}=?",
+                              (value,)).fetchall()
+        return [json.loads(row["payload"]) for row in rows]
 
     def get(self, task_id):
         with self.db() as conn:
